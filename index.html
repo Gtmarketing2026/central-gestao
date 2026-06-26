@@ -101,15 +101,12 @@
   .seg{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}
   .seg button{padding:7px 13px;border:none;background:transparent;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit}
   .seg button.active{background:var(--surface2);color:var(--text)}
-  /* Login */
   #loginOverlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999}
   .login-box{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px;width:100%;max-width:380px}
-  .login-box .brand{margin-bottom:28px}
   #loginError{color:var(--red);font-size:13px;min-height:20px;margin-bottom:8px}
-  /* Realtime dot */
   .rt-dot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;margin-left:4px;animation:pulse 2s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-  /* Migration banner */
+  #updateBanner{display:none;background:linear-gradient(135deg,var(--accent-2),var(--accent));border-radius:var(--radius);padding:14px 18px;margin-bottom:18px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
   #migrationBanner{display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:var(--radius);padding:14px 18px;margin-bottom:18px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
   @media(max-width:820px){.kanban{grid-template-columns:1fr 1fr}.form-grid{grid-template-columns:1fr}}
   @media(max-width:560px){.kanban{grid-template-columns:1fr}}
@@ -120,10 +117,10 @@
 <!-- LOGIN -->
 <div id="loginOverlay">
   <div class="login-box">
-    <div class="brand">
+    <div class="brand" style="margin-bottom:28px">
       <div class="dot">AS</div>
       <div>
-        <div class="eyebrow">Central de Gestão</div>
+        <div style="font-family:'Space Grotesk';font-size:.7rem;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);font-weight:600">Central de Gestão</div>
         <h1 style="font-family:'Space Grotesk';font-size:1.4rem;font-weight:700">Entrar</h1>
       </div>
     </div>
@@ -152,11 +149,18 @@
       <button class="tab" data-tab="shows">Shows <span class="badge" id="sBadge">0</span></button>
       <button class="tab" data-tab="finance">Financeiro</button>
     </nav>
-    <div style="display:flex;align-items:center;gap:10px">
+    <div style="display:flex;align-items:center;gap:8px">
       <span id="userLabel" style="font-size:12px;color:var(--muted)"></span>
+      <button class="btn sm ghost" id="updateBtn" onclick="checkUpdate()" title="Verificar nova versão">⟳ Atualizar</button>
       <button class="btn sm ghost" onclick="doLogout()">Sair</button>
     </div>
   </header>
+
+  <!-- Update banner -->
+  <div id="updateBanner">
+    <span style="font-size:14px;color:#0d0f14;font-weight:600">🎉 Nova versão disponível!</span>
+    <button class="btn sm" style="background:#0d0f14;color:var(--accent);border-color:#0d0f14" onclick="location.reload(true)">Recarregar agora</button>
+  </div>
 
   <!-- Migration banner -->
   <div id="migrationBanner">
@@ -272,8 +276,8 @@
       <table id="finTable"></table>
     </div>
   </section>
-</div><!-- /.app -->
-</div><!-- /#appWrapper -->
+</div>
+</div>
 
 <!-- CLIENT MODAL -->
 <div class="modal-bg" id="clientModal">
@@ -415,7 +419,7 @@
       <button class="btn sm" style="margin-top:6px" onclick="addPayRow()">+ Adicionar pagamento</button>
       <div style="margin-top:8px;font-size:12px;color:var(--muted)">Total: <strong id="sPayTotal">R$ 0,00</strong></div>
     </div>
-    <p style="font-size:11px;color:var(--faint);margin-top:10px">As cobranças aparecem na aba Financeiro. Aqui é só o informativo do show.</p>
+    <p style="font-size:11px;color:var(--faint);margin-top:10px">As cobranças aparecem na aba Financeiro.</p>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('showModal')">Cancelar</button>
       <button class="btn primary" onclick="saveShow()">Salvar</button>
@@ -437,106 +441,69 @@
 </div>
 
 <script>
-/* ========== SUPABASE ========== */
+const APP_VERSION = '1.1';
+const APP_URL = 'https://gtmarketing2026.github.io/central-gestao/';
+
 const SUPA_URL = 'https://mocrfqmdjwvyhqvdpimm.supabase.co';
 const SUPA_KEY = 'sb_publishable_gWzVyEm8hT0_CH16UO8UqA_kkcbfo14';
 const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
-/* ========== IN-MEMORY DB ========== */
 const DB = {clients:[], tasks:[], finance:[], shows:[], team:[]};
 
-/* ========== HELPERS ========== */
 const fmt = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
 const today = () => new Date().toISOString().slice(0,10);
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function dateBR(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}`}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date(today()))/864e5)}
 
-/* ========== FIELD MAPPERS (snake_case DB ↔ camelCase JS) ========== */
-const mapClient = r => ({
-  id:r.id, name:r.name, seg:r.seg||'', status:r.status||'Ativo',
-  plat:r.plat||'', fee:+r.fee||0, day:r.day||null,
-  report:r.report||'', notes:r.notes||'', billing:r.billing||'mensal',
-  payRule:r.pay_rule||'', payDelay:r.pay_delay!=null?r.pay_delay:null,
-  category:r.category||'mensal', customType:r.custom_type||''
-});
-const dbClient = o => ({
-  id:o.id, name:o.name, seg:o.seg||'', status:o.status||'Ativo',
-  plat:o.plat||'', fee:+o.fee||0, day:o.day||null,
-  report:o.report||'', notes:o.notes||'', billing:o.billing||'mensal',
-  pay_rule:o.payRule||'', pay_delay:o.payDelay!=null?+o.payDelay:null,
-  category:o.category||'mensal', custom_type:o.customType||''
-});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||''});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||''});
+const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',file:null});
+const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||''});
+const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false});
+const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false});
+const mapShow = r => ({id:r.id,client:r.client||'',name:r.name||'',date:r.date||'',val:+r.val||0,state:r.state||'ativo',payments:r.payments||[]});
+const dbShow = o => ({id:o.id,client:o.client||null,name:o.name||'',date:o.date||'',val:+o.val||0,state:o.state||'ativo',payments:o.payments||[]});
 
-const mapTask = r => ({
-  id:r.id, name:r.name, client:r.client||'', owner:r.owner||'',
-  status:r.status||'todo', due:r.due||'', prio:r.prio||'media',
-  repeat:r.repeat||'', notes:r.notes||'', link:r.link||'', file:null
-});
-const dbTask = o => ({
-  id:o.id, name:o.name, client:o.client||null, owner:o.owner||'',
-  status:o.status||'todo', due:o.due||'', prio:o.prio||'media',
-  repeat:o.repeat||'', notes:o.notes||'', link:o.link||''
-});
+/* ---- UPDATE CHECK ---- */
+async function checkUpdate(){
+  const btn=document.getElementById('updateBtn');
+  btn.textContent='⟳ Verificando...';btn.disabled=true;
+  try{
+    const r=await fetch(APP_URL+'?v='+Date.now(),{cache:'no-store'});
+    const txt=await r.text();
+    const m=txt.match(/APP_VERSION\s*=\s*'([^']+)'/);
+    const remote=m?m[1]:null;
+    if(remote&&remote!==APP_VERSION){
+      document.getElementById('updateBanner').style.display='flex';
+      btn.textContent='⟳ Nova versão!';
+    }else{
+      btn.textContent='⟳ Atualizado ✓';
+      setTimeout(()=>{btn.textContent='⟳ Atualizar';btn.disabled=false;},2000);
+      return;
+    }
+  }catch(e){btn.textContent='⟳ Atualizar';}
+  btn.disabled=false;
+}
 
-const mapFinance = r => ({
-  id:r.id, type:r.type||'receita', client:r.client||'',
-  desc:r.description||'', val:+r.val||0, due:r.due||'',
-  status:r.status||'pendente', _auto:r.auto||false
-});
-const dbFinance = o => ({
-  id:o.id, type:o.type||'receita', client:o.client||null,
-  description:o.desc||'', val:+o.val||0, due:o.due||'',
-  status:o.status||'pendente', auto:o._auto||false
-});
-
-const mapShow = r => ({
-  id:r.id, client:r.client||'', name:r.name||'',
-  date:r.date||'', val:+r.val||0, state:r.state||'ativo',
-  payments:r.payments||[]
-});
-const dbShow = o => ({
-  id:o.id, client:o.client||null, name:o.name||'',
-  date:o.date||'', val:+o.val||0, state:o.state||'ativo',
-  payments:o.payments||[]
-});
-
-/* ========== AUTH ========== */
+/* ---- AUTH ---- */
 async function checkAuth(){
-  const {data:{session}} = await sb.auth.getSession();
-  if(session){
-    showApp(session.user.email);
-    await loadAll();
-  } else {
-    showLogin();
-  }
+  const {data:{session}}=await sb.auth.getSession();
+  if(session){showApp(session.user.email);await loadAll();}
+  else showLogin();
 }
-
-function showLogin(){
-  document.getElementById('loginOverlay').style.display='flex';
-  document.getElementById('appWrapper').style.display='none';
-}
-function showApp(email){
-  document.getElementById('loginOverlay').style.display='none';
-  document.getElementById('appWrapper').style.display='block';
-  if(email) document.getElementById('userLabel').textContent=email;
-}
-
+function showLogin(){document.getElementById('loginOverlay').style.display='flex';document.getElementById('appWrapper').style.display='none';}
+function showApp(email){document.getElementById('loginOverlay').style.display='none';document.getElementById('appWrapper').style.display='block';if(email)document.getElementById('userLabel').textContent=email;}
 async function doLogin(){
-  const email=document.getElementById('loginEmail').value.trim();
-  const password=document.getElementById('loginPassword').value;
-  const errEl=document.getElementById('loginError');
-  errEl.textContent='';
+  const email=document.getElementById('loginEmail').value.trim(),password=document.getElementById('loginPassword').value;
+  const errEl=document.getElementById('loginError');errEl.textContent='';
   if(!email||!password){errEl.textContent='Preencha email e senha.';return}
-  const btn=document.querySelector('#loginOverlay .btn.primary');
-  btn.textContent='Entrando...';btn.disabled=true;
+  const btn=document.querySelector('#loginOverlay .btn.primary');btn.textContent='Entrando...';btn.disabled=true;
   const {data,error}=await sb.auth.signInWithPassword({email,password});
   btn.textContent='Entrar';btn.disabled=false;
   if(error){errEl.textContent='Email ou senha incorretos.';return}
-  showApp(data.user.email);
-  await loadAll();
+  showApp(data.user.email);await loadAll();
 }
-
 async function doLogout(){
   await sb.auth.signOut();
   DB.clients=[];DB.tasks=[];DB.finance=[];DB.shows=[];DB.team=[];
@@ -544,418 +511,135 @@ async function doLogout(){
   showLogin();
 }
 
-/* ========== LOAD ========== */
+/* ---- LOAD ---- */
 async function loadAll(){
-  const [c,t,f,s,tm]=await Promise.all([
-    sb.from('clients').select('*'),
-    sb.from('tasks').select('*'),
-    sb.from('finance').select('*'),
-    sb.from('shows').select('*'),
-    sb.from('team').select('*'),
-  ]);
-  DB.clients=(c.data||[]).map(mapClient);
-  DB.tasks=(t.data||[]).map(mapTask);
-  DB.finance=(f.data||[]).map(mapFinance);
-  DB.shows=(s.data||[]).map(mapShow);
-  DB.team=tm.data||[];
-
-  if(!DB.team.length){
-    const defaultTeam=[
-      {id:'eu',name:'Andreia'},
-      {id:'col1',name:'Dionathan'}
-    ];
-    await sb.from('team').insert(defaultTeam);
-    DB.team=defaultTeam;
-  }
-
-  tryShowMigration();
-  renderAll();
-  setupRealtime();
+  const [c,t,f,s,tm]=await Promise.all([sb.from('clients').select('*'),sb.from('tasks').select('*'),sb.from('finance').select('*'),sb.from('shows').select('*'),sb.from('team').select('*')]);
+  DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask);DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];
+  if(!DB.team.length){const dt=[{id:'eu',name:'Andreia'},{id:'col1',name:'Dionathan'}];await sb.from('team').insert(dt);DB.team=dt;}
+  renderAll();setupRealtime();
 }
 
-/* ========== MIGRATION ========== */
-function tryShowMigration(){
-  if(DB.clients.length>0)return;
-  try{
-    const local=localStorage.getItem('agencia_v17');
-    if(!local)return;
-    const parsed=JSON.parse(local);
-    if(parsed&&parsed.clients&&parsed.clients.length>0){
-      document.getElementById('migrationBanner').style.display='flex';
-      window._migData=parsed;
-    }
-  }catch(e){}
-}
-
-async function doMigration(){
-  const data=window._migData;
-  if(!data)return;
-  const banner=document.getElementById('migrationBanner');
-  banner.innerHTML='<span style="color:var(--muted)">Migrando dados... aguarde.</span>';
-  try{
-    if(data.team&&data.team.length) await sb.from('team').upsert(data.team);
-    if(data.clients&&data.clients.length) await sb.from('clients').insert(data.clients.map(dbClient));
-    if(data.tasks&&data.tasks.length) await sb.from('tasks').insert(data.tasks.map(o=>dbTask({...o})));
-    if(data.finance&&data.finance.length) await sb.from('finance').insert(data.finance.map(dbFinance));
-    if(data.shows&&data.shows.length) await sb.from('shows').insert(data.shows.map(dbShow));
-    banner.style.display='none';
-    await loadAll();
-  }catch(e){
-    banner.innerHTML=`<span style="color:var(--red)">Erro na migração: ${e.message}</span>`;
-  }
-}
-
-/* ========== REALTIME (tarefas) ========== */
+/* ---- REALTIME ---- */
 let realtimeChannel=null;
 function setupRealtime(){
-  if(realtimeChannel){sb.removeChannel(realtimeChannel);}
-  realtimeChannel=sb.channel('tasks-realtime')
+  if(realtimeChannel)sb.removeChannel(realtimeChannel);
+  realtimeChannel=sb.channel('tasks-rt')
     .on('postgres_changes',{event:'*',schema:'public',table:'tasks'},async()=>{
       const {data}=await sb.from('tasks').select('*');
-      DB.tasks=(data||[]).map(mapTask);
-      renderTasks();
+      DB.tasks=(data||[]).map(mapTask);renderTasks();
       document.getElementById('tBadge').textContent=DB.tasks.filter(t=>t.status!=='done').length;
-    })
-    .subscribe();
+    }).subscribe();
 }
 
-/* ========== CRUD ========== */
-async function _upsertClient(o){
-  const {error}=await sb.from('clients').upsert(dbClient(o));
-  if(error){console.error(error);alert('Erro ao salvar cliente.');return;}
-  const i=DB.clients.findIndex(x=>x.id===o.id);
-  i>=0?DB.clients[i]=o:DB.clients.push(o);
-  renderAll();
-}
-async function _upsertTask(o){
-  const {error}=await sb.from('tasks').upsert(dbTask(o));
-  if(error){console.error(error);}
-  const i=DB.tasks.findIndex(x=>x.id===o.id);
-  i>=0?DB.tasks[i]=o:DB.tasks.push(o);
-}
-async function _upsertFinance(o){
-  const {error}=await sb.from('finance').upsert(dbFinance(o));
-  if(error){console.error(error);}
-  const i=DB.finance.findIndex(x=>x.id===o.id);
-  i>=0?DB.finance[i]=o:DB.finance.push(o);
-}
-async function _upsertShow(o){
-  const {error}=await sb.from('shows').upsert(dbShow(o));
-  if(error){console.error(error);}
-  const i=DB.shows.findIndex(x=>x.id===o.id);
-  i>=0?DB.shows[i]=o:DB.shows.push(o);
-}
+/* ---- CRUD ---- */
+async function _upsertClient(o){await sb.from('clients').upsert(dbClient(o));const i=DB.clients.findIndex(x=>x.id===o.id);i>=0?DB.clients[i]=o:DB.clients.push(o);renderAll();}
+async function _upsertTask(o){await sb.from('tasks').upsert(dbTask(o));const i=DB.tasks.findIndex(x=>x.id===o.id);i>=0?DB.tasks[i]=o:DB.tasks.push(o);}
+async function _upsertFinance(o){await sb.from('finance').upsert(dbFinance(o));const i=DB.finance.findIndex(x=>x.id===o.id);i>=0?DB.finance[i]=o:DB.finance.push(o);}
+async function _upsertShow(o){await sb.from('shows').upsert(dbShow(o));const i=DB.shows.findIndex(x=>x.id===o.id);i>=0?DB.shows[i]=o:DB.shows.push(o);}
 
-/* ========== TABS ========== */
+/* ---- TABS ---- */
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
-  t.classList.add('active');
-  document.getElementById(t.dataset.tab).classList.add('active');
+  t.classList.add('active');document.getElementById(t.dataset.tab).classList.add('active');
 });
 
-/* ========== RENDER ========== */
-function renderAll(){
-  renderOverview();renderClients();renderTasks();renderFinance();renderShows();fillClientSelects();
+/* ---- RENDER ---- */
+function renderAll(){renderOverview();renderClients();renderTasks();renderFinance();renderShows();fillClientSelects();
   document.getElementById('cBadge').textContent=DB.clients.filter(c=>c.status==='Ativo').length;
   document.getElementById('tBadge').textContent=DB.tasks.filter(t=>t.status!=='done').length;
   document.getElementById('sBadge').textContent=DB.shows.filter(s=>showState(s).key==='ativo').length;
   if(window.Chart)renderCharts();
 }
-
 function clientName(id){const c=DB.clients.find(x=>x.id===id);return c?c.name:'—'}
-
 function renderOverview(){
   const active=DB.clients.filter(c=>c.status==='Ativo').length;
   const mrr=DB.clients.filter(c=>c.status==='Ativo'&&(c.billing||'mensal')==='mensal').reduce((s,c)=>s+(+c.fee||0),0);
-  const ym=today().slice(0,7);
-  const showsMonth=DB.shows.filter(s=>(s.date||'').slice(0,7)===ym);
+  const ym=today().slice(0,7),showsMonth=DB.shows.filter(s=>(s.date||'').slice(0,7)===ym);
   const showRev=showsMonth.reduce((s,x)=>s+showTotal(x),0);
   const pendingFin=DB.finance.filter(f=>f.type==='receita'&&f.status!=='pago').reduce((s,f)=>s+(+f.val||0),0);
   const pendingShows=DB.shows.reduce((s,x)=>s+(showTotal(x)-showRecebido(x)),0);
-  const pending=pendingFin+pendingShows;
-  const openTasks=DB.tasks.filter(t=>t.status!=='done').length;
-  const k=[
-    {label:'Clientes ativos',val:active,sub:DB.clients.length+' no total'},
-    {label:'MRR (recorrente)',val:fmt(mrr),sub:'só fees mensais'},
-    {label:'Shows este mês',val:showsMonth.length,sub:fmt(showRev)+' em eventos'},
-    {label:'A receber',val:fmt(pending),sub:'fees + shows em aberto'},
-    {label:'Tarefas pendentes',val:openTasks,sub:'em todas as frentes'}
-  ];
+  const k=[{label:'Clientes ativos',val:active,sub:DB.clients.length+' no total'},{label:'MRR (recorrente)',val:fmt(mrr),sub:'só fees mensais'},{label:'Shows este mês',val:showsMonth.length,sub:fmt(showRev)+' em eventos'},{label:'A receber',val:fmt(pendingFin+pendingShows),sub:'fees + shows em aberto'},{label:'Tarefas pendentes',val:DB.tasks.filter(t=>t.status!=='done').length,sub:'em todas as frentes'}];
   document.getElementById('kpiGrid').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val">${x.val}</div><div class="sub">${x.sub}</div></div>`).join('');
-
   const week=DB.tasks.filter(t=>t.status!=='done').sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).slice(0,6);
-  document.getElementById('weekTasks').innerHTML=week.length?week.map(t=>{
-    const d=daysUntil(t.due);let p='gray',txt=t.due?dateBR(t.due):'sem prazo';
-    if(d!==null){if(d<0){p='red';txt='atrasada '+Math.abs(d)+'d'}else if(d<=2){p='amber';txt=d===0?'hoje':d+'d'}else{p='blue';txt=d+'d'}}
-    return`<div class="task-item" style="padding:10px 4px"><span class="task-name" style="font-size:13px">${t.name}<br><span style="font-size:11px;color:var(--faint)">${clientName(t.client)}</span></span><span class="pill ${p}">${txt}</span></div>`
-  }).join(''):'<div class="empty">Nenhuma tarefa pendente 🎉</div>';
-
+  document.getElementById('weekTasks').innerHTML=week.length?week.map(t=>{const d=daysUntil(t.due);let p='gray',txt=t.due?dateBR(t.due):'sem prazo';if(d!==null){if(d<0){p='red';txt='atrasada '+Math.abs(d)+'d'}else if(d<=2){p='amber';txt=d===0?'hoje':d+'d'}else{p='blue';txt=d+'d'}}return`<div class="task-item" style="padding:10px 4px"><span class="task-name" style="font-size:13px">${t.name}<br><span style="font-size:11px;color:var(--faint)">${clientName(t.client)}</span></span><span class="pill ${p}">${txt}</span></div>`}).join(''):'<div class="empty">Nenhuma tarefa pendente 🎉</div>';
   const invF=DB.finance.filter(f=>f.type==='receita'&&f.status!=='pago').map(f=>({client:f.client,desc:f.desc,val:f.val,status:f.status,due:f.due}));
-  const invS=[];
-  DB.shows.forEach(s=>{const pays=showPays(s),multi=pays.length>1;
-    pays.forEach((p,i)=>{if(p.status!=='pago')invS.push({client:s.client,desc:'Show: '+s.name+(multi?` (${i+1}/${pays.length})`:''),val:p.val,status:'pendente',due:p.date})});
-  });
+  const invS=[];DB.shows.forEach(s=>{const pays=showPays(s),multi=pays.length>1;pays.forEach((p,i)=>{if(p.status!=='pago')invS.push({client:s.client,desc:'Show: '+s.name+(multi?` (${i+1}/${pays.length})`:''),val:p.val,status:'pendente',due:p.date})})});
   const inv=[...invF,...invS].sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1);
-  document.getElementById('openInvoices').innerHTML=inv.length?inv.map(f=>{
-    const d=daysUntil(f.due);let p=f.status==='atrasado'||d<0?'red':'amber';
-    return`<div class="task-item" style="padding:10px 4px"><span class="task-name" style="font-size:13px">${clientName(f.client)}<br><span style="font-size:11px;color:var(--faint)">${f.desc}</span></span><span style="text-align:right"><div style="font-weight:600;font-size:13px">${fmt(f.val)}</div><span class="pill ${p}" style="margin-top:3px">${f.status==='atrasado'?'atrasado':'vence '+dateBR(f.due)}</span></span></div>`
-  }).join(''):'<div class="empty">Tudo em dia ✓</div>';
+  document.getElementById('openInvoices').innerHTML=inv.length?inv.map(f=>{const d=daysUntil(f.due);let p=f.status==='atrasado'||d<0?'red':'amber';return`<div class="task-item" style="padding:10px 4px"><span class="task-name" style="font-size:13px">${clientName(f.client)}<br><span style="font-size:11px;color:var(--faint)">${f.desc}</span></span><span style="text-align:right"><div style="font-weight:600;font-size:13px">${fmt(f.val)}</div><span class="pill ${p}" style="margin-top:3px">${f.status==='atrasado'?'atrasado':'vence '+dateBR(f.due)}</span></span></div>`}).join(''):'<div class="empty">Tudo em dia ✓</div>';
 }
-
 function renderClients(){
   const t=document.getElementById('clientTable');
   if(!DB.clients.length){t.innerHTML='<tr><td><div class="empty">Nenhum cliente cadastrado</div></td></tr>';return}
-  t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Próx. relatório</th><th></th></tr></thead><tbody>`+
-    DB.clients.map(c=>{
-      const sp={'Ativo':'green','Onboarding':'blue','Pausado':'amber','Encerrado':'gray'}[c.status]||'gray';
-      const d=daysUntil(c.report);let rep=c.report?dateBR(c.report):'—';
-      if(d!==null&&d<=3&&d>=0)rep=`<span class="pill amber">${rep}</span>`;else if(d!==null&&d<0)rep=`<span class="pill red">atrasado</span>`;
-      const bl={mensal:'mensal',evento:'por show',permuta:'permuta',parceria:'parceria'}[c.billing]||c.billing||'mensal';
-      const bp={mensal:'blue',evento:'amber',permuta:'gray',parceria:'gray'}[c.billing]||'gray';
-      const cat=c.category||c.billing||'mensal';
-      const catL=clientTypeLabel(cat);
-      const catP={funil:'blue',show:'amber',agencia:'blue'}[cat]||'gray';
-      const valTxt=(c.billing==='parceria'||c.billing==='permuta')?'—':fmt(c.fee);
-      return`<tr><td><strong>${c.name}</strong>${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${rep}</td><td class="row-actions"><button class="btn sm ghost" onclick="openClientModal('${c.id}')">Editar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`
-    }).join('')+'</tbody>';
+  t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Próx. relatório</th><th></th></tr></thead><tbody>`+DB.clients.map(c=>{const sp={'Ativo':'green','Onboarding':'blue','Pausado':'amber','Encerrado':'gray'}[c.status]||'gray';const d=daysUntil(c.report);let rep=c.report?dateBR(c.report):'—';if(d!==null&&d<=3&&d>=0)rep=`<span class="pill amber">${rep}</span>`;else if(d!==null&&d<0)rep=`<span class="pill red">atrasado</span>`;const bl={mensal:'mensal',evento:'por show',permuta:'permuta',parceria:'parceria'}[c.billing]||c.billing||'mensal';const bp={mensal:'blue',evento:'amber',permuta:'gray',parceria:'gray'}[c.billing]||'gray';const cat=c.category||c.billing||'mensal';const catL=clientTypeLabel(cat);const catP={funil:'blue',show:'amber',agencia:'blue'}[cat]||'gray';const valTxt=(c.billing==='parceria'||c.billing==='permuta')?'—':fmt(c.fee);return`<tr><td><strong>${c.name}</strong>${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${rep}</td><td class="row-actions"><button class="btn sm ghost" onclick="openClientModal('${c.id}')">Editar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`}).join('')+'</tbody>';
 }
-
-/* ========== SHOWS ========== */
-function showPays(s){
-  if(s.payments&&s.payments.length)return s.payments;
-  return [{id:s.id+'_p',date:s.date,val:s.val,status:s.status||'pendente',_virtual:1}];
-}
+function showPays(s){if(s.payments&&s.payments.length)return s.payments;return [{id:s.id+'_p',date:s.date,val:s.val,status:s.status||'pendente',_virtual:1}]}
 function showTotal(s){return showPays(s).reduce((a,p)=>a+(+p.val||0),0)}
 function showRecebido(s){return showPays(s).filter(p=>p.status==='pago').reduce((a,p)=>a+(+p.val||0),0)}
-function showState(s){
-  if(s.state==='inativo')return{key:'inativo',txt:'Inativo',cls:'gray'};
-  if(s.state==='aconteceu'||(daysUntil(s.date)!==null&&daysUntil(s.date)<0))return{key:'aconteceu',txt:'Já aconteceu',cls:'gray'};
-  return{key:'ativo',txt:'Rodando campanha',cls:'green'};
-}
+function showState(s){if(s.state==='inativo')return{key:'inativo',txt:'Inativo',cls:'gray'};if(s.state==='aconteceu'||(daysUntil(s.date)!==null&&daysUntil(s.date)<0))return{key:'aconteceu',txt:'Já aconteceu',cls:'gray'};return{key:'ativo',txt:'Rodando campanha',cls:'green'}}
 function renderShows(){
-  const monthInput=document.getElementById('showMonth');
-  if(!monthInput.value)monthInput.value=today().slice(0,7);
-  const ym=monthInput.value,nowYm=today().slice(0,7);
-  const inMonth=s=>{
-    const showYm=(s.date||'').slice(0,7);
-    if(!showYm)return false;
-    if(ym>showYm)return false;
-    if(ym===showYm)return true;
-    return ym>=nowYm;
-  };
+  const mi=document.getElementById('showMonth');if(!mi.value)mi.value=today().slice(0,7);
+  const ym=mi.value,nowYm=today().slice(0,7);
+  const inMonth=s=>{const sy=(s.date||'').slice(0,7);if(!sy)return false;if(ym>sy)return false;if(ym===sy)return true;return ym>=nowYm};
   const list=DB.shows.filter(inMonth).sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
-  const ativos=list.filter(s=>showState(s).key==='ativo').length;
-  const totalGeral=list.reduce((s,x)=>s+showTotal(x),0);
-  const k=[
-    {label:'Shows no mês',val:list.length},
-    {label:'Rodando campanha',val:ativos,cls:'money-pos'},
-    {label:'Valor total dos shows',val:fmt(totalGeral)}
-  ];
+  const k=[{label:'Shows no mês',val:list.length},{label:'Rodando campanha',val:list.filter(s=>showState(s).key==='ativo').length,cls:'money-pos'},{label:'Valor total',val:fmt(list.reduce((s,x)=>s+showTotal(x),0))}];
   document.getElementById('showKpis').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val ${x.cls||''}">${x.val}</div></div>`).join('');
   const t=document.getElementById('showTable');
   if(!list.length){t.innerHTML='<tr><td><div class="empty">Nenhum show neste mês.</div></td></tr>';return}
-  t.innerHTML=`<thead><tr><th>Data do show</th><th>Cliente</th><th>Show / evento</th><th>Valor total</th><th>Status</th><th></th></tr></thead><tbody>`+
-    list.map(s=>{
-      const st=showState(s);
-      return`<tr><td>${dateBR(s.date)}</td><td><strong>${clientName(s.client)}</strong></td><td>${s.name||'—'}</td><td class="money-pos">${fmt(showTotal(s))}</td><td><span class="pill ${st.cls}">${st.txt}</span></td><td class="row-actions"><button class="btn sm ghost" onclick="openShowModal('${s.id}')">✎</button><button class="btn sm ghost danger" onclick="delShow('${s.id}')">✕</button></td></tr>`
-    }).join('')+'</tbody>';
+  t.innerHTML=`<thead><tr><th>Data do show</th><th>Cliente</th><th>Show / evento</th><th>Valor total</th><th>Status</th><th></th></tr></thead><tbody>`+list.map(s=>{const st=showState(s);return`<tr><td>${dateBR(s.date)}</td><td><strong>${clientName(s.client)}</strong></td><td>${s.name||'—'}</td><td class="money-pos">${fmt(showTotal(s))}</td><td><span class="pill ${st.cls}">${st.txt}</span></td><td class="row-actions"><button class="btn sm ghost" onclick="openShowModal('${s.id}')">✎</button><button class="btn sm ghost danger" onclick="delShow('${s.id}')">✕</button></td></tr>`}).join('')+'</tbody>';
 }
-function addDays(dateStr,n){if(!dateStr)return'';const d=new Date(dateStr+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)}
-function dia30MesSeguinte(dateStr){if(!dateStr)return'';const d=new Date(dateStr+'T12:00:00');d.setMonth(d.getMonth()+1,30);return d.toISOString().slice(0,10)}
-function calcPayDate(c,showDate){
-  if(!c||!showDate)return showDate;
-  const rule=c.payRule||(c.billing==='evento'?'dias':'mesmodia');
-  if(rule==='dia30mes')return dia30MesSeguinte(showDate);
-  if(rule==='dias'){const d=c.payDelay!=null?c.payDelay:(c.billing==='evento'?7:0);return addDays(showDate,d)}
-  return showDate;
-}
-function autoPayDate(){
-  const c=DB.clients.find(x=>x.id===document.getElementById('sClient').value);
-  const sd=document.getElementById('sDate').value;
-  if(c&&sd)document.getElementById('sPayDate').value=calcPayDate(c,sd);
-}
-function showClientChange(){
-  const c=DB.clients.find(x=>x.id===document.getElementById('sClient').value);
-  if(c&&c.fee&&!document.getElementById('sVal').value)document.getElementById('sVal').value=c.fee;
-  autoPayDate();
-}
+function addDays(d,n){if(!d)return'';const x=new Date(d+'T12:00:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)}
+function dia30MesSeguinte(d){if(!d)return'';const x=new Date(d+'T12:00:00');x.setMonth(x.getMonth()+1,30);return x.toISOString().slice(0,10)}
+function calcPayDate(c,sd){if(!c||!sd)return sd;const r=c.payRule||(c.billing==='evento'?'dias':'mesmodia');if(r==='dia30mes')return dia30MesSeguinte(sd);if(r==='dias'){const d=c.payDelay!=null?c.payDelay:(c.billing==='evento'?7:0);return addDays(sd,d)}return sd}
+function autoPayDate(){const c=DB.clients.find(x=>x.id===document.getElementById('sClient').value),sd=document.getElementById('sDate').value;if(c&&sd)document.getElementById('sPayDate').value=calcPayDate(c,sd)}
+function showClientChange(){const c=DB.clients.find(x=>x.id===document.getElementById('sClient').value);if(c&&c.fee&&!document.getElementById('sVal').value)document.getElementById('sVal').value=c.fee;autoPayDate()}
 let payRows=[];
 function payTotalUpdate(){document.getElementById('sPayTotal').textContent=fmt(payRows.reduce((a,r)=>a+(+r.val||0),0))}
-function renderPayRows(){
-  document.getElementById('sPayList').innerHTML=payRows.map((r,i)=>
-    `<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
-      <input type="date" value="${r.date||''}" onchange="payRows[${i}].date=this.value">
-      <input type="number" placeholder="Valor" value="${r.val||''}" style="width:110px" oninput="payRows[${i}].val=+this.value;payTotalUpdate()">
-      <select onchange="payRows[${i}].status=this.value" style="width:120px"><option value="pendente"${r.status!=='pago'?' selected':''}>A cobrar</option><option value="pago"${r.status==='pago'?' selected':''}>Recebido</option></select>
-      <button class="btn sm ghost danger" onclick="payRows.splice(${i},1);renderPayRows();payTotalUpdate()">✕</button>
-    </div>`).join('');
-  payTotalUpdate();
-}
+function renderPayRows(){document.getElementById('sPayList').innerHTML=payRows.map((r,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center"><input type="date" value="${r.date||''}" onchange="payRows[${i}].date=this.value"><input type="number" placeholder="Valor" value="${r.val||''}" style="width:110px" oninput="payRows[${i}].val=+this.value;payTotalUpdate()"><select onchange="payRows[${i}].status=this.value" style="width:120px"><option value="pendente"${r.status!=='pago'?' selected':''}>A cobrar</option><option value="pago"${r.status==='pago'?' selected':''}>Recebido</option></select><button class="btn sm ghost danger" onclick="payRows.splice(${i},1);renderPayRows();payTotalUpdate()">✕</button></div>`).join('');payTotalUpdate()}
 function addPayRow(){payRows.push({id:uid(),date:'',val:'',status:'pendente'});renderPayRows()}
-function togglePayMode(){
-  const multi=document.getElementById('sPayMode').value==='multi';
-  document.getElementById('sSingleBox').style.display=multi?'none':'block';
-  document.getElementById('sMultiBox').style.display=multi?'block':'none';
-  if(multi&&!payRows.length){
-    const v=+document.getElementById('sVal').value||0;
-    payRows=[{id:uid(),date:document.getElementById('sPayDate').value||document.getElementById('sDate').value,val:v||'',status:'pendente'}];
-    renderPayRows();
-  }
-}
-function openShowModal(id){
-  fillClientSelects();
-  const s=id?DB.shows.find(x=>x.id===id):{};
-  document.getElementById('showModalTitle').textContent=id?'Editar show':'Registrar show';
-  sId.value=id||'';sClient.value=s.client||'';sName.value=s.name||'';sDate.value=s.date||today();
-  document.getElementById('sState').value=s.state||'ativo';
-  const hasMulti=s.payments&&s.payments.length>1;
-  document.getElementById('sPayMode').value=hasMulti?'multi':'single';
-  const singlePay=(s.payments&&s.payments.length===1)?s.payments[0]:null;
-  sVal.value=hasMulti?'':(singlePay?singlePay.val:(s.val||''));
-  document.getElementById('sPayDate').value=singlePay?singlePay.date:(s.date||today());
-  document.getElementById('sPaid').checked=singlePay?singlePay.status==='pago':false;
-  payRows=hasMulti?s.payments.map(p=>({...p})):[];
-  togglePayMode();
-  if(hasMulti)renderPayRows();
-  openModal('showModal');
-}
-async function saveShow(){
-  if(!sClient.value)return sClient.focus();
-  const multi=document.getElementById('sPayMode').value==='multi';
-  const base={id:sId.value||uid(),client:sClient.value,name:sName.value.trim(),date:sDate.value,state:document.getElementById('sState').value};
-  let o;
-  if(multi){
-    const pays=payRows.filter(r=>r.val||r.date).map(r=>({id:r.id||uid(),date:r.date,val:+r.val||0,status:r.status||'pendente'}));
-    o={...base,val:pays.reduce((a,p)=>a+p.val,0),payments:pays};
-  }else{
-    const v=+sVal.value||0,pd=document.getElementById('sPayDate').value||sDate.value,paid=document.getElementById('sPaid').checked;
-    o={...base,val:v,payments:[{id:uid(),date:pd,val:v,status:paid?'pago':'pendente'}]};
-  }
-  closeModal('showModal');
-  await _upsertShow(o);
-  renderAll();
-}
-async function delShow(id){
-  if(!confirm('Excluir show?'))return;
-  await sb.from('shows').delete().eq('id',id);
-  DB.shows=DB.shows.filter(s=>s.id!==id);
-  renderAll();
-}
-
-/* ========== TASKS ========== */
+function togglePayMode(){const multi=document.getElementById('sPayMode').value==='multi';document.getElementById('sSingleBox').style.display=multi?'none':'block';document.getElementById('sMultiBox').style.display=multi?'block':'none';if(multi&&!payRows.length){const v=+document.getElementById('sVal').value||0;payRows=[{id:uid(),date:document.getElementById('sPayDate').value||document.getElementById('sDate').value,val:v||'',status:'pendente'}];renderPayRows()}}
+function openShowModal(id){fillClientSelects();const s=id?DB.shows.find(x=>x.id===id):{};document.getElementById('showModalTitle').textContent=id?'Editar show':'Registrar show';sId.value=id||'';sClient.value=s.client||'';sName.value=s.name||'';sDate.value=s.date||today();document.getElementById('sState').value=s.state||'ativo';const hasMulti=s.payments&&s.payments.length>1;document.getElementById('sPayMode').value=hasMulti?'multi':'single';const sp=(s.payments&&s.payments.length===1)?s.payments[0]:null;sVal.value=hasMulti?'':(sp?sp.val:(s.val||''));document.getElementById('sPayDate').value=sp?sp.date:(s.date||today());document.getElementById('sPaid').checked=sp?sp.status==='pago':false;payRows=hasMulti?s.payments.map(p=>({...p})):[];togglePayMode();if(hasMulti)renderPayRows();openModal('showModal')}
+async function saveShow(){if(!sClient.value)return sClient.focus();const multi=document.getElementById('sPayMode').value==='multi';const base={id:sId.value||uid(),client:sClient.value,name:sName.value.trim(),date:sDate.value,state:document.getElementById('sState').value};let o;if(multi){const pays=payRows.filter(r=>r.val||r.date).map(r=>({id:r.id||uid(),date:r.date,val:+r.val||0,status:r.status||'pendente'}));o={...base,val:pays.reduce((a,p)=>a+p.val,0),payments:pays}}else{const v=+sVal.value||0,pd=document.getElementById('sPayDate').value||sDate.value,paid=document.getElementById('sPaid').checked;o={...base,val:v,payments:[{id:uid(),date:pd,val:v,status:paid?'pago':'pendente'}]}}closeModal('showModal');await _upsertShow(o);renderAll()}
+async function delShow(id){if(!confirm('Excluir show?'))return;await sb.from('shows').delete().eq('id',id);DB.shows=DB.shows.filter(s=>s.id!==id);renderAll()}
 let taskView='list',ownerFilterVal='all';
 function ownerName(id){const m=DB.team.find(x=>x.id===id);return m?m.name:'—'}
-function setTaskView(v){taskView=v;
-  document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
-  document.getElementById('taskListView').style.display=v==='list'?'block':'none';
-  document.getElementById('taskKanbanView').style.display=v==='kanban'?'block':'none';
-  renderTasks();
-}
+function setTaskView(v){taskView=v;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));document.getElementById('taskListView').style.display=v==='list'?'block':'none';document.getElementById('taskKanbanView').style.display=v==='kanban'?'block':'none';renderTasks()}
 function setOwnerFilter(v){ownerFilterVal=v;renderOwnerFilter();renderTasks()}
-function renderOwnerFilter(){
-  const opts=[['all','Todos'],...DB.team.map(m=>[m.id,m.name])];
-  document.getElementById('ownerFilter').innerHTML=opts.map(([v,l])=>`<button class="${ownerFilterVal===v?'active':''}" onclick="setOwnerFilter('${v}')">${l}</button>`).join('');
-}
+function renderOwnerFilter(){const opts=[['all','Todos'],...DB.team.map(m=>[m.id,m.name])];document.getElementById('ownerFilter').innerHTML=opts.map(([v,l])=>`<button class="${ownerFilterVal===v?'active':''}" onclick="setOwnerFilter('${v}')">${l}</button>`).join('')}
 const repeatLabel={diaria:'diária',semanal:'semanal',quinzenal:'15 dias',mensal:'mensal'};
 function renderTasks(){
   renderOwnerFilter();
   let base=ownerFilterVal==='all'?DB.tasks:DB.tasks.filter(t=>t.owner===ownerFilterVal);
   const sorted=[...base].sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1);
-  const lv=document.getElementById('taskListView');
   if(taskView==='list'){
-    lv.innerHTML=sorted.length?sorted.map(t=>{
-      const done=t.status==='done',d=daysUntil(t.due);let dp='gray',dt=t.due?dateBR(t.due):'';
-      if(!done&&d!==null){if(d<0){dp='red';dt='atrasada'}else if(d<=2){dp='amber';dt=d===0?'hoje':dt}}
-      const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];
-      const icons=(t.repeat?`<span class="pill blue" title="Repete ${repeatLabel[t.repeat]}">↻ ${repeatLabel[t.repeat]}</span>`:'')+
-        (t.notes?'<span title="Tem anotação" style="color:var(--faint)">📝</span>':'')+
-        (t.link?'<span title="Tem link" style="color:var(--faint)">📎</span>':'');
-      return`<div class="task-item ${done?'done':''}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')"></div><span class="task-name">${t.name}</span><span class="task-meta"><span class="pill gray">${ownerName(t.owner)}</span><span style="color:var(--accent)">${clientName(t.client)}</span><span class="pill ${pp}">${t.prio}</span>${icons}${dt?`<span class="pill ${dp}">${dt}</span>`:''}</span><button class="btn sm ghost" onclick="openTaskModal('${t.id}')">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')">✕</button></div>`
-    }).join(''):'<div class="empty">Nenhuma tarefa aqui.</div>';
+    document.getElementById('taskListView').innerHTML=sorted.length?sorted.map(t=>{const done=t.status==='done',d=daysUntil(t.due);let dp='gray',dt=t.due?dateBR(t.due):'';if(!done&&d!==null){if(d<0){dp='red';dt='atrasada'}else if(d<=2){dp='amber';dt=d===0?'hoje':dt}}const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];const icons=(t.repeat?`<span class="pill blue" title="Repete ${repeatLabel[t.repeat]}">↻ ${repeatLabel[t.repeat]}</span>`:'')+( t.notes?'<span style="color:var(--faint)">📝</span>':'')+(t.link?'<span style="color:var(--faint)">📎</span>':'');return`<div class="task-item ${done?'done':''}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')"></div><span class="task-name">${t.name}</span><span class="task-meta"><span class="pill gray">${ownerName(t.owner)}</span><span style="color:var(--accent)">${clientName(t.client)}</span><span class="pill ${pp}">${t.prio}</span>${icons}${dt?`<span class="pill ${dp}">${dt}</span>`:''}</span><button class="btn sm ghost" onclick="openTaskModal('${t.id}')">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')">✕</button></div>`}).join(''):'<div class="empty">Nenhuma tarefa aqui.</div>';
   }else{
     const cols=[['todo','A fazer'],['doing','Em andamento'],['review','Revisão'],['done','Concluído']];
-    document.getElementById('kanban').innerHTML=cols.map(([k,lbl])=>{
-      const items=sorted.filter(t=>t.status===k);
-      return`<div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'${k}')"><h4>${lbl}<span>${items.length}</span></h4>${items.map(t=>{
-        const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];
-        const tags=(t.repeat?'<span class="pill blue" style="font-size:10px">↻</span> ':'')+(t.notes?'📝 ':'')+( t.link?'📎 ':'');
-        return`<div class="kanban-card" draggable="true" ondragstart="dragTask(event,'${t.id}')" onclick="openTaskModal('${t.id}')"><div class="client">${ownerName(t.owner)} · ${clientName(t.client)}</div>${t.name}<div class="due">${tags}<span class="pill ${pp}" style="font-size:10px">${t.prio}</span> ${t.due?dateBR(t.due):''}</div></div>`
-      }).join('')}</div>`
-    }).join('');
+    document.getElementById('kanban').innerHTML=cols.map(([k,lbl])=>{const items=sorted.filter(t=>t.status===k);return`<div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'${k}')"><h4>${lbl}<span>${items.length}</span></h4>${items.map(t=>{const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];return`<div class="kanban-card" draggable="true" ondragstart="dragTask(event,'${t.id}')" onclick="openTaskModal('${t.id}')"><div class="client">${ownerName(t.owner)} · ${clientName(t.client)}</div>${t.name}<div class="due"><span class="pill ${pp}" style="font-size:10px">${t.prio}</span> ${t.due?dateBR(t.due):''}</div></div>`}).join('')}</div>`}).join('');
   }
 }
 let dragId=null;
 function dragTask(e,id){dragId=id}
-async function dropTask(e,status){
-  e.preventDefault();
-  const t=DB.tasks.find(x=>x.id===dragId);
-  if(t){
-    if(status==='done')return completeTask(t);
-    t.status=status;
-    await _upsertTask(t);
-    renderAll();
-  }
-}
-function nextDate(dateStr,repeat){
-  const base=dateStr?new Date(dateStr+'T12:00:00'):new Date();
-  if(repeat==='diaria')base.setDate(base.getDate()+1);
-  else if(repeat==='semanal')base.setDate(base.getDate()+7);
-  else if(repeat==='quinzenal')base.setDate(base.getDate()+15);
-  else if(repeat==='mensal')base.setMonth(base.getMonth()+1);
-  return base.toISOString().slice(0,10);
-}
-async function completeTask(t){
-  if(t.repeat){
-    const nd=nextDate(t.due,t.repeat);
-    const newTask={...t,id:uid(),status:'todo',due:nd};
-    await _upsertTask(newTask);
-    t.repeat='';
-  }
-  t.status='done';
-  await _upsertTask(t);
-  renderAll();
-}
-async function toggleTask(id){
-  const t=DB.tasks.find(x=>x.id===id);
-  if(t.status==='done'){t.status='todo';await _upsertTask(t);renderAll();}
-  else{await completeTask(t);}
-}
-
-/* ========== FINANCE ========== */
+async function dropTask(e,status){e.preventDefault();const t=DB.tasks.find(x=>x.id===dragId);if(t){if(status==='done')return completeTask(t);t.status=status;await _upsertTask(t);renderAll()}}
+function nextDate(d,r){const b=d?new Date(d+'T12:00:00'):new Date();if(r==='diaria')b.setDate(b.getDate()+1);else if(r==='semanal')b.setDate(b.getDate()+7);else if(r==='quinzenal')b.setDate(b.getDate()+15);else if(r==='mensal')b.setMonth(b.getMonth()+1);return b.toISOString().slice(0,10)}
+async function completeTask(t){if(t.repeat){await _upsertTask({...t,id:uid(),status:'todo',due:nextDate(t.due,t.repeat)});t.repeat=''}t.status='done';await _upsertTask(t);renderAll()}
+async function toggleTask(id){const t=DB.tasks.find(x=>x.id===id);if(t.status==='done'){t.status='todo';await _upsertTask(t);renderAll()}else await completeTask(t)}
 const typeLabels={mensal:'Mensal',funil:'Funil',show:'Show',evento:'Show/evento',parceria:'Parceria',permuta:'Permuta',agencia:'Agência'};
 function clientType(id){const c=DB.clients.find(x=>x.id===id);if(!c)return'';return c.category||c.billing||'mensal'}
 function clientTypeLabel(cat){return typeLabels[cat]||cat||'—'}
-function fillFinTypeFilter(){
-  const sel=document.getElementById('finType');if(!sel)return;
-  const used=[...new Set(DB.clients.map(c=>c.category||c.billing||'mensal'))];
-  const cur=sel.value;
-  sel.innerHTML='<option value="all">Todos</option>'+used.map(b=>`<option value="${b}">${clientTypeLabel(b)}</option>`).join('');
-  sel.value=cur||'all';
-}
-function clearFinFilters(){
-  document.getElementById('finMonth').value='';
-  document.getElementById('finType').value='all';
-  renderFinance();
-}
+function fillFinTypeFilter(){const sel=document.getElementById('finType');if(!sel)return;const used=[...new Set(DB.clients.map(c=>c.category||c.billing||'mensal'))];const cur=sel.value;sel.innerHTML='<option value="all">Todos</option>'+used.map(b=>`<option value="${b}">${clientTypeLabel(b)}</option>`).join('');sel.value=cur||'all'}
+function clearFinFilters(){document.getElementById('finMonth').value='';document.getElementById('finType').value='all';renderFinance()}
 async function gerarMensalidades(){
   const ym=(document.getElementById('finMonth')&&document.getElementById('finMonth').value)||today().slice(0,7);
   const [y,m]=ym.split('-');
   const elegiveis=DB.clients.filter(c=>c.status==='Ativo'&&(c.billing||'mensal')==='mensal'&&(+c.fee||0)>0);
   let novas=[];let jaExistiam=0;
-  elegiveis.forEach(c=>{
-    const jaTem=DB.finance.some(f=>f.client===c.id&&f.type==='receita'&&(f.due||'').slice(0,7)===ym&&f._auto);
-    if(jaTem){jaExistiam++;return}
-    const dia=String(c.day||10).padStart(2,'0');
-    const due=`${y}-${m}-${dia}`;
-    novas.push({id:uid(),type:'receita',client:c.id,desc:`Fee mensal ${mesNome(m)}`,val:+c.fee||0,due,status:'pendente',_auto:true});
-  });
+  elegiveis.forEach(c=>{const jaTem=DB.finance.some(f=>f.client===c.id&&f.type==='receita'&&(f.due||'').slice(0,7)===ym&&f._auto);if(jaTem){jaExistiam++;return}const dia=String(c.day||10).padStart(2,'0');novas.push({id:uid(),type:'receita',client:c.id,desc:`Fee mensal ${mesNome(m)}`,val:+c.fee||0,due:`${y}-${m}-${dia}`,status:'pendente',_auto:true})});
   const nomeMes=mesNome(m)+'/'+y;
   if(!novas.length){alert(`Nenhuma mensalidade nova para ${nomeMes}. Todas as ${jaExistiam} já estavam lançadas.`);return}
   const {error}=await sb.from('finance').insert(novas.map(dbFinance));
-  if(error){alert('Erro ao gerar mensalidades.');return;}
-  novas.forEach(n=>DB.finance.push(n));
-  renderAll();
+  if(error){alert('Erro ao gerar mensalidades.');return}
+  novas.forEach(n=>DB.finance.push(n));renderAll();
   alert(`${novas.length} mensalidade(s) gerada(s) para ${nomeMes}.${jaExistiam?` (${jaExistiam} já existiam)`:''}`);
 }
 function mesNome(m){return['','janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][+m]||m}
@@ -963,214 +647,58 @@ function renderFinance(){
   fillFinTypeFilter();
   const fMonth=document.getElementById('finMonth')?document.getElementById('finMonth').value:'';
   const fType=document.getElementById('finType')?document.getElementById('finType').value:'all';
-  const showRows=[];
-  DB.shows.forEach(s=>{
-    const pays=showPays(s),multi=pays.length>1;
-    pays.forEach((p,idx)=>{
-      showRows.push({_show:1,showId:s.id,payId:p.id,desc:'Show: '+(s.name||clientName(s.client))+(multi?` (${idx+1}/${pays.length})`:''),client:s.client,type:'receita',val:p.val,due:p.date,status:p.status==='pago'?'pago':'pendente'});
-    });
-  });
+  const showRows=[];DB.shows.forEach(s=>{const pays=showPays(s),multi=pays.length>1;pays.forEach((p,idx)=>{showRows.push({_show:1,showId:s.id,payId:p.id,desc:'Show: '+(s.name||clientName(s.client))+(multi?` (${idx+1}/${pays.length})`:''),client:s.client,type:'receita',val:p.val,due:p.date,status:p.status==='pago'?'pago':'pendente'})})});
   let all=[...DB.finance.map(f=>({...f})),...showRows];
   if(fMonth)all=all.filter(f=>(f.due||'').slice(0,7)===fMonth);
   if(fType&&fType!=='all')all=all.filter(f=>clientType(f.client)===fType);
   const recArr=all.filter(f=>f.type==='receita'),despArr=all.filter(f=>f.type==='despesa');
   const recTotal=recArr.reduce((s,f)=>s+(+f.val||0),0),despTotal=despArr.reduce((s,f)=>s+(+f.val||0),0);
   const recebido=recArr.filter(f=>f.status==='pago').reduce((s,f)=>s+(+f.val||0),0);
-  const aReceber=recTotal-recebido;
   const filtroAtivo=fMonth||(fType&&fType!=='all');
-  const k=[
-    {label:filtroAtivo?'Receita (filtro)':'Receita total',val:fmt(recTotal)},
-    {label:'Já recebido',val:fmt(recebido),cls:'money-pos'},
-    {label:'A receber',val:fmt(aReceber),cls:'money-neg'},
-    {label:'Despesas',val:fmt(despTotal)},
-    {label:'Resultado líquido',val:fmt(recebido-despTotal),cls:recebido-despTotal>=0?'money-pos':'money-neg'}
-  ];
+  const k=[{label:filtroAtivo?'Receita (filtro)':'Receita total',val:fmt(recTotal)},{label:'Já recebido',val:fmt(recebido),cls:'money-pos'},{label:'A receber',val:fmt(recTotal-recebido),cls:'money-neg'},{label:'Despesas',val:fmt(despTotal)},{label:'Resultado líquido',val:fmt(recebido-despTotal),cls:recebido-despTotal>=0?'money-pos':'money-neg'}];
   document.getElementById('finKpis').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val ${x.cls||''}">${x.val}</div></div>`).join('');
   const t=document.getElementById('finTable');
   if(!all.length){t.innerHTML='<tr><td><div class="empty">Nenhum lançamento'+(filtroAtivo?' com esses filtros':'')+'.</div></td></tr>';return}
-  const sorted=all.sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1);
-  t.innerHTML=`<thead><tr><th>Descrição</th><th>Cliente</th><th>Tipo cliente</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead><tbody>`+
-    sorted.map(f=>{
-      const sp={pago:'green',pendente:'amber',atrasado:'red'}[f.status];
-      const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[f.status];
-      const ct=clientTypeLabel(clientType(f.client));
-      const statusCell=f._show?`<span class="pill ${sp}" style="cursor:pointer" onclick="toggleShowPayInFin('${f.showId}','${f.payId}')">${sl}</span>`:`<span class="pill ${sp}">${sl}</span>`;
-      const act=f._show?`<button class="btn sm ghost" onclick="openShowModal('${f.showId}')">✎</button>`:`<button class="btn sm ghost" onclick="openFinModal('${f.id}')">✎</button><button class="btn sm ghost danger" onclick="delFin('${f.id}')">✕</button>`;
-      return`<tr><td>${f.desc}</td><td style="color:var(--muted)">${clientName(f.client)}</td><td><span class="pill gray">${ct}</span></td><td class="${f.type==='receita'?'money-pos':'money-neg'}">${f.type==='despesa'?'-':''}${fmt(f.val)}</td><td>${dateBR(f.due)}</td><td>${statusCell}</td><td class="row-actions">${act}</td></tr>`
-    }).join('')+'</tbody>';
+  t.innerHTML=`<thead><tr><th>Descrição</th><th>Cliente</th><th>Tipo cliente</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead><tbody>`+all.sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).map(f=>{const sp={pago:'green',pendente:'amber',atrasado:'red'}[f.status];const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[f.status];const ct=clientTypeLabel(clientType(f.client));const statusCell=f._show?`<span class="pill ${sp}" style="cursor:pointer" onclick="toggleShowPayInFin('${f.showId}','${f.payId}')">${sl}</span>`:`<span class="pill ${sp}">${sl}</span>`;const act=f._show?`<button class="btn sm ghost" onclick="openShowModal('${f.showId}')">✎</button>`:`<button class="btn sm ghost" onclick="openFinModal('${f.id}')">✎</button><button class="btn sm ghost danger" onclick="delFin('${f.id}')">✕</button>`;return`<tr><td>${f.desc}</td><td style="color:var(--muted)">${clientName(f.client)}</td><td><span class="pill gray">${ct}</span></td><td class="${f.type==='receita'?'money-pos':'money-neg'}">${f.type==='despesa'?'-':''}${fmt(f.val)}</td><td>${dateBR(f.due)}</td><td>${statusCell}</td><td class="row-actions">${act}</td></tr>`}).join('')+'</tbody>';
 }
-async function toggleShowPayInFin(showId,payId){
-  const s=DB.shows.find(x=>x.id===showId);if(!s)return;
-  const p=showPays(s).find(x=>x.id===payId);if(!p)return;
-  p.status=p.status==='pago'?'pendente':'pago';
-  if(s.payments)s.payments=showPays(s);
-  await _upsertShow(s);
-  renderAll();
-}
-
-/* ========== CLIENT SELECT ========== */
-function fillClientSelects(){
-  const opts='<option value="">— sem cliente —</option>'+DB.clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
-  ['tClient','fClient'].forEach(id=>{const el=document.getElementById(id);if(!el)return;const v=el.value;el.innerHTML=opts;el.value=v});
-  const sEl=document.getElementById('sClient');
-  if(sEl){const v=sEl.value;const ev=DB.clients.filter(c=>c.billing==='evento'),ot=DB.clients.filter(c=>c.billing!=='evento');
-    sEl.innerHTML='<option value="">— selecione —</option>'+
-      (ev.length?'<optgroup label="Por evento/show">'+ev.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')+'</optgroup>':'')+
-      '<optgroup label="Outros">'+ot.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')+'</optgroup>';
-    sEl.value=v;}
-}
-
-/* ========== MODALS ========== */
+async function toggleShowPayInFin(showId,payId){const s=DB.shows.find(x=>x.id===showId);if(!s)return;const p=showPays(s).find(x=>x.id===payId);if(!p)return;p.status=p.status==='pago'?'pendente':'pago';if(s.payments)s.payments=showPays(s);await _upsertShow(s);renderAll()}
+function fillClientSelects(){const opts='<option value="">— sem cliente —</option>'+DB.clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');['tClient','fClient'].forEach(id=>{const el=document.getElementById(id);if(!el)return;const v=el.value;el.innerHTML=opts;el.value=v});const sEl=document.getElementById('sClient');if(sEl){const v=sEl.value,ev=DB.clients.filter(c=>c.billing==='evento'),ot=DB.clients.filter(c=>c.billing!=='evento');sEl.innerHTML='<option value="">— selecione —</option>'+(ev.length?'<optgroup label="Por evento/show">'+ev.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')+'</optgroup>':'')+'<optgroup label="Outros">'+ot.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')+'</optgroup>';sEl.value=v}}
 function openModal(id){document.getElementById(id).classList.add('open')}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 document.querySelectorAll('.modal-bg').forEach(m=>m.onclick=e=>{if(e.target===m)m.classList.remove('open')});
-
-function billingLabelUpdate(){
-  const v=document.getElementById('cBilling').value;
-  document.getElementById('cFeeLbl').textContent=v==='evento'?'Valor por show (R$)':'Fee mensal (R$)';
-  document.getElementById('cPayDelayRow').style.display=v==='evento'?'block':'none';
-  payRuleUpdate();
-}
-function categoryUpdate(){
-  document.getElementById('cCustomTypeRow').style.display=document.getElementById('cCategory').value==='custom'?'block':'none';
-}
-function payRuleUpdate(){
-  const r=document.getElementById('cPayRule').value;
-  document.getElementById('cPayDelayDiasRow').style.display=r==='dias'?'block':'none';
-}
-function openClientModal(id){
-  fillClientSelects();
-  const c=id?DB.clients.find(x=>x.id===id):{};
-  document.getElementById('clientModalTitle').textContent=id?'Editar cliente':'Novo cliente';
-  cId.value=id||'';cName.value=c.name||'';cSeg.value=c.seg||'';cStatus.value=c.status||'Ativo';
-  cPlat.value=c.plat||'';cFee.value=c.fee||'';cDay.value=c.day||'';cReport.value=c.report||'';cNotes.value=c.notes||'';
-  cBilling.value=c.billing||'mensal';
-  const stdCat=['mensal','funil','show','parceria','permuta','agencia'];
-  const cat=c.category||c.billing||'mensal';
-  if(stdCat.includes(cat)){document.getElementById('cCategory').value=cat;document.getElementById('cCustomType').value='';}
-  else{document.getElementById('cCategory').value='custom';document.getElementById('cCustomType').value=c.customType||cat;}
-  document.getElementById('cPayRule').value=c.payRule||'dias';
-  document.getElementById('cPayDelay').value=c.payDelay!=null?c.payDelay:'';
-  billingLabelUpdate();categoryUpdate();
-  openModal('clientModal');
-}
-async function saveClient(){
-  if(!cName.value.trim())return cName.focus();
-  const pd=document.getElementById('cPayDelay').value;
-  let cat=document.getElementById('cCategory').value,customType='';
-  if(cat==='custom'){customType=document.getElementById('cCustomType').value.trim()||'Outro';cat=customType;}
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType:customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value};
-  closeModal('clientModal');
-  await _upsertClient(o);
-}
-async function delClient(id){
-  if(!confirm('Excluir cliente?'))return;
-  await sb.from('clients').delete().eq('id',id);
-  DB.clients=DB.clients.filter(c=>c.id!==id);
-  renderAll();
-}
-
+function billingLabelUpdate(){const v=document.getElementById('cBilling').value;document.getElementById('cFeeLbl').textContent=v==='evento'?'Valor por show (R$)':'Fee mensal (R$)';document.getElementById('cPayDelayRow').style.display=v==='evento'?'block':'none';payRuleUpdate()}
+function categoryUpdate(){document.getElementById('cCustomTypeRow').style.display=document.getElementById('cCategory').value==='custom'?'block':'none'}
+function payRuleUpdate(){document.getElementById('cPayDelayDiasRow').style.display=document.getElementById('cPayRule').value==='dias'?'block':'none'}
+function openClientModal(id){fillClientSelects();const c=id?DB.clients.find(x=>x.id===id):{};document.getElementById('clientModalTitle').textContent=id?'Editar cliente':'Novo cliente';cId.value=id||'';cName.value=c.name||'';cSeg.value=c.seg||'';cStatus.value=c.status||'Ativo';cPlat.value=c.plat||'';cFee.value=c.fee||'';cDay.value=c.day||'';cReport.value=c.report||'';cNotes.value=c.notes||'';cBilling.value=c.billing||'mensal';const stdCat=['mensal','funil','show','parceria','permuta','agencia'];const cat=c.category||c.billing||'mensal';if(stdCat.includes(cat)){document.getElementById('cCategory').value=cat;document.getElementById('cCustomType').value=''}else{document.getElementById('cCategory').value='custom';document.getElementById('cCustomType').value=c.customType||cat}document.getElementById('cPayRule').value=c.payRule||'dias';document.getElementById('cPayDelay').value=c.payDelay!=null?c.payDelay:'';billingLabelUpdate();categoryUpdate();openModal('clientModal')}
+async function saveClient(){if(!cName.value.trim())return cName.focus();const pd=document.getElementById('cPayDelay').value;let cat=document.getElementById('cCategory').value,customType='';if(cat==='custom'){customType=document.getElementById('cCustomType').value.trim()||'Outro';cat=customType}const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value};closeModal('clientModal');await _upsertClient(o)}
+async function delClient(id){if(!confirm('Excluir cliente?'))return;await sb.from('clients').delete().eq('id',id);DB.clients=DB.clients.filter(c=>c.id!==id);renderAll()}
 function fillOwnerSelect(sel){sel.innerHTML=DB.team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}
-function openTaskModal(id){
-  fillClientSelects();
-  fillOwnerSelect(document.getElementById('tOwner'));
-  const t=id?DB.tasks.find(x=>x.id===id):{};
-  document.getElementById('taskModalTitle').textContent=id?'Editar tarefa':'Nova tarefa';
-  tId.value=id||'';tName.value=t.name||'';tClient.value=t.client||'';tOwner.value=t.owner||DB.team[0].id;
-  tStatus.value=t.status||'todo';tPrio.value=t.prio||'media';tDue.value=t.due||'';tRepeat.value=t.repeat||'';
-  tNotes.value=t.notes||'';tLink.value=t.link||'';
-  openModal('taskModal');
-}
-async function saveTask(){
-  if(!tName.value.trim())return tName.focus();
-  const o={id:tId.value||uid(),name:tName.value.trim(),client:tClient.value,owner:tOwner.value,status:tStatus.value,due:tDue.value,prio:tPrio.value,repeat:tRepeat.value,notes:tNotes.value.trim(),link:tLink.value.trim()};
-  closeModal('taskModal');
-  await _upsertTask(o);
-  renderAll();
-}
-async function delTask(id){
-  await sb.from('tasks').delete().eq('id',id);
-  DB.tasks=DB.tasks.filter(t=>t.id!==id);
-  renderAll();
-}
-
-function openTeamModal(){
-  document.getElementById('teamList').innerHTML=DB.team.map((m,i)=>
-    `<div class="form-row"><label>${i===0?'Você':'Colaborador '+i}</label><input value="${m.name}" data-team="${m.id}"></div>`).join('');
-  openModal('teamModal');
-}
-async function saveTeam(){
-  document.querySelectorAll('[data-team]').forEach(inp=>{
-    const m=DB.team.find(x=>x.id===inp.dataset.team);if(m&&inp.value.trim())m.name=inp.value.trim();
-  });
-  await sb.from('team').upsert(DB.team);
-  closeModal('teamModal');
-  renderAll();
-}
-
-function openFinModal(id){
-  fillClientSelects();
-  const f=id?DB.finance.find(x=>x.id===id):{};
-  document.getElementById('finModalTitle').textContent=id?'Editar lançamento':'Novo lançamento';
-  fId.value=id||'';fType.value=f.type||'receita';fClient.value=f.client||'';fDesc.value=f.desc||'';fVal.value=f.val||'';fDue.value=f.due||'';fStatus.value=f.status||'pendente';
-  openModal('finModal');
-}
-async function saveFin(){
-  if(!fDesc.value.trim())return fDesc.focus();
-  const o={id:fId.value||uid(),type:fType.value,client:fClient.value,desc:fDesc.value.trim(),val:+fVal.value||0,due:fDue.value,status:fStatus.value};
-  await _upsertFinance(o);
-  closeModal('finModal');
-  renderAll();
-}
-async function delFin(id){
-  await sb.from('finance').delete().eq('id',id);
-  DB.finance=DB.finance.filter(f=>f.id!==id);
-  renderAll();
-}
-
-/* ========== CHARTS ========== */
-const CHART_C={accent:'#6ee7b7',v2:'#a78bfa',gold:'#fcd34d',blue:'#60a5fa',pink:'#f472b6',red:'#f87171',green:'#34d399',muted:'#8a91a6',border:'#272d3d',grid:'#1d2230'};
+function openTaskModal(id){fillClientSelects();fillOwnerSelect(document.getElementById('tOwner'));const t=id?DB.tasks.find(x=>x.id===id):{};document.getElementById('taskModalTitle').textContent=id?'Editar tarefa':'Nova tarefa';tId.value=id||'';tName.value=t.name||'';tClient.value=t.client||'';tOwner.value=t.owner||DB.team[0].id;tStatus.value=t.status||'todo';tPrio.value=t.prio||'media';tDue.value=t.due||'';tRepeat.value=t.repeat||'';tNotes.value=t.notes||'';tLink.value=t.link||'';openModal('taskModal')}
+async function saveTask(){if(!tName.value.trim())return tName.focus();const o={id:tId.value||uid(),name:tName.value.trim(),client:tClient.value,owner:tOwner.value,status:tStatus.value,due:tDue.value,prio:tPrio.value,repeat:tRepeat.value,notes:tNotes.value.trim(),link:tLink.value.trim()};closeModal('taskModal');await _upsertTask(o);renderAll()}
+async function delTask(id){await sb.from('tasks').delete().eq('id',id);DB.tasks=DB.tasks.filter(t=>t.id!==id);renderAll()}
+function openTeamModal(){document.getElementById('teamList').innerHTML=DB.team.map((m,i)=>`<div class="form-row"><label>${i===0?'Você':'Colaborador '+i}</label><input value="${m.name}" data-team="${m.id}"></div>`).join('');openModal('teamModal')}
+async function saveTeam(){document.querySelectorAll('[data-team]').forEach(inp=>{const m=DB.team.find(x=>x.id===inp.dataset.team);if(m&&inp.value.trim())m.name=inp.value.trim()});await sb.from('team').upsert(DB.team);closeModal('teamModal');renderAll()}
+function openFinModal(id){fillClientSelects();const f=id?DB.finance.find(x=>x.id===id):{};document.getElementById('finModalTitle').textContent=id?'Editar lançamento':'Novo lançamento';fId.value=id||'';fType.value=f.type||'receita';fClient.value=f.client||'';fDesc.value=f.desc||'';fVal.value=f.val||'';fDue.value=f.due||'';fStatus.value=f.status||'pendente';openModal('finModal')}
+async function saveFin(){if(!fDesc.value.trim())return fDesc.focus();const o={id:fId.value||uid(),type:fType.value,client:fClient.value,desc:fDesc.value.trim(),val:+fVal.value||0,due:fDue.value,status:fStatus.value};await _upsertFinance(o);closeModal('finModal');renderAll()}
+async function delFin(id){await sb.from('finance').delete().eq('id',id);DB.finance=DB.finance.filter(f=>f.id!==id);renderAll()}
+const CHART_C={accent:'#6ee7b7',v2:'#a78bfa',gold:'#fcd34d',blue:'#60a5fa',pink:'#f472b6',red:'#f87171',green:'#34d399',muted:'#8a91a6',grid:'#1d2230'};
 let _charts={};
 function destroyChart(k){if(_charts[k]){_charts[k].destroy();delete _charts[k]}}
 function renderCharts(){
   if(!window.Chart)return;
   Chart.defaults.color=CHART_C.muted;Chart.defaults.font.family='Inter';Chart.defaults.font.size=12;
-  const gridCfg={grid:{color:CHART_C.grid},border:{display:false}};
+  const gc={grid:{color:CHART_C.grid},border:{display:false}};
   const ativos=DB.clients.filter(c=>c.status==='Ativo');
   const cRevEl=document.getElementById('cRev');
-  if(cRevEl){
-    const mensal=ativos.filter(c=>(c.billing||'mensal')==='mensal').reduce((s,c)=>s+(+c.fee||0),0);
-    const evento=ativos.filter(c=>c.billing==='evento').reduce((s,c)=>s+(+c.fee||0),0);
-    destroyChart('rev');
-    _charts.rev=new Chart(cRevEl,{type:'bar',data:{labels:['Fee mensal','Por evento/show','Parceria/Permuta'],datasets:[{data:[mensal,evento,0],backgroundColor:[CHART_C.accent,CHART_C.gold,CHART_C.v2],borderRadius:8,barThickness:54}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gridCfg,ticks:{callback:v=>'R$ '+(v>=1000?v/1000+'k':v)}},x:gridCfg}}});
-  }
+  if(cRevEl){destroyChart('rev');_charts.rev=new Chart(cRevEl,{type:'bar',data:{labels:['Fee mensal','Por evento/show','Parceria/Permuta'],datasets:[{data:[ativos.filter(c=>(c.billing||'mensal')==='mensal').reduce((s,c)=>s+(+c.fee||0),0),ativos.filter(c=>c.billing==='evento').reduce((s,c)=>s+(+c.fee||0),0),0],backgroundColor:[CHART_C.accent,CHART_C.gold,CHART_C.v2],borderRadius:8,barThickness:54}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gc,ticks:{callback:v=>'R$ '+(v>=1000?v/1000+'k':v)}},x:gc}}})}
   const cTipoEl=document.getElementById('cTipo');
-  if(cTipoEl){
-    const tc={};DB.clients.forEach(c=>{const k=clientTypeLabel(c.category||c.billing||'mensal');tc[k]=(tc[k]||0)+1});
-    destroyChart('tipo');
-    _charts.tipo=new Chart(cTipoEl,{type:'doughnut',data:{labels:Object.keys(tc),datasets:[{data:Object.values(tc),backgroundColor:[CHART_C.accent,CHART_C.v2,CHART_C.gold,CHART_C.blue,CHART_C.pink,CHART_C.red,CHART_C.muted],borderColor:'#161922',borderWidth:3}]},options:{maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{boxWidth:10,padding:12}}}}});
-  }
+  if(cTipoEl){const tc={};DB.clients.forEach(c=>{const k=clientTypeLabel(c.category||c.billing||'mensal');tc[k]=(tc[k]||0)+1});destroyChart('tipo');_charts.tipo=new Chart(cTipoEl,{type:'doughnut',data:{labels:Object.keys(tc),datasets:[{data:Object.values(tc),backgroundColor:[CHART_C.accent,CHART_C.v2,CHART_C.gold,CHART_C.blue,CHART_C.pink,CHART_C.red,CHART_C.muted],borderColor:'#161922',borderWidth:3}]},options:{maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{boxWidth:10,padding:12}}}}})}
   const cShowsEl=document.getElementById('cShows');
-  if(cShowsEl){
-    const sl=[...DB.shows].sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
-    destroyChart('shows');
-    _charts.shows=new Chart(cShowsEl,{type:'bar',data:{labels:sl.map(s=>(s.name||'').length>22?s.name.slice(0,22)+'…':s.name),datasets:[{data:sl.map(s=>showTotal(s)),backgroundColor:sl.map(s=>clientName(s.client).includes('BOOA')?CHART_C.v2:CHART_C.gold),borderRadius:7}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{afterLabel:ctx=>clientName(sl[ctx.dataIndex].client)+' · '+dateBR(sl[ctx.dataIndex].date)}}},scales:{y:{...gridCfg,ticks:{callback:v=>'R$ '+v}},x:{...gridCfg,ticks:{maxRotation:40,minRotation:40,font:{size:10}}}}}});
-  }
+  if(cShowsEl){const sl=[...DB.shows].sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);destroyChart('shows');_charts.shows=new Chart(cShowsEl,{type:'bar',data:{labels:sl.map(s=>(s.name||'').length>22?s.name.slice(0,22)+'…':s.name),datasets:[{data:sl.map(s=>showTotal(s)),backgroundColor:CHART_C.gold,borderRadius:7}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gc,ticks:{callback:v=>'R$ '+v}},x:{...gc,ticks:{maxRotation:40,minRotation:40,font:{size:10}}}}}})}
   const cFinEl=document.getElementById('cFin');
-  if(cFinEl){
-    const porMes={};
-    DB.finance.filter(f=>f.type==='receita'&&f.status!=='pago').forEach(f=>{const m=(f.due||'').slice(0,7);if(m)porMes[m]=(porMes[m]||0)+(+f.val||0)});
-    DB.shows.forEach(s=>showPays(s).forEach(p=>{if(p.status!=='pago'){const m=(p.date||'').slice(0,7);if(m)porMes[m]=(porMes[m]||0)+(+p.val||0)}}));
-    const meses=Object.keys(porMes).sort();
-    const nomeMs={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};
-    const labels=meses.map(m=>{const[y,mm]=m.split('-');return nomeMs[mm]+'/'+y.slice(2)});
-    const cores=[CHART_C.blue,CHART_C.v2,CHART_C.accent,CHART_C.gold,CHART_C.pink,CHART_C.red];
-    destroyChart('fin');
-    _charts.fin=new Chart(cFinEl,{type:'bar',data:{labels,datasets:[{data:meses.map(m=>porMes[m]),backgroundColor:meses.map((_,i)=>cores[i%cores.length]),borderRadius:8,barThickness:64}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gridCfg,ticks:{callback:v=>'R$ '+v}},x:gridCfg}}});
-  }
+  if(cFinEl){const pm={};DB.finance.filter(f=>f.type==='receita'&&f.status!=='pago').forEach(f=>{const m=(f.due||'').slice(0,7);if(m)pm[m]=(pm[m]||0)+(+f.val||0)});DB.shows.forEach(s=>showPays(s).forEach(p=>{if(p.status!=='pago'){const m=(p.date||'').slice(0,7);if(m)pm[m]=(pm[m]||0)+(+p.val||0)}}));const meses=Object.keys(pm).sort();const nM={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};const cores=[CHART_C.blue,CHART_C.v2,CHART_C.accent,CHART_C.gold,CHART_C.pink,CHART_C.red];destroyChart('fin');_charts.fin=new Chart(cFinEl,{type:'bar',data:{labels:meses.map(m=>{const[y,mm]=m.split('-');return nM[mm]+'/'+y.slice(2)}),datasets:[{data:meses.map(m=>pm[m]),backgroundColor:meses.map((_,i)=>cores[i%cores.length]),borderRadius:8,barThickness:64}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gc,ticks:{callback:v=>'R$ '+v}},x:gc}}})}
 }
 
-/* ========== INIT ========== */
 checkAuth();
 </script>
 </body>
