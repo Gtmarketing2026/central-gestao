@@ -334,6 +334,17 @@
       </div>
       <div class="form-row" id="cPayDelayDiasRow"><label>Quantos dias após o show?</label><input id="cPayDelay" type="number" min="0" placeholder="7"></div>
     </div>
+    <div class="form-row" style="margin-top:6px">
+      <label style="font-size:13px;font-weight:600;color:var(--text)">Verba mensal de mídia</label>
+    </div>
+    <div class="form-grid">
+      <div class="form-row"><label>Verba total (R$)</label><input id="cBudget" type="number" placeholder="0" oninput="budgetAutoCalc()"></div>
+      <div class="form-row" style="display:flex;align-items:flex-end">
+        <button class="btn sm" style="width:100%;justify-content:center" onclick="addBudgetChannel()">+ Canal</button>
+      </div>
+    </div>
+    <div id="cBudgetChannels"></div>
+    <div id="cBudgetAlert" style="display:none;font-size:12px;color:var(--red);margin-bottom:8px"></div>
     <div class="form-row"><label>Próximo relatório</label><input id="cReport" type="date"></div>
     <div class="form-row"><label>Notas</label><textarea id="cNotes" rows="2" placeholder="Contato, observações..."></textarea></div>
     <div class="modal-actions">
@@ -479,8 +490,8 @@ const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function dateBR(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}`}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date(today()))/864e5)}
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||''});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||''});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[]});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[]});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',file:null});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||''});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false});
@@ -594,7 +605,7 @@ function renderOverview(){
 function renderClients(){
   const t=document.getElementById('clientTable');
   if(!DB.clients.length){t.innerHTML='<tr><td><div class="empty">Nenhum cliente cadastrado</div></td></tr>';return}
-  t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Próx. relatório</th><th></th></tr></thead><tbody>`+DB.clients.map(c=>{const sp={'Ativo':'green','Onboarding':'blue','Pausado':'amber','Encerrado':'gray'}[c.status]||'gray';const d=daysUntil(c.report);let rep=c.report?dateBR(c.report):'—';if(d!==null&&d<=3&&d>=0)rep=`<span class="pill amber">${rep}</span>`;else if(d!==null&&d<0)rep=`<span class="pill red">atrasado</span>`;const bl={mensal:'mensal',evento:'por show',permuta:'permuta',parceria:'parceria'}[c.billing]||c.billing||'mensal';const bp={mensal:'blue',evento:'amber',permuta:'gray',parceria:'gray'}[c.billing]||'gray';const cat=c.category||c.billing||'mensal';const catL=clientTypeLabel(cat);const catP={funil:'blue',show:'amber',agencia:'blue'}[cat]||'gray';const valTxt=(c.billing==='parceria'||c.billing==='permuta')?'—':fmt(c.fee);return`<tr><td><strong>${c.name}</strong>${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${rep}</td><td class="row-actions"><button class="btn sm ghost" onclick="openClientModal('${c.id}')">Editar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`}).join('')+'</tbody>';
+  t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Verba mídia</th><th>Próx. relatório</th><th></th></tr></thead><tbody>`+DB.clients.map(c=>{const sp={'Ativo':'green','Onboarding':'blue','Pausado':'amber','Encerrado':'gray'}[c.status]||'gray';const d=daysUntil(c.report);let rep=c.report?dateBR(c.report):'—';if(d!==null&&d<=3&&d>=0)rep=`<span class="pill amber">${rep}</span>`;else if(d!==null&&d<0)rep=`<span class="pill red">atrasado</span>`;const bl={mensal:'mensal',evento:'por show',permuta:'permuta',parceria:'parceria'}[c.billing]||c.billing||'mensal';const bp={mensal:'blue',evento:'amber',permuta:'gray',parceria:'gray'}[c.billing]||'gray';const cat=c.category||c.billing||'mensal';const catL=clientTypeLabel(cat);const catP={funil:'blue',show:'amber',agencia:'blue'}[cat]||'gray';const valTxt=(c.billing==='parceria'||c.billing==='permuta')?'—':fmt(c.fee);const budgetTxt=c.budget?`<div style="font-weight:600">${fmt(c.budget)}</div>${(c.budgetChannels||[]).map(ch=>`<div style="font-size:11px;color:var(--muted)">${ch.name}: ${fmt(ch.val)}</div>`).join('')}`:'—';return`<tr><td><strong>${c.name}</strong>${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${rep}</td><td class="row-actions"><button class="btn sm ghost" onclick="openClientModal('${c.id}')">Editar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`}).join('')+'</tbody>';
 }
 function showPays(s){if(s.payments&&s.payments.length)return s.payments;return [{id:s.id+'_p',date:s.date,val:s.val,status:s.status||'pendente',_virtual:1}]}
 function showTotal(s){return showPays(s).reduce((a,p)=>a+(+p.val||0),0)}
@@ -700,11 +711,33 @@ function fillClientSelects(){const opts='<option value="">— sem cliente —</o
 function openModal(id){document.getElementById(id).classList.add('open')}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 document.querySelectorAll('.modal-bg').forEach(m=>m.onclick=e=>{if(e.target===m)m.classList.remove('open')});
+/* ---- BUDGET CHANNELS ---- */
+let budgetRows=[];
+function renderBudgetChannels(){
+  const el=document.getElementById('cBudgetChannels');
+  el.innerHTML=budgetRows.map((r,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+    <input placeholder="Canal (ex: Meta Ads)" value="${r.name||''}" style="flex:1" oninput="budgetRows[${i}].name=this.value">
+    <input type="number" placeholder="R$" value="${r.val||''}" style="width:110px" oninput="budgetRows[${i}].val=+this.value;budgetAutoCalc()">
+    <button class="btn sm ghost danger" onclick="budgetRows.splice(${i},1);renderBudgetChannels();budgetAutoCalc()">✕</button>
+  </div>`).join('');
+  budgetAutoCalc();
+}
+function addBudgetChannel(){budgetRows.push({name:'',val:0});renderBudgetChannels()}
+function budgetAutoCalc(){
+  const total=+document.getElementById('cBudget').value||0;
+  const soma=budgetRows.reduce((s,r)=>s+(+r.val||0),0);
+  const alert=document.getElementById('cBudgetAlert');
+  if(total&&budgetRows.length){
+    const diff=soma-total;
+    if(Math.abs(diff)>0.01){alert.style.display='block';alert.textContent=`⚠ Soma dos canais (${fmt(soma)}) ${diff>0?'ultrapassa':'está abaixo de'} a verba total (${fmt(total)}) em ${fmt(Math.abs(diff))}`}
+    else{alert.style.display='none'}
+  }else{alert.style.display='none'}
+}
 function billingLabelUpdate(){const v=document.getElementById('cBilling').value;document.getElementById('cFeeLbl').textContent=v==='evento'?'Valor por show (R$)':'Fee mensal (R$)';document.getElementById('cPayDelayRow').style.display=v==='evento'?'block':'none';payRuleUpdate()}
 function categoryUpdate(){document.getElementById('cCustomTypeRow').style.display=document.getElementById('cCategory').value==='custom'?'block':'none'}
 function payRuleUpdate(){document.getElementById('cPayDelayDiasRow').style.display=document.getElementById('cPayRule').value==='dias'?'block':'none'}
-function openClientModal(id){fillClientSelects();const c=id?DB.clients.find(x=>x.id===id):{};document.getElementById('clientModalTitle').textContent=id?'Editar cliente':'Novo cliente';cId.value=id||'';cName.value=c.name||'';cSeg.value=c.seg||'';cStatus.value=c.status||'Ativo';cPlat.value=c.plat||'';cFee.value=c.fee||'';cDay.value=c.day||'';cReport.value=c.report||'';cNotes.value=c.notes||'';cBilling.value=c.billing||'mensal';const stdCat=['mensal','funil','show','parceria','permuta','agencia'];const cat=c.category||c.billing||'mensal';if(stdCat.includes(cat)){document.getElementById('cCategory').value=cat;document.getElementById('cCustomType').value=''}else{document.getElementById('cCategory').value='custom';document.getElementById('cCustomType').value=c.customType||cat}document.getElementById('cPayRule').value=c.payRule||'dias';document.getElementById('cPayDelay').value=c.payDelay!=null?c.payDelay:'';billingLabelUpdate();categoryUpdate();openModal('clientModal')}
-async function saveClient(){if(!cName.value.trim())return cName.focus();const pd=document.getElementById('cPayDelay').value;let cat=document.getElementById('cCategory').value,customType='';if(cat==='custom'){customType=document.getElementById('cCustomType').value.trim()||'Outro';cat=customType}const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value};closeModal('clientModal');await _upsertClient(o)}
+function openClientModal(id){fillClientSelects();const c=id?DB.clients.find(x=>x.id===id):{};document.getElementById('clientModalTitle').textContent=id?'Editar cliente':'Novo cliente';cId.value=id||'';cName.value=c.name||'';cSeg.value=c.seg||'';cStatus.value=c.status||'Ativo';cPlat.value=c.plat||'';cFee.value=c.fee||'';cDay.value=c.day||'';cReport.value=c.report||'';cNotes.value=c.notes||'';cBilling.value=c.billing||'mensal';const stdCat=['mensal','funil','show','parceria','permuta','agencia'];const cat=c.category||c.billing||'mensal';if(stdCat.includes(cat)){document.getElementById('cCategory').value=cat;document.getElementById('cCustomType').value=''}else{document.getElementById('cCategory').value='custom';document.getElementById('cCustomType').value=c.customType||cat}document.getElementById('cPayRule').value=c.payRule||'dias';document.getElementById('cPayDelay').value=c.payDelay!=null?c.payDelay:'';document.getElementById('cBudget').value=c.budget||'';budgetRows=(c.budgetChannels||[]).map(r=>({...r}));renderBudgetChannels();billingLabelUpdate();categoryUpdate();openModal('clientModal')}
+async function saveClient(){if(!cName.value.trim())return cName.focus();const pd=document.getElementById('cPayDelay').value;let cat=document.getElementById('cCategory').value,customType='';if(cat==='custom'){customType=document.getElementById('cCustomType').value.trim()||'Outro';cat=customType}const channels=budgetRows.filter(r=>r.name||r.val).map(r=>({name:r.name||'',val:+r.val||0}));const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels};closeModal('clientModal');await _upsertClient(o)}
 async function delClient(id){if(!confirm('Excluir cliente?'))return;await sb.from('clients').delete().eq('id',id);DB.clients=DB.clients.filter(c=>c.id!==id);renderAll()}
 function fillOwnerSelect(sel){sel.innerHTML=DB.team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}
 function openTaskModal(id){fillClientSelects();fillOwnerSelect(document.getElementById('tOwner'));const t=id?DB.tasks.find(x=>x.id===id):{};document.getElementById('taskModalTitle').textContent=id?'Editar tarefa':'Nova tarefa';tId.value=id||'';tName.value=t.name||'';tClient.value=t.client||'';tOwner.value=t.owner||DB.team[0].id;tStatus.value=t.status||'todo';tPrio.value=t.prio||'media';tDue.value=t.due||'';const cd=repeatCustomDays(t.repeat||'');if(cd!==null){tRepeat.value='custom';document.getElementById('tRepeatDays').value=cd}else{tRepeat.value=t.repeat||'';document.getElementById('tRepeatDays').value=''}repeatModeUpdate();tNotes.value=t.notes||'';tLink.value=t.link||'';openModal('taskModal')}
