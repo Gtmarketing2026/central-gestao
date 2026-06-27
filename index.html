@@ -20,7 +20,7 @@
   .app{max-width:1180px;margin:0 auto;padding:32px 24px 80px}
   header{display:flex;align-items:center;justify-content:space-between;padding-bottom:20px;border-bottom:1px solid var(--border);margin-bottom:24px;flex-wrap:wrap;gap:12px}
   .brand{display:flex;align-items:center;gap:14px}
-  .brand .dot{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:#0d0f14;font-family:'Space Grotesk'}
+  .brand .dot{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:#0a0906;font-family:'Space Grotesk'}
   .brand .eyebrow{font-family:'Space Grotesk';font-size:.7rem;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);font-weight:600}
   .brand h1{font-family:'Space Grotesk';font-size:1.5rem;font-weight:700;letter-spacing:-.02em}
   .brand p{font-size:12px;color:var(--muted)}
@@ -28,7 +28,7 @@
   .tab{padding:10px 16px;border:none;background:transparent;color:var(--muted);font-size:.9rem;font-weight:600;border-radius:10px;cursor:pointer;font-family:inherit;transition:.18s;display:flex;align-items:center;gap:7px}
   .tab:hover{color:var(--text)}
   .tab.active{background:var(--surface2);color:var(--text)}
-  .tab .badge{background:var(--accent);color:#0d0f14;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700}
+  .tab .badge{background:var(--accent);color:#0a0906;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700}
   .panel{display:none;animation:fade .35s ease}
   .panel.active{display:block}
   @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -52,7 +52,7 @@
   .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:16px}
   .btn{padding:8px 14px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;font-weight:500;border-radius:var(--radius-sm);cursor:pointer;font-family:inherit;transition:.15s;display:inline-flex;align-items:center;gap:6px}
   .btn:hover{border-color:var(--accent)}
-  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#0a0906}
   .btn.primary:hover{filter:brightness(1.1)}
   .btn.sm{padding:5px 10px;font-size:12px}
   .btn.ghost{background:transparent}
@@ -65,13 +65,13 @@
   td{padding:12px;font-size:13px;border-bottom:1px solid var(--border)}
   tr:last-child td{border-bottom:none}
   .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px}
-  .pill.green{background:rgba(62,207,142,.12);color:var(--green)}
-  .pill.amber{background:rgba(245,166,35,.12);color:var(--amber)}
-  .pill.red{background:rgba(239,91,91,.12);color:var(--red)}
-  .pill.blue{background:rgba(91,141,239,.12);color:var(--accent)}
-  .pill.gray{background:rgba(138,148,166,.12);color:var(--muted)}
+  .pill.green{background:rgba(52,211,153,.12);color:var(--green)}
+  .pill.amber{background:rgba(240,192,64,.12);color:var(--amber)}
+  .pill.red{background:rgba(248,113,113,.12);color:var(--red)}
+  .pill.blue{background:rgba(96,165,250,.12);color:var(--blue)}
+  .pill.gray{background:rgba(138,128,112,.12);color:var(--muted)}
   .empty{text-align:center;padding:40px 20px;color:var(--faint);font-size:13px}
-  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
   .modal-bg.open{display:flex}
   .modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:480px;max-height:90vh;overflow:auto}
   .modal h3{font-size:16px;margin-bottom:18px}
@@ -87,7 +87,7 @@
   .task-check.checked{background:var(--green);border-color:var(--green)}
   .task-check.checked::after{content:'✓';color:#fff;font-size:12px;font-weight:700}
   .task-name{flex:1;font-size:14px}
-  .task-meta{font-size:11px;color:var(--muted);display:flex;gap:10px;align-items:center}
+  .task-meta{font-size:11px;color:var(--muted);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .kanban{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
   .kanban-col{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;min-height:200px}
   .kanban-col h4{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;display:flex;justify-content:space-between}
@@ -108,6 +108,7 @@
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
   #updateBanner{display:none;background:linear-gradient(135deg,var(--accent-2),var(--accent));border-radius:var(--radius);padding:14px 18px;margin-bottom:18px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
   #migrationBanner{display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:var(--radius);padding:14px 18px;margin-bottom:18px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .budget-divider{border:none;border-top:1px solid var(--border);margin:14px 0 10px}
   @media(max-width:820px){.kanban{grid-template-columns:1fr 1fr}.form-grid{grid-template-columns:1fr}}
   @media(max-width:560px){.kanban{grid-template-columns:1fr}}
 </style>
@@ -156,13 +157,11 @@
     </div>
   </header>
 
-  <!-- Update banner -->
   <div id="updateBanner">
-    <span style="font-size:14px;color:#0d0f14;font-weight:600">🎉 Nova versão disponível!</span>
-    <button class="btn sm" style="background:#0d0f14;color:var(--accent);border-color:#0d0f14" onclick="location.reload(true)">Recarregar agora</button>
+    <span style="font-size:14px;color:#0a0906;font-weight:600">🎉 Nova versão disponível!</span>
+    <button class="btn sm" style="background:#0a0906;color:var(--accent);border-color:#0a0906" onclick="location.reload(true)">Recarregar agora</button>
   </div>
 
-  <!-- Migration banner -->
   <div id="migrationBanner">
     <span style="font-size:14px">Dados encontrados no navegador local. Deseja migrar para a nuvem?</span>
     <div style="display:flex;gap:8px">
@@ -209,7 +208,7 @@
     </div>
   </section>
 
-  <!-- TGTKS -->
+  <!-- TASKS -->
   <section class="panel" id="tasks">
     <div class="section-head">
       <h2>Tarefas e entregas</h2>
@@ -238,8 +237,8 @@
         <option value="media">Média</option>
         <option value="baixa">Baixa</option>
       </select>
-      <input type="date" id="tfDateFrom" placeholder="De" style="width:auto" title="Prazo a partir de" onchange="applyTaskFilters()">
-      <input type="date" id="tfDateTo" placeholder="Até" style="width:auto" title="Prazo até" onchange="applyTaskFilters()">
+      <input type="date" id="tfDateFrom" style="width:auto" title="Prazo a partir de" onchange="applyTaskFilters()">
+      <input type="date" id="tfDateTo" style="width:auto" title="Prazo até" onchange="applyTaskFilters()">
       <button class="btn sm ghost" onclick="clearTaskFilters()">Limpar filtros</button>
       <span style="flex:1"></span>
       <button class="btn sm ghost" onclick="openTeamModal()">⚙ Equipe</button>
@@ -334,17 +333,19 @@
       </div>
       <div class="form-row" id="cPayDelayDiasRow"><label>Quantos dias após o show?</label><input id="cPayDelay" type="number" min="0" placeholder="7"></div>
     </div>
-    <div class="form-row" style="margin-top:6px">
-      <label style="font-size:13px;font-weight:600;color:var(--text)">Verba mensal de mídia</label>
+    <hr class="budget-divider">
+    <div class="form-row" style="margin-bottom:10px">
+      <span style="font-size:13px;font-weight:600;color:var(--text)">Verba mensal de mídia</span>
     </div>
     <div class="form-grid">
       <div class="form-row"><label>Verba total (R$)</label><input id="cBudget" type="number" placeholder="0" oninput="budgetAutoCalc()"></div>
       <div class="form-row" style="display:flex;align-items:flex-end">
-        <button class="btn sm" style="width:100%;justify-content:center" onclick="addBudgetChannel()">+ Canal</button>
+        <button class="btn sm" style="width:100%;justify-content:center" type="button" onclick="addBudgetChannel()">+ Canal</button>
       </div>
     </div>
     <div id="cBudgetChannels"></div>
-    <div id="cBudgetAlert" style="display:none;font-size:12px;color:var(--red);margin-bottom:8px"></div>
+    <div id="cBudgetAlert" style="display:none;font-size:12px;color:var(--red);margin-bottom:10px"></div>
+    <hr class="budget-divider">
     <div class="form-row"><label>Próximo relatório</label><input id="cReport" type="date"></div>
     <div class="form-row"><label>Notas</label><textarea id="cNotes" rows="2" placeholder="Contato, observações..."></textarea></div>
     <div class="modal-actions">
@@ -354,7 +355,7 @@
   </div>
 </div>
 
-<!-- TGTK MODAL -->
+<!-- TASK MODAL -->
 <div class="modal-bg" id="taskModal">
   <div class="modal">
     <h3 id="taskModalTitle">Nova tarefa</h3>
@@ -375,7 +376,14 @@
     <div class="form-grid">
       <div class="form-row"><label>Prazo</label><input id="tDue" type="date"></div>
       <div class="form-row"><label>Repetir</label>
-        <select id="tRepeat" onchange="repeatModeUpdate()"><option value="">Não repete</option><option value="diaria">Diariamente</option><option value="semanal">Semanalmente</option><option value="quinzenal">A cada 15 dias</option><option value="mensal">Mensalmente</option><option value="custom">Personalizado...</option></select>
+        <select id="tRepeat" onchange="repeatModeUpdate()">
+          <option value="">Não repete</option>
+          <option value="diaria">Diariamente</option>
+          <option value="semanal">Semanalmente</option>
+          <option value="quinzenal">A cada 15 dias</option>
+          <option value="mensal">Mensalmente</option>
+          <option value="custom">Personalizado...</option>
+        </select>
       </div>
     </div>
     <div class="form-row" id="tRepeatCustomRow" style="display:none">
@@ -475,7 +483,7 @@
 </div>
 
 <script>
-const APP_VERSION = '1.1';
+const APP_VERSION = '1.2';
 const APP_URL = 'https://gtmarketing2026.github.io/central-gestao/';
 
 const SUPA_URL = 'https://mocrfqmdjwvyhqvdpimm.supabase.co';
@@ -492,7 +500,7 @@ function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date(t
 
 const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[]});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[]});
-const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',file:null});
+const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||''});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false});
 const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false});
@@ -605,7 +613,18 @@ function renderOverview(){
 function renderClients(){
   const t=document.getElementById('clientTable');
   if(!DB.clients.length){t.innerHTML='<tr><td><div class="empty">Nenhum cliente cadastrado</div></td></tr>';return}
-  t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Verba mídia</th><th>Próx. relatório</th><th></th></tr></thead><tbody>`+DB.clients.map(c=>{const sp={'Ativo':'green','Onboarding':'blue','Pausado':'amber','Encerrado':'gray'}[c.status]||'gray';const d=daysUntil(c.report);let rep=c.report?dateBR(c.report):'—';if(d!==null&&d<=3&&d>=0)rep=`<span class="pill amber">${rep}</span>`;else if(d!==null&&d<0)rep=`<span class="pill red">atrasado</span>`;const bl={mensal:'mensal',evento:'por show',permuta:'permuta',parceria:'parceria'}[c.billing]||c.billing||'mensal';const bp={mensal:'blue',evento:'amber',permuta:'gray',parceria:'gray'}[c.billing]||'gray';const cat=c.category||c.billing||'mensal';const catL=clientTypeLabel(cat);const catP={funil:'blue',show:'amber',agencia:'blue'}[cat]||'gray';const valTxt=(c.billing==='parceria'||c.billing==='permuta')?'—':fmt(c.fee);const budgetTxt=c.budget?`<div style="font-weight:600">${fmt(c.budget)}</div>${(c.budgetChannels||[]).map(ch=>`<div style="font-size:11px;color:var(--muted)">${ch.name}: ${fmt(ch.val)}</div>`).join('')}`:'—';return`<tr><td><strong>${c.name}</strong>${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${rep}</td><td class="row-actions"><button class="btn sm ghost" onclick="openClientModal('${c.id}')">Editar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`}).join('')+'</tbody>';
+  t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Verba mídia</th><th>Próx. relatório</th><th></th></tr></thead><tbody>`+DB.clients.map(c=>{
+    const sp={'Ativo':'green','Onboarding':'blue','Pausado':'amber','Encerrado':'gray'}[c.status]||'gray';
+    const d=daysUntil(c.report);let rep=c.report?dateBR(c.report):'—';
+    if(d!==null&&d<=3&&d>=0)rep=`<span class="pill amber">${rep}</span>`;else if(d!==null&&d<0)rep=`<span class="pill red">atrasado</span>`;
+    const bl={mensal:'mensal',evento:'por show',permuta:'permuta',parceria:'parceria'}[c.billing]||c.billing||'mensal';
+    const bp={mensal:'blue',evento:'amber',permuta:'gray',parceria:'gray'}[c.billing]||'gray';
+    const cat=c.category||c.billing||'mensal';const catL=clientTypeLabel(cat);
+    const catP={funil:'blue',show:'amber',agencia:'blue'}[cat]||'gray';
+    const valTxt=(c.billing==='parceria'||c.billing==='permuta')?'—':fmt(c.fee);
+    const budgetTxt=c.budget?`<div style="font-weight:600">${fmt(c.budget)}</div>${(c.budgetChannels||[]).map(ch=>`<div style="font-size:11px;color:var(--muted)">${ch.name}: ${fmt(ch.val)}</div>`).join('')}`:'—';
+    return`<tr><td><strong>${c.name}</strong>${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${rep}</td><td class="row-actions"><button class="btn sm ghost" onclick="openClientModal('${c.id}')">Editar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
+  }).join('')+'</tbody>';
 }
 function showPays(s){if(s.payments&&s.payments.length)return s.payments;return [{id:s.id+'_p',date:s.date,val:s.val,status:s.status||'pendente',_virtual:1}]}
 function showTotal(s){return showPays(s).reduce((a,p)=>a+(+p.val||0),0)}
@@ -635,6 +654,8 @@ function togglePayMode(){const multi=document.getElementById('sPayMode').value==
 function openShowModal(id){fillClientSelects();const s=id?DB.shows.find(x=>x.id===id):{};document.getElementById('showModalTitle').textContent=id?'Editar show':'Registrar show';sId.value=id||'';sClient.value=s.client||'';sName.value=s.name||'';sDate.value=s.date||today();document.getElementById('sState').value=s.state||'ativo';const hasMulti=s.payments&&s.payments.length>1;document.getElementById('sPayMode').value=hasMulti?'multi':'single';const sp=(s.payments&&s.payments.length===1)?s.payments[0]:null;sVal.value=hasMulti?'':(sp?sp.val:(s.val||''));document.getElementById('sPayDate').value=sp?sp.date:(s.date||today());document.getElementById('sPaid').checked=sp?sp.status==='pago':false;payRows=hasMulti?s.payments.map(p=>({...p})):[];togglePayMode();if(hasMulti)renderPayRows();openModal('showModal')}
 async function saveShow(){if(!sClient.value)return sClient.focus();const multi=document.getElementById('sPayMode').value==='multi';const base={id:sId.value||uid(),client:sClient.value,name:sName.value.trim(),date:sDate.value,state:document.getElementById('sState').value};let o;if(multi){const pays=payRows.filter(r=>r.val||r.date).map(r=>({id:r.id||uid(),date:r.date,val:+r.val||0,status:r.status||'pendente'}));o={...base,val:pays.reduce((a,p)=>a+p.val,0),payments:pays}}else{const v=+sVal.value||0,pd=document.getElementById('sPayDate').value||sDate.value,paid=document.getElementById('sPaid').checked;o={...base,val:v,payments:[{id:uid(),date:pd,val:v,status:paid?'pago':'pendente'}]}}closeModal('showModal');await _upsertShow(o);renderAll()}
 async function delShow(id){if(!confirm('Excluir show?'))return;await sb.from('shows').delete().eq('id',id);DB.shows=DB.shows.filter(s=>s.id!==id);renderAll()}
+
+/* ---- TASKS ---- */
 let taskView='list',ownerFilterVal='all';
 let taskFilters={client:'',status:'',prio:'',dateFrom:'',dateTo:''};
 function ownerName(id){const m=DB.team.find(x=>x.id===id);return m?m.name:'—'}
@@ -657,7 +678,7 @@ function renderTasks(){
   if(taskFilters.dateTo)base=base.filter(t=>t.due&&t.due<=taskFilters.dateTo);
   const sorted=[...base].sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1);
   if(taskView==='list'){
-    document.getElementById('taskListView').innerHTML=sorted.length?sorted.map(t=>{const done=t.status==='done',d=daysUntil(t.due);let dp='gray',dt=t.due?dateBR(t.due):'';if(!done&&d!==null){if(d<0){dp='red';dt='atrasada'}else if(d<=2){dp='amber';dt=d===0?'hoje':dt}}const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];const icons=(t.repeat?`<span class="pill blue" title="Repete ${repeatLabel(t.repeat)}">↻ ${repeatLabel(t.repeat)}</span>`:'')+( t.notes?'<span style="color:var(--faint)">📝</span>':'')+(t.link?'<span style="color:var(--faint)">📎</span>':'');return`<div class="task-item ${done?'done':''}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')"></div><span class="task-name">${t.name}</span><span class="task-meta"><span class="pill gray">${ownerName(t.owner)}</span><span style="color:var(--accent)">${clientName(t.client)}</span><span class="pill ${pp}">${t.prio}</span>${icons}${dt?`<span class="pill ${dp}">${dt}</span>`:''}</span><button class="btn sm ghost" onclick="openTaskModal('${t.id}')">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')">✕</button></div>`}).join(''):'<div class="empty">Nenhuma tarefa aqui.</div>';
+    document.getElementById('taskListView').innerHTML=sorted.length?sorted.map(t=>{const done=t.status==='done',d=daysUntil(t.due);let dp='gray',dt=t.due?dateBR(t.due):'';if(!done&&d!==null){if(d<0){dp='red';dt='atrasada'}else if(d<=2){dp='amber';dt=d===0?'hoje':dt}}const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];const icons=(t.repeat?`<span class="pill blue" title="Repete ${repeatLabel(t.repeat)}">↻ ${repeatLabel(t.repeat)}</span>`:'')+( t.notes?'<span style="color:var(--faint)">📝</span>':'')+(t.link?'<span style="color:var(--faint)">📎</span>':'');return`<div class="task-item ${done?'done':''}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')"></div><span class="task-name">${t.name}</span><span class="task-meta"><span class="pill gray">${ownerName(t.owner)}</span><span style="color:var(--accent)">${clientName(t.client)}</span><span class="pill ${pp}">${t.prio}</span>${icons}${dt?`<span class="pill ${dp}">${dt}</span>`:''}</span><button class="btn sm ghost" onclick="openTaskModal('${t.id}')">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')">✕</button></div>`}).join(''):'<div class="empty">Nenhuma tarefa com esses filtros.</div>';
   }else{
     const cols=[['todo','A fazer'],['doing','Em andamento'],['review','Revisão'],['done','Concluído']];
     document.getElementById('kanban').innerHTML=cols.map(([k,lbl])=>{const items=sorted.filter(t=>t.status===k);return`<div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'${k}')"><h4>${lbl}<span>${items.length}</span></h4>${items.map(t=>{const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];return`<div class="kanban-card" draggable="true" ondragstart="dragTask(event,'${t.id}')" onclick="openTaskModal('${t.id}')"><div class="client">${ownerName(t.owner)} · ${clientName(t.client)}</div>${t.name}<div class="due"><span class="pill ${pp}" style="font-size:10px">${t.prio}</span> ${t.due?dateBR(t.due):''}</div></div>`}).join('')}</div>`}).join('');
@@ -669,9 +690,28 @@ async function dropTask(e,status){e.preventDefault();const t=DB.tasks.find(x=>x.
 function nextDate(d,r){const b=d?new Date(d+'T12:00:00'):new Date();const cd=repeatCustomDays(r);if(cd!==null)b.setDate(b.getDate()+cd);else if(r==='diaria')b.setDate(b.getDate()+1);else if(r==='semanal')b.setDate(b.getDate()+7);else if(r==='quinzenal')b.setDate(b.getDate()+15);else if(r==='mensal')b.setMonth(b.getMonth()+1);return b.toISOString().slice(0,10)}
 async function completeTask(t){if(t.repeat){await _upsertTask({...t,id:uid(),status:'todo',due:nextDate(t.due,t.repeat)});t.repeat=''}t.status='done';await _upsertTask(t);renderAll()}
 async function toggleTask(id){const t=DB.tasks.find(x=>x.id===id);if(t.status==='done'){t.status='todo';await _upsertTask(t);renderAll()}else await completeTask(t)}
+
+/* ---- CLIENT HELPERS ---- */
 const typeLabels={mensal:'Mensal',funil:'Funil',show:'Show',evento:'Show/evento',parceria:'Parceria',permuta:'Permuta',agencia:'Agência'};
 function clientType(id){const c=DB.clients.find(x=>x.id===id);if(!c)return'';return c.category||c.billing||'mensal'}
 function clientTypeLabel(cat){return typeLabels[cat]||cat||'—'}
+
+/* ---- BUDGET CHANNELS ---- */
+let budgetRows=[];
+function renderBudgetChannels(){
+  document.getElementById('cBudgetChannels').innerHTML=budgetRows.map((r,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center"><input placeholder="Canal (ex: Meta Ads)" value="${r.name||''}" style="flex:1" oninput="budgetRows[${i}].name=this.value"><input type="number" placeholder="R$" value="${r.val||''}" style="width:110px" oninput="budgetRows[${i}].val=+this.value;budgetAutoCalc()"><button class="btn sm ghost danger" type="button" onclick="budgetRows.splice(${i},1);renderBudgetChannels();budgetAutoCalc()">✕</button></div>`).join('');
+  budgetAutoCalc();
+}
+function addBudgetChannel(){budgetRows.push({name:'',val:0});renderBudgetChannels()}
+function budgetAutoCalc(){
+  const total=+document.getElementById('cBudget').value||0;
+  const soma=budgetRows.reduce((s,r)=>s+(+r.val||0),0);
+  const al=document.getElementById('cBudgetAlert');
+  if(total&&budgetRows.length&&Math.abs(soma-total)>0.01){al.style.display='block';al.textContent=`⚠ Soma dos canais (${fmt(soma)}) ${soma>total?'ultrapassa':'está abaixo de'} a verba total (${fmt(total)}) em ${fmt(Math.abs(soma-total))}`}
+  else{al.style.display='none'}
+}
+
+/* ---- FINANCE ---- */
 function fillFinTypeFilter(){const sel=document.getElementById('finType');if(!sel)return;const used=[...new Set(DB.clients.map(c=>c.category||c.billing||'mensal'))];const cur=sel.value;sel.innerHTML='<option value="all">Todos</option>'+used.map(b=>`<option value="${b}">${clientTypeLabel(b)}</option>`).join('');sel.value=cur||'all'}
 function clearFinFilters(){document.getElementById('finMonth').value='';document.getElementById('finType').value='all';renderFinance()}
 async function gerarMensalidades(){
@@ -707,48 +747,77 @@ function renderFinance(){
   t.innerHTML=`<thead><tr><th>Descrição</th><th>Cliente</th><th>Tipo cliente</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead><tbody>`+all.sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).map(f=>{const sp={pago:'green',pendente:'amber',atrasado:'red'}[f.status];const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[f.status];const ct=clientTypeLabel(clientType(f.client));const statusCell=f._show?`<span class="pill ${sp}" style="cursor:pointer" onclick="toggleShowPayInFin('${f.showId}','${f.payId}')">${sl}</span>`:`<span class="pill ${sp}">${sl}</span>`;const act=f._show?`<button class="btn sm ghost" onclick="openShowModal('${f.showId}')">✎</button>`:`<button class="btn sm ghost" onclick="openFinModal('${f.id}')">✎</button><button class="btn sm ghost danger" onclick="delFin('${f.id}')">✕</button>`;return`<tr><td>${f.desc}</td><td style="color:var(--muted)">${clientName(f.client)}</td><td><span class="pill gray">${ct}</span></td><td class="${f.type==='receita'?'money-pos':'money-neg'}">${f.type==='despesa'?'-':''}${fmt(f.val)}</td><td>${dateBR(f.due)}</td><td>${statusCell}</td><td class="row-actions">${act}</td></tr>`}).join('')+'</tbody>';
 }
 async function toggleShowPayInFin(showId,payId){const s=DB.shows.find(x=>x.id===showId);if(!s)return;const p=showPays(s).find(x=>x.id===payId);if(!p)return;p.status=p.status==='pago'?'pendente':'pago';if(s.payments)s.payments=showPays(s);await _upsertShow(s);renderAll()}
-function fillClientSelects(){const opts='<option value="">— sem cliente —</option>'+DB.clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');['tClient','fClient'].forEach(id=>{const el=document.getElementById(id);if(!el)return;const v=el.value;el.innerHTML=opts;el.value=v});const sEl=document.getElementById('sClient');if(sEl){const v=sEl.value,ev=DB.clients.filter(c=>c.billing==='evento'),ot=DB.clients.filter(c=>c.billing!=='evento');sEl.innerHTML='<option value="">— selecione —</option>'+(ev.length?'<optgroup label="Por evento/show">'+ev.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')+'</optgroup>':'')+'<optgroup label="Outros">'+ot.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')+'</optgroup>';sEl.value=v}}
+
+/* ---- SELECTS ---- */
+function fillClientSelects(){
+  const opts='<option value="">— sem cliente —</option>'+DB.clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  ['tClient','fClient'].forEach(id=>{const el=document.getElementById(id);if(!el)return;const v=el.value;el.innerHTML=opts;el.value=v});
+  const sEl=document.getElementById('sClient');if(sEl){const v=sEl.value,ev=DB.clients.filter(c=>c.billing==='evento'),ot=DB.clients.filter(c=>c.billing!=='evento');sEl.innerHTML='<option value="">— selecione —</option>'+(ev.length?'<optgroup label="Por evento/show">'+ev.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')+'</optgroup>':'')+'<optgroup label="Outros">'+ot.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')+'</optgroup>';sEl.value=v}
+}
 function openModal(id){document.getElementById(id).classList.add('open')}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 document.querySelectorAll('.modal-bg').forEach(m=>m.onclick=e=>{if(e.target===m)m.classList.remove('open')});
-/* ---- BUDGET CHANNELS ---- */
-let budgetRows=[];
-function renderBudgetChannels(){
-  const el=document.getElementById('cBudgetChannels');
-  el.innerHTML=budgetRows.map((r,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
-    <input placeholder="Canal (ex: Meta Ads)" value="${r.name||''}" style="flex:1" oninput="budgetRows[${i}].name=this.value">
-    <input type="number" placeholder="R$" value="${r.val||''}" style="width:110px" oninput="budgetRows[${i}].val=+this.value;budgetAutoCalc()">
-    <button class="btn sm ghost danger" onclick="budgetRows.splice(${i},1);renderBudgetChannels();budgetAutoCalc()">✕</button>
-  </div>`).join('');
-  budgetAutoCalc();
-}
-function addBudgetChannel(){budgetRows.push({name:'',val:0});renderBudgetChannels()}
-function budgetAutoCalc(){
-  const total=+document.getElementById('cBudget').value||0;
-  const soma=budgetRows.reduce((s,r)=>s+(+r.val||0),0);
-  const alert=document.getElementById('cBudgetAlert');
-  if(total&&budgetRows.length){
-    const diff=soma-total;
-    if(Math.abs(diff)>0.01){alert.style.display='block';alert.textContent=`⚠ Soma dos canais (${fmt(soma)}) ${diff>0?'ultrapassa':'está abaixo de'} a verba total (${fmt(total)}) em ${fmt(Math.abs(diff))}`}
-    else{alert.style.display='none'}
-  }else{alert.style.display='none'}
-}
+
+/* ---- CLIENT MODAL ---- */
 function billingLabelUpdate(){const v=document.getElementById('cBilling').value;document.getElementById('cFeeLbl').textContent=v==='evento'?'Valor por show (R$)':'Fee mensal (R$)';document.getElementById('cPayDelayRow').style.display=v==='evento'?'block':'none';payRuleUpdate()}
 function categoryUpdate(){document.getElementById('cCustomTypeRow').style.display=document.getElementById('cCategory').value==='custom'?'block':'none'}
 function payRuleUpdate(){document.getElementById('cPayDelayDiasRow').style.display=document.getElementById('cPayRule').value==='dias'?'block':'none'}
-function openClientModal(id){fillClientSelects();const c=id?DB.clients.find(x=>x.id===id):{};document.getElementById('clientModalTitle').textContent=id?'Editar cliente':'Novo cliente';cId.value=id||'';cName.value=c.name||'';cSeg.value=c.seg||'';cStatus.value=c.status||'Ativo';cPlat.value=c.plat||'';cFee.value=c.fee||'';cDay.value=c.day||'';cReport.value=c.report||'';cNotes.value=c.notes||'';cBilling.value=c.billing||'mensal';const stdCat=['mensal','funil','show','parceria','permuta','agencia'];const cat=c.category||c.billing||'mensal';if(stdCat.includes(cat)){document.getElementById('cCategory').value=cat;document.getElementById('cCustomType').value=''}else{document.getElementById('cCategory').value='custom';document.getElementById('cCustomType').value=c.customType||cat}document.getElementById('cPayRule').value=c.payRule||'dias';document.getElementById('cPayDelay').value=c.payDelay!=null?c.payDelay:'';document.getElementById('cBudget').value=c.budget||'';budgetRows=(c.budgetChannels||[]).map(r=>({...r}));renderBudgetChannels();billingLabelUpdate();categoryUpdate();openModal('clientModal')}
-async function saveClient(){if(!cName.value.trim())return cName.focus();const pd=document.getElementById('cPayDelay').value;let cat=document.getElementById('cCategory').value,customType='';if(cat==='custom'){customType=document.getElementById('cCustomType').value.trim()||'Outro';cat=customType}const channels=budgetRows.filter(r=>r.name||r.val).map(r=>({name:r.name||'',val:+r.val||0}));const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels};closeModal('clientModal');await _upsertClient(o)}
+function openClientModal(id){
+  fillClientSelects();const c=id?DB.clients.find(x=>x.id===id):{};
+  document.getElementById('clientModalTitle').textContent=id?'Editar cliente':'Novo cliente';
+  cId.value=id||'';cName.value=c.name||'';cSeg.value=c.seg||'';cStatus.value=c.status||'Ativo';cPlat.value=c.plat||'';cFee.value=c.fee||'';cDay.value=c.day||'';cReport.value=c.report||'';cNotes.value=c.notes||'';cBilling.value=c.billing||'mensal';
+  const stdCat=['mensal','funil','show','parceria','permuta','agencia'];const cat=c.category||c.billing||'mensal';
+  if(stdCat.includes(cat)){document.getElementById('cCategory').value=cat;document.getElementById('cCustomType').value=''}
+  else{document.getElementById('cCategory').value='custom';document.getElementById('cCustomType').value=c.customType||cat}
+  document.getElementById('cPayRule').value=c.payRule||'dias';
+  document.getElementById('cPayDelay').value=c.payDelay!=null?c.payDelay:'';
+  document.getElementById('cBudget').value=c.budget||'';
+  budgetRows=(c.budgetChannels||[]).map(r=>({...r}));renderBudgetChannels();
+  billingLabelUpdate();categoryUpdate();openModal('clientModal');
+}
+async function saveClient(){
+  if(!cName.value.trim())return cName.focus();
+  const pd=document.getElementById('cPayDelay').value;
+  let cat=document.getElementById('cCategory').value,customType='';
+  if(cat==='custom'){customType=document.getElementById('cCustomType').value.trim()||'Outro';cat=customType}
+  const channels=budgetRows.filter(r=>r.name||r.val).map(r=>({name:r.name||'',val:+r.val||0}));
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels};
+  closeModal('clientModal');await _upsertClient(o);
+}
 async function delClient(id){if(!confirm('Excluir cliente?'))return;await sb.from('clients').delete().eq('id',id);DB.clients=DB.clients.filter(c=>c.id!==id);renderAll()}
+
+/* ---- TASK MODAL ---- */
 function fillOwnerSelect(sel){sel.innerHTML=DB.team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}
-function openTaskModal(id){fillClientSelects();fillOwnerSelect(document.getElementById('tOwner'));const t=id?DB.tasks.find(x=>x.id===id):{};document.getElementById('taskModalTitle').textContent=id?'Editar tarefa':'Nova tarefa';tId.value=id||'';tName.value=t.name||'';tClient.value=t.client||'';tOwner.value=t.owner||DB.team[0].id;tStatus.value=t.status||'todo';tPrio.value=t.prio||'media';tDue.value=t.due||'';const cd=repeatCustomDays(t.repeat||'');if(cd!==null){tRepeat.value='custom';document.getElementById('tRepeatDays').value=cd}else{tRepeat.value=t.repeat||'';document.getElementById('tRepeatDays').value=''}repeatModeUpdate();tNotes.value=t.notes||'';tLink.value=t.link||'';openModal('taskModal')}
-async function saveTask(){if(!tName.value.trim())return tName.focus();let repeat=tRepeat.value;if(repeat==='custom'){const d=parseInt(document.getElementById('tRepeatDays').value)||0;repeat=d>0?`custom:${d}`:''}const o={id:tId.value||uid(),name:tName.value.trim(),client:tClient.value,owner:tOwner.value,status:tStatus.value,due:tDue.value,prio:tPrio.value,repeat,notes:tNotes.value.trim(),link:tLink.value.trim()};closeModal('taskModal');await _upsertTask(o);renderAll()}
+function openTaskModal(id){
+  fillClientSelects();fillOwnerSelect(document.getElementById('tOwner'));
+  const t=id?DB.tasks.find(x=>x.id===id):{};
+  document.getElementById('taskModalTitle').textContent=id?'Editar tarefa':'Nova tarefa';
+  tId.value=id||'';tName.value=t.name||'';tClient.value=t.client||'';tOwner.value=t.owner||DB.team[0].id;tStatus.value=t.status||'todo';tPrio.value=t.prio||'media';tDue.value=t.due||'';
+  const cd=repeatCustomDays(t.repeat||'');
+  if(cd!==null){tRepeat.value='custom';document.getElementById('tRepeatDays').value=cd}
+  else{tRepeat.value=t.repeat||'';document.getElementById('tRepeatDays').value=''}
+  repeatModeUpdate();tNotes.value=t.notes||'';tLink.value=t.link||'';openModal('taskModal');
+}
+async function saveTask(){
+  if(!tName.value.trim())return tName.focus();
+  let repeat=tRepeat.value;
+  if(repeat==='custom'){const d=parseInt(document.getElementById('tRepeatDays').value)||0;repeat=d>0?`custom:${d}`:''}
+  const o={id:tId.value||uid(),name:tName.value.trim(),client:tClient.value,owner:tOwner.value,status:tStatus.value,due:tDue.value,prio:tPrio.value,repeat,notes:tNotes.value.trim(),link:tLink.value.trim()};
+  closeModal('taskModal');await _upsertTask(o);renderAll();
+}
 async function delTask(id){await sb.from('tasks').delete().eq('id',id);DB.tasks=DB.tasks.filter(t=>t.id!==id);renderAll()}
+
+/* ---- TEAM MODAL ---- */
 function openTeamModal(){document.getElementById('teamList').innerHTML=DB.team.map((m,i)=>`<div class="form-row"><label>${i===0?'Você':'Colaborador '+i}</label><input value="${m.name}" data-team="${m.id}"></div>`).join('');openModal('teamModal')}
 async function saveTeam(){document.querySelectorAll('[data-team]').forEach(inp=>{const m=DB.team.find(x=>x.id===inp.dataset.team);if(m&&inp.value.trim())m.name=inp.value.trim()});await sb.from('team').upsert(DB.team);closeModal('teamModal');renderAll()}
+
+/* ---- FINANCE MODAL ---- */
 function openFinModal(id){fillClientSelects();const f=id?DB.finance.find(x=>x.id===id):{};document.getElementById('finModalTitle').textContent=id?'Editar lançamento':'Novo lançamento';fId.value=id||'';fType.value=f.type||'receita';fClient.value=f.client||'';fDesc.value=f.desc||'';fVal.value=f.val||'';fDue.value=f.due||'';fStatus.value=f.status||'pendente';openModal('finModal')}
 async function saveFin(){if(!fDesc.value.trim())return fDesc.focus();const o={id:fId.value||uid(),type:fType.value,client:fClient.value,desc:fDesc.value.trim(),val:+fVal.value||0,due:fDue.value,status:fStatus.value};await _upsertFinance(o);closeModal('finModal');renderAll()}
 async function delFin(id){await sb.from('finance').delete().eq('id',id);DB.finance=DB.finance.filter(f=>f.id!==id);renderAll()}
-const CHART_C={accent:'#6ee7b7',v2:'#a78bfa',gold:'#fcd34d',blue:'#60a5fa',pink:'#f472b6',red:'#f87171',green:'#34d399',muted:'#8a91a6',grid:'#1d2230'};
+
+/* ---- CHARTS ---- */
+const CHART_C={accent:'#d4a520',v2:'#a07010',gold:'#f0c040',blue:'#60a5fa',pink:'#f472b6',red:'#f87171',green:'#34d399',muted:'#8a8070',grid:'#1c1a14'};
 let _charts={};
 function destroyChart(k){if(_charts[k]){_charts[k].destroy();delete _charts[k]}}
 function renderCharts(){
@@ -759,7 +828,7 @@ function renderCharts(){
   const cRevEl=document.getElementById('cRev');
   if(cRevEl){destroyChart('rev');_charts.rev=new Chart(cRevEl,{type:'bar',data:{labels:['Fee mensal','Por evento/show','Parceria/Permuta'],datasets:[{data:[ativos.filter(c=>(c.billing||'mensal')==='mensal').reduce((s,c)=>s+(+c.fee||0),0),ativos.filter(c=>c.billing==='evento').reduce((s,c)=>s+(+c.fee||0),0),0],backgroundColor:[CHART_C.accent,CHART_C.gold,CHART_C.v2],borderRadius:8,barThickness:54}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gc,ticks:{callback:v=>'R$ '+(v>=1000?v/1000+'k':v)}},x:gc}}})}
   const cTipoEl=document.getElementById('cTipo');
-  if(cTipoEl){const tc={};DB.clients.forEach(c=>{const k=clientTypeLabel(c.category||c.billing||'mensal');tc[k]=(tc[k]||0)+1});destroyChart('tipo');_charts.tipo=new Chart(cTipoEl,{type:'doughnut',data:{labels:Object.keys(tc),datasets:[{data:Object.values(tc),backgroundColor:[CHART_C.accent,CHART_C.v2,CHART_C.gold,CHART_C.blue,CHART_C.pink,CHART_C.red,CHART_C.muted],borderColor:'#161922',borderWidth:3}]},options:{maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{boxWidth:10,padding:12}}}}})}
+  if(cTipoEl){const tc={};DB.clients.forEach(c=>{const k=clientTypeLabel(c.category||c.billing||'mensal');tc[k]=(tc[k]||0)+1});destroyChart('tipo');_charts.tipo=new Chart(cTipoEl,{type:'doughnut',data:{labels:Object.keys(tc),datasets:[{data:Object.values(tc),backgroundColor:[CHART_C.accent,CHART_C.v2,CHART_C.gold,CHART_C.blue,CHART_C.pink,CHART_C.red,CHART_C.muted],borderColor:'#131210',borderWidth:3}]},options:{maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{boxWidth:10,padding:12}}}}})}
   const cShowsEl=document.getElementById('cShows');
   if(cShowsEl){const sl=[...DB.shows].sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);destroyChart('shows');_charts.shows=new Chart(cShowsEl,{type:'bar',data:{labels:sl.map(s=>(s.name||'').length>22?s.name.slice(0,22)+'…':s.name),datasets:[{data:sl.map(s=>showTotal(s)),backgroundColor:CHART_C.gold,borderRadius:7}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gc,ticks:{callback:v=>'R$ '+v}},x:{...gc,ticks:{maxRotation:40,minRotation:40,font:{size:10}}}}}})}
   const cFinEl=document.getElementById('cFin');
