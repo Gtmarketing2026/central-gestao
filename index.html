@@ -185,7 +185,8 @@
 
   <!-- OPERACIONAL -->
   <section class="panel active" id="operacional">
-    <div id="tempAlert" style="display:none;flex-direction:column;background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.3);border-radius:var(--radius);padding:14px 18px;margin-bottom:18px"></div>
+    <div id="tempAlert" style="display:none;flex-direction:column;background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.3);border-radius:var(--radius);padding:14px 18px;margin-bottom:12px"></div>
+    <div id="reportAlert" style="display:none;flex-direction:column;border-radius:var(--radius);padding:14px 18px;margin-bottom:18px"></div>
     <div class="grid kpis" id="kpiGridOp"></div>
     <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start;margin-bottom:18px">
       <div class="card">
@@ -198,6 +199,10 @@
         <div class="hint">Distribuição por coluna do kanban</div>
         <div class="chart-box"><canvas id="cTaskStatus"></canvas></div>
       </div>
+    </div>
+    <div class="card" style="margin-bottom:18px">
+      <div class="section-head"><h2>Carga de trabalho da equipe</h2></div>
+      <div id="teamWorkload" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px"></div>
     </div>
     <div class="card">
       <div class="section-head"><h2>Entregas da semana</h2></div>
@@ -255,6 +260,9 @@
       <h2>Tarefas e entregas</h2>
       <div style="display:flex;gap:8px">
         <button class="btn ghost sm" onclick="openBulkTaskModal()" style="font-size:12px">⚡ Em massa</button>
+        <button class="btn ghost sm" onclick="openReportChecklistModal()" style="font-size:12px">📋 Checklist Mensais</button>
+        <button class="btn ghost sm" onclick="openWeeklyReportModal()" style="font-size:12px">📅 Relatórios Semanais</button>
+        <button id="undoPersistBtn" class="btn ghost sm" onclick="undoLast()" style="font-size:12px;display:none">↩ Desfazer</button>
         <button class="btn primary" onclick="openTaskModal()">+ Nova tarefa</button>
       </div>
     </div>
@@ -427,7 +435,23 @@
         <span class="temp-btn" data-temp="critico" onclick="setTemp('critico')">🔴 Crítico</span>
       </div>
     </div>
-    <div class="form-row"><label>Próximo relatório</label><input id="cReport" type="date"></div>
+    <div class="form-row"><label>Próximo relatório mensal</label><input id="cReport" type="date"></div>
+    <div class="form-row" style="display:flex;align-items:center;gap:10px">
+      <input type="checkbox" id="cReportWeekly" class="checkbox" style="width:auto" onchange="document.getElementById('cReportWeeklyDayRow').style.display=this.checked?'block':'none'">
+      <label for="cReportWeekly" style="margin:0;cursor:pointer">Tem relatório semanal?</label>
+    </div>
+    <div class="form-row" id="cReportWeeklyDayRow" style="display:none">
+      <label>Dia do relatório semanal</label>
+      <select id="cReportWeeklyDay">
+        <option value="segunda">Segunda-feira</option>
+        <option value="terca">Terça-feira</option>
+        <option value="quarta">Quarta-feira</option>
+        <option value="quinta">Quinta-feira</option>
+        <option value="sexta">Sexta-feira</option>
+        <option value="sabado">Sábado</option>
+        <option value="domingo">Domingo</option>
+      </select>
+    </div>
     <div class="form-row"><label>Notas</label><textarea id="cNotes" rows="2" placeholder="Contato, observações..."></textarea></div>
     <div class="form-row">
       <label>Canais ativos <span style="font-size:11px;color:var(--faint);font-weight:400">(define as tarefas de onboarding geradas)</span></label>
@@ -511,6 +535,75 @@
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('bulkTaskModal')">Cancelar</button>
       <button class="btn primary" onclick="executeBulkTask()">Criar tarefas</button>
+    </div>
+  </div>
+</div>
+
+<!-- WEEKLY REPORT MODAL -->
+<div class="modal-bg" id="weeklyReportModal">
+  <div class="modal">
+    <h3>📅 Relatórios Semanais da Semana</h3>
+    <div class="hint" style="margin-bottom:16px">Gera 2 tarefas por cliente ativo com relatório semanal configurado, com prazo no próximo dia configurado para cada um.</div>
+    <div class="form-row">
+      <label>Responsável</label>
+      <select id="wrOwner"></select>
+    </div>
+    <div class="form-row">
+      <label>Clientes que receberão o checklist <span style="font-size:11px;color:var(--faint);font-weight:400">— desmarque para excluir</span></label>
+      <div id="wrClientList" style="background:var(--surface2);border-radius:var(--radius-sm);padding:8px 12px;max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;margin-top:4px"></div>
+    </div>
+    <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:10px 14px;margin:8px 0">
+      <div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px">Sequência por cliente:</div>
+      <div style="font-size:12px;color:var(--faint);display:flex;flex-direction:column;gap:3px">
+        <div>📊 <strong>Puxar números da semana</strong> — dia anterior ao envio</div>
+        <div>📤 <strong>Montar e enviar relatório semanal</strong> — dia configurado no cliente</div>
+      </div>
+    </div>
+    <div id="wrPreview" style="font-size:12px;color:var(--muted);padding:4px 2px;min-height:20px"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal('weeklyReportModal')">Cancelar</button>
+      <button class="btn primary" onclick="executeWeeklyReport()">Gerar relatórios</button>
+    </div>
+  </div>
+</div>
+
+<!-- REPORT CHECKLIST MODAL -->
+<div class="modal-bg" id="reportChecklistModal">
+  <div class="modal">
+    <h3>📋 Checklist de Relatórios Mensais</h3>
+    <div class="hint" style="margin-bottom:16px">Gera 5 tarefas por cliente ativo com relatório configurado, com prazos distribuídos até a data de envio.</div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label>Mês de referência</label>
+        <input id="rcMonth" type="month" onchange="updateRcPreview()">
+      </div>
+      <div class="form-row">
+        <label>Responsável</label>
+        <select id="rcOwner" onchange="updateRcPreview()"></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>Clientes que receberão o checklist <span style="font-size:11px;color:var(--faint);font-weight:400">— desmarque para excluir</span></label>
+      <div id="rcClientList" style="background:var(--surface2);border-radius:var(--radius-sm);padding:8px 12px;max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;margin-top:4px"></div>
+    </div>
+    <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:10px 14px;margin:8px 0">
+      <div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px">Sequência de tarefas geradas por cliente:</div>
+      <div style="font-size:12px;color:var(--faint);display:flex;flex-direction:column;gap:3px">
+        <div>📥 <strong>Exportar dados</strong> — D-4</div>
+        <div>🔧 <strong>Consolidar e tratar dados</strong> — D-3</div>
+        <div>📝 <strong>Montar relatório</strong> — D-2</div>
+        <div>✅ <strong>Revisar relatório</strong> — D-1</div>
+        <div>📤 <strong>Enviar ao cliente</strong> — D (data do relatório)</div>
+      </div>
+    </div>
+    <div class="form-row" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface2);border-radius:var(--radius-sm)">
+      <input type="checkbox" id="rcIncludeWeekly" class="checkbox" style="width:auto" checked onchange="updateRcPreview()">
+      <label for="rcIncludeWeekly" style="margin:0;cursor:pointer;font-size:13px">Incluir também relatórios <strong>semanais</strong> de todo o mês <span style="color:var(--faint);font-size:11px">(para clientes com relatório semanal ativado)</span></label>
+    </div>
+    <div id="rcPreview" style="font-size:12px;color:var(--muted);padding:4px 2px;min-height:20px"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal('reportChecklistModal')">Cancelar</button>
+      <button class="btn primary" onclick="executeReportChecklist()">Gerar checklists</button>
     </div>
   </div>
 </div>
@@ -724,8 +817,8 @@ const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function dateBR(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}`}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date(today()))/864e5)}
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[]});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[]});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||''});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||''});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[]});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[]});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||''});
@@ -884,12 +977,96 @@ function renderOperacional(){
     {label:'Relatórios esta semana',val:proxRel,sub:'vencendo em até 7 dias'},
   ];
   document.getElementById('kpiGridOp').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val">${x.val}</div><div class="sub">${x.sub}</div></div>`).join('');
+  // --- Alerta de relatórios atrasados ---
+  const relMensaisAtrasados=DB.clients.filter(c=>c.status==='Ativo'&&c.report&&daysUntil(c.report)<0)
+    .map(c=>({c,dias:Math.abs(daysUntil(c.report))}))
+    .sort((a,b)=>b.dias-a.dias);
+
+  // Relatórios semanais não gerados: clientes com weekly ativo cujo dia já passou esta semana e a tarefa "Montar e enviar" desta semana não existe ou não está concluída
+  const todayD=new Date(today()+'T12:00:00');
+  const relSemanaisAtrasados=DB.clients.filter(c=>{
+    if(c.status!=='Ativo'||!c.reportWeekly||!c.reportWeeklyDay)return false;
+    const target=WR_DAY_NUM[c.reportWeeklyDay]??1;
+    const diff=target-todayD.getDay();
+    if(diff>0)return false; // dia desta semana ainda não chegou
+    const dueDateThisWeek=addDays(today(),diff);
+    const taskName=`Montar e enviar relatório semanal (${c.name})`;
+    const task=DB.tasks.find(t=>t.client===c.id&&t.name===taskName&&t.due===dueDateThisWeek);
+    return !task||(task.status!=='done');
+  }).map(c=>{
+    const target=WR_DAY_NUM[c.reportWeeklyDay]??1;
+    const diff=target-todayD.getDay();
+    const dueDateThisWeek=addDays(today(),diff);
+    const dias=Math.abs(daysUntil(dueDateThisWeek));
+    const taskName=`Montar e enviar relatório semanal (${c.name})`;
+    const task=DB.tasks.find(t=>t.client===c.id&&t.name===taskName&&t.due===dueDateThisWeek);
+    return{c,dias,taskExists:!!task,done:task?.status==='done'};
+  }).filter(x=>!x.done);
+
+  const reportAlertEl=document.getElementById('reportAlert');
+  const totalRep=relMensaisAtrasados.length+relSemanaisAtrasados.length;
+  if(totalRep){
+    const cor=relMensaisAtrasados.length?'rgba(248,113,113,.08)':'rgba(240,192,64,.07)';
+    const borda=relMensaisAtrasados.length?'rgba(248,113,113,.35)':'rgba(240,192,64,.35)';
+    let html=`<span style="font-size:13px;font-weight:700;color:${relMensaisAtrasados.length?'#f87171':'#f0c040'}">📋 ${totalRep} relatório(s) com atenção necessária</span>`;
+    if(relMensaisAtrasados.length){
+      html+=`<div style="font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 4px">Relatórios MENSAIS atrasados</div>`;
+      html+=`<div style="display:flex;flex-direction:column;gap:4px">${relMensaisAtrasados.map(({c,dias})=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(248,113,113,.08);border-radius:10px">
+          <span style="flex:1;font-size:13px;font-weight:600">${c.name}</span>
+          <span class="pill red">${dias} dia${dias!==1?'s':''} atrasado</span>
+          <span style="font-size:11px;color:var(--faint)">era ${c.report.split('-').reverse().join('/')}</span>
+          <button class="btn sm ghost" onclick="openClientModal('${c.id}')">✎ Abrir</button>
+        </div>`).join('')}</div>`;
+    }
+    if(relSemanaisAtrasados.length){
+      html+=`<div style="font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 4px">Relatórios SEMANAIS não enviados</div>`;
+      html+=`<div style="display:flex;flex-direction:column;gap:4px">${relSemanaisAtrasados.map(({c,dias,taskExists})=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(240,192,64,.08);border-radius:10px">
+          <span style="flex:1;font-size:13px;font-weight:600">${c.name}</span>
+          <span class="pill amber">${taskExists?'pendente':'não gerado'} · ${dias===0?'hoje':dias+' dia'+(dias!==1?'s':'')+' atrás'}</span>
+          <span style="font-size:11px;color:var(--faint)">${WR_DAY_LABEL[c.reportWeeklyDay]||c.reportWeeklyDay}</span>
+          <button class="btn sm ghost" onclick="openClientModal('${c.id}')">✎ Abrir</button>
+        </div>`).join('')}</div>`;
+    }
+    reportAlertEl.style.cssText=`display:flex;flex-direction:column;background:${cor};border:1px solid ${borda};border-radius:var(--radius);padding:14px 18px;margin-bottom:18px`;
+    reportAlertEl.innerHTML=html;
+  }else{
+    reportAlertEl.style.display='none';
+  }
+
   const criticos=DB.clients.filter(c=>c.status==='Ativo'&&(c.temp==='critico'||c.temp==='atencao'));
   const alertEl=document.getElementById('tempAlert');
   if(criticos.length){
     alertEl.style.display='flex';
     alertEl.innerHTML=`<span style="font-size:13px;font-weight:600">⚠ Clientes que precisam de atenção:</span><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${criticos.map(c=>`<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;background:${TEMP_CFG[c.temp].color}22;color:${TEMP_CFG[c.temp].color};border:1px solid ${TEMP_CFG[c.temp].color}44;cursor:pointer" onclick="openClientModal('${c.id}')">${TEMP_CFG[c.temp].icon} ${c.name}</span>`).join('')}</div>`;
   }else{alertEl.style.display='none'}
+  // --- Carga de trabalho da equipe ---
+  const abertas=DB.tasks.filter(t=>t.status!=='done');
+  const semResponsavel=abertas.filter(t=>!t.owner);
+  const membros=[...DB.team];
+  const workloadCards=[...membros.map(m=>{
+    const tarefas=abertas.filter(t=>t.owner===m.id);
+    const atrasadasM=tarefas.filter(t=>t.due&&daysUntil(t.due)<0);
+    const proximas=tarefas.filter(t=>t.due&&daysUntil(t.due)>=0&&daysUntil(t.due)<=3);
+    return{name:m.name,total:tarefas.length,atrasadas:atrasadasM.length,proximas:proximas.length,tasks:tarefas};
+  }),(semResponsavel.length?{name:'Sem responsável',total:semResponsavel.length,atrasadas:semResponsavel.filter(t=>t.due&&daysUntil(t.due)<0).length,proximas:semResponsavel.filter(t=>t.due&&daysUntil(t.due)>=0&&daysUntil(t.due)<=3).length,tasks:semResponsavel,isSem:true}:null)].filter(Boolean);
+
+  document.getElementById('teamWorkload').innerHTML=workloadCards.length?workloadCards.map(m=>{
+    const temAtraso=m.atrasadas>0;
+    const cor=temAtraso?'rgba(248,113,113,.12)':m.total===0?'var(--surface2)':'rgba(52,211,153,.06)';
+    const borda=temAtraso?'rgba(248,113,113,.4)':m.total===0?'var(--border)':'rgba(52,211,153,.25)';
+    return`<div style="flex:1;min-width:160px;max-width:220px;background:${cor};border:1px solid ${borda};border-radius:var(--radius);padding:14px 16px;display:flex;flex-direction:column;gap:6px">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px">${m.isSem?'<span style="color:var(--faint)">'+m.name+'</span>':m.name}</div>
+      <div style="font-size:28px;font-weight:800;line-height:1;color:${temAtraso?'#f87171':'var(--text)'}">${m.total}</div>
+      <div style="font-size:11px;color:var(--muted)">tarefa${m.total!==1?'s':''} em aberto</div>
+      <div style="display:flex;flex-direction:column;gap:3px;margin-top:4px;font-size:12px">
+        ${temAtraso?`<span style="color:#f87171;font-weight:600">⚠ ${m.atrasadas} atrasada${m.atrasadas!==1?'s':''}</span>`:'<span style="color:#34d399">✓ em dia</span>'}
+        ${m.proximas?`<span style="color:#f0c040">⏰ ${m.proximas} vencem em 3 dias</span>`:''}
+      </div>
+    </div>`;
+  }).join(''):'<div style="color:var(--faint);font-size:13px">Nenhum colaborador cadastrado.</div>';
+
   const week=DB.tasks.filter(t=>t.status!=='done').sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).slice(0,8);
   document.getElementById('weekTasks').innerHTML=week.length?week.map(t=>{const d=daysUntil(t.due);let p='gray',txt=t.due?dateBR(t.due):'sem prazo';if(d!==null){if(d<0){p='red';txt='atrasada '+Math.abs(d)+'d'}else if(d<=2){p='amber';txt=d===0?'hoje':d+'d'}else{p='blue';txt=d+'d'}}return`<div class="task-item" style="padding:10px 4px"><span class="task-name" style="font-size:13px">${t.name}<br><span style="font-size:11px;color:var(--faint)">${clientName(t.client)}</span></span><span class="pill ${p}">${txt}</span></div>`}).join(''):'<div class="empty">Nenhuma tarefa pendente 🎉</div>';
 }
@@ -1039,18 +1216,30 @@ function nextDate(d,r){const b=d?new Date(d+'T12:00:00'):new Date();const cd=rep
 async function completeTask(t){if(t.repeat){await _upsertTask({...t,id:uid(),status:'todo',due:nextDate(t.due,t.repeat)});t.repeat=''}t.status='done';await _upsertTask(t);renderAll()}
 /* ---- UNDO ---- */
 let _undoStack=[];let _undoTimer=null;
+function _syncUndoBtn(){
+  const btn=document.getElementById('undoPersistBtn');
+  if(!btn)return;
+  if(_undoStack.length){
+    btn.style.display='';
+    btn.title=_undoStack[_undoStack.length-1].msg;
+  }else{
+    btn.style.display='none';
+  }
+}
 function _pushUndo(action){
   _undoStack.push(action);
   clearTimeout(_undoTimer);
   const toast=document.getElementById('undoToast');
   toast.style.display='flex';
   toast.querySelector('.undo-msg').textContent=action.msg;
-  _undoTimer=setTimeout(()=>{toast.style.display='none';_undoStack=[]},8000);
+  _undoTimer=setTimeout(()=>{toast.style.display='none';_undoStack=[];_syncUndoBtn()},8000);
+  _syncUndoBtn();
 }
 async function undoLast(){
   if(!_undoStack.length)return;
   clearTimeout(_undoTimer);
   document.getElementById('undoToast').style.display='none';
+  _syncUndoBtn();
   const action=_undoStack.pop();
   if(action.type==='delete'){
     const{error}=await sb.from('tasks').insert(dbTask(action.task));
@@ -1065,7 +1254,8 @@ async function undoLast(){
     const t=DB.tasks.find(x=>x.id===action.task.id);
     if(t){Object.assign(t,action.prev);await _upsertTask(t);renderAll()}
   }
-  if(_undoStack.length){const toast=document.getElementById('undoToast');toast.style.display='flex';toast.querySelector('.undo-msg').textContent=_undoStack[_undoStack.length-1].msg;_undoTimer=setTimeout(()=>{toast.style.display='none';_undoStack=[]},8000)}
+  if(_undoStack.length){const toast=document.getElementById('undoToast');toast.style.display='flex';toast.querySelector('.undo-msg').textContent=_undoStack[_undoStack.length-1].msg;_undoTimer=setTimeout(()=>{toast.style.display='none';_undoStack=[];_syncUndoBtn()},8000)}
+  _syncUndoBtn();
 }
 async function toggleTask(id){const t=DB.tasks.find(x=>x.id===id);const prev={status:t.status};if(t.status==='done'){t.status='todo';await _upsertTask(t);renderAll();_pushUndo({type:'update',task:t,prev,msg:'Tarefa reaberta — desfazer?'})}else{_pushUndo({type:'update',task:{...t},prev,msg:'Tarefa concluída — desfazer?'});await completeTask(t)}}
 
@@ -1185,6 +1375,9 @@ function openClientModal(id){
   document.getElementById('cUsesBalance').checked=c.usesBalance||false;
   activeClientChannels=c.activeChannels||[];renderClientChannelPicker();
   document.getElementById('cOnboardingBtn').style.display=id?'block':'none';
+  document.getElementById('cReportWeekly').checked=c.reportWeekly||false;
+  document.getElementById('cReportWeeklyDayRow').style.display=(c.reportWeekly)?'block':'none';
+  document.getElementById('cReportWeeklyDay').value=c.reportWeeklyDay||'segunda';
   document.getElementById('cBalanceInit').value=c.balanceInit||'';
   balanceToggle();
   setTemp(c.temp||'');
@@ -1203,7 +1396,8 @@ async function saveClient(){
   const prev=DB.clients.find(x=>x.id===cId.value);
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels};
+  const reportWeekly=document.getElementById('cReportWeekly').checked;
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:''};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
@@ -1414,6 +1608,211 @@ async function executeBulkTask(){
   closeModal('bulkTaskModal');renderAll();
   _pushUndo({type:'bulk_create',ids:rows.map(r=>r.id),msg:`${rows.length} tarefa(s) em massa criadas — desfazer?`});
 }
+/* ---- WEEKLY REPORT ---- */
+const WR_DAY_NUM={segunda:1,terca:2,quarta:3,quinta:4,sexta:5,sabado:6,domingo:0};
+const WR_DAY_LABEL={segunda:'Segunda',terca:'Terça',quarta:'Quarta',quinta:'Quinta',sexta:'Sexta',sabado:'Sábado',domingo:'Domingo'};
+
+function nextWeekdayDate(dayName){
+  const target=WR_DAY_NUM[dayName]??1;
+  const d=new Date(today()+'T12:00:00');
+  let diff=target-d.getDay();
+  if(diff<=0)diff+=7;
+  d.setDate(d.getDate()+diff);
+  return d.toISOString().slice(0,10);
+}
+
+function isoWeek(dateStr){
+  const d=new Date(dateStr+'T12:00:00');
+  d.setDate(d.getDate()+4-(d.getDay()||7));
+  const y=new Date(d.getFullYear(),0,1);
+  return String(d.getFullYear())+'-W'+String(Math.ceil(((d-y)/864e5+1)/7)).padStart(2,'0');
+}
+
+function wrAlreadyExists(clientId,week){
+  const c=DB.clients.find(x=>x.id===clientId);if(!c)return false;
+  const name=`Montar e enviar relatório semanal (${c.name})`;
+  return DB.tasks.some(t=>t.client===clientId&&t.name===name&&t.due&&isoWeek(t.due)===week);
+}
+
+let wrExcluded=new Set();
+
+function openWeeklyReportModal(){
+  const ownerSel=document.getElementById('wrOwner');
+  ownerSel.innerHTML='<option value="">Sem responsável</option>'+DB.team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
+  wrExcluded=new Set();
+  updateWrPreview();
+  openModal('weeklyReportModal');
+}
+
+function getWrTargets(){
+  return DB.clients.filter(c=>c.status==='Ativo'&&c.reportWeekly&&c.reportWeeklyDay);
+}
+
+function updateWrPreview(){
+  const targets=getWrTargets();
+  const thisWeek=isoWeek(today());
+  const listEl=document.getElementById('wrClientList');
+  if(!targets.length){
+    listEl.innerHTML='<div style="color:var(--faint);font-size:12px;padding:4px 0">Nenhum cliente ativo com relatório semanal configurado.</div>';
+    document.getElementById('wrPreview').innerHTML='';return;
+  }
+  listEl.innerHTML=targets.map(c=>{
+    const jaExiste=wrAlreadyExists(c.id,thisWeek);
+    const excluido=wrExcluded.has(c.id);
+    const due=nextWeekdayDate(c.reportWeeklyDay);
+    const dayLabel=WR_DAY_LABEL[c.reportWeeklyDay]||c.reportWeeklyDay;
+    return`<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 0;${jaExiste?'opacity:.4':''}">
+      <input type="checkbox" ${!excluido&&!jaExiste?'checked':''} ${jaExiste?'disabled':''} onchange="toggleWrExclude('${c.id}',this.checked)" style="accent-color:var(--accent);width:15px;height:15px;cursor:pointer">
+      <span style="flex:1">${c.name}</span>
+      <span style="font-size:11px;color:var(--faint)">${dayLabel} · ${due.split('-').reverse().join('/')}</span>
+      ${jaExiste?'<span style="font-size:11px;color:var(--faint)">já criado</span>':''}
+    </label>`;
+  }).join('');
+  const novos=targets.filter(c=>!wrAlreadyExists(c.id,thisWeek)&&!wrExcluded.has(c.id)).length;
+  const pulados=targets.filter(c=>wrAlreadyExists(c.id,thisWeek)).length;
+  document.getElementById('wrPreview').innerHTML=
+    `<strong style="color:var(--text)">${novos*2}</strong> tarefa(s) serão criadas para <strong style="color:var(--text)">${novos}</strong> cliente(s)`+
+    (pulados?` · <span style="color:var(--faint)">${pulados} já possuem checklist desta semana</span>`:'');
+}
+
+function toggleWrExclude(id,checked){
+  if(checked)wrExcluded.delete(id);else wrExcluded.add(id);
+  updateWrPreview();
+}
+
+async function executeWeeklyReport(){
+  const owner=document.getElementById('wrOwner').value;
+  const thisWeek=isoWeek(today());
+  const targets=getWrTargets().filter(c=>!wrAlreadyExists(c.id,thisWeek)&&!wrExcluded.has(c.id));
+  if(!targets.length){alert('Nenhum relatório semanal para criar.');return}
+  const rows=[];
+  targets.forEach(c=>{
+    const due=nextWeekdayDate(c.reportWeeklyDay);
+    const prev=addDays(due,-1);
+    rows.push({id:uid(),name:`Puxar números da semana (${c.name})`,client:c.id,owner,status:'todo',due:prev,prio:'media',repeat:'',notes:'',link:'',channels:[]});
+    rows.push({id:uid(),name:`Montar e enviar relatório semanal (${c.name})`,client:c.id,owner,status:'todo',due,prio:'alta',repeat:'',notes:'',link:'',channels:[]});
+  });
+  const{error}=await sb.from('tasks').insert(rows);
+  if(error){alert('Erro: '+error.message);return}
+  DB.tasks=[...DB.tasks,...rows];
+  closeModal('weeklyReportModal');renderAll();
+  _pushUndo({type:'bulk_create',ids:rows.map(r=>r.id),msg:`Relatórios semanais de ${targets.length} cliente(s) criados — desfazer?`});
+}
+
+/* ---- REPORT CHECKLIST ---- */
+const RC_STEPS=[
+  {label:'Exportar dados das plataformas',offset:-4},
+  {label:'Consolidar e tratar dados',offset:-3},
+  {label:'Montar relatório',offset:-2},
+  {label:'Revisar relatório',offset:-1},
+  {label:'Enviar ao cliente',offset:0},
+];
+let rcExcluded=new Set();
+
+function addDays(dateStr,days){const d=new Date(dateStr+'T12:00:00');d.setDate(d.getDate()+days);return d.toISOString().slice(0,10)}
+function weekdayDatesInMonth(month,dayName){
+  const target=WR_DAY_NUM[dayName]??1;
+  const[y,m]=month.split('-').map(Number);
+  const dates=[];const d=new Date(y,m-1,1);
+  while(d.getMonth()===m-1){if(d.getDay()===target)dates.push(d.toISOString().slice(0,10));d.setDate(d.getDate()+1)}
+  return dates;
+}
+
+function openReportChecklistModal(){
+  // Default: mês atual
+  document.getElementById('rcMonth').value=today().slice(0,7);
+  const ownerSel=document.getElementById('rcOwner');
+  ownerSel.innerHTML='<option value="">Sem responsável</option>'+DB.team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
+  rcExcluded=new Set();
+  updateRcPreview();
+  openModal('reportChecklistModal');
+}
+
+function getRcTargets(month){
+  return DB.clients.filter(c=>c.status==='Ativo'&&c.report&&c.report.slice(0,7)===month);
+}
+
+function rcAlreadyExists(clientId,month){
+  const prefix=`Enviar ao cliente (`;
+  const clientNm=DB.clients.find(x=>x.id===clientId)?.name||'';
+  return DB.tasks.some(t=>t.client===clientId&&t.name===`Enviar ao cliente (${clientNm})`&&(t.due||'').slice(0,7)===month);
+}
+
+function updateRcPreview(){
+  const month=document.getElementById('rcMonth').value;
+  if(!month){document.getElementById('rcPreview').innerHTML='<em>Selecione o mês.</em>';document.getElementById('rcClientList').innerHTML='';return}
+  const targets=getRcTargets(month);
+  const listEl=document.getElementById('rcClientList');
+  if(!targets.length){
+    listEl.innerHTML='<div style="color:var(--faint);font-size:12px;padding:4px 0">Nenhum cliente ativo com data de relatório neste mês.</div>';
+    document.getElementById('rcPreview').innerHTML='';return;
+  }
+  listEl.innerHTML=targets.map(c=>{
+    const jaExiste=rcAlreadyExists(c.id,month);
+    const excluido=rcExcluded.has(c.id);
+    return`<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 0;${jaExiste?'opacity:.4':''}">
+      <input type="checkbox" ${!excluido&&!jaExiste?'checked':''} ${jaExiste?'disabled':''} onchange="toggleRcExclude('${c.id}',this.checked)" style="accent-color:var(--accent);width:15px;height:15px;cursor:pointer">
+      <span style="flex:1">${c.name}</span>
+      ${c.report?`<span style="font-size:11px;color:var(--faint)">envio: ${c.report.split('-').reverse().join('/')}</span>`:''}
+      ${jaExiste?'<span style="font-size:11px;color:var(--faint)">já criado</span>':''}
+    </label>`;
+  }).join('');
+  const novos=targets.filter(c=>!rcAlreadyExists(c.id,month)&&!rcExcluded.has(c.id)).length;
+  const pulados=targets.filter(c=>rcAlreadyExists(c.id,month)).length;
+  const inclWeekly=document.getElementById('rcIncludeWeekly')?.checked;
+  let weeklyInfo='';
+  if(inclWeekly){
+    const wTargets=DB.clients.filter(c=>c.status==='Ativo'&&c.reportWeekly&&c.reportWeeklyDay);
+    const totalWeeklyTasks=wTargets.reduce((s,c)=>{const dates=weekdayDatesInMonth(month,c.reportWeeklyDay);const novas=dates.filter(d=>!wrAlreadyExists(c.id,isoWeek(d)));return s+novas.length*2},0);
+    if(totalWeeklyTasks>0)weeklyInfo=` · <span style="color:var(--accent)">+${totalWeeklyTasks} semanais</span>`;
+  }
+  document.getElementById('rcPreview').innerHTML=
+    `<strong style="color:var(--text)">${novos*RC_STEPS.length}</strong> tarefa(s) mensais para <strong style="color:var(--text)">${novos}</strong> cliente(s)`+
+    (pulados?` · <span style="color:var(--faint)">${pulados} já possuem checklist</span>`:'')+weeklyInfo;
+}
+
+function toggleRcExclude(id,checked){
+  if(checked)rcExcluded.delete(id);else rcExcluded.add(id);
+  updateRcPreview();
+}
+
+async function executeReportChecklist(){
+  const month=document.getElementById('rcMonth').value;
+  const owner=document.getElementById('rcOwner').value;
+  const inclWeekly=document.getElementById('rcIncludeWeekly')?.checked;
+  if(!month)return;
+  const rows=[];
+
+  // Mensais
+  const targets=getRcTargets(month).filter(c=>!rcAlreadyExists(c.id,month)&&!rcExcluded.has(c.id));
+  targets.forEach(c=>{
+    RC_STEPS.forEach(step=>{
+      rows.push({id:uid(),name:`${step.label} (${c.name})`,client:c.id,owner,status:'todo',due:addDays(c.report,step.offset),prio:step.offset===0?'alta':'media',repeat:'',notes:'',link:'',channels:[]});
+    });
+  });
+
+  // Semanais do mês inteiro
+  if(inclWeekly){
+    const wTargets=DB.clients.filter(c=>c.status==='Ativo'&&c.reportWeekly&&c.reportWeeklyDay);
+    wTargets.forEach(c=>{
+      const dates=weekdayDatesInMonth(month,c.reportWeeklyDay);
+      dates.forEach(due=>{
+        const week=isoWeek(due);
+        if(wrAlreadyExists(c.id,week))return;
+        rows.push({id:uid(),name:`Puxar números da semana (${c.name})`,client:c.id,owner,status:'todo',due:addDays(due,-1),prio:'media',repeat:'',notes:'',link:'',channels:[]});
+        rows.push({id:uid(),name:`Montar e enviar relatório semanal (${c.name})`,client:c.id,owner,status:'todo',due,prio:'alta',repeat:'',notes:'',link:'',channels:[]});
+      });
+    });
+  }
+
+  if(!rows.length){alert('Nenhum checklist para criar — tudo já existe.');return}
+  const{error}=await sb.from('tasks').insert(rows);
+  if(error){alert('Erro: '+error.message);return}
+  DB.tasks=[...DB.tasks,...rows];
+  closeModal('reportChecklistModal');renderAll();
+  _pushUndo({type:'bulk_create',ids:rows.map(r=>r.id),msg:`${rows.length} tarefa(s) criadas — desfazer?`});
+}
+
 async function gerarOnboarding(){
   const id=cId.value;
   const client=DB.clients.find(c=>c.id===id);
