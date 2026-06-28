@@ -1227,7 +1227,16 @@ function openBulkTaskModal(){
 }
 function bulkTargetClients(){
   const ch=document.getElementById('btChannel').value;
-  return DB.clients.filter(c=>c.status==='Ativo'&&(!ch||( c.activeChannels||[]).includes(ch)));
+  if(!ch)return DB.clients.filter(c=>c.status==='Ativo');
+  const chLabel={meta:'meta',google:'google',email:'email',whatsapp:'whatsapp',tiktok:'tiktok',bling:'bling',pinterest:'pinterest',rdstation:'rd',sendflow:'sendflow',powerbi:'power',clarity:'clarity',canva:'canva'};
+  const needle=(chLabel[ch]||ch).toLowerCase();
+  return DB.clients.filter(c=>{
+    if(c.status!=='Ativo')return false;
+    if((c.activeChannels||[]).includes(ch))return true;
+    if((c.budgetChannels||[]).some(b=>(b.name||'').toLowerCase().includes(needle)))return true;
+    if((c.plat||'').toLowerCase().includes(needle))return true;
+    return false;
+  });
 }
 function updateBtPreview(){
   const targets=bulkTargetClients();
