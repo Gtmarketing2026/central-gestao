@@ -425,6 +425,13 @@
     </div>
     <div class="form-row"><label>Próximo relatório</label><input id="cReport" type="date"></div>
     <div class="form-row"><label>Notas</label><textarea id="cNotes" rows="2" placeholder="Contato, observações..."></textarea></div>
+    <div class="form-row">
+      <label>Canais ativos <span style="font-size:11px;color:var(--faint);font-weight:400">(define as tarefas de onboarding geradas)</span></label>
+      <div id="cChannelPicker" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+    </div>
+    <div id="cOnboardingBtn" style="display:none;margin-top:4px">
+      <button class="btn ghost sm" style="width:100%;border-style:dashed" onclick="gerarOnboarding()">⚡ Gerar tarefas de onboarding para este cliente</button>
+    </div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('clientModal')">Cancelar</button>
       <button class="btn primary" onclick="saveClient()">Salvar</button>
@@ -641,8 +648,8 @@ const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function dateBR(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}`}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date(today()))/864e5)}
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||''});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:+o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||''});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[]});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[]});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[]});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[]});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||''});
@@ -1069,6 +1076,8 @@ function openClientModal(id){
   document.getElementById('cBudget').value=c.budget||'';
   budgetRows=(c.budgetChannels||[]).map(r=>({...r}));renderBudgetChannels();
   document.getElementById('cUsesBalance').checked=c.usesBalance||false;
+  activeClientChannels=c.activeChannels||[];renderClientChannelPicker();
+  document.getElementById('cOnboardingBtn').style.display=id?'block':'none';
   document.getElementById('cBalanceInit').value=c.balanceInit||'';
   balanceToggle();
   setTemp(c.temp||'');
@@ -1083,10 +1092,94 @@ async function saveClient(){
   const prevTemp=(DB.clients.find(x=>x.id===cId.value)||{}).temp||'';
   const tempChanged=currentTemp!==prevTemp;
   const prevSince=(DB.clients.find(x=>x.id===cId.value)||{}).tempSince||'';
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince};
+  const isNew=!cId.value;
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels};
   closeModal('clientModal');await _upsertClient(o);
+  if(isNew&&activeClientChannels.length)await createClientTasks(o);
+  if(isNew&&activeClientChannels.length)renderAll();
 }
 async function delClient(id){if(!confirm('Excluir cliente?'))return;await sb.from('clients').delete().eq('id',id);DB.clients=DB.clients.filter(c=>c.id!==id);renderAll()}
+
+/* ---- TASK TEMPLATES (onboarding) ---- */
+const TASK_TEMPLATES=[
+  // Base — sempre criadas
+  {name:'Info do Cliente',ch:null,prio:'alta'},
+  {name:'Reunião Criativa',ch:null,prio:'alta'},
+  {name:'Plano de Mídia',ch:null,prio:'alta'},
+  {name:'Acessos / Contingência',ch:null,prio:'alta'},
+  {name:'Configuração Site',ch:null,prio:'media'},
+  {name:'Configuração Analytics',ch:null,prio:'media'},
+  {name:'Configuração Tag Manager',ch:null,prio:'media'},
+  {name:'Configuração GMN',ch:null,prio:'media'},
+  {name:'Configuração de Saldo',ch:null,prio:'media'},
+  {name:'[Relatório] Contato semanal',ch:null,prio:'media'},
+  {name:'[Relatório] Configurar relatório base na IA',ch:null,prio:'media'},
+  // Meta
+  {name:'Configuração Meta Ads',ch:'meta',prio:'alta'},
+  {name:'[Meta] Criar Pixel',ch:'meta',prio:'alta'},
+  {name:'[Meta] Criar Público',ch:'meta',prio:'media'},
+  {name:'[Meta] Montar Campanhas',ch:'meta',prio:'media'},
+  {name:'[Meta] Otimização',ch:'meta',prio:'baixa'},
+  // Google
+  {name:'Configuração Google Ads',ch:'google',prio:'alta'},
+  {name:'[Google] Estudo de palavra chave',ch:'google',prio:'alta'},
+  {name:'[Google] Limpeza de termos',ch:'google',prio:'media'},
+  {name:'[Google] Montar campanha',ch:'google',prio:'media'},
+  {name:'[Google] Criar Público',ch:'google',prio:'media'},
+  {name:'[Google] Otimização',ch:'google',prio:'baixa'},
+  // E-mail
+  {name:'Configuração Ferramenta de E-mail',ch:'email',prio:'media'},
+  // WhatsApp / Sendflow
+  {name:'Configuração Sendflow',ch:'sendflow',prio:'media'},
+  // CRM / RD Station
+  {name:'Configuração CRM',ch:'rdstation',prio:'media'},
+  // TikTok
+  {name:'[TikTok] Criar conta Business',ch:'tiktok',prio:'alta'},
+  {name:'[TikTok] Montar Campanhas',ch:'tiktok',prio:'media'},
+  // Pinterest
+  {name:'[Pinterest] Configuração',ch:'pinterest',prio:'media'},
+  // Bling
+  {name:'[Bling] Configuração',ch:'bling',prio:'media'},
+  // Analytics/BI
+  {name:'[Power BI] Configuração dashboard',ch:'powerbi',prio:'media'},
+  // Clarity
+  {name:'[Clarity] Configuração',ch:'clarity',prio:'media'},
+];
+
+let activeClientChannels=[];
+function renderClientChannelPicker(){
+  const picks=['meta','google','email','whatsapp','tiktok','bling','pinterest','rdstation','sendflow','powerbi','clarity','canva','claude','gpt'];
+  const icons={meta:'📘',google:'🔍',email:'📧',whatsapp:'💬',tiktok:'🎵',bling:'🛒',pinterest:'📌',rdstation:'📣',sendflow:'📲',powerbi:'📊',clarity:'👁',canva:'🎨',claude:'🤖',gpt:'✨'};
+  const labels={meta:'Meta',google:'Google',email:'E-mail',whatsapp:'WhatsApp',tiktok:'TikTok',bling:'Bling',pinterest:'Pinterest',rdstation:'RD Station',sendflow:'Sendflow',powerbi:'Power BI',clarity:'Clarity',canva:'Canva',claude:'Claude',gpt:'GPT'};
+  document.getElementById('cChannelPicker').innerHTML=picks.map(id=>`<span class="ch-tag${activeClientChannels.includes(id)?' sel':''}" onclick="toggleClientChannel('${id}')">${icons[id]||'•'} ${labels[id]||id}</span>`).join('');
+}
+function toggleClientChannel(id){
+  activeClientChannels=activeClientChannels.includes(id)?activeClientChannels.filter(x=>x!==id):[...activeClientChannels,id];
+  renderClientChannelPicker();
+}
+async function createClientTasks(client){
+  const chs=client.activeChannels||[];
+  const toCreate=TASK_TEMPLATES.filter(t=>t.ch===null||chs.includes(t.ch));
+  // Evita duplicar tarefas já existentes para este cliente
+  const existing=new Set(DB.tasks.filter(t=>t.client===client.id).map(t=>t.name));
+  const news=toCreate.filter(t=>!existing.has(t.name));
+  if(!news.length)return;
+  const rows=news.map(t=>({id:uid(),name:t.name,client:client.id,owner:'',status:'todo',due:'',prio:t.prio,repeat:'',notes:'',link:'',channels:[]}));
+  const{data}=await sb.from('tasks').insert(rows).select();
+  if(data)DB.tasks=[...DB.tasks,...data.map(mapTask)];
+}
+async function gerarOnboarding(){
+  const id=cId.value;
+  const client=DB.clients.find(c=>c.id===id);
+  if(!client){alert('Salve o cliente primeiro.');return}
+  // Atualiza canais antes de gerar
+  client.activeChannels=activeClientChannels;
+  const antes=DB.tasks.filter(t=>t.client===id).length;
+  await createClientTasks(client);
+  const criadas=DB.tasks.filter(t=>t.client===id).length-antes;
+  renderAll();
+  alert(criadas>0?`✅ ${criadas} tarefa(s) de onboarding criadas!`:'Nenhuma tarefa nova — todas já existem.');
+}
 
 /* ---- CHANNELS ---- */
 const TASK_CHANNELS=[
