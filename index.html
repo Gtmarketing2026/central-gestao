@@ -265,6 +265,7 @@
       </div>
       <span style="margin-left:8px;color:var(--muted);font-size:12px">Responsável:</span>
       <div class="seg" id="ownerFilter"></div>
+      <button id="hideDoneBtn" onclick="hideDone=!hideDone;this.classList.toggle('active',hideDone);renderTasks()" style="margin-left:auto;padding:5px 13px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;transition:.15s" title="Ocultar tarefas concluídas">✓ Ocultar concluídas</button>
     </div>
     <div class="filterbar" style="margin-bottom:12px">
       <select id="tfClient" style="width:auto;min-width:140px" onchange="applyTaskFilters()"><option value="">Todos os clientes</option></select>
@@ -973,7 +974,7 @@ async function saveShow(){if(!sClient.value)return sClient.focus();const multi=d
 async function delShow(id){if(!confirm('Excluir show?'))return;await sb.from('shows').delete().eq('id',id);DB.shows=DB.shows.filter(s=>s.id!==id);renderAll()}
 
 /* ---- TASKS ---- */
-let taskView='list',ownerFilterVal='all';
+let taskView='list',ownerFilterVal='all',hideDone=false;
 let taskFilters={client:'',status:'',prio:'',dateFrom:'',dateTo:''};
 function ownerName(id){const m=DB.team.find(x=>x.id===id);return m?m.name:'—'}
 function setTaskView(v){taskView=v;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));document.getElementById('taskListView').style.display=v==='list'?'block':'none';document.getElementById('taskKanbanView').style.display=v==='kanban'?'block':'none';renderTasks()}
@@ -988,6 +989,7 @@ function repeatModeUpdate(){const v=document.getElementById('tRepeat').value;doc
 function renderTasks(){
   renderOwnerFilter();fillTaskClientFilter();
   let base=ownerFilterVal==='all'?DB.tasks:DB.tasks.filter(t=>t.owner===ownerFilterVal);
+  if(hideDone)base=base.filter(t=>t.status!=='done');
   if(taskFilters.client)base=base.filter(t=>t.client===taskFilters.client);
   if(taskFilters.status)base=base.filter(t=>t.status===taskFilters.status);
   if(taskFilters.prio)base=base.filter(t=>t.prio===taskFilters.prio);
