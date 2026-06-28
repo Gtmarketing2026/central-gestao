@@ -253,7 +253,10 @@
   <section class="panel" id="tasks">
     <div class="section-head">
       <h2>Tarefas e entregas</h2>
-      <button class="btn primary" onclick="openTaskModal()">+ Nova tarefa</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost sm" onclick="openBulkTaskModal()" style="font-size:12px">⚡ Em massa</button>
+        <button class="btn primary" onclick="openTaskModal()">+ Nova tarefa</button>
+      </div>
     </div>
     <div class="filterbar">
       <div class="seg">
@@ -435,6 +438,50 @@
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('clientModal')">Cancelar</button>
       <button class="btn primary" onclick="saveClient()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- BULK TASK MODAL -->
+<div class="modal-bg" id="bulkTaskModal">
+  <div class="modal">
+    <h3>⚡ Criar tarefas em massa</h3>
+    <div class="form-row"><label>Nome da tarefa</label><input id="btName" type="text" placeholder="Ex: [Meta] Otimização diária" oninput="updateBtPreview()"></div>
+    <div class="form-row"><label>Prioridade</label>
+      <select id="btPrio"><option value="alta">Alta</option><option value="media" selected>Média</option><option value="baixa">Baixa</option></select>
+    </div>
+    <div class="form-row"><label>Repetição</label>
+      <select id="btRepeat" onchange="document.getElementById('btRepeatDaysRow').style.display=this.value==='custom'?'block':'none'">
+        <option value="">Sem repetição</option>
+        <option value="diario">Diário</option>
+        <option value="semanal">Semanal</option>
+        <option value="quinzenal">Quinzenal</option>
+        <option value="mensal">Mensal</option>
+        <option value="custom">Personalizado (X dias)</option>
+      </select>
+    </div>
+    <div class="form-row" id="btRepeatDaysRow" style="display:none"><label>A cada quantos dias</label><input id="btRepeatDays" type="number" min="1" placeholder="Ex: 3"></div>
+    <div class="form-row"><label>Filtrar clientes por canal ativo</label>
+      <select id="btChannel" onchange="updateBtPreview()">
+        <option value="">Todos os clientes ativos</option>
+        <option value="meta">📘 Meta</option>
+        <option value="google">🔍 Google</option>
+        <option value="email">📧 E-mail</option>
+        <option value="whatsapp">💬 WhatsApp</option>
+        <option value="tiktok">🎵 TikTok</option>
+        <option value="bling">🛒 Bling</option>
+        <option value="pinterest">📌 Pinterest</option>
+        <option value="rdstation">📣 RD Station</option>
+        <option value="sendflow">📲 Sendflow</option>
+        <option value="powerbi">📊 Power BI</option>
+        <option value="clarity">👁 Clarity</option>
+        <option value="canva">🎨 Canva</option>
+      </select>
+    </div>
+    <div id="btPreview" style="background:var(--surface2);border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;color:var(--muted);margin-bottom:4px"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal('bulkTaskModal')">Cancelar</button>
+      <button class="btn primary" onclick="executeBulkTask()">Criar tarefas</button>
     </div>
   </div>
 </div>
@@ -1167,6 +1214,49 @@ async function createClientTasks(client){
   const rows=news.map(t=>({id:uid(),name:t.name,client:client.id,owner:'',status:'todo',due:'',prio:t.prio,repeat:'',notes:'',link:'',channels:[]}));
   const{data}=await sb.from('tasks').insert(rows).select();
   if(data)DB.tasks=[...DB.tasks,...data.map(mapTask)];
+}
+function openBulkTaskModal(){
+  document.getElementById('btName').value='';
+  document.getElementById('btPrio').value='media';
+  document.getElementById('btRepeat').value='';
+  document.getElementById('btRepeatDays').value='';
+  document.getElementById('btRepeatDaysRow').style.display='none';
+  document.getElementById('btChannel').value='';
+  updateBtPreview();
+  openModal('bulkTaskModal');
+}
+function bulkTargetClients(){
+  const ch=document.getElementById('btChannel').value;
+  return DB.clients.filter(c=>c.status==='Ativo'&&(!ch||( c.activeChannels||[]).includes(ch)));
+}
+function updateBtPreview(){
+  const targets=bulkTargetClients();
+  const name=(document.getElementById('btName').value||'').trim();
+  if(!name){document.getElementById('btPreview').innerHTML='<em>Preencha o nome da tarefa para ver a prévia.</em>';return}
+  const existing=new Set(DB.tasks.filter(t=>t.name===name).map(t=>t.client));
+  const novos=targets.filter(c=>!existing.has(c.id));
+  const skip=targets.filter(c=>existing.has(c.id));
+  document.getElementById('btPreview').innerHTML=
+    `<strong>${novos.length}</strong> tarefa(s) serão criadas`+
+    (skip.length?` · <span style="color:var(--faint)">${skip.length} já existem (não duplica)</span>`:'')+
+    (novos.length?`<div style="margin-top:6px;font-size:12px">${novos.map(c=>`• ${c.name}`).join('<br>')}</div>`:'');
+}
+async function executeBulkTask(){
+  const name=document.getElementById('btName').value.trim();
+  if(!name)return document.getElementById('btName').focus();
+  const prio=document.getElementById('btPrio').value;
+  let repeat=document.getElementById('btRepeat').value;
+  if(repeat==='custom'){const d=parseInt(document.getElementById('btRepeatDays').value)||0;repeat=d>0?`custom:${d}`:''}
+  const targets=bulkTargetClients();
+  const existing=new Set(DB.tasks.filter(t=>t.name===name).map(t=>t.client));
+  const novos=targets.filter(c=>!existing.has(c.id));
+  if(!novos.length){alert('Nenhuma tarefa nova para criar (todas já existem).');return}
+  const rows=novos.map(c=>({id:uid(),name,client:c.id,owner:'',status:'todo',due:'',prio,repeat,notes:'',link:'',channels:[]}));
+  const{error}=await sb.from('tasks').insert(rows);
+  if(error){alert('Erro: '+error.message);return}
+  DB.tasks=[...DB.tasks,...rows.map(r=>({...r}))];
+  closeModal('bulkTaskModal');renderAll();
+  alert(`✅ ${rows.length} tarefa(s) criadas com sucesso!`);
 }
 async function gerarOnboarding(){
   const id=cId.value;
