@@ -157,6 +157,7 @@
     <nav class="tabs">
       <button class="tab active" data-tab="operacional">Operacional</button>
       <button class="tab" data-tab="finOverview">Fin. Geral</button>
+      <button class="tab" data-tab="churn">⚠ Churn <span class="badge" id="churnBadge" style="background:var(--red)">0</span></button>
       <button class="tab" data-tab="clients">Clientes <span class="badge" id="cBadge">0</span></button>
       <button class="tab" data-tab="tasks">Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="shows">Shows <span class="badge" id="sBadge">0</span></button>
@@ -229,6 +230,12 @@
       <div class="section-head"><h2>Cobranças em aberto</h2></div>
       <div id="openInvoices"></div>
     </div>
+  </section>
+
+  <!-- CHURN -->
+  <section class="panel" id="churn">
+    <div class="grid kpis" id="churnKpis" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:22px"></div>
+    <div id="churnList"></div>
   </section>
 
   <!-- CLIENTS -->
@@ -634,8 +641,8 @@ const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function dateBR(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}`}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date(today()))/864e5)}
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||''});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:+o.balanceInit||0,temp:o.temp||''});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||''});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:+o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||''});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[]});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[]});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||''});
@@ -723,7 +730,7 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
 });
 
 /* ---- RENDER ---- */
-function renderAll(){renderOperacional();renderFinOverview();renderClients();renderTasks();renderFinance();renderShows();fillClientSelects();
+function renderAll(){renderOperacional();renderFinOverview();renderChurn();renderClients();renderTasks();renderFinance();renderShows();fillClientSelects();
   document.getElementById('cBadge').textContent=DB.clients.filter(c=>c.status==='Ativo').length;
   document.getElementById('tBadge').textContent=DB.tasks.filter(t=>t.status!=='done').length;
   document.getElementById('sBadge').textContent=DB.shows.filter(s=>showState(s).key==='ativo').length;
@@ -731,6 +738,56 @@ function renderAll(){renderOperacional();renderFinOverview();renderClients();ren
 }
 function clientName(id){const c=DB.clients.find(x=>x.id===id);return c?c.name:'—'}
 
+function renderChurn(){
+  const em_risco=DB.clients.filter(c=>c.status==='Ativo'&&(c.temp==='critico'||c.temp==='atencao'))
+    .sort((a,b)=>{
+      if(a.temp!==b.temp)return a.temp==='critico'?-1:1;
+      return(a.tempSince||'9')<(b.tempSince||'9')?-1:1;
+    });
+  const criticos=em_risco.filter(c=>c.temp==='critico');
+  const atencao=em_risco.filter(c=>c.temp==='atencao');
+  const mrrRisco=em_risco.reduce((s,c)=>s+(+c.fee||0),0);
+  const mrrCritico=criticos.reduce((s,c)=>s+(+c.fee||0),0);
+
+  document.getElementById('churnBadge').textContent=em_risco.length;
+  document.getElementById('churnKpis').innerHTML=[
+    {label:'Clientes em risco',val:em_risco.length,sub:`${criticos.length} críticos · ${atencao.length} em atenção`,cls:''},
+    {label:'MRR em risco total',val:fmt(mrrRisco),sub:'receita mensal ameaçada',cls:'money-neg'},
+    {label:'MRR crítico',val:fmt(mrrCritico),sub:'clientes 🔴 Crítico',cls:'money-neg'},
+    {label:'Impacto anual',val:fmt(mrrRisco*12),sub:'se todos saírem',cls:'money-neg'},
+  ].map(x=>`<div class="kpi ${x.cls?'red':''}"><div class="label">${x.label}</div><div class="val ${x.cls}">${x.val}</div><div class="sub">${x.sub}</div></div>`).join('');
+
+  if(!em_risco.length){
+    document.getElementById('churnList').innerHTML=`<div class="card"><div class="empty" style="padding:60px 20px">✅ Nenhum cliente em risco de churn no momento.</div></div>`;
+    return;
+  }
+
+  const grupos=[{key:'critico',label:'🔴 Crítico',list:criticos},{key:'atencao',label:'🟠 Atenção',list:atencao}];
+  document.getElementById('churnList').innerHTML=grupos.filter(g=>g.list.length).map(g=>`
+    <div style="margin-bottom:24px">
+      <div class="section-label">${g.label} — ${g.list.length} cliente${g.list.length>1?'s':''}</div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table>
+          <thead><tr><th>Cliente</th><th>Segmento</th><th>Plataformas</th><th>Dias neste status</th><th>Fee mensal</th><th>MRR em risco</th><th>Temperatura desde</th><th></th></tr></thead>
+          <tbody>${g.list.map(c=>{
+            const dias=c.tempSince?Math.max(0,Math.ceil((new Date(today())-new Date(c.tempSince))/864e5)):null;
+            const diasTxt=dias===null?'<span style="color:var(--faint)">—</span>':dias===0?'<span class="pill amber">hoje</span>':`<span class="pill ${dias>30?'red':dias>14?'amber':'gray'}">${dias} dia${dias!==1?'s':''}</span>`;
+            const cfg=TEMP_CFG[c.temp];
+            return`<tr>
+              <td><strong>${c.name}</strong>${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td>
+              <td style="color:var(--muted)">${c.seg||'—'}</td>
+              <td style="color:var(--muted);font-size:12px">${c.plat||'—'}</td>
+              <td>${diasTxt}</td>
+              <td class="money-pos">${c.fee?fmt(c.fee):'—'}</td>
+              <td class="money-neg" style="font-weight:600">${c.fee?fmt(c.fee):'—'}</td>
+              <td style="color:var(--faint);font-size:12px">${c.tempSince?c.tempSince.split('-').reverse().join('/'):'—'}</td>
+              <td class="row-actions"><button class="btn sm ghost" onclick="openClientModal('${c.id}')">✎ Editar</button></td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>
+    </div>`).join('');
+}
 function renderOperacional(){
   const active=DB.clients.filter(c=>c.status==='Ativo').length;
   const ym=today().slice(0,7),showsMonth=DB.shows.filter(s=>(s.date||'').slice(0,7)===ym);
@@ -1023,7 +1080,10 @@ async function saveClient(){
   let cat=document.getElementById('cCategory').value,customType='';
   if(cat==='custom'){customType=document.getElementById('cCustomType').value.trim()||'Outro';cat=customType}
   const channels=budgetRows.filter(r=>r.name||r.val).map(r=>({name:r.name||'',val:+r.val||0}));
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp};
+  const prevTemp=(DB.clients.find(x=>x.id===cId.value)||{}).temp||'';
+  const tempChanged=currentTemp!==prevTemp;
+  const prevSince=(DB.clients.find(x=>x.id===cId.value)||{}).tempSince||'';
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince};
   closeModal('clientModal');await _upsertClient(o);
 }
 async function delClient(id){if(!confirm('Excluir cliente?'))return;await sb.from('clients').delete().eq('id',id);DB.clients=DB.clients.filter(c=>c.id!==id);renderAll()}
