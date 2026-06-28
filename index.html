@@ -147,11 +147,12 @@
       </div>
     </div>
     <nav class="tabs">
-      <button class="tab active" data-tab="overview">Visão Geral</button>
+      <button class="tab active" data-tab="operacional">Operacional</button>
+      <button class="tab" data-tab="finOverview">Fin. Geral</button>
       <button class="tab" data-tab="clients">Clientes <span class="badge" id="cBadge">0</span></button>
       <button class="tab" data-tab="tasks">Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="shows">Shows <span class="badge" id="sBadge">0</span></button>
-      <button class="tab" data-tab="finance">Financeiro</button>
+      <button class="tab" data-tab="finance">Lançamentos</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px">
       <span id="userLabel" style="font-size:12px;color:var(--muted)"></span>
@@ -173,9 +174,30 @@
     </div>
   </div>
 
-  <!-- OVERVIEW -->
-  <section class="panel active" id="overview">
-    <div class="grid kpis" id="kpiGrid"></div>
+  <!-- OPERACIONAL -->
+  <section class="panel active" id="operacional">
+    <div class="grid kpis" id="kpiGridOp"></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start;margin-bottom:18px">
+      <div class="card">
+        <h3>Composição da carteira</h3>
+        <div class="hint">Clientes por tipo</div>
+        <div class="chart-box"><canvas id="cTipo"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Status das tarefas</h3>
+        <div class="hint">Distribuição por coluna do kanban</div>
+        <div class="chart-box"><canvas id="cTaskStatus"></canvas></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-head"><h2>Entregas da semana</h2></div>
+      <div id="weekTasks"></div>
+    </div>
+  </section>
+
+  <!-- FIN. GERAL -->
+  <section class="panel" id="finOverview">
+    <div class="grid kpis" id="kpiGridFin"></div>
     <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start;margin-bottom:18px">
       <div class="card">
         <h3>Receita por tipo de cobrança</h3>
@@ -183,20 +205,14 @@
         <div class="chart-box"><canvas id="cRev"></canvas></div>
       </div>
       <div class="card">
-        <h3>Composição da carteira</h3>
-        <div class="hint">Clientes por tipo</div>
-        <div class="chart-box"><canvas id="cTipo"></canvas></div>
+        <h3>Fluxo previsto de entrada</h3>
+        <div class="hint">Contas a receber por mês de vencimento</div>
+        <div class="chart-box"><canvas id="cFinOv"></canvas></div>
       </div>
     </div>
-    <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start">
-      <div class="card">
-        <div class="section-head"><h2>Entregas da semana</h2></div>
-        <div id="weekTasks"></div>
-      </div>
-      <div class="card">
-        <div class="section-head"><h2>Cobranças em aberto</h2></div>
-        <div id="openInvoices"></div>
-      </div>
+    <div class="card">
+      <div class="section-head"><h2>Cobranças em aberto</h2></div>
+      <div id="openInvoices"></div>
     </div>
   </section>
 
@@ -282,6 +298,7 @@
     <div class="section-head">
       <h2>Lançamentos</h2>
       <div style="display:flex;gap:8px">
+        <button class="btn sm ghost" onclick="openCreditorModal()">🏦 Credores</button>
         <button class="btn" onclick="gerarMensalidades()">⟳ Gerar mensalidades do mês</button>
         <button class="btn primary" onclick="openFinModal()">+ Lançamento</button>
       </div>
@@ -289,8 +306,16 @@
     <div class="filterbar">
       <label style="margin:0">Mês:</label>
       <input type="month" id="finMonth" style="width:auto" onchange="renderFinance()">
-      <label style="margin:0 0 0 8px">Tipo de cliente:</label>
+      <label style="margin:0 0 0 8px">Tipo:</label>
       <select id="finType" style="width:auto" onchange="renderFinance()"></select>
+      <label style="margin:0 0 0 8px">Situação:</label>
+      <select id="finSit" style="width:auto" onchange="renderFinance()">
+        <option value="">Todas</option>
+        <option value="pendente">Pendente</option>
+        <option value="pago">Pago/Recebido</option>
+        <option value="atrasado">Atrasado</option>
+      </select>
+      <input id="finSearch" placeholder="🔍 Buscar cliente..." style="width:180px" oninput="renderFinance()">
       <button class="btn sm ghost" onclick="clearFinFilters()">Limpar filtros</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
@@ -417,7 +442,7 @@
     <input type="hidden" id="fId">
     <div class="form-grid">
       <div class="form-row"><label>Tipo</label>
-        <select id="fType"><option value="receita">Receita</option><option value="despesa">Despesa</option></select>
+        <select id="fType" onchange="finTypeChange()"><option value="receita">Receita</option><option value="despesa">Despesa</option></select>
       </div>
       <div class="form-row"><label>Cliente</label><select id="fClient"></select></div>
     </div>
@@ -426,12 +451,34 @@
       <div class="form-row"><label>Valor (R$)</label><input id="fVal" type="number" placeholder="0"></div>
       <div class="form-row"><label>Vencimento</label><input id="fDue" type="date"></div>
     </div>
+    <div class="form-row" id="fCreditorRow" style="display:none">
+      <label>Estabelecimento / Credor</label>
+      <select id="fCreditor">
+        <option value="">— selecione —</option>
+      </select>
+    </div>
     <div class="form-row"><label>Situação</label>
       <select id="fStatus"><option value="pendente">Pendente</option><option value="pago">Pago/Recebido</option><option value="atrasado">Atrasado</option></select>
     </div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('finModal')">Cancelar</button>
       <button class="btn primary" onclick="saveFin()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- CREDITOR MODAL -->
+<div class="modal-bg" id="creditorModal">
+  <div class="modal">
+    <h3>Credores / Estabelecimentos</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Cadastre os fornecedores e credores para selecionar nas despesas.</p>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <input id="newCreditorName" placeholder="Nome do credor / estabelecimento" style="flex:1" onkeydown="if(event.key==='Enter')addCreditor()">
+      <button class="btn primary" onclick="addCreditor()">+ Adicionar</button>
+    </div>
+    <div id="creditorList"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal('creditorModal')">Fechar</button>
     </div>
   </div>
 </div>
@@ -497,7 +544,7 @@ const SUPA_URL = 'https://mocrfqmdjwvyhqvdpimm.supabase.co';
 const SUPA_KEY = 'sb_publishable_gWzVyEm8hT0_CH16UO8UqA_kkcbfo14';
 const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
-const DB = {clients:[], tasks:[], finance:[], shows:[], team:[]};
+const DB = {clients:[], tasks:[], finance:[], shows:[], team:[], creditors:[]};
 
 const fmt = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
 const today = () => new Date().toISOString().slice(0,10);
@@ -509,8 +556,8 @@ const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ati
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[]});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[]});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[]});
-const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false});
-const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false});
+const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||''});
+const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false,creditor:o.creditor||null});
 const mapShow = r => ({id:r.id,client:r.client||'',name:r.name||'',date:r.date||'',val:+r.val||0,state:r.state||'ativo',payments:r.payments||[]});
 const dbShow = o => ({id:o.id,client:o.client||null,name:o.name||'',date:o.date||'',val:+o.val||0,state:o.state||'ativo',payments:o.payments||[]});
 
@@ -562,8 +609,8 @@ async function doLogout(){
 
 /* ---- LOAD ---- */
 async function loadAll(){
-  const [c,t,f,s,tm]=await Promise.all([sb.from('clients').select('*'),sb.from('tasks').select('*'),sb.from('finance').select('*'),sb.from('shows').select('*'),sb.from('team').select('*')]);
-  DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask);DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];
+  const [c,t,f,s,tm,cr]=await Promise.all([sb.from('clients').select('*'),sb.from('tasks').select('*'),sb.from('finance').select('*'),sb.from('shows').select('*'),sb.from('team').select('*'),sb.from('creditors').select('*').order('name')]);
+  DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask);DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];DB.creditors=cr.data||[];
   if(!DB.team.length){const dt=[{id:'eu',name:'Andreia'},{id:'col1',name:'Dionathan'}];await sb.from('team').insert(dt);DB.team=dt;}
   renderAll();setupRealtime();
 }
@@ -594,24 +641,44 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
 });
 
 /* ---- RENDER ---- */
-function renderAll(){renderOverview();renderClients();renderTasks();renderFinance();renderShows();fillClientSelects();
+function renderAll(){renderOperacional();renderFinOverview();renderClients();renderTasks();renderFinance();renderShows();fillClientSelects();
   document.getElementById('cBadge').textContent=DB.clients.filter(c=>c.status==='Ativo').length;
   document.getElementById('tBadge').textContent=DB.tasks.filter(t=>t.status!=='done').length;
   document.getElementById('sBadge').textContent=DB.shows.filter(s=>showState(s).key==='ativo').length;
   if(window.Chart)renderCharts();
 }
 function clientName(id){const c=DB.clients.find(x=>x.id===id);return c?c.name:'—'}
-function renderOverview(){
+
+function renderOperacional(){
   const active=DB.clients.filter(c=>c.status==='Ativo').length;
-  const mrr=DB.clients.filter(c=>c.status==='Ativo'&&(c.billing||'mensal')==='mensal').reduce((s,c)=>s+(+c.fee||0),0);
   const ym=today().slice(0,7),showsMonth=DB.shows.filter(s=>(s.date||'').slice(0,7)===ym);
-  const showRev=showsMonth.reduce((s,x)=>s+showTotal(x),0);
+  const pendentes=DB.tasks.filter(t=>t.status!=='done').length;
+  const atrasadas=DB.tasks.filter(t=>t.status!=='done'&&t.due&&daysUntil(t.due)<0).length;
+  const proxRel=DB.clients.filter(c=>c.report&&daysUntil(c.report)<=7&&daysUntil(c.report)>=0).length;
+  const k=[
+    {label:'Clientes ativos',val:active,sub:DB.clients.length+' no total'},
+    {label:'Tarefas pendentes',val:pendentes,sub:atrasadas?atrasadas+' atrasadas':'em dia'},
+    {label:'Shows este mês',val:showsMonth.length,sub:showsMonth.filter(s=>showState(s).key==='ativo').length+' em campanha'},
+    {label:'Relatórios esta semana',val:proxRel,sub:'vencendo em até 7 dias'},
+  ];
+  document.getElementById('kpiGridOp').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val">${x.val}</div><div class="sub">${x.sub}</div></div>`).join('');
+  const week=DB.tasks.filter(t=>t.status!=='done').sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).slice(0,8);
+  document.getElementById('weekTasks').innerHTML=week.length?week.map(t=>{const d=daysUntil(t.due);let p='gray',txt=t.due?dateBR(t.due):'sem prazo';if(d!==null){if(d<0){p='red';txt='atrasada '+Math.abs(d)+'d'}else if(d<=2){p='amber';txt=d===0?'hoje':d+'d'}else{p='blue';txt=d+'d'}}return`<div class="task-item" style="padding:10px 4px"><span class="task-name" style="font-size:13px">${t.name}<br><span style="font-size:11px;color:var(--faint)">${clientName(t.client)}</span></span><span class="pill ${p}">${txt}</span></div>`}).join(''):'<div class="empty">Nenhuma tarefa pendente 🎉</div>';
+}
+
+function renderFinOverview(){
+  const mrr=DB.clients.filter(c=>c.status==='Ativo'&&(c.billing||'mensal')==='mensal').reduce((s,c)=>s+(+c.fee||0),0);
   const pendingFin=DB.finance.filter(f=>f.type==='receita'&&f.status!=='pago').reduce((s,f)=>s+(+f.val||0),0);
   const pendingShows=DB.shows.reduce((s,x)=>s+(showTotal(x)-showRecebido(x)),0);
-  const k=[{label:'Clientes ativos',val:active,sub:DB.clients.length+' no total'},{label:'MRR (recorrente)',val:fmt(mrr),sub:'só fees mensais'},{label:'Shows este mês',val:showsMonth.length,sub:fmt(showRev)+' em eventos'},{label:'A receber',val:fmt(pendingFin+pendingShows),sub:'fees + shows em aberto'},{label:'Tarefas pendentes',val:DB.tasks.filter(t=>t.status!=='done').length,sub:'em todas as frentes'}];
-  document.getElementById('kpiGrid').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val">${x.val}</div><div class="sub">${x.sub}</div></div>`).join('');
-  const week=DB.tasks.filter(t=>t.status!=='done').sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).slice(0,6);
-  document.getElementById('weekTasks').innerHTML=week.length?week.map(t=>{const d=daysUntil(t.due);let p='gray',txt=t.due?dateBR(t.due):'sem prazo';if(d!==null){if(d<0){p='red';txt='atrasada '+Math.abs(d)+'d'}else if(d<=2){p='amber';txt=d===0?'hoje':d+'d'}else{p='blue';txt=d+'d'}}return`<div class="task-item" style="padding:10px 4px"><span class="task-name" style="font-size:13px">${t.name}<br><span style="font-size:11px;color:var(--faint)">${clientName(t.client)}</span></span><span class="pill ${p}">${txt}</span></div>`}).join(''):'<div class="empty">Nenhuma tarefa pendente 🎉</div>';
+  const recebidoMes=DB.finance.filter(f=>f.type==='receita'&&f.status==='pago'&&(f.due||'').slice(0,7)===today().slice(0,7)).reduce((s,f)=>s+(+f.val||0),0);
+  const despesasMes=DB.finance.filter(f=>f.type==='despesa'&&(f.due||'').slice(0,7)===today().slice(0,7)).reduce((s,f)=>s+(+f.val||0),0);
+  const k=[
+    {label:'MRR (recorrente)',val:fmt(mrr),sub:'fees mensais ativos'},
+    {label:'A receber (fees)',val:fmt(pendingFin),sub:'lançamentos em aberto'},
+    {label:'A receber (shows)',val:fmt(pendingShows),sub:'pagamentos pendentes'},
+    {label:'Recebido este mês',val:fmt(recebidoMes),sub:`despesas: ${fmt(despesasMes)}`},
+  ];
+  document.getElementById('kpiGridFin').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val">${x.val}</div><div class="sub">${x.sub}</div></div>`).join('');
   const invF=DB.finance.filter(f=>f.type==='receita'&&f.status!=='pago').map(f=>({client:f.client,desc:f.desc,val:f.val,status:f.status,due:f.due}));
   const invS=[];DB.shows.forEach(s=>{const pays=showPays(s),multi=pays.length>1;pays.forEach((p,i)=>{if(p.status!=='pago')invS.push({client:s.client,desc:'Show: '+s.name+(multi?` (${i+1}/${pays.length})`:''),val:p.val,status:'pendente',due:p.date})})});
   const inv=[...invF,...invS].sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1);
@@ -721,7 +788,7 @@ function budgetAutoCalc(){
 
 /* ---- FINANCE ---- */
 function fillFinTypeFilter(){const sel=document.getElementById('finType');if(!sel)return;const used=[...new Set(DB.clients.map(c=>c.category||c.billing||'mensal'))];const cur=sel.value;sel.innerHTML='<option value="all">Todos</option>'+used.map(b=>`<option value="${b}">${clientTypeLabel(b)}</option>`).join('');sel.value=cur||'all'}
-function clearFinFilters(){document.getElementById('finMonth').value='';document.getElementById('finType').value='all';renderFinance()}
+function clearFinFilters(){document.getElementById('finMonth').value='';document.getElementById('finType').value='all';document.getElementById('finSit').value='';document.getElementById('finSearch').value='';renderFinance()}
 async function gerarMensalidades(){
   const ym=(document.getElementById('finMonth')&&document.getElementById('finMonth').value)||today().slice(0,7);
   const [y,m]=ym.split('-');
@@ -742,8 +809,12 @@ function renderFinance(){
   const fType=document.getElementById('finType')?document.getElementById('finType').value:'all';
   const showRows=[];DB.shows.forEach(s=>{const pays=showPays(s),multi=pays.length>1;pays.forEach((p,idx)=>{showRows.push({_show:1,showId:s.id,payId:p.id,desc:'Show: '+(s.name||clientName(s.client))+(multi?` (${idx+1}/${pays.length})`:''),client:s.client,type:'receita',val:p.val,due:p.date,status:p.status==='pago'?'pago':'pendente'})})});
   let all=[...DB.finance.map(f=>({...f})),...showRows];
+  const fSit=document.getElementById('finSit')?document.getElementById('finSit').value:'';
+  const fSearch=(document.getElementById('finSearch')?document.getElementById('finSearch').value:'').toLowerCase().trim();
   if(fMonth)all=all.filter(f=>(f.due||'').slice(0,7)===fMonth);
   if(fType&&fType!=='all')all=all.filter(f=>clientType(f.client)===fType);
+  if(fSit)all=all.filter(f=>f.status===fSit);
+  if(fSearch)all=all.filter(f=>clientName(f.client).toLowerCase().includes(fSearch)||( f.desc&&f.desc.toLowerCase().includes(fSearch)));
   const recArr=all.filter(f=>f.type==='receita'),despArr=all.filter(f=>f.type==='despesa');
   const recTotal=recArr.reduce((s,f)=>s+(+f.val||0),0),despTotal=despArr.reduce((s,f)=>s+(+f.val||0),0);
   const recebido=recArr.filter(f=>f.status==='pago').reduce((s,f)=>s+(+f.val||0),0);
@@ -752,7 +823,7 @@ function renderFinance(){
   document.getElementById('finKpis').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val ${x.cls||''}">${x.val}</div></div>`).join('');
   const t=document.getElementById('finTable');
   if(!all.length){t.innerHTML='<tr><td><div class="empty">Nenhum lançamento'+(filtroAtivo?' com esses filtros':'')+'.</div></td></tr>';return}
-  t.innerHTML=`<thead><tr><th>Descrição</th><th>Cliente</th><th>Tipo cliente</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead><tbody>`+all.sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).map(f=>{const sp={pago:'green',pendente:'amber',atrasado:'red'}[f.status];const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[f.status];const ct=clientTypeLabel(clientType(f.client));const statusCell=f._show?`<span class="pill ${sp}" style="cursor:pointer" onclick="toggleShowPayInFin('${f.showId}','${f.payId}')">${sl}</span>`:`<span class="pill ${sp}">${sl}</span>`;const act=f._show?`<button class="btn sm ghost" onclick="openShowModal('${f.showId}')">✎</button>`:`<button class="btn sm ghost" onclick="openFinModal('${f.id}')">✎</button><button class="btn sm ghost danger" onclick="delFin('${f.id}')">✕</button>`;return`<tr><td>${f.desc}</td><td style="color:var(--muted)">${clientName(f.client)}</td><td><span class="pill gray">${ct}</span></td><td class="${f.type==='receita'?'money-pos':'money-neg'}">${f.type==='despesa'?'-':''}${fmt(f.val)}</td><td>${dateBR(f.due)}</td><td>${statusCell}</td><td class="row-actions">${act}</td></tr>`}).join('')+'</tbody>';
+  t.innerHTML=`<thead><tr><th>Descrição</th><th>Cliente / Credor</th><th>Tipo</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead><tbody>`+all.sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).map(f=>{const sp={pago:'green',pendente:'amber',atrasado:'red'}[f.status];const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[f.status];const ct=clientTypeLabel(clientType(f.client));const isDespesa=f.type==='despesa';const partyName=isDespesa&&f.creditor?creditorName(f.creditor):clientName(f.client);const partyTag=isDespesa?`<span class="pill red" style="font-size:10px">despesa</span>`:`<span class="pill gray">${ct}</span>`;const statusCell=f._show?`<span class="pill ${sp}" style="cursor:pointer" onclick="toggleShowPayInFin('${f.showId}','${f.payId}')">${sl}</span>`:`<span class="pill ${sp}">${sl}</span>`;const act=f._show?`<button class="btn sm ghost" onclick="openShowModal('${f.showId}')">✎</button>`:`<button class="btn sm ghost" onclick="openFinModal('${f.id}')">✎</button><button class="btn sm ghost danger" onclick="delFin('${f.id}')">✕</button>`;return`<tr><td>${f.desc}</td><td style="color:var(--muted)">${partyName}</td><td>${partyTag}</td><td class="${isDespesa?'money-neg':'money-pos'}">${isDespesa?'-':''}${fmt(f.val)}</td><td>${dateBR(f.due)}</td><td>${statusCell}</td><td class="row-actions">${act}</td></tr>`}).join('')+'</tbody>';
 }
 async function toggleShowPayInFin(showId,payId){const s=DB.shows.find(x=>x.id===showId);if(!s)return;const p=showPays(s).find(x=>x.id===payId);if(!p)return;p.status=p.status==='pago'?'pendente':'pago';if(s.payments)s.payments=showPays(s);await _upsertShow(s);renderAll()}
 
@@ -847,9 +918,54 @@ async function delTask(id){await sb.from('tasks').delete().eq('id',id);DB.tasks=
 function openTeamModal(){document.getElementById('teamList').innerHTML=DB.team.map((m,i)=>`<div class="form-row"><label>${i===0?'Você':'Colaborador '+i}</label><input value="${m.name}" data-team="${m.id}"></div>`).join('');openModal('teamModal')}
 async function saveTeam(){document.querySelectorAll('[data-team]').forEach(inp=>{const m=DB.team.find(x=>x.id===inp.dataset.team);if(m&&inp.value.trim())m.name=inp.value.trim()});await sb.from('team').upsert(DB.team);closeModal('teamModal');renderAll()}
 
+/* ---- CREDITORS ---- */
+function creditorName(id){const c=DB.creditors.find(x=>x.id===id);return c?c.name:''}
+function fillCreditorSelect(){
+  const sel=document.getElementById('fCreditor');if(!sel)return;
+  const cur=sel.value;
+  sel.innerHTML='<option value="">— selecione —</option>'+DB.creditors.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  sel.value=cur;
+}
+function finTypeChange(){
+  const isDespesa=document.getElementById('fType').value==='despesa';
+  document.getElementById('fCreditorRow').style.display=isDespesa?'block':'none';
+  document.getElementById('fClient').closest('.form-grid').querySelector('div').style.opacity=isDespesa?'.5':'1';
+}
+async function addCreditor(){
+  const inp=document.getElementById('newCreditorName');
+  const name=inp.value.trim();if(!name)return inp.focus();
+  const o={id:uid(),name};
+  await sb.from('creditors').insert(o);
+  DB.creditors.push(o);DB.creditors.sort((a,b)=>a.name.localeCompare(b.name));
+  inp.value='';renderCreditorList();fillCreditorSelect();
+}
+async function delCreditor(id){
+  if(!confirm('Excluir credor?'))return;
+  await sb.from('creditors').delete().eq('id',id);
+  DB.creditors=DB.creditors.filter(c=>c.id!==id);
+  renderCreditorList();fillCreditorSelect();
+}
+function renderCreditorList(){
+  document.getElementById('creditorList').innerHTML=DB.creditors.length
+    ?DB.creditors.map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border)"><span style="font-size:13px">${c.name}</span><button class="btn sm ghost danger" onclick="delCreditor('${c.id}')">✕</button></div>`).join('')
+    :'<div class="empty" style="padding:20px 0">Nenhum credor cadastrado</div>';
+}
+function openCreditorModal(){renderCreditorList();fillCreditorSelect();openModal('creditorModal')}
+
 /* ---- FINANCE MODAL ---- */
-function openFinModal(id){fillClientSelects();const f=id?DB.finance.find(x=>x.id===id):{};document.getElementById('finModalTitle').textContent=id?'Editar lançamento':'Novo lançamento';fId.value=id||'';fType.value=f.type||'receita';fClient.value=f.client||'';fDesc.value=f.desc||'';fVal.value=f.val||'';fDue.value=f.due||'';fStatus.value=f.status||'pendente';openModal('finModal')}
-async function saveFin(){if(!fDesc.value.trim())return fDesc.focus();const o={id:fId.value||uid(),type:fType.value,client:fClient.value,desc:fDesc.value.trim(),val:+fVal.value||0,due:fDue.value,status:fStatus.value};await _upsertFinance(o);closeModal('finModal');renderAll()}
+function openFinModal(id){
+  fillClientSelects();fillCreditorSelect();
+  const f=id?DB.finance.find(x=>x.id===id):{};
+  document.getElementById('finModalTitle').textContent=id?'Editar lançamento':'Novo lançamento';
+  fId.value=id||'';fType.value=f.type||'receita';fClient.value=f.client||'';fDesc.value=f.desc||'';fVal.value=f.val||'';fDue.value=f.due||'';fStatus.value=f.status||'pendente';
+  document.getElementById('fCreditor').value=f.creditor||'';
+  finTypeChange();openModal('finModal');
+}
+async function saveFin(){
+  if(!fDesc.value.trim())return fDesc.focus();
+  const o={id:fId.value||uid(),type:fType.value,client:fClient.value,desc:fDesc.value.trim(),val:+fVal.value||0,due:fDue.value,status:fStatus.value,creditor:document.getElementById('fCreditor').value||null};
+  await _upsertFinance(o);closeModal('finModal');renderAll();
+}
 async function delFin(id){await sb.from('finance').delete().eq('id',id);DB.finance=DB.finance.filter(f=>f.id!==id);renderAll()}
 
 /* ---- CHARTS ---- */
@@ -865,6 +981,10 @@ function renderCharts(){
   if(cRevEl){destroyChart('rev');_charts.rev=new Chart(cRevEl,{type:'bar',data:{labels:['Fee mensal','Por evento/show','Parceria/Permuta'],datasets:[{data:[ativos.filter(c=>(c.billing||'mensal')==='mensal').reduce((s,c)=>s+(+c.fee||0),0),ativos.filter(c=>c.billing==='evento').reduce((s,c)=>s+(+c.fee||0),0),0],backgroundColor:[CHART_C.accent,CHART_C.gold,CHART_C.v2],borderRadius:8,barThickness:54}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gc,ticks:{callback:v=>'R$ '+(v>=1000?v/1000+'k':v)}},x:gc}}})}
   const cTipoEl=document.getElementById('cTipo');
   if(cTipoEl){const tc={};DB.clients.forEach(c=>{const k=clientTypeLabel(c.category||c.billing||'mensal');tc[k]=(tc[k]||0)+1});destroyChart('tipo');_charts.tipo=new Chart(cTipoEl,{type:'doughnut',data:{labels:Object.keys(tc),datasets:[{data:Object.values(tc),backgroundColor:[CHART_C.accent,CHART_C.v2,CHART_C.gold,CHART_C.blue,CHART_C.pink,CHART_C.red,CHART_C.muted],borderColor:'#131210',borderWidth:3}]},options:{maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{boxWidth:10,padding:12}}}}})}
+  const cTaskEl=document.getElementById('cTaskStatus');
+  if(cTaskEl){const cols=[['todo','A fazer'],['doing','Em andamento'],['review','Revisão'],['done','Concluído']];const vals=cols.map(([k])=>DB.tasks.filter(t=>t.status===k).length);destroyChart('taskStatus');_charts.taskStatus=new Chart(cTaskEl,{type:'bar',data:{labels:cols.map(([,l])=>l),datasets:[{data:vals,backgroundColor:[CHART_C.muted,CHART_C.blue,CHART_C.gold,CHART_C.green],borderRadius:8,barThickness:48}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gc,ticks:{stepSize:1}},x:gc}}})}
+  const cFinOvEl=document.getElementById('cFinOv');
+  if(cFinOvEl){const pm={};DB.finance.filter(f=>f.type==='receita'&&f.status!=='pago').forEach(f=>{const m=(f.due||'').slice(0,7);if(m)pm[m]=(pm[m]||0)+(+f.val||0)});DB.shows.forEach(s=>showPays(s).forEach(p=>{if(p.status!=='pago'){const m=(p.date||'').slice(0,7);if(m)pm[m]=(pm[m]||0)+(+p.val||0)}}));const meses=Object.keys(pm).sort();const nM={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};const cores=[CHART_C.blue,CHART_C.v2,CHART_C.accent,CHART_C.gold,CHART_C.pink,CHART_C.red];destroyChart('finOv');_charts.finOv=new Chart(cFinOvEl,{type:'bar',data:{labels:meses.map(m=>{const[y,mm]=m.split('-');return nM[mm]+'/'+y.slice(2)}),datasets:[{data:meses.map(m=>pm[m]),backgroundColor:meses.map((_,i)=>cores[i%cores.length]),borderRadius:8,barThickness:56}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scale:{y:{...gc,ticks:{callback:v=>'R$ '+v}},x:gc}}})}
   const cShowsEl=document.getElementById('cShows');
   if(cShowsEl){const sl=[...DB.shows].sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);destroyChart('shows');_charts.shows=new Chart(cShowsEl,{type:'bar',data:{labels:sl.map(s=>(s.name||'').length>22?s.name.slice(0,22)+'…':s.name),datasets:[{data:sl.map(s=>showTotal(s)),backgroundColor:CHART_C.gold,borderRadius:7}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gc,ticks:{callback:v=>'R$ '+v}},x:{...gc,ticks:{maxRotation:40,minRotation:40,font:{size:10}}}}}})}
   const cFinEl=document.getElementById('cFin');
