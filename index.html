@@ -299,6 +299,7 @@
       <h2>Lançamentos</h2>
       <div style="display:flex;gap:8px">
         <button class="btn sm ghost" onclick="openCreditorModal()">🏦 Credores</button>
+        <button class="btn" onclick="gerarDespesasRecorrentes()">⟳ Gerar despesas do mês</button>
         <button class="btn" onclick="gerarMensalidades()">⟳ Gerar mensalidades do mês</button>
         <button class="btn primary" onclick="openFinModal()">+ Lançamento</button>
       </div>
@@ -306,7 +307,12 @@
     <div class="filterbar">
       <label style="margin:0">Mês:</label>
       <input type="month" id="finMonth" style="width:auto" onchange="renderFinance()">
-      <label style="margin:0 0 0 8px">Tipo:</label>
+      <select id="finEntryType" style="width:auto" onchange="renderFinance()">
+        <option value="">Receitas e Despesas</option>
+        <option value="receita">Só Receitas</option>
+        <option value="despesa">Só Despesas</option>
+      </select>
+      <label style="margin:0 0 0 8px">Tipo cliente:</label>
       <select id="finType" style="width:auto" onchange="renderFinance()"></select>
       <label style="margin:0 0 0 8px">Situação:</label>
       <select id="finSit" style="width:auto" onchange="renderFinance()">
@@ -360,6 +366,17 @@
         </select>
       </div>
       <div class="form-row" id="cPayDelayDiasRow"><label>Quantos dias após o show?</label><input id="cPayDelay" type="number" min="0" placeholder="7"></div>
+    </div>
+    <hr class="budget-divider">
+    <div class="form-row" style="margin-bottom:10px;display:flex;align-items:center;gap:10px">
+      <label style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text);margin:0;cursor:pointer">
+        <input type="checkbox" id="cUsesBalance" class="checkbox" style="width:auto" onchange="balanceToggle()">
+        Cliente acumula saldo (carteira)
+      </label>
+    </div>
+    <div id="cBalanceInitRow" style="display:none" class="form-row">
+      <label>Saldo inicial (R$)</label>
+      <input id="cBalanceInit" type="number" placeholder="Ex: 1246.40" step="0.01">
     </div>
     <hr class="budget-divider">
     <div class="form-row" style="margin-bottom:10px">
@@ -457,6 +474,18 @@
         <option value="">— selecione —</option>
       </select>
     </div>
+    <div class="form-row" id="fRepeatRow" style="display:none">
+      <label>Recorrência</label>
+      <select id="fRepeat">
+        <option value="">Não repete</option>
+        <option value="semanal">Semanalmente</option>
+        <option value="quinzenal">A cada 15 dias</option>
+        <option value="mensal">Mensalmente</option>
+        <option value="bimestral">Bimestralmente</option>
+        <option value="trimestral">Trimestralmente</option>
+        <option value="anual">Anualmente</option>
+      </select>
+    </div>
     <div class="form-row"><label>Situação</label>
       <select id="fStatus"><option value="pendente">Pendente</option><option value="pago">Pago/Recebido</option><option value="atrasado">Atrasado</option></select>
     </div>
@@ -479,6 +508,34 @@
     <div id="creditorList"></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('creditorModal')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- WALLET MODAL -->
+<div class="modal-bg" id="walletModal">
+  <div class="modal" style="max-width:540px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h3 id="walletTitle">Carteira</h3>
+      <div style="text-align:right">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Saldo atual</div>
+        <div id="walletBalance" style="font-family:'Space Grotesk';font-size:1.8rem;font-weight:700;color:var(--accent)">R$ 0,00</div>
+      </div>
+    </div>
+    <hr class="budget-divider">
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <select id="wType" style="width:auto">
+        <option value="entrada">➕ Entrada (crédito)</option>
+        <option value="debito">➖ Débito (uso de serviço)</option>
+      </select>
+      <input id="wDesc" placeholder="Descrição" style="flex:1;min-width:140px">
+      <input id="wVal" type="number" placeholder="Valor R$" style="width:110px" step="0.01">
+      <input id="wDate" type="date" style="width:auto">
+      <button class="btn primary" onclick="addWalletEntry()">Lançar</button>
+    </div>
+    <div id="walletList" style="max-height:340px;overflow:auto"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal('walletModal')">Fechar</button>
     </div>
   </div>
 </div>
@@ -544,7 +601,7 @@ const SUPA_URL = 'https://mocrfqmdjwvyhqvdpimm.supabase.co';
 const SUPA_KEY = 'sb_publishable_gWzVyEm8hT0_CH16UO8UqA_kkcbfo14';
 const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
-const DB = {clients:[], tasks:[], finance:[], shows:[], team:[], creditors:[]};
+const DB = {clients:[], tasks:[], finance:[], shows:[], team:[], creditors:[], wallet:[]};
 
 const fmt = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
 const today = () => new Date().toISOString().slice(0,10);
@@ -552,12 +609,12 @@ const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function dateBR(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}`}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date(today()))/864e5)}
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[]});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[]});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:+o.balanceInit||0});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[]});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[]});
-const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||''});
-const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false,creditor:o.creditor||null});
+const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||''});
+const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false,creditor:o.creditor||null,repeat:o.repeat||''});
 const mapShow = r => ({id:r.id,client:r.client||'',name:r.name||'',date:r.date||'',val:+r.val||0,state:r.state||'ativo',payments:r.payments||[]});
 const dbShow = o => ({id:o.id,client:o.client||null,name:o.name||'',date:o.date||'',val:+o.val||0,state:o.state||'ativo',payments:o.payments||[]});
 
@@ -609,8 +666,8 @@ async function doLogout(){
 
 /* ---- LOAD ---- */
 async function loadAll(){
-  const [c,t,f,s,tm,cr]=await Promise.all([sb.from('clients').select('*'),sb.from('tasks').select('*'),sb.from('finance').select('*'),sb.from('shows').select('*'),sb.from('team').select('*'),sb.from('creditors').select('*').order('name')]);
-  DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask);DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];DB.creditors=cr.data||[];
+  const [c,t,f,s,tm,cr,w]=await Promise.all([sb.from('clients').select('*'),sb.from('tasks').select('*'),sb.from('finance').select('*'),sb.from('shows').select('*'),sb.from('team').select('*'),sb.from('creditors').select('*').order('name'),sb.from('wallet').select('*').order('date')]);
+  DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask);DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];DB.creditors=cr.data||[];DB.wallet=w.data||[];
   if(!DB.team.length){const dt=[{id:'eu',name:'Andreia'},{id:'col1',name:'Dionathan'}];await sb.from('team').insert(dt);DB.team=dt;}
   renderAll();setupRealtime();
 }
@@ -687,7 +744,7 @@ function renderFinOverview(){
 function renderClients(){
   const t=document.getElementById('clientTable');
   if(!DB.clients.length){t.innerHTML='<tr><td><div class="empty">Nenhum cliente cadastrado</div></td></tr>';return}
-  t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Verba mídia</th><th>Próx. relatório</th><th></th></tr></thead><tbody>`+DB.clients.map(c=>{
+  t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Verba mídia</th><th>Saldo</th><th>Próx. relatório</th><th></th></tr></thead><tbody>`+DB.clients.map(c=>{
     const sp={'Ativo':'green','Onboarding':'blue','Pausado':'amber','Encerrado':'gray'}[c.status]||'gray';
     const d=daysUntil(c.report);let rep=c.report?dateBR(c.report):'—';
     if(d!==null&&d<=3&&d>=0)rep=`<span class="pill amber">${rep}</span>`;else if(d!==null&&d<0)rep=`<span class="pill red">atrasado</span>`;
@@ -697,7 +754,9 @@ function renderClients(){
     const catP={funil:'blue',show:'amber',agencia:'blue'}[cat]||'gray';
     const valTxt=(c.billing==='parceria'||c.billing==='permuta')?'—':fmt(c.fee);
     const budgetTxt=c.budget?`<div style="font-weight:600">${fmt(c.budget)}</div>${(c.budgetChannels||[]).map(ch=>`<div style="font-size:11px;color:var(--muted)">${ch.name}: ${fmt(ch.val)}</div>`).join('')}`:'—';
-    return`<tr><td><strong>${c.name}</strong>${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${rep}</td><td class="row-actions"><button class="btn sm ghost" onclick="openClientModal('${c.id}')">Editar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
+    const saldo=c.usesBalance?calcBalance(c.id):null;
+    const balanceTxt=saldo!==null?`<div style="font-weight:700;color:${saldo>=0?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div><button class="btn sm ghost" style="margin-top:4px;font-size:11px" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:'—';
+    return`<tr><td><strong>${c.name}</strong>${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td>${rep}</td><td class="row-actions"><button class="btn sm ghost" onclick="openClientModal('${c.id}')">Editar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
   }).join('')+'</tbody>';
 }
 function showPays(s){if(s.payments&&s.payments.length)return s.payments;return [{id:s.id+'_p',date:s.date,val:s.val,status:s.status||'pendente',_virtual:1}]}
@@ -788,7 +847,7 @@ function budgetAutoCalc(){
 
 /* ---- FINANCE ---- */
 function fillFinTypeFilter(){const sel=document.getElementById('finType');if(!sel)return;const used=[...new Set(DB.clients.map(c=>c.category||c.billing||'mensal'))];const cur=sel.value;sel.innerHTML='<option value="all">Todos</option>'+used.map(b=>`<option value="${b}">${clientTypeLabel(b)}</option>`).join('');sel.value=cur||'all'}
-function clearFinFilters(){document.getElementById('finMonth').value='';document.getElementById('finType').value='all';document.getElementById('finSit').value='';document.getElementById('finSearch').value='';renderFinance()}
+function clearFinFilters(){document.getElementById('finMonth').value='';document.getElementById('finEntryType').value='';document.getElementById('finType').value='all';document.getElementById('finSit').value='';document.getElementById('finSearch').value='';renderFinance()}
 async function gerarMensalidades(){
   const ym=(document.getElementById('finMonth')&&document.getElementById('finMonth').value)||today().slice(0,7);
   const [y,m]=ym.split('-');
@@ -802,6 +861,26 @@ async function gerarMensalidades(){
   novas.forEach(n=>DB.finance.push(n));renderAll();
   alert(`${novas.length} mensalidade(s) gerada(s) para ${nomeMes}.${jaExistiam?` (${jaExistiam} já existiam)`:''}`);
 }
+async function gerarDespesasRecorrentes(){
+  const ym=(document.getElementById('finMonth')&&document.getElementById('finMonth').value)||today().slice(0,7);
+  const [y,m]=ym.split('-');
+  const recorrentes=DB.finance.filter(f=>f.type==='despesa'&&f.repeat);
+  let novas=[];let jaExistiam=0;
+  recorrentes.forEach(f=>{
+    const jaTemNomes=DB.finance.some(x=>x.type==='despesa'&&x.desc===f.desc&&x.creditor===f.creditor&&(x.due||'').slice(0,7)===ym&&x.id!==f.id&&x._auto);
+    if(jaTemNomes){jaExistiam++;return}
+    let dueDate=f.due||`${y}-${m}-01`;
+    const baseDay=dueDate.slice(8,10);
+    dueDate=`${y}-${m}-${baseDay}`;
+    novas.push({id:uid(),type:'despesa',client:f.client||null,desc:f.desc,val:f.val,due:dueDate,status:'pendente',creditor:f.creditor||null,repeat:'',_auto:true});
+  });
+  const nomeMes=mesNome(m)+'/'+y;
+  if(!novas.length){alert(`Nenhuma despesa recorrente nova para ${nomeMes}.${jaExistiam?` (${jaExistiam} já existiam)`:''}`);return}
+  const {error}=await sb.from('finance').insert(novas.map(dbFinance));
+  if(error){alert('Erro ao gerar despesas.');return}
+  novas.forEach(n=>DB.finance.push(n));renderAll();
+  alert(`${novas.length} despesa(s) gerada(s) para ${nomeMes}.${jaExistiam?` (${jaExistiam} já existiam)`:''}`);
+}
 function mesNome(m){return['','janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][+m]||m}
 function renderFinance(){
   fillFinTypeFilter();
@@ -811,7 +890,9 @@ function renderFinance(){
   let all=[...DB.finance.map(f=>({...f})),...showRows];
   const fSit=document.getElementById('finSit')?document.getElementById('finSit').value:'';
   const fSearch=(document.getElementById('finSearch')?document.getElementById('finSearch').value:'').toLowerCase().trim();
+  const fEntryType=document.getElementById('finEntryType')?document.getElementById('finEntryType').value:'';
   if(fMonth)all=all.filter(f=>(f.due||'').slice(0,7)===fMonth);
+  if(fEntryType)all=all.filter(f=>f.type===fEntryType);
   if(fType&&fType!=='all')all=all.filter(f=>clientType(f.client)===fType);
   if(fSit)all=all.filter(f=>f.status===fSit);
   if(fSearch)all=all.filter(f=>clientName(f.client).toLowerCase().includes(fSearch)||( f.desc&&f.desc.toLowerCase().includes(fSearch)));
@@ -823,7 +904,7 @@ function renderFinance(){
   document.getElementById('finKpis').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val ${x.cls||''}">${x.val}</div></div>`).join('');
   const t=document.getElementById('finTable');
   if(!all.length){t.innerHTML='<tr><td><div class="empty">Nenhum lançamento'+(filtroAtivo?' com esses filtros':'')+'.</div></td></tr>';return}
-  t.innerHTML=`<thead><tr><th>Descrição</th><th>Cliente / Credor</th><th>Tipo</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead><tbody>`+all.sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).map(f=>{const sp={pago:'green',pendente:'amber',atrasado:'red'}[f.status];const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[f.status];const ct=clientTypeLabel(clientType(f.client));const isDespesa=f.type==='despesa';const partyName=isDespesa&&f.creditor?creditorName(f.creditor):clientName(f.client);const partyTag=isDespesa?`<span class="pill red" style="font-size:10px">despesa</span>`:`<span class="pill gray">${ct}</span>`;const statusCell=f._show?`<span class="pill ${sp}" style="cursor:pointer" onclick="toggleShowPayInFin('${f.showId}','${f.payId}')">${sl}</span>`:`<span class="pill ${sp}">${sl}</span>`;const act=f._show?`<button class="btn sm ghost" onclick="openShowModal('${f.showId}')">✎</button>`:`<button class="btn sm ghost" onclick="openFinModal('${f.id}')">✎</button><button class="btn sm ghost danger" onclick="delFin('${f.id}')">✕</button>`;return`<tr><td>${f.desc}</td><td style="color:var(--muted)">${partyName}</td><td>${partyTag}</td><td class="${isDespesa?'money-neg':'money-pos'}">${isDespesa?'-':''}${fmt(f.val)}</td><td>${dateBR(f.due)}</td><td>${statusCell}</td><td class="row-actions">${act}</td></tr>`}).join('')+'</tbody>';
+  t.innerHTML=`<thead><tr><th>Descrição</th><th>Cliente / Credor</th><th>Tipo</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead><tbody>`+all.sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).map(f=>{const sp={pago:'green',pendente:'amber',atrasado:'red'}[f.status];const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[f.status];const ct=clientTypeLabel(clientType(f.client));const isDespesa=f.type==='despesa';const partyName=isDespesa&&f.creditor?creditorName(f.creditor):clientName(f.client);const repeatBadge=f.repeat?`<span class="pill blue" style="font-size:10px">↻ ${({semanal:'semanal',quinzenal:'15d',mensal:'mensal',bimestral:'bimestral',trimestral:'trimestral',anual:'anual'})[f.repeat]||f.repeat}</span>`:'';const partyTag=isDespesa?`<span class="pill red" style="font-size:10px">despesa</span>${repeatBadge}`:`<span class="pill gray">${ct}</span>`;const statusCell=f._show?`<span class="pill ${sp}" style="cursor:pointer" onclick="toggleShowPayInFin('${f.showId}','${f.payId}')">${sl}</span>`:`<span class="pill ${sp}">${sl}</span>`;const act=f._show?`<button class="btn sm ghost" onclick="openShowModal('${f.showId}')">✎</button>`:`<button class="btn sm ghost" onclick="openFinModal('${f.id}')">✎</button><button class="btn sm ghost danger" onclick="delFin('${f.id}')">✕</button>`;return`<tr><td>${f.desc}</td><td style="color:var(--muted)">${partyName}</td><td>${partyTag}</td><td class="${isDespesa?'money-neg':'money-pos'}">${isDespesa?'-':''}${fmt(f.val)}</td><td>${dateBR(f.due)}</td><td>${statusCell}</td><td class="row-actions">${act}</td></tr>`}).join('')+'</tbody>';
 }
 async function toggleShowPayInFin(showId,payId){const s=DB.shows.find(x=>x.id===showId);if(!s)return;const p=showPays(s).find(x=>x.id===payId);if(!p)return;p.status=p.status==='pago'?'pendente':'pago';if(s.payments)s.payments=showPays(s);await _upsertShow(s);renderAll()}
 
@@ -852,6 +933,9 @@ function openClientModal(id){
   document.getElementById('cPayDelay').value=c.payDelay!=null?c.payDelay:'';
   document.getElementById('cBudget').value=c.budget||'';
   budgetRows=(c.budgetChannels||[]).map(r=>({...r}));renderBudgetChannels();
+  document.getElementById('cUsesBalance').checked=c.usesBalance||false;
+  document.getElementById('cBalanceInit').value=c.balanceInit||'';
+  balanceToggle();
   billingLabelUpdate();categoryUpdate();openModal('clientModal');
 }
 async function saveClient(){
@@ -860,7 +944,7 @@ async function saveClient(){
   let cat=document.getElementById('cCategory').value,customType='';
   if(cat==='custom'){customType=document.getElementById('cCustomType').value.trim()||'Outro';cat=customType}
   const channels=budgetRows.filter(r=>r.name||r.val).map(r=>({name:r.name||'',val:+r.val||0}));
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0};
   closeModal('clientModal');await _upsertClient(o);
 }
 async function delClient(id){if(!confirm('Excluir cliente?'))return;await sb.from('clients').delete().eq('id',id);DB.clients=DB.clients.filter(c=>c.id!==id);renderAll()}
@@ -918,6 +1002,65 @@ async function delTask(id){await sb.from('tasks').delete().eq('id',id);DB.tasks=
 function openTeamModal(){document.getElementById('teamList').innerHTML=DB.team.map((m,i)=>`<div class="form-row"><label>${i===0?'Você':'Colaborador '+i}</label><input value="${m.name}" data-team="${m.id}"></div>`).join('');openModal('teamModal')}
 async function saveTeam(){document.querySelectorAll('[data-team]').forEach(inp=>{const m=DB.team.find(x=>x.id===inp.dataset.team);if(m&&inp.value.trim())m.name=inp.value.trim()});await sb.from('team').upsert(DB.team);closeModal('teamModal');renderAll()}
 
+/* ---- WALLET ---- */
+let walletClientId=null;
+function calcBalance(clientId){
+  const c=DB.clients.find(x=>x.id===clientId);if(!c)return 0;
+  const txs=DB.wallet.filter(x=>x.client===clientId);
+  const entradas=txs.filter(x=>x.type==='entrada').reduce((s,x)=>s+(+x.val||0),0);
+  const debitos=txs.filter(x=>x.type==='debito').reduce((s,x)=>s+(+x.val||0),0);
+  return (+c.balanceInit||0)+entradas-debitos;
+}
+function openWalletModal(clientId){
+  walletClientId=clientId;
+  const c=DB.clients.find(x=>x.id===clientId);
+  document.getElementById('walletTitle').textContent='Carteira — '+c.name;
+  document.getElementById('wDate').value=today();
+  document.getElementById('wDesc').value='';
+  document.getElementById('wVal').value='';
+  document.getElementById('wType').value='entrada';
+  renderWalletList();
+  openModal('walletModal');
+}
+function renderWalletList(){
+  const saldo=calcBalance(walletClientId);
+  document.getElementById('walletBalance').textContent=fmt(saldo);
+  document.getElementById('walletBalance').style.color=saldo>=0?'var(--accent)':'var(--red)';
+  const txs=[...DB.wallet.filter(x=>x.client===walletClientId)].sort((a,b)=>b.date.localeCompare(a.date));
+  document.getElementById('walletList').innerHTML=txs.length?`
+    <table style="width:100%">
+      <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Valor</th><th></th></tr></thead>
+      <tbody>${txs.map(t=>{
+        const isEnt=t.type==='entrada';
+        return`<tr>
+          <td>${dateBR(t.date)}</td>
+          <td>${t.description||'—'}</td>
+          <td><span class="pill ${isEnt?'green':'red'}">${isEnt?'Entrada':'Débito'}</span></td>
+          <td class="${isEnt?'money-pos':'money-neg'}">${isEnt?'+':'-'}${fmt(t.val)}</td>
+          <td><button class="btn sm ghost danger" onclick="delWalletEntry('${t.id}')">✕</button></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`:'<div class="empty">Nenhum lançamento ainda.</div>';
+}
+async function addWalletEntry(){
+  const val=+document.getElementById('wVal').value;
+  if(!val||val<=0)return document.getElementById('wVal').focus();
+  const o={id:uid(),client:walletClientId,type:document.getElementById('wType').value,description:document.getElementById('wDesc').value.trim(),val,date:document.getElementById('wDate').value||today()};
+  await sb.from('wallet').insert(o);
+  DB.wallet.push(o);
+  document.getElementById('wDesc').value='';document.getElementById('wVal').value='';
+  renderWalletList();renderClients();
+}
+async function delWalletEntry(id){
+  if(!confirm('Excluir lançamento?'))return;
+  await sb.from('wallet').delete().eq('id',id);
+  DB.wallet=DB.wallet.filter(x=>x.id!==id);
+  renderWalletList();renderClients();
+}
+function balanceToggle(){
+  document.getElementById('cBalanceInitRow').style.display=document.getElementById('cUsesBalance').checked?'block':'none';
+}
+
 /* ---- CREDITORS ---- */
 function creditorName(id){const c=DB.creditors.find(x=>x.id===id);return c?c.name:''}
 function fillCreditorSelect(){
@@ -929,6 +1072,7 @@ function fillCreditorSelect(){
 function finTypeChange(){
   const isDespesa=document.getElementById('fType').value==='despesa';
   document.getElementById('fCreditorRow').style.display=isDespesa?'block':'none';
+  document.getElementById('fRepeatRow').style.display=isDespesa?'block':'none';
   document.getElementById('fClient').closest('.form-grid').querySelector('div').style.opacity=isDespesa?'.5':'1';
 }
 async function addCreditor(){
@@ -959,11 +1103,12 @@ function openFinModal(id){
   document.getElementById('finModalTitle').textContent=id?'Editar lançamento':'Novo lançamento';
   fId.value=id||'';fType.value=f.type||'receita';fClient.value=f.client||'';fDesc.value=f.desc||'';fVal.value=f.val||'';fDue.value=f.due||'';fStatus.value=f.status||'pendente';
   document.getElementById('fCreditor').value=f.creditor||'';
+  document.getElementById('fRepeat').value=f.repeat||'';
   finTypeChange();openModal('finModal');
 }
 async function saveFin(){
   if(!fDesc.value.trim())return fDesc.focus();
-  const o={id:fId.value||uid(),type:fType.value,client:fClient.value,desc:fDesc.value.trim(),val:+fVal.value||0,due:fDue.value,status:fStatus.value,creditor:document.getElementById('fCreditor').value||null};
+  const o={id:fId.value||uid(),type:fType.value,client:fClient.value,desc:fDesc.value.trim(),val:+fVal.value||0,due:fDue.value,status:fStatus.value,creditor:document.getElementById('fCreditor').value||null,repeat:fType.value==='despesa'?document.getElementById('fRepeat').value:''};
   await _upsertFinance(o);closeModal('finModal');renderAll();
 }
 async function delFin(id){await sb.from('finance').delete().eq('id',id);DB.finance=DB.finance.filter(f=>f.id!==id);renderAll()}
