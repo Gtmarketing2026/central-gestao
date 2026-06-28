@@ -1200,12 +1200,32 @@ async function saveClient(){
   const tempChanged=currentTemp!==prevTemp;
   const prevSince=(DB.clients.find(x=>x.id===cId.value)||{}).tempSince||'';
   const isNew=!cId.value;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:cStatus.value,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels};
-  closeModal('clientModal');await _upsertClient(o);
+  const prev=DB.clients.find(x=>x.id===cId.value);
+  const prevStatus=prev?.status||'Ativo';
+  const newStatus=cStatus.value;
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels};
+  closeModal('clientModal');
+  const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
+  if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
+  await _upsertClient(o);
   if(isNew&&activeClientChannels.length)await createClientTasks(o);
   if(isNew&&activeClientChannels.length)renderAll();
 }
-async function delClient(id){if(!confirm('Excluir cliente?'))return;await sb.from('clients').delete().eq('id',id);DB.clients=DB.clients.filter(c=>c.id!==id);renderAll()}
+async function _maybeDeleteClientTasks(clientId,clientName){
+  const tarefas=DB.tasks.filter(t=>t.client===clientId);
+  if(!tarefas.length)return;
+  if(!confirm(`Existem ${tarefas.length} tarefa(s) vinculada(s) a "${clientName}".\n\nDeseja excluir todas as tarefas deste cliente também?`))return;
+  await sb.from('tasks').delete().eq('client',clientId);
+  DB.tasks=DB.tasks.filter(t=>t.client!==clientId);
+}
+async function delClient(id){
+  const c=DB.clients.find(x=>x.id===id);
+  if(!confirm(`Excluir cliente "${c?.name||''}"?`))return;
+  await _maybeDeleteClientTasks(id,c?.name||'');
+  await sb.from('clients').delete().eq('id',id);
+  DB.clients=DB.clients.filter(x=>x.id!==id);
+  renderAll();
+}
 
 /* ---- TASK TEMPLATES (onboarding) ---- */
 const TASK_TEMPLATES=[
