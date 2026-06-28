@@ -448,23 +448,47 @@
   <div class="modal">
     <h3>⚡ Criar tarefas em massa</h3>
     <div class="form-row"><label>Nome da tarefa</label><input id="btName" type="text" placeholder="Ex: [Meta] Otimização diária" oninput="updateBtPreview()"></div>
-    <div class="form-row"><label>Prioridade</label>
-      <select id="btPrio"><option value="alta">Alta</option><option value="media" selected>Média</option><option value="baixa">Baixa</option></select>
+    <div class="form-grid">
+      <div class="form-row"><label>Responsável</label><select id="btOwner"></select></div>
+      <div class="form-row"><label>Status inicial</label>
+        <select id="btStatus"><option value="todo">A fazer</option><option value="doing">Em andamento</option><option value="review">Revisão</option><option value="done">Concluído</option></select>
+      </div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row"><label>Prioridade</label>
+        <select id="btPrio"><option value="alta">Alta</option><option value="media" selected>Média</option><option value="baixa">Baixa</option></select>
+      </div>
+      <div class="form-row"><label>Prazo</label><input id="btDue" type="date"></div>
     </div>
     <div class="form-row"><label>Repetição</label>
       <select id="btRepeat" onchange="document.getElementById('btRepeatDaysRow').style.display=this.value==='custom'?'block':'none'">
         <option value="">Sem repetição</option>
-        <option value="diario">Diário</option>
-        <option value="semanal">Semanal</option>
-        <option value="quinzenal">Quinzenal</option>
-        <option value="mensal">Mensal</option>
+        <option value="diaria">Diariamente</option>
+        <option value="semanal">Semanalmente</option>
+        <option value="quinzenal">A cada 15 dias</option>
+        <option value="mensal">Mensalmente</option>
         <option value="custom">Personalizado (X dias)</option>
       </select>
     </div>
-    <div class="form-row" id="btRepeatDaysRow" style="display:none"><label>A cada quantos dias</label><input id="btRepeatDays" type="number" min="1" placeholder="Ex: 3"></div>
-    <div class="form-row"><label>Filtrar clientes por canal ativo</label>
+    <div class="form-row" id="btRepeatDaysRow" style="display:none"><label>Repetir a cada quantos dias?</label><input id="btRepeatDays" type="number" min="1" placeholder="Ex: 3"></div>
+    <div class="form-row">
+      <label>Executar em (canais)</label>
+      <div id="btChannelPicker" style="display:flex;flex-wrap:wrap;gap:7px;margin-top:4px"></div>
+    </div>
+    <div class="form-row"><label>Anotações</label><textarea id="btNotes" rows="2" placeholder="Detalhes, observações..."></textarea></div>
+    <div class="form-row"><label>Link / Anexo</label><input id="btLink" placeholder="Colar link (Google Drive, Notion, etc.)"></div>
+    <div class="form-row">
+      <label>Status dos clientes <span style="font-size:11px;color:var(--faint);font-weight:400">(quais incluir)</span></label>
+      <div id="btStatusFilter" style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">
+        <span class="ch-tag sel" data-st="Ativo" onclick="toggleBtStatus('Ativo')">✅ Ativo</span>
+        <span class="ch-tag" data-st="Pausado" onclick="toggleBtStatus('Pausado')">⏸ Pausado</span>
+        <span class="ch-tag" data-st="Inativo" onclick="toggleBtStatus('Inativo')">🚫 Inativo</span>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>Filtrar por canal ativo <span style="font-size:11px;color:var(--faint);font-weight:400">(opcional)</span></label>
       <select id="btChannel" onchange="updateBtPreview()">
-        <option value="">Todos os clientes ativos</option>
+        <option value="">Todos os clientes</option>
         <option value="meta">📘 Meta</option>
         <option value="google">🔍 Google</option>
         <option value="email">📧 E-mail</option>
@@ -479,7 +503,11 @@
         <option value="canva">🎨 Canva</option>
       </select>
     </div>
-    <div id="btPreview" style="background:var(--surface2);border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;color:var(--muted);margin-bottom:4px"></div>
+    <div class="form-row" id="btClientListWrap" style="display:none">
+      <label>Clientes que receberão a tarefa <span style="font-size:11px;color:var(--faint);font-weight:400">— desmarque para excluir</span></label>
+      <div id="btClientList" style="background:var(--surface2);border-radius:var(--radius-sm);padding:8px 12px;max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;margin-top:4px"></div>
+    </div>
+    <div id="btPreview" style="font-size:12px;color:var(--muted);padding:4px 2px;min-height:20px"></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('bulkTaskModal')">Cancelar</button>
       <button class="btn primary" onclick="executeBulkTask()">Criar tarefas</button>
@@ -1009,7 +1037,37 @@ function dragTask(e,id){dragId=id}
 async function dropTask(e,status){e.preventDefault();const t=DB.tasks.find(x=>x.id===dragId);if(t){if(status==='done')return completeTask(t);t.status=status;await _upsertTask(t);renderAll()}}
 function nextDate(d,r){const b=d?new Date(d+'T12:00:00'):new Date();const cd=repeatCustomDays(r);if(cd!==null)b.setDate(b.getDate()+cd);else if(r==='diaria')b.setDate(b.getDate()+1);else if(r==='semanal')b.setDate(b.getDate()+7);else if(r==='quinzenal')b.setDate(b.getDate()+15);else if(r==='mensal')b.setMonth(b.getMonth()+1);return b.toISOString().slice(0,10)}
 async function completeTask(t){if(t.repeat){await _upsertTask({...t,id:uid(),status:'todo',due:nextDate(t.due,t.repeat)});t.repeat=''}t.status='done';await _upsertTask(t);renderAll()}
-async function toggleTask(id){const t=DB.tasks.find(x=>x.id===id);if(t.status==='done'){t.status='todo';await _upsertTask(t);renderAll()}else await completeTask(t)}
+/* ---- UNDO ---- */
+let _undoStack=[];let _undoTimer=null;
+function _pushUndo(action){
+  _undoStack.push(action);
+  clearTimeout(_undoTimer);
+  const toast=document.getElementById('undoToast');
+  toast.style.display='flex';
+  toast.querySelector('.undo-msg').textContent=action.msg;
+  _undoTimer=setTimeout(()=>{toast.style.display='none';_undoStack=[]},8000);
+}
+async function undoLast(){
+  if(!_undoStack.length)return;
+  clearTimeout(_undoTimer);
+  document.getElementById('undoToast').style.display='none';
+  const action=_undoStack.pop();
+  if(action.type==='delete'){
+    const{error}=await sb.from('tasks').insert(dbTask(action.task));
+    if(!error){DB.tasks.push(action.task);renderAll()}
+  }else if(action.type==='create'){
+    await sb.from('tasks').delete().eq('id',action.id);
+    DB.tasks=DB.tasks.filter(t=>t.id!==action.id);renderAll();
+  }else if(action.type==='bulk_create'){
+    await sb.from('tasks').delete().in('id',action.ids);
+    DB.tasks=DB.tasks.filter(t=>!action.ids.includes(t.id));renderAll();
+  }else if(action.type==='update'){
+    const t=DB.tasks.find(x=>x.id===action.task.id);
+    if(t){Object.assign(t,action.prev);await _upsertTask(t);renderAll()}
+  }
+  if(_undoStack.length){const toast=document.getElementById('undoToast');toast.style.display='flex';toast.querySelector('.undo-msg').textContent=_undoStack[_undoStack.length-1].msg;_undoTimer=setTimeout(()=>{toast.style.display='none';_undoStack=[]},8000)}
+}
+async function toggleTask(id){const t=DB.tasks.find(x=>x.id===id);const prev={status:t.status};if(t.status==='done'){t.status='todo';await _upsertTask(t);renderAll();_pushUndo({type:'update',task:t,prev,msg:'Tarefa reaberta — desfazer?'})}else{_pushUndo({type:'update',task:{...t},prev,msg:'Tarefa concluída — desfazer?'});await completeTask(t)}}
 
 /* ---- CLIENT HELPERS ---- */
 const typeLabels={mensal:'Mensal',funil:'Funil',show:'Show',evento:'Show/evento',parceria:'Parceria',permuta:'Permuta',agencia:'Agência'};
@@ -1217,23 +1275,45 @@ async function createClientTasks(client){
   const{data}=await sb.from('tasks').insert(rows).select();
   if(data)DB.tasks=[...DB.tasks,...data.map(mapTask)];
 }
+let bulkChannels=[];
+let bulkStatusFilter=new Set(['Ativo']);
+let bulkExcluded=new Set();
+
+function toggleBtStatus(st){
+  if(bulkStatusFilter.has(st))bulkStatusFilter.delete(st);else bulkStatusFilter.add(st);
+  document.querySelectorAll('#btStatusFilter .ch-tag').forEach(el=>el.classList.toggle('sel',bulkStatusFilter.has(el.dataset.st)));
+  updateBtPreview();
+}
+function renderBulkChannelPicker(){
+  document.getElementById('btChannelPicker').innerHTML=TASK_CHANNELS.map(c=>`<span class="ch-tag${bulkChannels.includes(c.id)?' sel':''}" onclick="toggleBulkChannel('${c.id}')">${c.icon} ${c.label}</span>`).join('');
+}
+function toggleBulkChannel(id){bulkChannels=bulkChannels.includes(id)?bulkChannels.filter(x=>x!==id):[...bulkChannels,id];renderBulkChannelPicker()}
 function openBulkTaskModal(){
   document.getElementById('btName').value='';
   document.getElementById('btPrio').value='media';
+  document.getElementById('btStatus').value='todo';
   document.getElementById('btRepeat').value='';
   document.getElementById('btRepeatDays').value='';
   document.getElementById('btRepeatDaysRow').style.display='none';
+  document.getElementById('btDue').value='';
+  document.getElementById('btNotes').value='';
+  document.getElementById('btLink').value='';
   document.getElementById('btChannel').value='';
+  bulkChannels=[];bulkExcluded=new Set();bulkStatusFilter=new Set(['Ativo']);
+  document.querySelectorAll('#btStatusFilter .ch-tag').forEach(el=>el.classList.toggle('sel',bulkStatusFilter.has(el.dataset.st)));
+  const ownerSel=document.getElementById('btOwner');
+  ownerSel.innerHTML='<option value="">Sem responsável</option>'+DB.team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
+  renderBulkChannelPicker();
   updateBtPreview();
   openModal('bulkTaskModal');
 }
 function bulkTargetClients(){
   const ch=document.getElementById('btChannel').value;
-  if(!ch)return DB.clients.filter(c=>c.status==='Ativo');
   const chLabel={meta:'meta',google:'google',email:'email',whatsapp:'whatsapp',tiktok:'tiktok',bling:'bling',pinterest:'pinterest',rdstation:'rd',sendflow:'sendflow',powerbi:'power',clarity:'clarity',canva:'canva'};
-  const needle=(chLabel[ch]||ch).toLowerCase();
+  const needle=ch?(chLabel[ch]||ch).toLowerCase():null;
   return DB.clients.filter(c=>{
-    if(c.status!=='Ativo')return false;
+    if(!bulkStatusFilter.has(c.status))return false;
+    if(!needle)return true;
     if((c.activeChannels||[]).includes(ch))return true;
     if((c.budgetChannels||[]).some(b=>(b.name||'').toLowerCase().includes(needle)))return true;
     if((c.plat||'').toLowerCase().includes(needle))return true;
@@ -1243,31 +1323,76 @@ function bulkTargetClients(){
 function updateBtPreview(){
   const targets=bulkTargetClients();
   const name=(document.getElementById('btName').value||'').trim();
-  if(!name){document.getElementById('btPreview').innerHTML='<em>Preencha o nome da tarefa para ver a prévia.</em>';return}
-  const existing=new Set(DB.tasks.filter(t=>t.name===name).map(t=>t.client));
-  const novos=targets.filter(c=>!existing.has(c.id));
-  const skip=targets.filter(c=>existing.has(c.id));
+  const existing=name?new Set(DB.tasks.filter(t=>t.name===name).map(t=>t.client)):new Set();
+
+  // Mantém exclusões já marcadas mas remove clientes que saíram do filtro
+  const targetIds=new Set(targets.map(c=>c.id));
+  bulkExcluded.forEach(id=>{if(!targetIds.has(id))bulkExcluded.delete(id)});
+
+  const wrap=document.getElementById('btClientListWrap');
+  const listEl=document.getElementById('btClientList');
+
+  if(!targets.length){
+    wrap.style.display='none';
+    document.getElementById('btPreview').innerHTML='<span style="color:var(--red)">Nenhum cliente encontrado com esses filtros.</span>';
+    return;
+  }
+
+  wrap.style.display='block';
+  listEl.innerHTML=targets.map(c=>{
+    const jaExiste=existing.has(c.id);
+    const excluido=bulkExcluded.has(c.id);
+    const stBadge={Ativo:'<span style="color:#34d399;font-size:10px">●</span>',Pausado:'<span style="color:#f0c040;font-size:10px">●</span>',Inativo:'<span style="color:#f87171;font-size:10px">●</span>'}[c.status]||'';
+    return`<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 0;${jaExiste?'opacity:.45':''}">
+      <input type="checkbox" ${!excluido&&!jaExiste?'checked':''} ${jaExiste?'disabled':''} onchange="toggleBulkExclude('${c.id}',this.checked)" style="accent-color:var(--accent);width:15px;height:15px;cursor:pointer">
+      <span>${stBadge} ${c.name}</span>
+      ${jaExiste?'<span style="font-size:11px;color:var(--faint);margin-left:auto">já existe</span>':''}
+      ${c.fee&&!jaExiste?`<span style="font-size:11px;color:var(--faint);margin-left:auto">${fmt(c.fee)}/mês</span>`:''}
+    </label>`;
+  }).join('');
+
+  const ativos=targets.filter(c=>!existing.has(c.id)&&!bulkExcluded.has(c.id)).length;
+  const pulados=targets.filter(c=>existing.has(c.id)).length;
+  const excl=bulkExcluded.size;
   document.getElementById('btPreview').innerHTML=
-    `<strong>${novos.length}</strong> tarefa(s) serão criadas`+
-    (skip.length?` · <span style="color:var(--faint)">${skip.length} já existem (não duplica)</span>`:'')+
-    (novos.length?`<div style="margin-top:6px;font-size:12px">${novos.map(c=>`• ${c.name}`).join('<br>')}</div>`:'');
+    (name?`<strong style="color:var(--text)">${ativos}</strong> tarefa(s) serão criadas`:'<em>Preencha o nome para confirmar quantas serão criadas</em>')+
+    (pulados?` · <span style="color:var(--faint)">${pulados} já existem</span>`:'')+
+    (excl?` · <span style="color:var(--faint)">${excl} excluído(s) manualmente</span>`:'');
+}
+function toggleBulkExclude(id,checked){
+  if(checked)bulkExcluded.delete(id);else bulkExcluded.add(id);
+  // Atualiza só o contador sem re-renderizar a lista inteira
+  const targets=bulkTargetClients();
+  const name=(document.getElementById('btName').value||'').trim();
+  const existing=name?new Set(DB.tasks.filter(t=>t.name===name).map(t=>t.client)):new Set();
+  const ativos=targets.filter(c=>!existing.has(c.id)&&!bulkExcluded.has(c.id)).length;
+  const pulados=targets.filter(c=>existing.has(c.id)).length;
+  document.getElementById('btPreview').innerHTML=
+    (name?`<strong style="color:var(--text)">${ativos}</strong> tarefa(s) serão criadas`:'<em>Preencha o nome para confirmar quantas serão criadas</em>')+
+    (pulados?` · <span style="color:var(--faint)">${pulados} já existem</span>`:'')+
+    (bulkExcluded.size?` · <span style="color:var(--faint)">${bulkExcluded.size} excluído(s) manualmente</span>`:'');
 }
 async function executeBulkTask(){
   const name=document.getElementById('btName').value.trim();
   if(!name)return document.getElementById('btName').focus();
   const prio=document.getElementById('btPrio').value;
+  const status=document.getElementById('btStatus').value;
+  const owner=document.getElementById('btOwner').value;
+  const due=document.getElementById('btDue').value;
+  const notes=document.getElementById('btNotes').value.trim();
+  const link=document.getElementById('btLink').value.trim();
   let repeat=document.getElementById('btRepeat').value;
   if(repeat==='custom'){const d=parseInt(document.getElementById('btRepeatDays').value)||0;repeat=d>0?`custom:${d}`:''}
   const targets=bulkTargetClients();
   const existing=new Set(DB.tasks.filter(t=>t.name===name).map(t=>t.client));
-  const novos=targets.filter(c=>!existing.has(c.id));
+  const novos=targets.filter(c=>!existing.has(c.id)&&!bulkExcluded.has(c.id));
   if(!novos.length){alert('Nenhuma tarefa nova para criar (todas já existem).');return}
-  const rows=novos.map(c=>({id:uid(),name,client:c.id,owner:'',status:'todo',due:'',prio,repeat,notes:'',link:'',channels:[]}));
+  const rows=novos.map(c=>({id:uid(),name,client:c.id,owner,status,due,prio,repeat,notes,link,channels:[...bulkChannels]}));
   const{error}=await sb.from('tasks').insert(rows);
   if(error){alert('Erro: '+error.message);return}
   DB.tasks=[...DB.tasks,...rows.map(r=>({...r}))];
   closeModal('bulkTaskModal');renderAll();
-  alert(`✅ ${rows.length} tarefa(s) criadas com sucesso!`);
+  _pushUndo({type:'bulk_create',ids:rows.map(r=>r.id),msg:`${rows.length} tarefa(s) em massa criadas — desfazer?`});
 }
 async function gerarOnboarding(){
   const id=cId.value;
@@ -1327,9 +1452,21 @@ async function saveTask(){
   let repeat=tRepeat.value;
   if(repeat==='custom'){const d=parseInt(document.getElementById('tRepeatDays').value)||0;repeat=d>0?`custom:${d}`:''}
   const o={id:tId.value||uid(),name:tName.value.trim(),client:tClient.value,owner:tOwner.value,status:tStatus.value,due:tDue.value,prio:tPrio.value,repeat,notes:tNotes.value.trim(),link:tLink.value.trim(),channels:[...selectedChannels]};
+  const isNew=!tId.value;
+  const prev=isNew?null:{...DB.tasks.find(x=>x.id===o.id)};
   closeModal('taskModal');await _upsertTask(o);renderAll();
+  if(isNew)_pushUndo({type:'create',id:o.id,msg:`"${o.name}" criada — desfazer?`});
+  else if(prev)_pushUndo({type:'update',task:o,prev,msg:`"${o.name}" editada — desfazer?`});
 }
-async function delTask(id){await sb.from('tasks').delete().eq('id',id);DB.tasks=DB.tasks.filter(t=>t.id!==id);renderAll()}
+async function delTask(id){
+  const t=DB.tasks.find(x=>x.id===id);
+  if(!t)return;
+  const snap={...t};
+  await sb.from('tasks').delete().eq('id',id);
+  DB.tasks=DB.tasks.filter(x=>x.id!==id);
+  renderAll();
+  _pushUndo({type:'delete',task:snap,msg:`"${snap.name}" excluída — desfazer?`});
+}
 
 /* ---- TEAM MODAL ---- */
 function openTeamModal(){document.getElementById('teamList').innerHTML=DB.team.map((m,i)=>`<div class="form-row"><label>${i===0?'Você':'Colaborador '+i}</label><input value="${m.name}" data-team="${m.id}"></div>`).join('');openModal('teamModal')}
@@ -1480,5 +1617,10 @@ function renderCharts(){
 
 checkAuth();
 </script>
+<div id="undoToast" style="display:none;position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:#1c1a14;border:1px solid var(--accent);border-radius:30px;padding:10px 20px;display:none;align-items:center;gap:14px;box-shadow:0 4px 24px #0008;z-index:9999;font-size:13px;white-space:nowrap">
+  <span class="undo-msg" style="color:var(--text)"></span>
+  <button onclick="undoLast()" style="background:var(--accent);color:#000;border:none;border-radius:20px;padding:5px 16px;font-weight:700;cursor:pointer;font-size:13px">↩ Desfazer</button>
+  <button onclick="document.getElementById('undoToast').style.display='none';_undoStack=[]" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 2px">✕</button>
+</div>
 </body>
 </html>
