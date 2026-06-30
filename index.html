@@ -978,21 +978,26 @@ function renderOperacional(){
   ];
   document.getElementById('kpiGridOp').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val">${x.val}</div><div class="sub">${x.sub}</div></div>`).join('');
   // --- Alerta de relatórios atrasados ---
-  const relMensaisAtrasados=DB.clients.filter(c=>c.status==='Ativo'&&c.report&&daysUntil(c.report)<0)
-    .map(c=>({c,dias:Math.abs(daysUntil(c.report))}))
-    .sort((a,b)=>b.dias-a.dias);
+  // Mensal: data vencida E tarefa "Enviar ao cliente" do mês não está concluída
+  const relMensaisAtrasados=DB.clients.filter(c=>{
+    if(c.status!=='Ativo'||!c.report||daysUntil(c.report)>=0)return false;
+    const mes=c.report.slice(0,7);
+    const taskName=`Enviar ao cliente (${c.name})`;
+    const task=DB.tasks.find(t=>t.client===c.id&&t.name===taskName&&(t.due||'').slice(0,7)===mes);
+    return !task||task.status!=='done';
+  }).map(c=>({c,dias:Math.abs(daysUntil(c.report))})).sort((a,b)=>b.dias-a.dias);
 
-  // Relatórios semanais não gerados: clientes com weekly ativo cujo dia já passou esta semana e a tarefa "Montar e enviar" desta semana não existe ou não está concluída
+  // Semanal: dia configurado já passou esta semana E tarefa "Montar e enviar" não está concluída
   const todayD=new Date(today()+'T12:00:00');
   const relSemanaisAtrasados=DB.clients.filter(c=>{
     if(c.status!=='Ativo'||!c.reportWeekly||!c.reportWeeklyDay)return false;
     const target=WR_DAY_NUM[c.reportWeeklyDay]??1;
     const diff=target-todayD.getDay();
-    if(diff>0)return false; // dia desta semana ainda não chegou
+    if(diff>0)return false;
     const dueDateThisWeek=addDays(today(),diff);
     const taskName=`Montar e enviar relatório semanal (${c.name})`;
     const task=DB.tasks.find(t=>t.client===c.id&&t.name===taskName&&t.due===dueDateThisWeek);
-    return !task||(task.status!=='done');
+    return !task||task.status!=='done';
   }).map(c=>{
     const target=WR_DAY_NUM[c.reportWeeklyDay]??1;
     const diff=target-todayD.getDay();
@@ -1000,8 +1005,8 @@ function renderOperacional(){
     const dias=Math.abs(daysUntil(dueDateThisWeek));
     const taskName=`Montar e enviar relatório semanal (${c.name})`;
     const task=DB.tasks.find(t=>t.client===c.id&&t.name===taskName&&t.due===dueDateThisWeek);
-    return{c,dias,taskExists:!!task,done:task?.status==='done'};
-  }).filter(x=>!x.done);
+    return{c,dias,taskExists:!!task};
+  });
 
   const reportAlertEl=document.getElementById('reportAlert');
   const totalRep=relMensaisAtrasados.length+relSemanaisAtrasados.length;
@@ -1011,23 +1016,33 @@ function renderOperacional(){
     let html=`<span style="font-size:13px;font-weight:700;color:${relMensaisAtrasados.length?'#f87171':'#f0c040'}">📋 ${totalRep} relatório(s) com atenção necessária</span>`;
     if(relMensaisAtrasados.length){
       html+=`<div style="font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 4px">Relatórios MENSAIS atrasados</div>`;
-      html+=`<div style="display:flex;flex-direction:column;gap:4px">${relMensaisAtrasados.map(({c,dias})=>`
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(248,113,113,.08);border-radius:10px">
+      html+=`<div style="display:flex;flex-direction:column;gap:4px">${relMensaisAtrasados.map(({c,dias})=>{
+        const mes=c.report.slice(0,7);
+        const task=DB.tasks.find(t=>t.client===c.id&&t.name===`Enviar ao cliente (${c.name})`&&(t.due||'').slice(0,7)===mes);
+        const btn=task?`<button class="btn sm ghost" onclick="openTaskModal('${task.id}')">✎ Ver tarefa</button>`:`<button class="btn sm ghost" onclick="openClientModal('${c.id}')">✎ Cliente</button>`;
+        return`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(248,113,113,.08);border-radius:10px">
           <span style="flex:1;font-size:13px;font-weight:600">${c.name}</span>
           <span class="pill red">${dias} dia${dias!==1?'s':''} atrasado</span>
           <span style="font-size:11px;color:var(--faint)">era ${c.report.split('-').reverse().join('/')}</span>
-          <button class="btn sm ghost" onclick="openClientModal('${c.id}')">✎ Abrir</button>
-        </div>`).join('')}</div>`;
+          ${btn}
+        </div>`;
+      }).join('')}</div>`;
     }
     if(relSemanaisAtrasados.length){
       html+=`<div style="font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 4px">Relatórios SEMANAIS não enviados</div>`;
-      html+=`<div style="display:flex;flex-direction:column;gap:4px">${relSemanaisAtrasados.map(({c,dias,taskExists})=>`
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(240,192,64,.08);border-radius:10px">
+      html+=`<div style="display:flex;flex-direction:column;gap:4px">${relSemanaisAtrasados.map(({c,dias,taskExists})=>{
+        const target=WR_DAY_NUM[c.reportWeeklyDay]??1;
+        const diff=target-todayD.getDay();
+        const dueDateThisWeek=addDays(today(),diff);
+        const task=DB.tasks.find(t=>t.client===c.id&&t.name===`Montar e enviar relatório semanal (${c.name})`&&t.due===dueDateThisWeek);
+        const btn=task?`<button class="btn sm ghost" onclick="openTaskModal('${task.id}')">✎ Ver tarefa</button>`:`<button class="btn sm ghost" onclick="openWeeklyReportModal()">⚡ Gerar</button>`;
+        return`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(240,192,64,.08);border-radius:10px">
           <span style="flex:1;font-size:13px;font-weight:600">${c.name}</span>
           <span class="pill amber">${taskExists?'pendente':'não gerado'} · ${dias===0?'hoje':dias+' dia'+(dias!==1?'s':'')+' atrás'}</span>
           <span style="font-size:11px;color:var(--faint)">${WR_DAY_LABEL[c.reportWeeklyDay]||c.reportWeeklyDay}</span>
-          <button class="btn sm ghost" onclick="openClientModal('${c.id}')">✎ Abrir</button>
-        </div>`).join('')}</div>`;
+          ${btn}
+        </div>`;
+      }).join('')}</div>`;
     }
     reportAlertEl.style.cssText=`display:flex;flex-direction:column;background:${cor};border:1px solid ${borda};border-radius:var(--radius);padding:14px 18px;margin-bottom:18px`;
     reportAlertEl.innerHTML=html;
