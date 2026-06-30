@@ -214,6 +214,17 @@
   <section class="panel" id="finOverview">
     <div class="grid kpis" id="kpiGridFin"></div>
     <div class="grid kpis" id="kpiGridFin2" style="margin-top:-8px"></div>
+    <div class="card" style="margin-bottom:18px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+        <div>
+          <h3 style="margin:0">Evolução do MRR</h3>
+          <div class="hint">Receita recorrente mensal — histórico de lançamentos + projeção futura com fees atuais</div>
+        </div>
+        <div id="mrrLegendExtra" style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;align-items:center"></div>
+      </div>
+      <div class="chart-box" style="height:220px"><canvas id="cMrr"></canvas></div>
+      <div id="mrrEvents" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>
+    </div>
     <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start;margin-bottom:18px">
       <div class="card">
         <h3>Receita por tipo de cobrança</h3>
@@ -324,6 +335,19 @@
   <!-- FINANCE -->
   <section class="panel" id="finance">
     <div class="grid kpis" id="finKpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))"></div>
+
+    <!-- PREVISÃO DE CAIXA -->
+    <div id="cashflowAlert" style="display:none;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:var(--radius);padding:12px 18px;margin-bottom:14px;font-size:13px;color:#f87171;font-weight:600"></div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:4px 16px 6px;margin-bottom:6px;font-size:11px;color:var(--faint);display:flex;align-items:center;gap:6px">
+      ⚠ <span><strong>Previsão de caixa</strong> — baseada nos lançamentos cadastrados (pendentes). Não reflete valores já recebidos/pagos.</span>
+    </div>
+    <div class="grid" id="cashflowCards" style="grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px"></div>
+    <div class="card" style="margin-bottom:18px">
+      <h3>Previsão de Caixa — próximos 3 meses</h3>
+      <div class="hint">Entradas previstas, saídas previstas e saldo acumulado</div>
+      <div class="chart-box"><canvas id="cCashflow"></canvas></div>
+    </div>
+
     <div class="card" style="margin-bottom:18px">
       <h3>Contas a receber por mês de vencimento</h3>
       <div class="hint">Fluxo previsto de entrada</div>
@@ -1331,7 +1355,100 @@ async function gerarDespesasRecorrentes(){
   alert(`${novas.length} despesa(s) gerada(s) para ${nomeMes}.${jaExistiam?` (${jaExistiam} já existiam)`:''}`);
 }
 function mesNome(m){return['','janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][+m]||m}
+function renderCashflow(){
+  const nM={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};
+  // Gera os 3 meses (atual, +1, +2)
+  const months=[];
+  for(let i=0;i<3;i++){
+    const d=new Date(today()+'T12:00:00');d.setMonth(d.getMonth()+i);
+    months.push(d.toISOString().slice(0,7));
+  }
+
+  // Entradas pendentes por mês (receitas não pagas + shows pendentes)
+  const entradas={};const saidas={};
+  months.forEach(m=>{entradas[m]=0;saidas[m]=0});
+
+  DB.finance.forEach(f=>{
+    const m=(f.due||'').slice(0,7);
+    if(!months.includes(m))return;
+    if(f.status==='pago')return;
+    if(f.type==='receita')entradas[m]+=(+f.val||0);
+    else saidas[m]+=(+f.val||0);
+  });
+
+  // Shows pendentes
+  DB.shows.forEach(s=>{
+    showPays(s).forEach(p=>{
+      const m=(p.date||'').slice(0,7);
+      if(!months.includes(m)||p.status==='pago')return;
+      entradas[m]+=(+p.val||0);
+    });
+  });
+
+  // Despesas recorrentes: projeta para meses futuros que não têm lançamento ainda
+  DB.finance.filter(f=>f.type==='despesa'&&f.repeat&&f.status!=='pago').forEach(f=>{
+    months.forEach(m=>{
+      if(m<=( f.due||'').slice(0,7))return; // já está no mês da despesa ou anterior
+      const jaExiste=DB.finance.some(x=>x.type==='despesa'&&x.desc===f.desc&&x.creditor===f.creditor&&(x.due||'').slice(0,7)===m);
+      if(!jaExiste)saidas[m]+=(+f.val||0);
+    });
+  });
+
+  // Calcula saldos
+  let acumulado=0;
+  const dados=months.map(m=>{
+    const ent=entradas[m]||0,sai=saidas[m]||0,saldo=ent-sai;
+    acumulado+=saldo;
+    const[y,mm]=m.split('-');
+    return{m,label:nM[mm]+'/'+y.slice(2),ent,sai,saldo,acumulado};
+  });
+
+  // Cards
+  document.getElementById('cashflowCards').innerHTML=dados.map(d=>{
+    const neg=d.acumulado<0;
+    const cor=neg?'rgba(248,113,113,.1)':d.saldo>=0?'rgba(52,211,153,.06)':'rgba(240,192,64,.07)';
+    const borda=neg?'rgba(248,113,113,.4)':d.saldo>=0?'rgba(52,211,153,.25)':'rgba(240,192,64,.3)';
+    return`<div style="background:${cor};border:1px solid ${borda};border-radius:var(--radius);padding:14px 16px">
+      <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">${d.label}</div>
+      <div style="display:flex;flex-direction:column;gap:5px;font-size:13px">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">↑ Entradas</span><span style="color:#34d399;font-weight:600">${fmt(d.ent)}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">↓ Saídas</span><span style="color:#f87171;font-weight:600">${fmt(d.sai)}</span></div>
+        <div style="border-top:1px solid var(--border);margin:4px 0"></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Saldo do mês</span><span style="font-weight:700;color:${d.saldo>=0?'#34d399':'#f87171'}">${fmt(d.saldo)}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Acumulado</span><span style="font-weight:800;font-size:15px;color:${neg?'#f87171':'var(--text)'}">${fmt(d.acumulado)}</span></div>
+      </div>
+      ${neg?`<div style="font-size:11px;color:#f87171;font-weight:600;margin-top:8px">⚠ Caixa negativo este mês</div>`:''}
+    </div>`;
+  }).join('');
+
+  // Alerta geral
+  const mesesNegativos=dados.filter(d=>d.acumulado<0);
+  const alertEl=document.getElementById('cashflowAlert');
+  if(mesesNegativos.length){
+    alertEl.style.display='block';
+    alertEl.innerHTML=`⚠ Atenção: ${mesesNegativos.map(d=>`<strong>${d.label}</strong>`).join(' e ')} com saldo acumulado negativo. Revise seus lançamentos.`;
+  }else{alertEl.style.display='none'}
+
+  // Gráfico
+  const cfEl=document.getElementById('cCashflow');
+  if(cfEl){
+    destroyChart('cashflow');
+    _charts.cashflow=new Chart(cfEl,{
+      data:{
+        labels:dados.map(d=>d.label),
+        datasets:[
+          {type:'bar',label:'Entradas',data:dados.map(d=>d.ent),backgroundColor:'rgba(212,165,32,.75)',borderRadius:6,order:2},
+          {type:'bar',label:'Saídas',data:dados.map(d=>d.sai),backgroundColor:'rgba(248,113,113,.7)',borderRadius:6,order:2},
+          {type:'line',label:'Acumulado',data:dados.map(d=>d.acumulado),borderColor:dados.some(d=>d.acumulado<0)?'#f87171':CHART_C.accent,backgroundColor:'transparent',borderWidth:2.5,pointRadius:5,pointBackgroundColor:dados.map(d=>d.acumulado<0?'#f87171':CHART_C.accent),tension:.3,order:1},
+        ]
+      },
+      options:{maintainAspectRatio:false,plugins:{legend:{display:true,labels:{boxWidth:10,padding:12,color:CHART_C.muted}}},scales:{y:{...gc,ticks:{callback:v=>'R$ '+(Math.abs(v)>=1000?(v/1000).toFixed(1)+'k':v)}},x:gc}}
+    });
+  }
+}
+
 function renderFinance(){
+  renderCashflow();
   fillFinTypeFilter();
   const fMonth=document.getElementById('finMonth')?document.getElementById('finMonth').value:'';
   const fType=document.getElementById('finType')?document.getElementById('finType').value:'all';
@@ -2032,6 +2149,89 @@ function renderCharts(){
   if(cTipoEl){const tc={};DB.clients.forEach(c=>{const k=clientTypeLabel(c.category||c.billing||'mensal');tc[k]=(tc[k]||0)+1});destroyChart('tipo');_charts.tipo=new Chart(cTipoEl,{type:'doughnut',data:{labels:Object.keys(tc),datasets:[{data:Object.values(tc),backgroundColor:[CHART_C.accent,CHART_C.v2,CHART_C.gold,CHART_C.blue,CHART_C.pink,CHART_C.red,CHART_C.muted],borderColor:'#131210',borderWidth:3}]},options:{maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{boxWidth:10,padding:12}}}}})}
   const cTaskEl=document.getElementById('cTaskStatus');
   if(cTaskEl){const cols=[['todo','A fazer'],['doing','Em andamento'],['review','Revisão'],['done','Concluído']];const vals=cols.map(([k])=>DB.tasks.filter(t=>t.status===k).length);destroyChart('taskStatus');_charts.taskStatus=new Chart(cTaskEl,{type:'bar',data:{labels:cols.map(([,l])=>l),datasets:[{data:vals,backgroundColor:[CHART_C.muted,CHART_C.blue,CHART_C.gold,CHART_C.green],borderRadius:8,barThickness:48}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gc,ticks:{stepSize:1}},x:gc}}})}
+  // MRR Evolution
+  const cMrrEl=document.getElementById('cMrr');
+  if(cMrrEl){
+    const nM={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};
+
+    // Coleta todos os meses com lançamentos de receita (histórico)
+    const mesesHist=[...new Set(DB.finance.filter(f=>f.type==='receita'&&f.due).map(f=>f.due.slice(0,7)))].sort();
+
+    // Projeta +2 meses futuros além do último histórico (ou do mês atual)
+    const base=mesesHist.length?mesesHist[mesesHist.length-1]:today().slice(0,7);
+    const projMeses=[];
+    for(let i=1;i<=3;i++){const d=new Date(base+'-01T12:00:00');d.setMonth(d.getMonth()+i);projMeses.push(d.toISOString().slice(0,7))}
+    const todayM=today().slice(0,7);
+    const allMeses=[...new Set([...mesesHist,...projMeses.filter(m=>m>todayM)])].sort();
+
+    // MRR histórico: soma receitas recebidas/pendentes de clientes com billing mensal por mês
+    const mrrHist={};
+    const mensalClientIds=new Set(DB.clients.filter(c=>(c.billing||'mensal')==='mensal').map(c=>c.id));
+    DB.finance.filter(f=>f.type==='receita'&&f.due&&mensalClientIds.has(f.client)).forEach(f=>{
+      const m=f.due.slice(0,7);mrrHist[m]=(mrrHist[m]||0)+(+f.val||0);
+    });
+
+    // MRR projetado: fees atuais dos ativos
+    const mrrAtual=DB.clients.filter(c=>c.status==='Ativo'&&(c.billing||'mensal')==='mensal').reduce((s,c)=>s+(+c.fee||0),0);
+
+    // Labels e valores finais
+    const labels=allMeses.map(m=>{const[y,mm]=m.split('-');return nM[mm]+'/'+y.slice(2)});
+    const dataHist=allMeses.map(m=>mrrHist[m]!=null?mrrHist[m]:null);
+    const dataProj=allMeses.map(m=>m>todayM?mrrAtual:null);
+
+    // Detecta eventos: primeira e última aparição de cada cliente
+    const clientFirstMonth={};const clientLastMonth={};
+    DB.finance.filter(f=>f.type==='receita'&&f.due&&mensalClientIds.has(f.client)).forEach(f=>{
+      const m=f.due.slice(0,7),id=f.client;
+      if(!clientFirstMonth[id]||m<clientFirstMonth[id])clientFirstMonth[id]=m;
+      if(!clientLastMonth[id]||m>clientLastMonth[id])clientLastMonth[id]=m;
+    });
+
+    // Entradas: primeiro mês do cliente; Saídas: cliente inativo/pausado cujo último mês não é o mais recente geral
+    const maxMes=mesesHist[mesesHist.length-1]||'';
+    const eventos={};
+    Object.entries(clientFirstMonth).forEach(([id,m])=>{
+      const c=DB.clients.find(x=>x.id===id);if(!c)return;
+      if(!eventos[m])eventos[m]={in:[],out:[]};
+      eventos[m].in.push(c.name);
+    });
+    Object.entries(clientLastMonth).forEach(([id,m])=>{
+      const c=DB.clients.find(x=>x.id===id);if(!c)return;
+      if((c.status==='Inativo'||c.status==='Pausado')&&m<maxMes){
+        if(!eventos[m])eventos[m]={in:[],out:[]};
+        eventos[m].out.push(c.name);
+      }
+    });
+
+    // Anotações nos pontos
+    const pointColors=allMeses.map(m=>{
+      if(!eventos[m])return CHART_C.accent;
+      if(eventos[m].out.length)return '#f87171';
+      return '#34d399';
+    });
+    const pointSizes=allMeses.map(m=>eventos[m]?7:4);
+
+    destroyChart('mrr');
+    _charts.mrr=new Chart(cMrrEl,{
+      data:{labels,datasets:[
+        {type:'line',label:'MRR histórico',data:dataHist,borderColor:CHART_C.accent,backgroundColor:'rgba(212,165,32,.08)',fill:true,tension:.35,borderWidth:2.5,pointRadius:pointSizes,pointBackgroundColor:pointColors,spanGaps:false,order:1},
+        {type:'line',label:'Projeção (fees atuais)',data:dataProj,borderColor:'#60a5fa',backgroundColor:'transparent',borderDash:[5,4],tension:.3,borderWidth:2,pointRadius:4,pointBackgroundColor:'#60a5fa',spanGaps:false,order:2},
+      ]},
+      options:{maintainAspectRatio:false,plugins:{legend:{display:true,labels:{boxWidth:10,padding:12,color:CHART_C.muted}},tooltip:{callbacks:{afterBody:ctx=>{const m=allMeses[ctx[0].dataIndex];if(!eventos[m])return[];const lines=[];if(eventos[m].in.length)lines.push('▲ Entrou: '+eventos[m].in.join(', '));if(eventos[m].out.length)lines.push('▼ Saiu: '+eventos[m].out.join(', '));return lines}}}},scales:{y:{...gc,ticks:{callback:v=>'R$ '+(v>=1000?(v/1000).toFixed(1)+'k':v)}},x:gc}}
+    });
+
+    // Legenda de eventos
+    const evList=Object.entries(eventos).sort(([a],[b])=>a>b?1:-1);
+    document.getElementById('mrrEvents').innerHTML=evList.length
+      ?evList.map(([m,[,{in:ins,out:outs}={}]=Object.entries(eventos).find(([k])=>k===m)||[]])=>{
+        const ev=eventos[m];
+        return[
+          ...( ev.in||[]).map(n=>`<span style="background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3);color:#34d399;border-radius:20px;padding:3px 10px;font-size:11px">▲ ${n} <span style="opacity:.6">${nM[m.slice(5,7)]+'/'+m.slice(2,4)}</span></span>`),
+          ...(ev.out||[]).map(n=>`<span style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:#f87171;border-radius:20px;padding:3px 10px;font-size:11px">▼ ${n} <span style="opacity:.6">${nM[m.slice(5,7)]+'/'+m.slice(2,4)}</span></span>`),
+        ].join('')}).join('')
+      :'<span style="font-size:12px;color:var(--faint)">Nenhum evento detectado nos lançamentos.</span>';
+  }
+
   const cProfitEl=document.getElementById('cProfit');
   if(cProfitEl){
     const pm={};
