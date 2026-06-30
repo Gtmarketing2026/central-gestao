@@ -2251,14 +2251,12 @@ function renderCharts(){
     });
 
     // Legenda de eventos
-    const evList=Object.entries(eventos).sort(([a],[b])=>a>b?1:-1);
+    const evList=Object.entries(eventos).sort((a,b)=>a[0]>b[0]?1:-1);
     document.getElementById('mrrEvents').innerHTML=evList.length
-      ?evList.map(([m,[,{in:ins,out:outs}={}]=Object.entries(eventos).find(([k])=>k===m)||[]])=>{
-        const ev=eventos[m];
-        return[
-          ...( ev.in||[]).map(n=>`<span style="background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3);color:#34d399;border-radius:20px;padding:3px 10px;font-size:11px">▲ ${n} <span style="opacity:.6">${nM[m.slice(5,7)]+'/'+m.slice(2,4)}</span></span>`),
+      ?evList.map(([m,ev])=>[
+          ...(ev.in||[]).map(n=>`<span style="background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3);color:#34d399;border-radius:20px;padding:3px 10px;font-size:11px">▲ ${n} <span style="opacity:.6">${nM[m.slice(5,7)]+'/'+m.slice(2,4)}</span></span>`),
           ...(ev.out||[]).map(n=>`<span style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:#f87171;border-radius:20px;padding:3px 10px;font-size:11px">▼ ${n} <span style="opacity:.6">${nM[m.slice(5,7)]+'/'+m.slice(2,4)}</span></span>`),
-        ].join('')}).join('')
+        ].join('')).join('')
       :'<span style="font-size:12px;color:var(--faint)">Nenhum evento detectado nos lançamentos.</span>';
   }
 
