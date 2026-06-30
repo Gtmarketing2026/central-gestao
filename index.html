@@ -852,6 +852,19 @@ const today = () => new Date().toISOString().slice(0,10);
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function dateBR(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}`}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date(today()))/864e5)}
+// Retorna a próxima ocorrência da data de relatório mensal a partir de hoje
+function nextMonthlyDate(dateStr){
+  if(!dateStr)return null;
+  const day=parseInt(dateStr.slice(8,10))||1;
+  const t=new Date(today()+'T12:00:00');
+  // Tenta o dia no mês atual
+  let d=new Date(t.getFullYear(),t.getMonth(),day);
+  // Se já passou, avança para o próximo mês
+  if(d<t)d=new Date(t.getFullYear(),t.getMonth()+1,day);
+  // Correção de overflow (ex: 31 de fevereiro → último dia do mês)
+  if(d.getDate()!==day)d=new Date(d.getFullYear(),d.getMonth()+1,0);
+  return d.toISOString().slice(0,10);
+}
 
 const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||''});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||''});
@@ -958,11 +971,12 @@ function goToTasksForClient(clientId){
 }
 
 /* ---- RENDER ---- */
-function renderAll(){renderOperacional();renderFinOverview();renderChurn();renderClients();renderTasks();renderFinance();renderShows();fillClientSelects();
+function renderAll(){
+  [renderOperacional,renderFinOverview,renderChurn,renderClients,renderTasks,renderFinance,renderShows,fillClientSelects].forEach(fn=>{try{fn()}catch(e){console.error(fn.name,e)}});
   document.getElementById('cBadge').textContent=DB.clients.filter(c=>c.status==='Ativo').length;
   document.getElementById('tBadge').textContent=DB.tasks.filter(t=>t.status!=='done').length;
   document.getElementById('sBadge').textContent=DB.shows.filter(s=>showState(s).key==='ativo').length;
-  if(window.Chart)renderCharts();
+  if(window.Chart)try{renderCharts()}catch(e){console.error('renderCharts',e)};
 }
 function clientName(id){const c=DB.clients.find(x=>x.id===id);return c?c.name:'—'}
 
@@ -1032,12 +1046,18 @@ function renderOperacional(){
   // --- Alerta de relatórios atrasados ---
   // Mensal: data vencida E tarefa "Enviar ao cliente" do mês não está concluída
   const relMensaisAtrasados=DB.clients.filter(c=>{
-    if(c.status!=='Ativo'||!c.report||daysUntil(c.report)>=0)return false;
-    const mes=c.report.slice(0,7);
+    if(c.status!=='Ativo'||!c.report)return false;
+    const nextDate=nextMonthlyDate(c.report);
+    if(!nextDate||daysUntil(nextDate)>3)return false; // só mostra se vence em até 3 dias ou já venceu
+    const mes=nextDate.slice(0,7);
     const taskName=`Enviar ao cliente (${c.name})`;
     const task=DB.tasks.find(t=>t.client===c.id&&t.name===taskName&&(t.due||'').slice(0,7)===mes);
     return !task||task.status!=='done';
-  }).map(c=>({c,dias:Math.abs(daysUntil(c.report))})).sort((a,b)=>b.dias-a.dias);
+  }).map(c=>{
+    const nextDate=nextMonthlyDate(c.report);
+    const dias=daysUntil(nextDate);
+    return{c,dias,nextDate};
+  }).sort((a,b)=>a.dias-b.dias);
 
   // Semanal: dia configurado já passou esta semana E tarefa "Montar e enviar" não está concluída
   const todayD=new Date(today()+'T12:00:00');
@@ -1068,14 +1088,19 @@ function renderOperacional(){
     let html=`<span style="font-size:13px;font-weight:700;color:${relMensaisAtrasados.length?'#f87171':'#f0c040'}">📋 ${totalRep} relatório(s) com atenção necessária</span>`;
     if(relMensaisAtrasados.length){
       html+=`<div style="font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 4px">Relatórios MENSAIS atrasados</div>`;
-      html+=`<div style="display:flex;flex-direction:column;gap:4px">${relMensaisAtrasados.map(({c,dias})=>{
-        const mes=c.report.slice(0,7);
+      html+=`<div style="display:flex;flex-direction:column;gap:4px">${relMensaisAtrasados.map(({c,dias,nextDate})=>{
+        const mes=nextDate.slice(0,7);
         const task=DB.tasks.find(t=>t.client===c.id&&t.name===`Enviar ao cliente (${c.name})`&&(t.due||'').slice(0,7)===mes);
         const btn=task?`<button class="btn sm ghost" onclick="openTaskModal('${task.id}')">✎ Ver tarefa</button>`:`<button class="btn sm ghost" onclick="goToTasksForClient('${c.id}')">📋 Ver tarefas</button>`;
-        return`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(248,113,113,.08);border-radius:10px">
+        const absDias=Math.abs(dias);
+        const label=dias<0?`<span class="pill red">${absDias} dia${absDias!==1?'s':''} atrasado</span>`
+                          :dias===0?`<span class="pill red">vence hoje</span>`
+                          :`<span class="pill" style="background:rgba(240,192,64,.18);color:#f0c040">vence em ${dias} dia${dias!==1?'s':''}</span>`;
+        const bg=dias<=0?'rgba(248,113,113,.08)':'rgba(240,192,64,.07)';
+        return`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:${bg};border-radius:10px">
           <span style="flex:1;font-size:13px;font-weight:600">${c.name}</span>
-          <span class="pill red">${dias} dia${dias!==1?'s':''} atrasado</span>
-          <span style="font-size:11px;color:var(--faint)">era ${c.report.split('-').reverse().join('/')}</span>
+          ${label}
+          <span style="font-size:11px;color:var(--faint)">${nextDate.split('-').reverse().join('/')}</span>
           ${btn}
         </div>`;
       }).join('')}</div>`;
