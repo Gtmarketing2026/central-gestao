@@ -1082,8 +1082,7 @@ function renderOperacional(){
     }
     if(relSemanaisAtrasados.length){
       html+=`<div style="font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 4px">Relatórios SEMANAIS não enviados</div>`;
-      html+=`<div style="display:flex;flex-direction:column;gap:4px">${relSemanaisAtrasados.map(({c,dias,taskExists})=>{
-        const task=x.task||null;
+      html+=`<div style="display:flex;flex-direction:column;gap:4px">${relSemanaisAtrasados.map(({c,dias,taskExists,task})=>{
         const btn=task?`<button class="btn sm ghost" onclick="openTaskModal('${task.id}')">✎ Ver tarefa</button>`:`<button class="btn sm ghost" onclick="goToTasksForClient('${c.id}')">📋 Ver tarefas</button>`;
         return`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(240,192,64,.08);border-radius:10px">
           <span style="flex:1;font-size:13px;font-weight:600">${c.name}</span>
