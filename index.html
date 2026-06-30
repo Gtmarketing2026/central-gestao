@@ -204,9 +204,21 @@
       <div class="section-head"><h2>Carga de trabalho da equipe</h2></div>
       <div id="teamWorkload" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px"></div>
     </div>
-    <div class="card">
-      <div class="section-head"><h2>Entregas da semana</h2></div>
-      <div id="weekTasks"></div>
+    <div class="card" style="cursor:pointer;user-select:none" onclick="toggleWeekTasks()">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:12px">
+          <h2 style="margin:0">Tarefas pendentes</h2>
+          <span id="weekTasksBadge" style="background:var(--accent);color:#000;border-radius:20px;padding:2px 12px;font-size:13px;font-weight:700"></span>
+          <span id="weekTasksAtrasadaBadge" style="display:none;background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.35);border-radius:20px;padding:2px 10px;font-size:12px;font-weight:600"></span>
+        </div>
+        <span id="weekTasksChevron" style="color:var(--muted);font-size:18px;transition:.2s">›</span>
+      </div>
+      <div id="weekTasksBody" style="display:none;margin-top:14px" onclick="event.stopPropagation()">
+        <div id="weekTasks"></div>
+        <div style="margin-top:10px;text-align:center">
+          <button class="btn ghost sm" onclick="goToTab('tasks')" style="font-size:12px">Ver todas na aba Tarefas →</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -923,11 +935,27 @@ async function _upsertFinance(o){await sb.from('finance').upsert(dbFinance(o));c
 async function _upsertShow(o){await sb.from('shows').upsert(dbShow(o));const i=DB.shows.findIndex(x=>x.id===o.id);i>=0?DB.shows[i]=o:DB.shows.push(o);}
 
 /* ---- TABS ---- */
-document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+function goToTab(tabId){
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
-  t.classList.add('active');document.getElementById(t.dataset.tab).classList.add('active');
-});
+  const tab=document.querySelector(`.tab[data-tab="${tabId}"]`);
+  if(tab)tab.classList.add('active');
+  const panel=document.getElementById(tabId);
+  if(panel)panel.classList.add('active');
+}
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>goToTab(t.dataset.tab));
+
+let weekTasksOpen=false;
+function toggleWeekTasks(){
+  weekTasksOpen=!weekTasksOpen;
+  document.getElementById('weekTasksBody').style.display=weekTasksOpen?'block':'none';
+  document.getElementById('weekTasksChevron').style.transform=weekTasksOpen?'rotate(90deg)':'';
+}
+function goToTasksForClient(clientId){
+  goToTab('tasks');
+  const sel=document.getElementById('tfClient');
+  if(sel){sel.value=clientId;applyTaskFilters()}
+}
 
 /* ---- RENDER ---- */
 function renderAll(){renderOperacional();renderFinOverview();renderChurn();renderClients();renderTasks();renderFinance();renderShows();fillClientSelects();
@@ -1013,23 +1041,23 @@ function renderOperacional(){
 
   // Semanal: dia configurado já passou esta semana E tarefa "Montar e enviar" não está concluída
   const todayD=new Date(today()+'T12:00:00');
+  const thisWeekISO=isoWeek(today());
   const relSemanaisAtrasados=DB.clients.filter(c=>{
     if(c.status!=='Ativo'||!c.reportWeekly||!c.reportWeeklyDay)return false;
     const target=WR_DAY_NUM[c.reportWeeklyDay]??1;
     const diff=target-todayD.getDay();
-    if(diff>0)return false;
-    const dueDateThisWeek=addDays(today(),diff);
+    if(diff>0)return false; // dia desta semana ainda não chegou
     const taskName=`Montar e enviar relatório semanal (${c.name})`;
-    const task=DB.tasks.find(t=>t.client===c.id&&t.name===taskName&&t.due===dueDateThisWeek);
+    // Busca por semana ISO — não por data exata, para pegar tarefas geradas em massa
+    const task=DB.tasks.find(t=>t.client===c.id&&t.name===taskName&&t.due&&isoWeek(t.due)===thisWeekISO);
     return !task||task.status!=='done';
   }).map(c=>{
     const target=WR_DAY_NUM[c.reportWeeklyDay]??1;
     const diff=target-todayD.getDay();
-    const dueDateThisWeek=addDays(today(),diff);
-    const dias=Math.abs(daysUntil(dueDateThisWeek));
+    const dias=Math.abs(diff);
     const taskName=`Montar e enviar relatório semanal (${c.name})`;
-    const task=DB.tasks.find(t=>t.client===c.id&&t.name===taskName&&t.due===dueDateThisWeek);
-    return{c,dias,taskExists:!!task};
+    const task=DB.tasks.find(t=>t.client===c.id&&t.name===taskName&&t.due&&isoWeek(t.due)===thisWeekISO);
+    return{c,dias,taskExists:!!task,task};
   });
 
   const reportAlertEl=document.getElementById('reportAlert');
@@ -1043,7 +1071,7 @@ function renderOperacional(){
       html+=`<div style="display:flex;flex-direction:column;gap:4px">${relMensaisAtrasados.map(({c,dias})=>{
         const mes=c.report.slice(0,7);
         const task=DB.tasks.find(t=>t.client===c.id&&t.name===`Enviar ao cliente (${c.name})`&&(t.due||'').slice(0,7)===mes);
-        const btn=task?`<button class="btn sm ghost" onclick="openTaskModal('${task.id}')">✎ Ver tarefa</button>`:`<button class="btn sm ghost" onclick="openClientModal('${c.id}')">✎ Cliente</button>`;
+        const btn=task?`<button class="btn sm ghost" onclick="openTaskModal('${task.id}')">✎ Ver tarefa</button>`:`<button class="btn sm ghost" onclick="goToTasksForClient('${c.id}')">📋 Ver tarefas</button>`;
         return`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(248,113,113,.08);border-radius:10px">
           <span style="flex:1;font-size:13px;font-weight:600">${c.name}</span>
           <span class="pill red">${dias} dia${dias!==1?'s':''} atrasado</span>
@@ -1055,11 +1083,8 @@ function renderOperacional(){
     if(relSemanaisAtrasados.length){
       html+=`<div style="font-size:12px;font-weight:600;color:var(--muted);margin:10px 0 4px">Relatórios SEMANAIS não enviados</div>`;
       html+=`<div style="display:flex;flex-direction:column;gap:4px">${relSemanaisAtrasados.map(({c,dias,taskExists})=>{
-        const target=WR_DAY_NUM[c.reportWeeklyDay]??1;
-        const diff=target-todayD.getDay();
-        const dueDateThisWeek=addDays(today(),diff);
-        const task=DB.tasks.find(t=>t.client===c.id&&t.name===`Montar e enviar relatório semanal (${c.name})`&&t.due===dueDateThisWeek);
-        const btn=task?`<button class="btn sm ghost" onclick="openTaskModal('${task.id}')">✎ Ver tarefa</button>`:`<button class="btn sm ghost" onclick="openWeeklyReportModal()">⚡ Gerar</button>`;
+        const task=x.task||null;
+        const btn=task?`<button class="btn sm ghost" onclick="openTaskModal('${task.id}')">✎ Ver tarefa</button>`:`<button class="btn sm ghost" onclick="goToTasksForClient('${c.id}')">📋 Ver tarefas</button>`;
         return`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(240,192,64,.08);border-radius:10px">
           <span style="flex:1;font-size:13px;font-weight:600">${c.name}</span>
           <span class="pill amber">${taskExists?'pendente':'não gerado'} · ${dias===0?'hoje':dias+' dia'+(dias!==1?'s':'')+' atrás'}</span>
@@ -1106,7 +1131,12 @@ function renderOperacional(){
     </div>`;
   }).join(''):'<div style="color:var(--faint);font-size:13px">Nenhum colaborador cadastrado.</div>';
 
-  const week=DB.tasks.filter(t=>t.status!=='done').sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).slice(0,8);
+  const allPending=DB.tasks.filter(t=>t.status!=='done');
+  const allAtrasadas=allPending.filter(t=>t.due&&daysUntil(t.due)<0);
+  document.getElementById('weekTasksBadge').textContent=allPending.length+' pendente'+(allPending.length!==1?'s':'');
+  const atBadge=document.getElementById('weekTasksAtrasadaBadge');
+  if(allAtrasadas.length){atBadge.style.display='';atBadge.textContent=allAtrasadas.length+' atrasada'+(allAtrasadas.length!==1?'s':'')}else{atBadge.style.display='none'}
+  const week=allPending.sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).slice(0,8);
   document.getElementById('weekTasks').innerHTML=week.length?week.map(t=>{const d=daysUntil(t.due);let p='gray',txt=t.due?dateBR(t.due):'sem prazo';if(d!==null){if(d<0){p='red';txt='atrasada '+Math.abs(d)+'d'}else if(d<=2){p='amber';txt=d===0?'hoje':d+'d'}else{p='blue';txt=d+'d'}}return`<div class="task-item" style="padding:10px 4px"><span class="task-name" style="font-size:13px">${t.name}<br><span style="font-size:11px;color:var(--faint)">${clientName(t.client)}</span></span><span class="pill ${p}">${txt}</span></div>`}).join(''):'<div class="empty">Nenhuma tarefa pendente 🎉</div>';
 }
 
