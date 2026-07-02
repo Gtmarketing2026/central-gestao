@@ -1516,8 +1516,22 @@ function renderFinance(){
   const k=[{label:filtroAtivo?'Receita (filtro)':'Receita total',val:fmt(recTotal)},{label:'Já recebido',val:fmt(recebido),cls:'money-pos'},{label:'A receber',val:fmt(recTotal-recebido),cls:'money-neg'},{label:'Despesas',val:fmt(despTotal)},{label:'Resultado líquido',val:fmt(recebido-despTotal),cls:recebido-despTotal>=0?'money-pos':'money-neg'}];
   document.getElementById('finKpis').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val ${x.cls||''}">${x.val}</div></div>`).join('');
   const t=document.getElementById('finTable');
-  if(!all.length){t.innerHTML='<tr><td><div class="empty">Nenhum lançamento'+(filtroAtivo?' com esses filtros':'')+'.</div></td></tr>';return}
-  t.innerHTML=`<thead><tr><th>Descrição</th><th>Cliente / Credor</th><th>Tipo</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead><tbody>`+all.sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).map(f=>{const sp={pago:'green',pendente:'amber',atrasado:'red'}[f.status];const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[f.status];const ct=clientTypeLabel(clientType(f.client));const isDespesa=f.type==='despesa';const partyName=isDespesa&&f.creditor?creditorName(f.creditor):clientName(f.client);const repeatBadge=f.repeat?`<span class="pill blue" style="font-size:10px">↻ ${({semanal:'semanal',quinzenal:'15d',mensal:'mensal',bimestral:'bimestral',trimestral:'trimestral',anual:'anual'})[f.repeat]||f.repeat}</span>`:'';const partyTag=isDespesa?`<span class="pill red" style="font-size:10px">despesa</span>${repeatBadge}`:`<span class="pill gray">${ct}</span>`;const statusCell=f._show?`<span class="pill ${sp}" style="cursor:pointer" onclick="toggleShowPayInFin('${f.showId}','${f.payId}')">${sl}</span>`:`<span class="pill ${sp}">${sl}</span>`;const act=f._show?`<button class="btn sm ghost" onclick="openShowModal('${f.showId}')">✎</button>`:`<button class="btn sm ghost" onclick="openFinModal('${f.id}')">✎</button><button class="btn sm ghost danger" onclick="delFin('${f.id}')">✕</button>`;return`<tr><td>${f.desc}</td><td style="color:var(--muted)">${partyName}</td><td>${partyTag}</td><td class="${isDespesa?'money-neg':'money-pos'}">${isDespesa?'-':''}${fmt(f.val)}</td><td>${dateBR(f.due)}</td><td>${statusCell}</td><td class="row-actions">${act}</td></tr>`}).join('')+'</tbody>';
+  if(!t)return;
+  if(!all.length){t.innerHTML='<tr><td colspan="7"><div class="empty">Nenhum lançamento'+(filtroAtivo?' com esses filtros':'')+'.</div></td></tr>';return}
+  try{
+    t.innerHTML=`<thead><tr><th>Descrição</th><th>Cliente / Credor</th><th>Tipo</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead><tbody>`+all.sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).map(f=>{
+      const sp={pago:'green',pendente:'amber',atrasado:'red'}[f.status]||'amber';
+      const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[f.status]||f.status||'';
+      const ct=clientTypeLabel(clientType(f.client));
+      const isDespesa=f.type==='despesa';
+      const partyName=isDespesa&&f.creditor?creditorName(f.creditor):clientName(f.client);
+      const repeatBadge=f.repeat?`<span class="pill blue" style="font-size:10px">↻ ${({semanal:'semanal',quinzenal:'15d',mensal:'mensal',bimestral:'bimestral',trimestral:'trimestral',anual:'anual'})[f.repeat]||f.repeat}</span>`:'';
+      const partyTag=isDespesa?`<span class="pill red" style="font-size:10px">despesa</span>${repeatBadge}`:`<span class="pill gray">${ct}</span>`;
+      const statusCell=f._show?`<span class="pill ${sp}" style="cursor:pointer" onclick="toggleShowPayInFin('${f.showId}','${f.payId}')">${sl}</span>`:`<span class="pill ${sp}">${sl}</span>`;
+      const act=f._show?`<button class="btn sm ghost" onclick="openShowModal('${f.showId}')">✎</button>`:`<button class="btn sm ghost" onclick="openFinModal('${f.id}')">✎</button><button class="btn sm ghost danger" onclick="delFin('${f.id}')">✕</button>`;
+      return`<tr><td>${f.desc||'—'}</td><td style="color:var(--muted)">${partyName||'—'}</td><td>${partyTag}</td><td class="${isDespesa?'money-neg':'money-pos'}">${isDespesa?'-':''}${fmt(f.val)}</td><td>${dateBR(f.due)}</td><td>${statusCell}</td><td class="row-actions">${act}</td></tr>`;
+    }).join('')+'</tbody>';
+  }catch(e){console.error('finTable render',e);t.innerHTML=`<tr><td colspan="7"><div class="empty">Erro ao renderizar: ${e.message}</div></td></tr>`}
 }
 async function toggleShowPayInFin(showId,payId){const s=DB.shows.find(x=>x.id===showId);if(!s)return;const p=showPays(s).find(x=>x.id===payId);if(!p)return;p.status=p.status==='pago'?'pendente':'pago';if(s.payments)s.payments=showPays(s);await _upsertShow(s);renderAll()}
 
