@@ -683,6 +683,10 @@
       <label>Executar em</label>
       <div id="tChannelPicker" style="display:flex;flex-wrap:wrap;gap:7px;margin-top:4px"></div>
     </div>
+    <div class="form-row" style="flex-direction:row;align-items:center;gap:10px">
+      <input type="checkbox" id="tUrgent" style="width:16px;height:16px;accent-color:#f87171;cursor:pointer">
+      <label for="tUrgent" style="margin:0;cursor:pointer;display:flex;align-items:center;gap:6px">🚩 <strong>Marcar como urgente</strong> <span style="font-size:11px;color:var(--faint);font-weight:400">— aparece destacada no topo da lista</span></label>
+    </div>
     <div class="form-row"><label>Anotações</label><textarea id="tNotes" rows="2" placeholder="Detalhes, links de referência, observações..."></textarea></div>
     <div class="form-row">
       <label>Link / Anexo</label>
@@ -868,8 +872,8 @@ function nextMonthlyDate(dateStr){
 
 const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||''});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||''});
-const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[]});
-const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[]});
+const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false});
+const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||''});
 const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false,creditor:o.creditor||null,repeat:o.repeat||''});
 const mapShow = r => ({id:r.id,client:r.client||'',name:r.name||'',date:r.date||'',val:+r.val||0,state:r.state||'ativo',payments:r.payments||[]});
@@ -1286,13 +1290,13 @@ function renderTasks(){
   if(taskFilters.prio)base=base.filter(t=>t.prio===taskFilters.prio);
   if(taskFilters.dateFrom)base=base.filter(t=>t.due&&t.due>=taskFilters.dateFrom);
   if(taskFilters.dateTo)base=base.filter(t=>t.due&&t.due<=taskFilters.dateTo);
-  const sorted=[...base].sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1);
+  const sorted=[...base].sort((a,b)=>{if(a.urgent&&!b.urgent)return -1;if(!a.urgent&&b.urgent)return 1;return(a.due||'9')>(b.due||'9')?1:-1});
   if(taskView==='list'){
     document.getElementById('taskListView').innerHTML=sorted.length?sorted.map(t=>{const done=t.status==='done',d=daysUntil(t.due);let dp='gray',dt=t.due?dateBR(t.due):'';if(!done&&d!==null){if(d<0){dp='red';dt='atrasada'}else if(d<=2){dp='amber';dt=d===0?'hoje':dt}}const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];const chTags=(t.channels&&t.channels.length)?t.channels.map(c=>`<span class="ch-tag sel" style="padding:2px 8px;font-size:11px">${channelLabel(c)}</span>`).join(''):'';
-const icons=(t.repeat?`<span class="pill blue" title="Repete ${repeatLabel(t.repeat)}">↻ ${repeatLabel(t.repeat)}</span>`:'')+( t.notes?'<span style="color:var(--faint)">📝</span>':'')+(t.link?'<span style="color:var(--faint)">📎</span>':'')+chTags;return`<div class="task-item ${done?'done':''}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')"></div><span class="task-name">${t.name}</span><span class="task-meta"><span class="pill gray">${ownerName(t.owner)}</span><span style="color:var(--accent)">${clientName(t.client)}</span><span class="pill ${pp}">${t.prio}</span>${icons}${dt?`<span class="pill ${dp}">${dt}</span>`:''}</span><button class="btn sm ghost" onclick="openTaskModal('${t.id}')">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')">✕</button></div>`}).join(''):'<div class="empty">Nenhuma tarefa com esses filtros.</div>';
+const urgFlag=t.urgent&&!done?'<span title="Urgente" style="font-size:14px;line-height:1">🚩</span>':'';const icons=(t.repeat?`<span class="pill blue" title="Repete ${repeatLabel(t.repeat)}">↻ ${repeatLabel(t.repeat)}</span>`:'')+( t.notes?'<span style="color:var(--faint)">📝</span>':'')+(t.link?'<span style="color:var(--faint)">📎</span>':'')+chTags;const urgBorder=t.urgent&&!done?'border-left:3px solid #f87171;':'';return`<div class="task-item ${done?'done':''}" style="${urgBorder}">${urgFlag}<div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')"></div><span class="task-name">${t.name}</span><span class="task-meta"><span class="pill gray">${ownerName(t.owner)}</span><span style="color:var(--accent)">${clientName(t.client)}</span><span class="pill ${pp}">${t.prio}</span>${icons}${dt?`<span class="pill ${dp}">${dt}</span>`:''}</span><button class="btn sm ghost" onclick="openTaskModal('${t.id}')">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')">✕</button></div>`}).join(''):'<div class="empty">Nenhuma tarefa com esses filtros.</div>';
   }else{
     const cols=[['todo','A fazer'],['doing','Em andamento'],['review','Revisão'],['done','Concluído']];
-    document.getElementById('kanban').innerHTML=cols.map(([k,lbl])=>{const items=sorted.filter(t=>t.status===k);return`<div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'${k}')"><h4>${lbl}<span>${items.length}</span></h4>${items.map(t=>{const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];return`<div class="kanban-card" draggable="true" ondragstart="dragTask(event,'${t.id}')" onclick="openTaskModal('${t.id}')"><div class="client">${ownerName(t.owner)} · ${clientName(t.client)}</div>${t.name}<div class="due"><span class="pill ${pp}" style="font-size:10px">${t.prio}</span> ${t.due?dateBR(t.due):''}</div></div>`}).join('')}</div>`}).join('');
+    document.getElementById('kanban').innerHTML=cols.map(([k,lbl])=>{const items=sorted.filter(t=>t.status===k);return`<div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'${k}')"><h4>${lbl}<span>${items.length}</span></h4>${items.map(t=>{const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];return`<div class="kanban-card" draggable="true" ondragstart="dragTask(event,'${t.id}')" onclick="openTaskModal('${t.id}')" style="${t.urgent?'border-left:3px solid #f87171;':''}">${t.urgent?'<span style="font-size:12px">🚩</span> ':''}<div class="client">${ownerName(t.owner)} · ${clientName(t.client)}</div>${t.name}<div class="due"><span class="pill ${pp}" style="font-size:10px">${t.prio}</span> ${t.due?dateBR(t.due):''}</div></div>`}).join('')}</div>`}).join('');
   }
 }
 let dragId=null;
@@ -2082,13 +2086,13 @@ function openTaskModal(id){
   else{tRepeat.value=t.repeat||'';document.getElementById('tRepeatDays').value=''}
   repeatModeUpdate();
   selectedChannels=[...(t.channels||[])];renderChannelPicker();
-  tNotes.value=t.notes||'';tLink.value=t.link||'';openModal('taskModal');
+  tNotes.value=t.notes||'';tLink.value=t.link||'';document.getElementById('tUrgent').checked=t.urgent||false;openModal('taskModal');
 }
 async function saveTask(){
   if(!tName.value.trim())return tName.focus();
   let repeat=tRepeat.value;
   if(repeat==='custom'){const d=parseInt(document.getElementById('tRepeatDays').value)||0;repeat=d>0?`custom:${d}`:''}
-  const o={id:tId.value||uid(),name:tName.value.trim(),client:tClient.value,owner:tOwner.value,status:tStatus.value,due:tDue.value,prio:tPrio.value,repeat,notes:tNotes.value.trim(),link:tLink.value.trim(),channels:[...selectedChannels]};
+  const o={id:tId.value||uid(),name:tName.value.trim(),client:tClient.value,owner:tOwner.value,status:tStatus.value,due:tDue.value,prio:tPrio.value,repeat,notes:tNotes.value.trim(),link:tLink.value.trim(),channels:[...selectedChannels],urgent:document.getElementById('tUrgent').checked};
   const isNew=!tId.value;
   const prev=isNew?null:{...DB.tasks.find(x=>x.id===o.id)};
   closeModal('taskModal');await _upsertTask(o);renderAll();
