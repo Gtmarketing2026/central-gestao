@@ -1303,7 +1303,22 @@ let dragId=null;
 function dragTask(e,id){dragId=id}
 async function dropTask(e,status){e.preventDefault();const t=DB.tasks.find(x=>x.id===dragId);if(t){if(status==='done')return completeTask(t);t.status=status;await _upsertTask(t);renderAll()}}
 function nextDate(d,r){const b=d?new Date(d+'T12:00:00'):new Date();const cd=repeatCustomDays(r);if(cd!==null)b.setDate(b.getDate()+cd);else if(r==='diaria')b.setDate(b.getDate()+1);else if(r==='semanal')b.setDate(b.getDate()+7);else if(r==='quinzenal')b.setDate(b.getDate()+15);else if(r==='mensal')b.setMonth(b.getMonth()+1);return b.toISOString().slice(0,10)}
-async function completeTask(t){if(t.repeat){await _upsertTask({...t,id:uid(),status:'todo',due:nextDate(t.due,t.repeat)});t.repeat=''}t.status='done';await _upsertTask(t);renderAll()}
+async function completeTask(t){
+  if(t.repeat){await _upsertTask({...t,id:uid(),status:'todo',due:nextDate(t.due,t.repeat)});t.repeat=''}
+  t.status='done';await _upsertTask(t);
+  // Se for tarefa de relatório mensal, avança a data do próximo relatório no cliente
+  if(t.client&&t.name===`Enviar ao cliente (${clientName(t.client)})`){
+    const c=DB.clients.find(x=>x.id===t.client);
+    if(c&&c.report){
+      // Avança para o mesmo dia no próximo mês
+      const d=new Date(c.report+'T12:00:00');
+      d.setMonth(d.getMonth()+1);
+      c.report=d.toISOString().slice(0,10);
+      await sb.from('clients').update({report:c.report}).eq('id',c.id);
+    }
+  }
+  renderAll();
+}
 /* ---- UNDO ---- */
 let _undoStack=[];let _undoTimer=null;
 function _syncUndoBtn(){
