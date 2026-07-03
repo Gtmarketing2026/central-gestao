@@ -1514,7 +1514,7 @@ function renderCashflow(){
 }
 
 function renderFinance(){
-  renderCashflow();
+  try{renderCashflow()}catch(e){console.error('renderCashflow',e)}
   fillFinTypeFilter();
   const fMonth=document.getElementById('finMonth')?document.getElementById('finMonth').value:'';
   const fType=document.getElementById('finType')?document.getElementById('finType').value:'all';
