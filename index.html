@@ -284,7 +284,6 @@
       <div style="display:flex;gap:8px">
         <button class="btn ghost sm" onclick="openBulkTaskModal()" style="font-size:12px">⚡ Em massa</button>
         <button class="btn ghost sm" onclick="openReportChecklistModal()" style="font-size:12px">📋 Checklist Mensais</button>
-        <button class="btn ghost sm" onclick="openWeeklyReportModal()" style="font-size:12px">📅 Relatórios Semanais</button>
         <button id="undoPersistBtn" class="btn ghost sm" onclick="undoLast()" style="font-size:12px;display:none">↩ Desfazer</button>
         <button class="btn primary" onclick="openTaskModal()">+ Nova tarefa</button>
       </div>
@@ -1071,7 +1070,7 @@ function renderOperacional(){
     const target=WR_DAY_NUM[c.reportWeeklyDay]??1;
     const diff=target-todayD.getDay();
     if(diff>0)return false; // dia desta semana ainda não chegou
-    const taskName=`Montar e enviar relatório semanal (${c.name})`;
+    const taskName=`[Relatório] Enviar relatório para cliente - semanal (${c.name})`;
     // Busca por semana ISO — não por data exata, para pegar tarefas geradas em massa
     const task=DB.tasks.find(t=>t.client===c.id&&t.name===taskName&&t.due&&isoWeek(t.due)===thisWeekISO);
     return !task||task.status!=='done';
@@ -1079,7 +1078,7 @@ function renderOperacional(){
     const target=WR_DAY_NUM[c.reportWeeklyDay]??1;
     const diff=target-todayD.getDay();
     const dias=Math.abs(diff);
-    const taskName=`Montar e enviar relatório semanal (${c.name})`;
+    const taskName=`[Relatório] Enviar relatório para cliente - semanal (${c.name})`;
     const task=DB.tasks.find(t=>t.client===c.id&&t.name===taskName&&t.due&&isoWeek(t.due)===thisWeekISO);
     return{c,dias,taskExists:!!task,task};
   });
@@ -1827,7 +1826,7 @@ const WR_DAY_LABEL={segunda:'Segunda',terca:'Terça',quarta:'Quarta',quinta:'Qui
 async function marcarSemanalEnviado(clientId,dayName){
   const c=DB.clients.find(x=>x.id===clientId);
   if(!c)return;
-  const taskName=`Montar e enviar relatório semanal (${c.name})`;
+  const taskName=`[Relatório] Enviar relatório para cliente - semanal (${c.name})`;
   const thisWeekISO=isoWeek(today());
   // Verifica se já existe tarefa desta semana
   let task=DB.tasks.find(t=>t.client===clientId&&t.name===taskName&&t.due&&isoWeek(t.due)===thisWeekISO);
@@ -1867,7 +1866,7 @@ function isoWeek(dateStr){
 
 function wrAlreadyExists(clientId,week){
   const c=DB.clients.find(x=>x.id===clientId);if(!c)return false;
-  const name=`Montar e enviar relatório semanal (${c.name})`;
+  const name=`[Relatório] Enviar relatório para cliente - semanal (${c.name})`;
   return DB.tasks.some(t=>t.client===clientId&&t.name===name&&t.due&&isoWeek(t.due)===week);
 }
 
@@ -1926,8 +1925,10 @@ async function executeWeeklyReport(){
   targets.forEach(c=>{
     const due=nextWeekdayDate(c.reportWeeklyDay);
     const prev=addDays(due,-1);
-    rows.push({id:uid(),name:`Puxar números da semana (${c.name})`,client:c.id,owner,status:'todo',due:prev,prio:'media',repeat:'',notes:'',link:'',channels:[]});
-    rows.push({id:uid(),name:`Montar e enviar relatório semanal (${c.name})`,client:c.id,owner,status:'todo',due,prio:'alta',repeat:'',notes:'',link:'',channels:[]});
+    const dionathan=(DB.team.find(m=>m.name.toLowerCase().includes('dionathan'))||{}).id||owner;
+    const andreia=(DB.team.find(m=>m.name.toLowerCase().includes('andreia'))||{}).id||owner;
+    rows.push({id:uid(),name:`[Relatório] Criar / Atualizar Resultados - Semanal (${c.name})`,client:c.id,owner:dionathan,status:'todo',due:prev,prio:'media',repeat:'semanal',notes:'',link:'',channels:[]});
+    rows.push({id:uid(),name:`[Relatório] Enviar relatório para cliente - semanal (${c.name})`,client:c.id,owner:andreia,status:'todo',due,prio:'media',repeat:'semanal',notes:'',link:'',channels:[]});
   });
   const{error}=await sb.from('tasks').insert(rows);
   if(error){alert('Erro: '+error.message);return}
@@ -2036,8 +2037,10 @@ async function executeReportChecklist(){
       dates.forEach(due=>{
         const week=isoWeek(due);
         if(wrAlreadyExists(c.id,week))return;
-        rows.push({id:uid(),name:`Puxar números da semana (${c.name})`,client:c.id,owner,status:'todo',due:addDays(due,-1),prio:'media',repeat:'',notes:'',link:'',channels:[]});
-        rows.push({id:uid(),name:`Montar e enviar relatório semanal (${c.name})`,client:c.id,owner,status:'todo',due,prio:'alta',repeat:'',notes:'',link:'',channels:[]});
+        const dionathan2=(DB.team.find(m=>m.name.toLowerCase().includes('dionathan'))||{}).id||owner;
+        const andreia2=(DB.team.find(m=>m.name.toLowerCase().includes('andreia'))||{}).id||owner;
+        rows.push({id:uid(),name:`[Relatório] Criar / Atualizar Resultados - Semanal (${c.name})`,client:c.id,owner:dionathan2,status:'todo',due:addDays(due,-1),prio:'media',repeat:'semanal',notes:'',link:'',channels:[]});
+        rows.push({id:uid(),name:`[Relatório] Enviar relatório para cliente - semanal (${c.name})`,client:c.id,owner:andreia2,status:'todo',due,prio:'media',repeat:'semanal',notes:'',link:'',channels:[]});
       });
     });
   }
