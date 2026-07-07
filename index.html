@@ -851,7 +851,7 @@ const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 const DB = {clients:[], tasks:[], finance:[], shows:[], team:[], creditors:[], wallet:[]};
 
 const fmt = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
-const today = () => new Date().toISOString().slice(0,10);
+const today = () => {const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function dateBR(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}`}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date(today()))/864e5)}
