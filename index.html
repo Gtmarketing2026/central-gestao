@@ -272,6 +272,26 @@
       <h2>Carteira de clientes</h2>
       <button class="btn primary" onclick="openClientModal()">+ Novo cliente</button>
     </div>
+    <div class="filterbar">
+      <input id="cSearch" placeholder="🔍 Buscar cliente..." style="width:200px" oninput="renderClients()">
+      <select id="cFilterStatus" style="width:auto" onchange="renderClients()">
+        <option value="">Todos os status</option>
+        <option value="Ativo">Ativo</option>
+        <option value="Onboarding">Onboarding</option>
+        <option value="Pausado">Pausado</option>
+        <option value="Encerrado">Encerrado</option>
+      </select>
+      <select id="cFilterType" style="width:auto" onchange="renderClients()">
+        <option value="">Todos os tipos</option>
+        <option value="mensal">Mensal</option>
+        <option value="funil">Funil</option>
+        <option value="show">Show/evento</option>
+        <option value="parceria">Parceria</option>
+        <option value="permuta">Permuta</option>
+      </select>
+      <button id="cSortBtn" class="btn sm ghost" onclick="toggleClientSort()" style="min-width:80px">A → Z</button>
+      <button class="btn sm ghost" onclick="document.getElementById('cSearch').value='';document.getElementById('cFilterStatus').value='';document.getElementById('cFilterType').value='';_clientSortAsc=true;document.getElementById('cSortBtn').textContent='A → Z';renderClients()">Limpar</button>
+    </div>
     <div class="card" style="padding:0;overflow:hidden">
       <table id="clientTable"></table>
     </div>
@@ -1220,10 +1240,21 @@ function renderFinOverview(){
   const inv=[...invF,...invS].sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1);
   document.getElementById('openInvoices').innerHTML=inv.length?inv.map(f=>{const d=daysUntil(f.due);let p=f.status==='atrasado'||d<0?'red':'amber';return`<div class="task-item" style="padding:10px 4px"><span class="task-name" style="font-size:13px">${clientName(f.client)}<br><span style="font-size:11px;color:var(--faint)">${f.desc}</span></span><span style="text-align:right"><div style="font-weight:600;font-size:13px">${fmt(f.val)}</div><span class="pill ${p}" style="margin-top:3px">${f.status==='atrasado'?'atrasado':'vence '+dateBR(f.due)}</span></span></div>`}).join(''):'<div class="empty">Tudo em dia ✓</div>';
 }
+let _clientSortAsc=true;
+function toggleClientSort(){_clientSortAsc=!_clientSortAsc;document.getElementById('cSortBtn').textContent=_clientSortAsc?'A → Z':'Z → A';renderClients()}
 function renderClients(){
   const t=document.getElementById('clientTable');
   if(!DB.clients.length){t.innerHTML='<tr><td><div class="empty">Nenhum cliente cadastrado</div></td></tr>';return}
-  t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Verba mídia</th><th>Saldo</th><th>Próx. relatório</th><th></th></tr></thead><tbody>`+DB.clients.map(c=>{
+  const search=(document.getElementById('cSearch')?.value||'').toLowerCase().trim();
+  const fStatus=document.getElementById('cFilterStatus')?.value||'';
+  const fType=document.getElementById('cFilterType')?.value||'';
+  let list=[...DB.clients];
+  if(search)list=list.filter(c=>c.name.toLowerCase().includes(search)||(c.plat||'').toLowerCase().includes(search)||(c.notes||'').toLowerCase().includes(search));
+  if(fStatus)list=list.filter(c=>c.status===fStatus);
+  if(fType)list=list.filter(c=>(c.category||c.billing||'mensal')===fType);
+  list.sort((a,b)=>_clientSortAsc?a.name.localeCompare(b.name,'pt'):b.name.localeCompare(a.name,'pt'));
+  if(!list.length){t.innerHTML='<tr><td><div class="empty">Nenhum cliente com esses filtros.</div></td></tr>';return}
+  t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Verba mídia</th><th>Saldo</th><th>Próx. relatório</th><th></th></tr></thead><tbody>`+list.map(c=>{
     const sp={'Ativo':'green','Onboarding':'blue','Pausado':'amber','Encerrado':'gray'}[c.status]||'gray';
     const d=daysUntil(c.report);let rep=c.report?dateBR(c.report):'—';
     if(d!==null&&d<=3&&d>=0)rep=`<span class="pill amber">${rep}</span>`;else if(d!==null&&d<0)rep=`<span class="pill red">atrasado</span>`;
@@ -1246,7 +1277,7 @@ function renderShows(){
   const mi=document.getElementById('showMonth');if(!mi.value)mi.value=today().slice(0,7);
   const ym=mi.value,nowYm=today().slice(0,7);
   const inMonth=s=>{const sy=(s.date||'').slice(0,7);if(!sy)return false;if(ym>sy)return false;if(ym===sy)return true;return ym>=nowYm};
-  const list=DB.shows.filter(inMonth).sort((a,b)=>(a.date||'')>(b.date||'')?1:-1);
+  const list=DB.shows.filter(inMonth).sort((a,b)=>{const dd=(a.date||'')>(b.date||'')?1:(a.date||'')<(b.date||'')?-1:0;return dd!==0?dd:clientName(a.client).localeCompare(clientName(b.client),'pt')});
   const k=[{label:'Shows no mês',val:list.length},{label:'Rodando campanha',val:list.filter(s=>showState(s).key==='ativo').length,cls:'money-pos'},{label:'Valor total',val:fmt(list.reduce((s,x)=>s+showTotal(x),0))}];
   document.getElementById('showKpis').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val ${x.cls||''}">${x.val}</div></div>`).join('');
   const t=document.getElementById('showTable');
@@ -1289,7 +1320,7 @@ function renderTasks(){
   if(taskFilters.prio)base=base.filter(t=>t.prio===taskFilters.prio);
   if(taskFilters.dateFrom)base=base.filter(t=>t.due&&t.due>=taskFilters.dateFrom);
   if(taskFilters.dateTo)base=base.filter(t=>t.due&&t.due<=taskFilters.dateTo);
-  const sorted=[...base].sort((a,b)=>{if(a.urgent&&!b.urgent)return -1;if(!a.urgent&&b.urgent)return 1;return(a.due||'9')>(b.due||'9')?1:-1});
+  const sorted=[...base].sort((a,b)=>{if(a.urgent&&!b.urgent)return -1;if(!a.urgent&&b.urgent)return 1;const dueDiff=(a.due||'9')>(b.due||'9')?1:(a.due||'9')<(b.due||'9')?-1:0;if(dueDiff!==0)return dueDiff;return clientName(a.client).localeCompare(clientName(b.client),'pt')});
   if(taskView==='list'){
     document.getElementById('taskListView').innerHTML=sorted.length?sorted.map(t=>{const done=t.status==='done',d=daysUntil(t.due);let dp='gray',dt=t.due?dateBR(t.due):'';if(!done&&d!==null){if(d<0){dp='red';dt='atrasada'}else if(d<=2){dp='amber';dt=d===0?'hoje':dt}}const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];const chTags=(t.channels&&t.channels.length)?t.channels.map(c=>`<span class="ch-tag sel" style="padding:2px 8px;font-size:11px">${channelLabel(c)}</span>`).join(''):'';
 const icons=(t.repeat?`<span class="pill blue" title="Repete ${repeatLabel(t.repeat)}">↻ ${repeatLabel(t.repeat)}</span>`:'')+( t.notes?'<span style="color:var(--faint)">📝</span>':'')+(t.link?'<span style="color:var(--faint)">📎</span>':'')+chTags;const urgBorder=t.urgent&&!done?'border-left:3px solid #f87171;':'';const urgBtn=`<button title="${t.urgent?'Remover urgência':'Marcar urgente'}" onclick="toggleUrgent('${t.id}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px 4px;opacity:${t.urgent?'1':'0.25'};transition:opacity .15s" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='${t.urgent?'1':'0.25'}'">🚩</button>`;return`<div class="task-item ${done?'done':''}" style="${urgBorder}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')"></div><span class="task-name">${t.name}</span><span class="task-meta"><span class="pill gray">${ownerName(t.owner)}</span><span style="color:var(--accent)">${clientName(t.client)}</span><span class="pill ${pp}">${t.prio}</span>${icons}${dt?`<span class="pill ${dp}">${dt}</span>`:''}</span>${urgBtn}<button class="btn sm ghost" onclick="openTaskModal('${t.id}')">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')">✕</button></div>`}).join(''):'<div class="empty">Nenhuma tarefa com esses filtros.</div>';
