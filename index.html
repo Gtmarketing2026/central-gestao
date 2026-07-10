@@ -81,14 +81,18 @@
   .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
   .row-actions{display:flex;gap:6px;justify-content:flex-end}
   .checkbox{width:auto;display:inline}
-  .task-item{display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border)}
+  .task-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);border-left:3px solid transparent;transition:background .12s}
   .task-item:last-child{border-bottom:none}
+  .task-item:hover{background:var(--surface2)}
+  .task-item:hover .task-hover{opacity:1}
   .task-item.done .task-name{text-decoration:line-through;color:var(--faint)}
-  .task-check{width:20px;height:20px;border:2px solid var(--border);border-radius:6px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:.15s}
+  .task-check{width:18px;height:18px;border:2px solid var(--border);border-radius:6px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:.15s}
   .task-check.checked{background:var(--green);border-color:var(--green)}
-  .task-check.checked::after{content:'✓';color:#fff;font-size:12px;font-weight:700}
-  .task-name{flex:1;font-size:14px}
-  .task-meta{font-size:11px;color:var(--muted);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .task-check.checked::after{content:'✓';color:#fff;font-size:11px;font-weight:700}
+  .task-name{flex:1;font-size:13px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .task-meta{font-size:11px;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:nowrap}
+  .task-hover{opacity:0;transition:opacity .15s;display:flex;align-items:center;gap:6px}
+  .task-avatar{width:20px;height:20px;border-radius:50%;background:rgba(212,164,31,.16);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
   .kanban{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
   .kanban-col{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;min-height:200px}
   .kanban-col h4{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;display:flex;justify-content:space-between}
@@ -1414,8 +1418,12 @@ function renderTasks(){
     document.getElementById('kanban').innerHTML=cols.map(([k,lbl])=>{const items=sorted.filter(t=>t.status===k);return`<div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'${k}')"><h4>${lbl}<span>${items.length}</span></h4>${items.map(t=>{const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];return`<div class="kanban-card" draggable="true" ondragstart="dragTask(event,'${t.id}')" onclick="openTaskModal('${t.id}')" style="${t.urgent?'border-left:3px solid #f87171;':''}">${t.urgent?'<span style="font-size:12px">🚩</span> ':''}<div class="client">${ownerName(t.owner)} · ${clientName(t.client)}</div>${t.name}<div class="due"><span class="pill ${pp}" style="font-size:10px">${t.prio}</span> ${t.due?dateBR(t.due):''}</div></div>`}).join('')}</div>`}).join('');
   }
 }
-function taskRowHTML(t){const done=t.status==='done',d=daysUntil(t.due);let dp='gray',dt=t.due?dateBR(t.due):'';if(!done&&d!==null){if(d<0){dp='red';dt='atrasada'}else if(d<=2){dp='amber';dt=d===0?'hoje':dt}}const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];const chTags=(t.channels&&t.channels.length)?t.channels.map(c=>`<span class="ch-tag sel" style="padding:2px 8px;font-size:11px">${channelLabel(c)}</span>`).join(''):'';
-const icons=(t.repeat?`<span class="pill blue" title="Repete ${repeatLabel(t.repeat)}">↻ ${repeatLabel(t.repeat)}</span>`:'')+( t.notes?'<span style="color:var(--faint)">📝</span>':'')+(t.link?'<span style="color:var(--faint)">📎</span>':'')+chTags;const urgBorder=t.urgent&&!done?'border-left:3px solid #f87171;':'';const urgBtn=`<button title="${t.urgent?'Remover urgência':'Marcar urgente'}" onclick="toggleUrgent('${t.id}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px 4px;opacity:${t.urgent?'1':'0.25'};transition:opacity .15s" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='${t.urgent?'1':'0.25'}'">🚩</button>`;return`<div class="task-item ${done?'done':''}" style="${urgBorder}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')"></div><span class="task-name">${t.name}</span><span class="task-meta"><span class="pill gray">${ownerName(t.owner)}</span><span style="color:var(--accent)">${clientName(t.client)}</span><span class="pill ${pp}">${t.prio}</span>${icons}${dt?`<span class="pill ${dp}">${dt}</span>`:''}</span>${urgBtn}<button class="btn sm ghost" onclick="openTaskModal('${t.id}')">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')">✕</button></div>`}
+function taskRowHTML(t){const done=t.status==='done',d=daysUntil(t.due);let dp='gray',dt=t.due?dateBR(t.due):'';if(!done&&d!==null){if(d<0){dp='red';dt='atrasada'}else if(d<=2){dp='amber';dt=d===0?'hoje':dt}}const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];const chTags=(t.channels&&t.channels.length)?t.channels.map(c=>`<span class="ch-tag sel" style="padding:1px 7px;font-size:10px">${channelLabel(c)}</span>`).join(''):'';
+const extras=(t.repeat?`<span class="pill blue" style="font-size:10px" title="Repete ${repeatLabel(t.repeat)}">↻ ${repeatLabel(t.repeat)}</span>`:'')+( t.notes?'<span style="color:var(--faint)" title="Tem observações">📝</span>':'')+(t.link?'<span style="color:var(--faint)" title="Tem link">📎</span>':'')+chTags;
+let stripe='transparent';if(t.urgent&&!done)stripe='#f87171';else if(!done&&dp==='red')stripe='#f87171';else if(!done&&dp==='amber')stripe='#f0c040';
+const urgBtn=t.urgent&&!done?`<button title="Remover urgência" onclick="toggleUrgent('${t.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;flex-shrink:0">🚩</button>`:`<button title="Marcar urgente" onclick="toggleUrgent('${t.id}')" class="task-hover" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;flex-shrink:0;opacity:.3">🚩</button>`;
+const initial=(ownerName(t.owner)||'?').trim().charAt(0).toUpperCase();
+return`<div class="task-item ${done?'done':''}" style="border-left-color:${stripe}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')" title="Concluir"></div><div class="task-avatar" title="${ownerName(t.owner)}">${initial}</div><span class="task-name" title="${t.name}">${t.name}</span><span class="task-meta"><span style="color:var(--accent);font-weight:600;white-space:nowrap">${clientName(t.client)}</span><span class="pill ${pp}" style="padding:2px 8px">${t.prio}</span><span class="task-hover">${extras}</span>${dt?`<span class="pill ${dp}" style="white-space:nowrap">${dt}</span>`:''}</span>${urgBtn}<span class="task-hover"><button class="btn sm ghost" onclick="openTaskModal('${t.id}')" title="Editar">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')" title="Excluir">✕</button></span></div>`}
 function renderTaskListGrouped(sorted,el){
   const groups={};const order=[];
   sorted.forEach(t=>{const key=t.client||'__none';if(!groups[key]){groups[key]=[];order.push(key)}groups[key].push(t)});
