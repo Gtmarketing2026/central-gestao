@@ -2293,7 +2293,7 @@ function openTaskModal(id){
   else{tRepeat.value=t.repeat||'';document.getElementById('tRepeatDays').value=''}
   repeatModeUpdate();
   selectedChannels=[...(t.channels||[])];renderChannelPicker();
-  currentTaskChecklist=(t.checklist||[]).map(ci=>({...ci}));renderChecklistEditor();
+  currentTaskChecklist=(t.checklist||[]).map(ci=>({...ci}));document.getElementById('tChecklistNew').value='';renderChecklistEditor();
   tNotes.value=t.notes||'';tLink.value=t.link||'';document.getElementById('tUrgent').checked=t.urgent||false;openModal('taskModal');
 }
 let currentTaskChecklist=[];
