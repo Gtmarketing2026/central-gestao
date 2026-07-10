@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Central de Gestão · Painel da Agência</title>
+<link rel="icon" type="image/x-icon" href="logo.ico">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -130,7 +131,7 @@
 <div id="loginOverlay">
   <div class="login-box">
     <div class="brand" style="margin-bottom:28px">
-      <div class="dot">GT</div>
+      <div class="dot" style="background:none;padding:0"><img src="logo.ico" alt="logo" style="width:42px;height:42px;border-radius:12px;object-fit:cover"></div>
       <div>
         <div style="font-family:'Space Grotesk';font-size:.7rem;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);font-weight:600">Central de Gestão</div>
         <h1 style="font-family:'Space Grotesk';font-size:1.4rem;font-weight:700">Entrar</h1>
@@ -148,7 +149,7 @@
 <div class="app">
   <header>
     <div class="brand">
-      <div class="dot">GT</div>
+      <div class="dot" style="background:none;padding:0"><img src="logo.ico" alt="logo" style="width:42px;height:42px;border-radius:12px;object-fit:cover"></div>
       <div>
         <h1>Central de Gestão</h1>
         <p>Tráfego pago · multi-cliente</p>
@@ -312,6 +313,11 @@
       <div class="seg">
         <button class="active" data-view="list" onclick="setTaskView('list')">Lista</button>
         <button data-view="kanban" onclick="setTaskView('kanban')">Kanban</button>
+      </div>
+      <div class="seg" id="taskStyleSeg" style="margin-left:8px">
+        <button class="active" data-style="compact" onclick="setTaskStyle('compact')">☰ Compacta</button>
+        <button data-style="grouped" onclick="setTaskStyle('grouped')">👥 Agrupada</button>
+        <button data-style="focus" onclick="setTaskStyle('focus')">🎯 Foco do dia</button>
       </div>
       <span style="margin-left:8px;color:var(--muted);font-size:12px">Responsável:</span>
       <div class="seg" id="ownerFilter"></div>
@@ -1373,6 +1379,8 @@ async function delShow(id){if(!confirm('Excluir show?'))return;await sb.from('sh
 
 /* ---- TASKS ---- */
 let taskView='list',ownerFilterVal='all',hideDone=false;
+let taskListStyle=localStorage.getItem('taskListStyle')||'compact';
+function setTaskStyle(v){taskListStyle=v;localStorage.setItem('taskListStyle',v);document.querySelectorAll('#taskStyleSeg [data-style]').forEach(b=>b.classList.toggle('active',b.dataset.style===v));renderTasks()}
 let taskFilters={client:'',status:'',prio:'',dateFrom:'',dateTo:''};
 function ownerName(id){const m=DB.team.find(x=>x.id===id);return m?m.name:'—'}
 function setTaskView(v){taskView=v;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));document.getElementById('taskListView').style.display=v==='list'?'block':'none';document.getElementById('taskKanbanView').style.display=v==='kanban'?'block':'none';renderTasks()}
@@ -1394,13 +1402,49 @@ function renderTasks(){
   if(taskFilters.dateFrom)base=base.filter(t=>t.due&&t.due>=taskFilters.dateFrom);
   if(taskFilters.dateTo)base=base.filter(t=>t.due&&t.due<=taskFilters.dateTo);
   const sorted=[...base].sort((a,b)=>{if(a.urgent&&!b.urgent)return -1;if(!a.urgent&&b.urgent)return 1;const dueDiff=(a.due||'9')>(b.due||'9')?1:(a.due||'9')<(b.due||'9')?-1:0;if(dueDiff!==0)return dueDiff;return clientName(a.client).localeCompare(clientName(b.client),'pt')});
+  document.querySelectorAll('#taskStyleSeg [data-style]').forEach(b=>b.classList.toggle('active',b.dataset.style===taskListStyle));
   if(taskView==='list'){
-    document.getElementById('taskListView').innerHTML=sorted.length?sorted.map(t=>{const done=t.status==='done',d=daysUntil(t.due);let dp='gray',dt=t.due?dateBR(t.due):'';if(!done&&d!==null){if(d<0){dp='red';dt='atrasada'}else if(d<=2){dp='amber';dt=d===0?'hoje':dt}}const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];const chTags=(t.channels&&t.channels.length)?t.channels.map(c=>`<span class="ch-tag sel" style="padding:2px 8px;font-size:11px">${channelLabel(c)}</span>`).join(''):'';
-const icons=(t.repeat?`<span class="pill blue" title="Repete ${repeatLabel(t.repeat)}">↻ ${repeatLabel(t.repeat)}</span>`:'')+( t.notes?'<span style="color:var(--faint)">📝</span>':'')+(t.link?'<span style="color:var(--faint)">📎</span>':'')+chTags;const urgBorder=t.urgent&&!done?'border-left:3px solid #f87171;':'';const urgBtn=`<button title="${t.urgent?'Remover urgência':'Marcar urgente'}" onclick="toggleUrgent('${t.id}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px 4px;opacity:${t.urgent?'1':'0.25'};transition:opacity .15s" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='${t.urgent?'1':'0.25'}'">🚩</button>`;return`<div class="task-item ${done?'done':''}" style="${urgBorder}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')"></div><span class="task-name">${t.name}</span><span class="task-meta"><span class="pill gray">${ownerName(t.owner)}</span><span style="color:var(--accent)">${clientName(t.client)}</span><span class="pill ${pp}">${t.prio}</span>${icons}${dt?`<span class="pill ${dp}">${dt}</span>`:''}</span>${urgBtn}<button class="btn sm ghost" onclick="openTaskModal('${t.id}')">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')">✕</button></div>`}).join(''):'<div class="empty">Nenhuma tarefa com esses filtros.</div>';
+    const el=document.getElementById('taskListView');
+    if(!sorted.length){el.innerHTML='<div class="empty">Nenhuma tarefa com esses filtros.</div>'}
+    else if(taskListStyle==='grouped')renderTaskListGrouped(sorted,el);
+    else if(taskListStyle==='focus')renderTaskListFocus(sorted,el);
+    else el.innerHTML=sorted.map(taskRowHTML).join('');
   }else{
     const cols=[['todo','A fazer'],['doing','Em andamento'],['review','Revisão'],['done','Concluído']];
     document.getElementById('kanban').innerHTML=cols.map(([k,lbl])=>{const items=sorted.filter(t=>t.status===k);return`<div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'${k}')"><h4>${lbl}<span>${items.length}</span></h4>${items.map(t=>{const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];return`<div class="kanban-card" draggable="true" ondragstart="dragTask(event,'${t.id}')" onclick="openTaskModal('${t.id}')" style="${t.urgent?'border-left:3px solid #f87171;':''}">${t.urgent?'<span style="font-size:12px">🚩</span> ':''}<div class="client">${ownerName(t.owner)} · ${clientName(t.client)}</div>${t.name}<div class="due"><span class="pill ${pp}" style="font-size:10px">${t.prio}</span> ${t.due?dateBR(t.due):''}</div></div>`}).join('')}</div>`}).join('');
   }
+}
+function taskRowHTML(t){const done=t.status==='done',d=daysUntil(t.due);let dp='gray',dt=t.due?dateBR(t.due):'';if(!done&&d!==null){if(d<0){dp='red';dt='atrasada'}else if(d<=2){dp='amber';dt=d===0?'hoje':dt}}const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];const chTags=(t.channels&&t.channels.length)?t.channels.map(c=>`<span class="ch-tag sel" style="padding:2px 8px;font-size:11px">${channelLabel(c)}</span>`).join(''):'';
+const icons=(t.repeat?`<span class="pill blue" title="Repete ${repeatLabel(t.repeat)}">↻ ${repeatLabel(t.repeat)}</span>`:'')+( t.notes?'<span style="color:var(--faint)">📝</span>':'')+(t.link?'<span style="color:var(--faint)">📎</span>':'')+chTags;const urgBorder=t.urgent&&!done?'border-left:3px solid #f87171;':'';const urgBtn=`<button title="${t.urgent?'Remover urgência':'Marcar urgente'}" onclick="toggleUrgent('${t.id}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px 4px;opacity:${t.urgent?'1':'0.25'};transition:opacity .15s" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='${t.urgent?'1':'0.25'}'">🚩</button>`;return`<div class="task-item ${done?'done':''}" style="${urgBorder}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')"></div><span class="task-name">${t.name}</span><span class="task-meta"><span class="pill gray">${ownerName(t.owner)}</span><span style="color:var(--accent)">${clientName(t.client)}</span><span class="pill ${pp}">${t.prio}</span>${icons}${dt?`<span class="pill ${dp}">${dt}</span>`:''}</span>${urgBtn}<button class="btn sm ghost" onclick="openTaskModal('${t.id}')">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')">✕</button></div>`}
+function renderTaskListGrouped(sorted,el){
+  const groups={};const order=[];
+  sorted.forEach(t=>{const key=t.client||'__none';if(!groups[key]){groups[key]=[];order.push(key)}groups[key].push(t)});
+  order.sort((a,b)=>clientName(a).localeCompare(clientName(b),'pt'));
+  el.innerHTML=order.map(key=>{
+    const items=groups[key];
+    const urgCount=items.filter(t=>t.urgent&&t.status!=='done').length;
+    const nextDue=items.filter(t=>t.status!=='done'&&t.due).map(t=>t.due).sort()[0];
+    const badge=urgCount?`<span class="pill red" style="font-size:10px">🚩 ${urgCount} urgente${urgCount>1?'s':''}</span>`:'';
+    return`<details class="task-group" open style="margin-bottom:8px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
+      <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface2);font-weight:600">
+        <span style="flex:1">${clientName(key==='__none'?'':key)||'Sem cliente'}</span>
+        ${badge}
+        <span style="font-size:11px;color:var(--muted);font-weight:400">${items.length} tarefa${items.length>1?'s':''}${nextDue?' · próxima: '+dateBR(nextDue):''}</span>
+      </summary>
+      <div>${items.map(taskRowHTML).join('')}</div>
+    </details>`;
+  }).join('');
+}
+function renderTaskListFocus(sorted,el){
+  const pend=sorted.filter(t=>t.status!=='done');
+  const done=sorted.filter(t=>t.status==='done');
+  const urgent=pend.filter(t=>t.urgent);
+  const atrasadas=pend.filter(t=>!t.urgent&&t.due&&daysUntil(t.due)<0);
+  const hoje=pend.filter(t=>!t.urgent&&t.due&&daysUntil(t.due)===0);
+  const semData=pend.filter(t=>!t.urgent&&!t.due);
+  const futuras=pend.filter(t=>!t.urgent&&t.due&&daysUntil(t.due)>0);
+  const block=(label,items)=>items.length?`<div class="section-label" style="margin:14px 0 8px">${label}</div>${items.map(taskRowHTML).join('')}`:'';
+  el.innerHTML=(block('🚩 Urgentes',urgent))+(block('🔥 Atrasadas',atrasadas))+(block('☀ Hoje',hoje))+(block('🗓 Próximas',futuras))+(block('Sem prazo',semData))+(done.length?block('✅ Concluídas',done):'')||'<div class="empty">Nenhuma tarefa com esses filtros.</div>';
 }
 let dragId=null;
 function dragTask(e,id){dragId=id}
