@@ -1453,16 +1453,33 @@ function renderTaskListGrouped(sorted,el){
     </details>`;
   }).join('');
 }
+let focusBucket=null;
+function setFocusBucket(b){focusBucket=b;renderTasks()}
 function renderTaskListFocus(sorted,el){
   const pend=sorted.filter(t=>t.status!=='done');
   const done=sorted.filter(t=>t.status==='done');
-  const urgent=pend.filter(t=>t.urgent);
-  const atrasadas=pend.filter(t=>!t.urgent&&t.due&&daysUntil(t.due)<0);
-  const hoje=pend.filter(t=>!t.urgent&&t.due&&daysUntil(t.due)===0);
-  const semData=pend.filter(t=>!t.urgent&&!t.due);
-  const futuras=pend.filter(t=>!t.urgent&&t.due&&daysUntil(t.due)>0);
-  const block=(label,items)=>items.length?`<div class="section-label" style="margin:14px 0 8px">${label}</div>${items.map(taskRowHTML).join('')}`:'';
-  el.innerHTML=(block('🚩 Urgentes',urgent))+(block('🔥 Atrasadas',atrasadas))+(block('☀ Hoje',hoje))+(block('🗓 Próximas',futuras))+(block('Sem prazo',semData))+(done.length?block('✅ Concluídas',done):'')||'<div class="empty">Nenhuma tarefa com esses filtros.</div>';
+  const atrasadas=pend.filter(t=>t.due&&daysUntil(t.due)<0);
+  const hoje=pend.filter(t=>t.due&&daysUntil(t.due)===0);
+  const semana=pend.filter(t=>t.due&&daysUntil(t.due)>0&&daysUntil(t.due)<=7);
+  const proximas=pend.filter(t=>!t.due||daysUntil(t.due)>7);
+  const buckets={atrasadas,hoje,semana,proximas,concluidas:done};
+  if(!focusBucket||!buckets[focusBucket])focusBucket=atrasadas.length?'atrasadas':'hoje';
+  const items=buckets[focusBucket]||[];
+  const navItem=(key,icon,label,count,danger)=>{const active=focusBucket===key;return`<div onclick="setFocusBucket('${key}')" style="display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:10px;cursor:pointer;font-size:13px;transition:.15s;${active?'background:var(--surface2);border:1px solid var(--border);color:var(--text);font-weight:700':'color:var(--muted);border:1px solid transparent'}">
+    <span style="flex:1">${icon} ${label}</span>
+    <span class="pill ${danger&&count>0?'red':(active?'amber':'gray')}" style="font-size:11px">${count||'—'}</span>
+  </div>`};
+  el.innerHTML=`<div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+    <div style="width:190px;flex-shrink:0;display:flex;flex-direction:column;gap:5px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding:2px 14px 4px">Período</div>
+      ${navItem('atrasadas','🔥','Atrasadas',atrasadas.length,true)}
+      ${navItem('hoje','☀','Hoje',hoje.length)}
+      ${navItem('semana','📅','Esta semana',semana.length)}
+      ${navItem('proximas','🗓','Próximas',proximas.length)}
+      ${navItem('concluidas','✅','Concluídas',done.length)}
+    </div>
+    <div style="flex:1;min-width:280px">${items.length?items.map(taskRowHTML).join(''):'<div class="empty">Nenhuma tarefa nesse período.</div>'}</div>
+  </div>`;
 }
 let dragId=null;
 function dragTask(e,id){dragId=id}
