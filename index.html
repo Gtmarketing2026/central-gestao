@@ -950,6 +950,7 @@ async function loadAll(){
   DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask);DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];DB.creditors=cr.data||[];DB.wallet=w.data||[];
   if(!DB.team.length){const dt=[{id:'eu',name:'Andreia'},{id:'col1',name:'Dionathan'}];await sb.from('team').insert(dt);DB.team=dt;}
   renderAll();setupRealtime();
+  setTimeout(showAlertsPopup, 600);
 }
 
 /* ---- REALTIME ---- */
@@ -991,6 +992,78 @@ function goToTasksForClient(clientId){
   goToTab('tasks');
   const sel=document.getElementById('tfClient');
   if(sel){sel.value=clientId;applyTaskFilters()}
+}
+
+/* ---- ALERTS POPUP ---- */
+function showAlertsPopup(){
+  const STORAGE_KEY='alerts_snooze';
+  const snooze=localStorage.getItem(STORAGE_KEY);
+  if(snooze&&Date.now()<+snooze)return; // ainda em soneca
+  localStorage.removeItem(STORAGE_KEY);
+
+  const items=[];
+
+  // Tarefas vencidas há mais de 3 dias
+  const tAtrasadas=DB.tasks.filter(t=>t.status!=='done'&&t.due&&daysUntil(t.due)<=-3);
+  if(tAtrasadas.length){
+    items.push({icon:'⚠️',cor:'#f87171',bg:'rgba(248,113,113,.08)',border:'rgba(248,113,113,.25)',
+      title:`${tAtrasadas.length} tarefa${tAtrasadas.length!==1?'s':''} vencida${tAtrasadas.length!==1?'s':''} há mais de 3 dias`,
+      linhas:tAtrasadas.sort((a,b)=>daysUntil(a.due)-daysUntil(b.due)).slice(0,5).map(t=>{
+        const dias=Math.abs(daysUntil(t.due));
+        return`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)">
+          <span><strong>${clientName(t.client)||'—'}</strong> · ${t.name}</span>
+          <span style="color:#f87171;white-space:nowrap;margin-left:12px">${dias}d atrás</span>
+        </div>`;
+      })+(tAtrasadas.length>5?`<div style="font-size:11px;color:var(--faint);margin-top:4px">+${tAtrasadas.length-5} mais...</div>`:''),
+      btn:{label:'Ver tarefas',action:"goToTab('tasks')"}
+    });
+  }
+
+  // Cobranças vencidas (receitas pendentes com due no passado)
+  const fAtrasadas=DB.finance.filter(f=>f.type==='receita'&&f.status!=='pago'&&f.due&&daysUntil(f.due)<0);
+  if(fAtrasadas.length){
+    const total=fAtrasadas.reduce((s,f)=>s+(+f.val||0),0);
+    items.push({icon:'💰',cor:'#f0c040',bg:'rgba(240,192,64,.07)',border:'rgba(240,192,64,.25)',
+      title:`${fAtrasadas.length} cobrança${fAtrasadas.length!==1?'s':''} vencida${fAtrasadas.length!==1?'s':''} — ${fmt(total)} a receber`,
+      linhas:fAtrasadas.sort((a,b)=>daysUntil(a.due)-daysUntil(b.due)).slice(0,5).map(f=>{
+        const dias=Math.abs(daysUntil(f.due));
+        return`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)">
+          <span><strong>${clientName(f.client)||f.desc||'—'}</strong> · ${dateBR(f.due)}</span>
+          <span style="color:#f0c040;white-space:nowrap;margin-left:12px">${fmt(f.val)} · ${dias}d</span>
+        </div>`;
+      })+(fAtrasadas.length>5?`<div style="font-size:11px;color:var(--faint);margin-top:4px">+${fAtrasadas.length-5} mais...</div>`:''),
+      btn:{label:'Ver lançamentos',action:"goToTab('finance')"}
+    });
+  }
+
+  // Relatórios mensais atrasados
+  const relMensais=DB.clients.filter(c=>{
+    if(c.status!=='Ativo'||!c.report)return false;
+    const nd=nextMonthlyDate(c.report);
+    return nd&&daysUntil(nd)<0&&(()=>{const mes=nd.slice(0,7);const task=DB.tasks.find(t=>t.client===c.id&&t.name===`Enviar ao cliente (${c.name})`&&(t.due||'').slice(0,7)===mes);return!task||task.status!=='done'})();
+  });
+  if(relMensais.length){
+    items.push({icon:'📋',cor:'#a78bfa',bg:'rgba(167,139,250,.07)',border:'rgba(167,139,250,.25)',
+      title:`${relMensais.length} relatório${relMensais.length!==1?'s':''} mensal${relMensais.length!==1?'is':''} não enviado${relMensais.length!==1?'s':''}`,
+      linhas:relMensais.slice(0,5).map(c=>`<div style="font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)"><strong>${c.name}</strong></div>`)+(relMensais.length>5?`<div style="font-size:11px;color:var(--faint);margin-top:4px">+${relMensais.length-5} mais...</div>`:''),
+      btn:{label:'Ver operacional',action:"goToTab('operacional')"}
+    });
+  }
+
+  if(!items.length)return; // sem avisos, não abre
+
+  document.getElementById('alertsPopupBody').innerHTML=items.map(it=>`
+    <div style="background:${it.bg};border:1px solid ${it.border};border-radius:12px;padding:12px 14px">
+      <div style="font-size:13px;font-weight:700;color:${it.cor};margin-bottom:8px">${it.icon} ${it.title}</div>
+      <div style="display:flex;flex-direction:column;gap:0">${Array.isArray(it.linhas)?it.linhas.join(''):it.linhas}</div>
+      <button class="btn sm ghost" style="margin-top:10px;font-size:12px" onclick="closeAlertsPopup('close');${it.btn.action}">${it.btn.label} →</button>
+    </div>`).join('');
+  const bg=document.getElementById('alertsPopupBg');
+  bg.style.display='flex';
+}
+function closeAlertsPopup(mode){
+  document.getElementById('alertsPopupBg').style.display='none';
+  if(mode==='later')localStorage.setItem('alerts_snooze',Date.now()+30*60*1000); // 30 min
 }
 
 /* ---- RENDER ---- */
@@ -2391,6 +2464,21 @@ function renderCharts(){
 
 checkAuth();
 </script>
+<!-- ALERTS POPUP -->
+<div id="alertsPopupBg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;width:min(560px,94vw);max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 40px #0009">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px 14px;border-bottom:1px solid var(--border)">
+      <span style="font-size:16px;font-weight:700">🔔 Avisos do dia</span>
+      <button onclick="closeAlertsPopup('close')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;line-height:1">✕</button>
+    </div>
+    <div id="alertsPopupBody" style="overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:10px"></div>
+    <div style="display:flex;gap:10px;padding:14px 22px;border-top:1px solid var(--border)">
+      <button onclick="closeAlertsPopup('later')" class="btn ghost" style="flex:1">⏰ Lembrar em 30 min</button>
+      <button onclick="closeAlertsPopup('close')" class="btn primary" style="flex:1">✓ Entendido</button>
+    </div>
+  </div>
+</div>
+
 <div id="undoToast" style="display:none;position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:#1c1a14;border:1px solid var(--accent);border-radius:30px;padding:10px 20px;display:none;align-items:center;gap:14px;box-shadow:0 4px 24px #0008;z-index:9999;font-size:13px;white-space:nowrap">
   <span class="undo-msg" style="color:var(--text)"></span>
   <button onclick="undoLast()" style="background:var(--accent);color:#000;border:none;border-radius:20px;padding:5px 16px;font-weight:700;cursor:pointer;font-size:13px">↩ Desfazer</button>
