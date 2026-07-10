@@ -1695,13 +1695,14 @@ function renderFinance(){
       const partyName=isDespesa&&f.creditor?creditorName(f.creditor):clientName(f.client);
       const repeatBadge=f.repeat?`<span class="pill blue" style="font-size:10px">↻ ${({semanal:'semanal',quinzenal:'15d',mensal:'mensal',bimestral:'bimestral',trimestral:'trimestral',anual:'anual'})[f.repeat]||f.repeat}</span>`:'';
       const partyTag=isDespesa?`<span class="pill red" style="font-size:10px">despesa</span>${repeatBadge}`:`<span class="pill gray">${ct}</span>`;
-      const statusCell=f._show?`<span class="pill ${sp}" style="cursor:pointer" onclick="toggleShowPayInFin('${f.showId}','${f.payId}')">${sl}</span>`:`<span class="pill ${sp}">${sl}</span>`;
+      const statusCell=f._show?`<span class="pill ${sp}" style="cursor:pointer" onclick="toggleShowPayInFin('${f.showId}','${f.payId}')" title="Clique para alternar pago/pendente">${sl}</span>`:`<span class="pill ${sp}" style="cursor:pointer" onclick="toggleFinPaid('${f.id}')" title="Clique para alternar pago/pendente">${sl}</span>`;
       const act=f._show?`<button class="btn sm ghost" onclick="openShowModal('${f.showId}')">✎</button>`:`<button class="btn sm ghost" onclick="openFinModal('${f.id}')">✎</button><button class="btn sm ghost danger" onclick="delFin('${f.id}')">✕</button>`;
       return`<tr><td>${f.desc||'—'}</td><td style="color:var(--muted)">${partyName||'—'}</td><td>${partyTag}</td><td class="${isDespesa?'money-neg':'money-pos'}">${isDespesa?'-':''}${fmt(f.val)}</td><td>${dateBR(f.due)}</td><td>${statusCell}</td><td class="row-actions">${act}</td></tr>`;
     }).join('')+'</tbody>';
   }catch(e){console.error('finTable render',e);t.innerHTML=`<tr><td colspan="7"><div class="empty">Erro ao renderizar: ${e.message}</div></td></tr>`}
 }
 async function toggleShowPayInFin(showId,payId){const s=DB.shows.find(x=>x.id===showId);if(!s)return;const p=showPays(s).find(x=>x.id===payId);if(!p)return;p.status=p.status==='pago'?'pendente':'pago';if(s.payments)s.payments=showPays(s);await _upsertShow(s);renderAll()}
+async function toggleFinPaid(id){const f=DB.finance.find(x=>x.id===id);if(!f)return;f.status=f.status==='pago'?'pendente':'pago';await sb.from('finance').update({status:f.status}).eq('id',f.id);renderAll()}
 
 /* ---- SELECTS ---- */
 function fillClientSelects(){
