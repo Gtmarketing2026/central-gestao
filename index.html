@@ -712,6 +712,14 @@
       <label>Executar em</label>
       <div id="tChannelPicker" style="display:flex;flex-wrap:wrap;gap:7px;margin-top:4px"></div>
     </div>
+    <div class="form-row">
+      <label>Checklist / Subtarefas <span style="font-size:11px;color:var(--faint);font-weight:400">— itens marcados não são levados para a próxima repetição</span></label>
+      <div id="tChecklist" style="display:flex;flex-direction:column;gap:6px;margin-top:4px"></div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <input id="tChecklistNew" placeholder="Novo item da checklist..." onkeydown="if(event.key==='Enter'){event.preventDefault();addChecklistItem()}">
+        <button type="button" class="btn sm ghost" onclick="addChecklistItem()">+ Adicionar</button>
+      </div>
+    </div>
     <div class="form-row" style="flex-direction:row;align-items:center;gap:10px">
       <input type="checkbox" id="tUrgent" style="width:16px;height:16px;accent-color:#f87171;cursor:pointer">
       <label for="tUrgent" style="margin:0;cursor:pointer;display:flex;align-items:center;gap:6px">🚩 <strong>Marcar como urgente</strong> <span style="font-size:11px;color:var(--faint);font-weight:400">— aparece destacada no topo da lista</span></label>
@@ -901,8 +909,8 @@ function nextMonthlyDate(dateStr){
 
 const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||''});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||''});
-const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false});
-const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false});
+const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[]});
+const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[]});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||''});
 const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false,creditor:o.creditor||null,repeat:o.repeat||''});
 const mapShow = r => ({id:r.id,client:r.client||'',name:r.name||'',date:r.date||'',val:+r.val||0,state:r.state||'ativo',payments:r.payments||[]});
@@ -1423,7 +1431,9 @@ const extras=(t.repeat?`<span class="pill blue" style="font-size:10px" title="Re
 let stripe='transparent';if(t.urgent&&!done)stripe='#f87171';else if(!done&&dp==='red')stripe='#f87171';else if(!done&&dp==='amber')stripe='#f0c040';
 const urgBtn=t.urgent&&!done?`<button title="Remover urgência" onclick="toggleUrgent('${t.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;flex-shrink:0">🚩</button>`:`<button title="Marcar urgente" onclick="toggleUrgent('${t.id}')" class="task-hover" style="background:none;border:none;cursor:pointer;font-size:13px;padding:0;flex-shrink:0;opacity:.3">🚩</button>`;
 const initial=(ownerName(t.owner)||'?').trim().charAt(0).toUpperCase();
-return`<div class="task-item ${done?'done':''}" style="border-left-color:${stripe}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')" title="Concluir"></div><div class="task-avatar" title="${ownerName(t.owner)}">${initial}</div><span class="task-name" title="${t.name}">${t.name}</span><span class="task-meta"><span style="color:var(--accent);font-weight:600;white-space:nowrap">${clientName(t.client)}</span><span class="pill ${pp}" style="padding:2px 8px">${t.prio}</span><span class="task-hover">${extras}</span>${dt?`<span class="pill ${dp}" style="white-space:nowrap">${dt}</span>`:''}</span>${urgBtn}<span class="task-hover"><button class="btn sm ghost" onclick="openTaskModal('${t.id}')" title="Editar">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')" title="Excluir">✕</button></span></div>`}
+const cl=t.checklist||[];const clDone=cl.filter(ci=>ci.done).length;
+const clBadge=cl.length?`<span class="pill ${clDone===cl.length?'green':'gray'}" style="white-space:nowrap;cursor:pointer" title="Ver checklist" onclick="openTaskModal('${t.id}')">☑ ${clDone}/${cl.length}</span>`:'';
+return`<div class="task-item ${done?'done':''}" style="border-left-color:${stripe}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')" title="Concluir"></div><div class="task-avatar" title="${ownerName(t.owner)}">${initial}</div><span class="task-name" title="${t.name}">${t.name}</span><span class="task-meta"><span style="color:var(--accent);font-weight:600;white-space:nowrap">${clientName(t.client)}</span><span class="pill ${pp}" style="padding:2px 8px">${t.prio}</span><span class="task-hover">${extras}</span>${clBadge}${dt?`<span class="pill ${dp}" style="white-space:nowrap">${dt}</span>`:''}</span>${urgBtn}<span class="task-hover"><button class="btn sm ghost" onclick="openTaskModal('${t.id}')" title="Editar">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')" title="Excluir">✕</button></span></div>`}
 function renderTaskListGrouped(sorted,el){
   const groups={};const order=[];
   sorted.forEach(t=>{const key=t.client||'__none';if(!groups[key]){groups[key]=[];order.push(key)}groups[key].push(t)});
@@ -1461,7 +1471,7 @@ async function dropTask(e,status){e.preventDefault();const t=DB.tasks.find(x=>x.
 function skipSunday(dateStr){if(!dateStr)return dateStr;const d=new Date(dateStr+'T12:00:00');if(d.getDay()===0)d.setDate(d.getDate()+1);return d.toISOString().slice(0,10)}
 function nextDate(d,r){const b=d?new Date(d+'T12:00:00'):new Date();const cd=repeatCustomDays(r);if(cd!==null)b.setDate(b.getDate()+cd);else if(r==='diaria')b.setDate(b.getDate()+1);else if(r==='semanal')b.setDate(b.getDate()+7);else if(r==='quinzenal')b.setDate(b.getDate()+15);else if(r==='mensal')b.setMonth(b.getMonth()+1);return skipSunday(b.toISOString().slice(0,10))}
 async function completeTask(t){
-  if(t.repeat){await _upsertTask({...t,id:uid(),status:'todo',due:nextDate(t.due,t.repeat)});t.repeat=''}
+  if(t.repeat){const carryChecklist=(t.checklist||[]).filter(ci=>!ci.done).map(ci=>({...ci}));await _upsertTask({...t,id:uid(),status:'todo',due:nextDate(t.due,t.repeat),checklist:carryChecklist});t.repeat=''}
   t.status='done';await _upsertTask(t);
   // Se for tarefa de relatório mensal, avança a data do próximo relatório no cliente
   if(t.client&&t.name===`Enviar ao cliente (${clientName(t.client)})`){
@@ -2263,13 +2273,30 @@ function openTaskModal(id){
   else{tRepeat.value=t.repeat||'';document.getElementById('tRepeatDays').value=''}
   repeatModeUpdate();
   selectedChannels=[...(t.channels||[])];renderChannelPicker();
+  currentTaskChecklist=(t.checklist||[]).map(ci=>({...ci}));renderChecklistEditor();
   tNotes.value=t.notes||'';tLink.value=t.link||'';document.getElementById('tUrgent').checked=t.urgent||false;openModal('taskModal');
+}
+let currentTaskChecklist=[];
+function renderChecklistEditor(){
+  const el=document.getElementById('tChecklist');
+  el.innerHTML=currentTaskChecklist.length?currentTaskChecklist.map((ci,i)=>`<div style="display:flex;align-items:center;gap:8px">
+    <div class="task-check ${ci.done?'checked':''}" style="width:18px;height:18px" onclick="currentTaskChecklist[${i}].done=!currentTaskChecklist[${i}].done;renderChecklistEditor()"></div>
+    <span style="flex:1;font-size:13px;${ci.done?'text-decoration:line-through;color:var(--faint)':''}">${ci.text}</span>
+    <button type="button" class="btn sm ghost danger" onclick="currentTaskChecklist.splice(${i},1);renderChecklistEditor()">✕</button>
+  </div>`).join(''):'<div style="font-size:12px;color:var(--faint)">Nenhum item ainda.</div>';
+}
+function addChecklistItem(){
+  const inp=document.getElementById('tChecklistNew');
+  const text=inp.value.trim();
+  if(!text)return;
+  currentTaskChecklist.push({id:uid(),text,done:false});
+  inp.value='';renderChecklistEditor();inp.focus();
 }
 async function saveTask(){
   if(!tName.value.trim())return tName.focus();
   let repeat=tRepeat.value;
   if(repeat==='custom'){const d=parseInt(document.getElementById('tRepeatDays').value)||0;repeat=d>0?`custom:${d}`:''}
-  const o={id:tId.value||uid(),name:tName.value.trim(),client:tClient.value,owner:tOwner.value,status:tStatus.value,due:tDue.value,prio:tPrio.value,repeat,notes:tNotes.value.trim(),link:tLink.value.trim(),channels:[...selectedChannels],urgent:document.getElementById('tUrgent').checked};
+  const o={id:tId.value||uid(),name:tName.value.trim(),client:tClient.value,owner:tOwner.value,status:tStatus.value,due:tDue.value,prio:tPrio.value,repeat,notes:tNotes.value.trim(),link:tLink.value.trim(),channels:[...selectedChannels],urgent:document.getElementById('tUrgent').checked,checklist:[...currentTaskChecklist]};
   const isNew=!tId.value;
   const prev=isNew?null:{...DB.tasks.find(x=>x.id===o.id)};
   closeModal('taskModal');await _upsertTask(o);renderAll();
