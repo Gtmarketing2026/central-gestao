@@ -175,7 +175,10 @@
         <div id="notifPanel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);width:340px;max-height:420px;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 12px 32px rgba(0,0,0,.4);z-index:200;padding:8px">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px 8px;border-bottom:1px solid var(--border);margin-bottom:6px">
             <strong style="font-size:13px">Notificações</strong>
-            <button class="btn sm ghost" style="font-size:11px;padding:3px 8px" onclick="markAllNotifsRead()">Marcar todas lidas</button>
+            <div style="display:flex;gap:6px">
+              <button class="btn sm ghost" style="font-size:11px;padding:3px 8px" onclick="openBroadcastModal()" title="Avisar a equipe sobre uma novidade do sistema">📢 Novidade</button>
+              <button class="btn sm ghost" style="font-size:11px;padding:3px 8px" onclick="markAllNotifsRead()">Marcar todas lidas</button>
+            </div>
           </div>
           <div id="notifList"></div>
         </div>
@@ -741,6 +744,15 @@
       <input type="checkbox" id="tUrgent" style="width:16px;height:16px;accent-color:#f87171;cursor:pointer">
       <label for="tUrgent" style="margin:0;cursor:pointer;display:flex;align-items:center;gap:6px">🚩 <strong>Marcar como urgente</strong> <span style="font-size:11px;color:var(--faint);font-weight:400">— aparece destacada no topo da lista</span></label>
     </div>
+    <div class="form-row" style="display:flex;flex-direction:row;align-items:center;gap:10px">
+      <input type="checkbox" id="tReviewRequested" style="width:16px;height:16px;accent-color:#60a5fa;cursor:pointer" onchange="document.getElementById('tReviewerRow').style.display=this.checked?'block':'none'">
+      <label for="tReviewRequested" style="margin:0;cursor:pointer;display:flex;align-items:center;gap:6px">🔍 <strong>Solicitar revisão</strong> <span style="font-size:11px;color:var(--faint);font-weight:400">— entra na lista de tarefas do revisor</span></label>
+    </div>
+    <div class="form-row" id="tReviewerRow" style="display:none">
+      <label>Revisor</label>
+      <select id="tReviewer"></select>
+      <div style="margin-top:6px" id="tReviewDoneRow"></div>
+    </div>
     <div class="form-row" id="tCommentsRow" style="display:none">
       <label>Comentários</label>
       <div id="tComments" style="display:flex;flex-direction:column;gap:8px;margin-top:4px;max-height:220px;overflow:auto"></div>
@@ -761,6 +773,19 @@
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('taskModal')">Cancelar</button>
       <button class="btn primary" onclick="saveTask()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- BROADCAST MODAL -->
+<div class="modal-bg" id="broadcastModal">
+  <div class="modal">
+    <h3>📢 Avisar a equipe sobre uma novidade</h3>
+    <div class="form-row"><label>Título</label><input id="bcTitle" placeholder="Ex: Nova função de checklist nas tarefas"></div>
+    <div class="form-row"><label>Resumo</label><textarea id="bcDesc" rows="3" placeholder="O que mudou/foi adicionado, em poucas linhas..."></textarea></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal('broadcastModal')">Cancelar</button>
+      <button class="btn primary" onclick="sendBroadcast()">Enviar para a equipe</button>
     </div>
   </div>
 </div>
@@ -937,8 +962,8 @@ function nextMonthlyDate(dateStr){
 
 const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||''});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||''});
-const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[]});
-const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[]});
+const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
+const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||''});
 const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false,creditor:o.creditor||null,repeat:o.repeat||''});
 const mapShow = r => ({id:r.id,client:r.client||'',name:r.name||'',date:r.date||'',val:+r.val||0,state:r.state||'ativo',payments:r.payments||[]});
@@ -1056,16 +1081,21 @@ function toggleNotifPanel(){
 function renderNotifList(){
   const el=document.getElementById('notifList');
   if(!DB.notifications.length){el.innerHTML='<div class="empty" style="padding:16px 4px">Nenhuma notificação ainda.</div>';return}
-  el.innerHTML=DB.notifications.map(n=>`<div onclick="openNotif('${n.id}','${n.task_id}')" style="padding:9px 8px;border-radius:8px;cursor:pointer;background:${n.read?'transparent':'rgba(212,164,32,.08)'};margin-bottom:2px">
-    <div style="font-size:12px;${n.read?'':'font-weight:600'}"><strong>${teamName(n.from_team)}</strong> te marcou em "${n.task_name||'tarefa'}"</div>
-    <div style="font-size:11px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.comment_text||''}</div>
+  el.innerHTML=DB.notifications.map(n=>{
+    const isSystem=n.type==='system';
+    const title=isSystem?`📢 <strong>${n.task_name||'Novidade no sistema'}</strong>`:`<strong>${teamName(n.from_team)}</strong> te marcou em "${n.task_name||'tarefa'}"`;
+    return`<div onclick="openNotif('${n.id}','${n.task_id||''}')" style="padding:9px 8px;border-radius:8px;cursor:pointer;background:${n.read?'transparent':'rgba(212,164,32,.08)'};margin-bottom:2px">
+    <div style="font-size:12px;${n.read?'':'font-weight:600'}">${title}</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px;${isSystem?'':'overflow:hidden;text-overflow:ellipsis;white-space:nowrap'}">${n.comment_text||''}</div>
     <div style="font-size:10px;color:var(--faint);margin-top:2px">${new Date(n.created_at).toLocaleString('pt-BR')}</div>
-  </div>`).join('');
+  </div>`;
+  }).join('');
 }
 function teamName(id){const m=DB.team.find(x=>x.id===id);return m?m.name:'—'}
 async function openNotif(id,taskId){
   const n=DB.notifications.find(x=>x.id===id);
   if(n&&!n.read){n.read=true;await sb.from('notifications').update({read:true}).eq('id',id);renderNotifBadge();renderNotifList()}
+  if(n&&n.type==='system')return;
   document.getElementById('notifPanel').style.display='none';
   if(taskId&&DB.tasks.some(t=>t.id===taskId))openTaskModal(taskId);
 }
@@ -1080,6 +1110,21 @@ document.addEventListener('click',e=>{
   const panel=document.getElementById('notifPanel');
   if(panel&&panel.style.display==='block'&&!panel.contains(e.target)&&e.target.id!=='notifBtn')panel.style.display='none';
 });
+function openBroadcastModal(){
+  document.getElementById('notifPanel').style.display='none';
+  document.getElementById('bcTitle').value='';document.getElementById('bcDesc').value='';
+  openModal('broadcastModal');
+}
+async function sendBroadcast(){
+  const title=document.getElementById('bcTitle').value.trim();
+  const desc=document.getElementById('bcDesc').value.trim();
+  if(!title)return document.getElementById('bcTitle').focus();
+  const rows=DB.team.filter(m=>m.id!==currentTeamId).map(m=>({id:uid(),to_team:m.id,from_team:currentTeamId,task_id:null,task_name:title,comment_text:desc,read:false,type:'system'}));
+  if(!rows.length){closeModal('broadcastModal');return}
+  await sb.from('notifications').insert(rows);
+  closeModal('broadcastModal');
+  alert('Novidade enviada para a equipe!');
+}
 
 /* ---- TABS ---- */
 function goToTab(tabId){
@@ -1508,7 +1553,7 @@ function repeatLabel(r){if(!r)return'';const d=repeatCustomDays(r);if(d!==null)r
 function repeatModeUpdate(){const v=document.getElementById('tRepeat').value;document.getElementById('tRepeatCustomRow').style.display=v==='custom'?'block':'none'}
 function renderTasks(){
   renderOwnerFilter();fillTaskClientFilter();
-  let base=ownerFilterVal==='all'?DB.tasks:DB.tasks.filter(t=>t.owner===ownerFilterVal);
+  let base=ownerFilterVal==='all'?DB.tasks:DB.tasks.filter(t=>t.owner===ownerFilterVal||(t.reviewRequested&&t.reviewer===ownerFilterVal));
   if(hideDone)base=base.filter(t=>t.status!=='done');
   if(taskFilters.client)base=base.filter(t=>t.client===taskFilters.client);
   if(taskFilters.status)base=base.filter(t=>t.status===taskFilters.status);
@@ -1536,7 +1581,8 @@ const initial=(ownerName(t.owner)||'?').trim().charAt(0).toUpperCase();
 const ownerClr=ownerColor(t.owner);
 const cl=t.checklist||[];const clDone=cl.filter(ci=>ci.done).length;
 const clBadge=cl.length?`<span class="pill ${clDone===cl.length?'green':'gray'}" style="white-space:nowrap;cursor:pointer" title="Ver checklist" onclick="openTaskModal('${t.id}')">☑ ${clDone}/${cl.length}</span>`:'';
-return`<div class="task-item ${done?'done':''}" style="border-left-color:${stripe}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')" title="Concluir"></div><div class="task-avatar" title="${ownerName(t.owner)}" style="background:${ownerClr}26;color:${ownerClr}">${initial}</div><span class="task-name" title="${t.name}">${t.name}</span><span class="task-meta"><span style="color:var(--accent);font-weight:600;white-space:nowrap">${clientName(t.client)}</span><span class="pill ${pp}" style="padding:2px 8px">${t.prio}</span><span class="task-hover">${extras}</span>${clBadge}${dt?`<span class="pill ${dp}" style="white-space:nowrap">${dt}</span>`:''}</span>${urgBtn}<span class="task-hover"><button class="btn sm ghost" onclick="openTaskModal('${t.id}')" title="Editar">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')" title="Excluir">✕</button></span></div>`}
+const reviewBadge=t.reviewRequested&&!done?`<span class="pill blue" style="white-space:nowrap;cursor:pointer" title="Revisão solicitada para ${ownerName(t.reviewer)}" onclick="openTaskModal('${t.id}')">🔍 revisar: ${ownerName(t.reviewer)}</span>`:'';
+return`<div class="task-item ${done?'done':''}" style="border-left-color:${stripe}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')" title="Concluir"></div><div class="task-avatar" title="${ownerName(t.owner)}" style="background:${ownerClr}26;color:${ownerClr}">${initial}</div><span class="task-name" title="${t.name}">${t.name}</span><span class="task-meta"><span style="color:var(--accent);font-weight:600;white-space:nowrap">${clientName(t.client)}</span><span class="pill ${pp}" style="padding:2px 8px">${t.prio}</span><span class="task-hover">${extras}</span>${clBadge}${reviewBadge}${dt?`<span class="pill ${dp}" style="white-space:nowrap">${dt}</span>`:''}</span>${urgBtn}<span class="task-hover"><button class="btn sm ghost" onclick="openTaskModal('${t.id}')" title="Editar">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')" title="Excluir">✕</button></span></div>`}
 function renderTaskListCompact(sorted,el){
   const pend=sorted.filter(t=>t.status!=='done');
   const done=sorted.filter(t=>t.status==='done');
@@ -2392,7 +2438,7 @@ function channelLabel(id){const c=TASK_CHANNELS.find(x=>x.id===id);return c?`${c
 /* ---- TASK MODAL ---- */
 function fillOwnerSelect(sel){sel.innerHTML=DB.team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}
 function openTaskModal(id){
-  fillClientSelects();fillOwnerSelect(document.getElementById('tOwner'));
+  fillClientSelects();fillOwnerSelect(document.getElementById('tOwner'));fillOwnerSelect(document.getElementById('tReviewer'));
   const t=id?DB.tasks.find(x=>x.id===id):{};
   document.getElementById('taskModalTitle').textContent=id?'Editar tarefa':'Nova tarefa';
   tId.value=id||'';tName.value=t.name||'';tClient.value=t.client||'';tOwner.value=t.owner||DB.team[0].id;tStatus.value=t.status||'todo';tPrio.value=t.prio||'media';tDue.value=t.due||'';
@@ -2403,6 +2449,10 @@ function openTaskModal(id){
   selectedChannels=[...(t.channels||[])];renderChannelPicker();
   currentTaskChecklist=(t.checklist||[]).map(ci=>({...ci}));document.getElementById('tChecklistNew').value='';renderChecklistEditor();
   tNotes.value=t.notes||'';tLink.value=t.link||'';document.getElementById('tUrgent').checked=t.urgent||false;
+  document.getElementById('tReviewRequested').checked=t.reviewRequested||false;
+  document.getElementById('tReviewer').value=t.reviewer||(DB.team[0]?DB.team[0].id:'');
+  document.getElementById('tReviewerRow').style.display=t.reviewRequested?'block':'none';
+  document.getElementById('tReviewDoneRow').innerHTML=(id&&t.reviewRequested)?`<button type="button" class="btn sm ghost" style="color:var(--green);border-color:var(--green)" onclick="approveReview('${id}')">✓ Marcar revisão como feita</button>`:'';
   document.getElementById('tCommentsRow').style.display=id?'block':'none';
   if(id){
     currentCommentTaskId=id;currentCommentMentions=new Set();
@@ -2475,14 +2525,20 @@ async function saveTask(){
   if(!tName.value.trim())return tName.focus();
   let repeat=tRepeat.value;
   if(repeat==='custom'){const d=parseInt(document.getElementById('tRepeatDays').value)||0;repeat=d>0?`custom:${d}`:''}
-  const o={id:tId.value||uid(),name:tName.value.trim(),client:tClient.value,owner:tOwner.value,status:tStatus.value,due:tDue.value,prio:tPrio.value,repeat,notes:tNotes.value.trim(),link:tLink.value.trim(),channels:[...selectedChannels],urgent:document.getElementById('tUrgent').checked,checklist:[...currentTaskChecklist]};
   const isNew=!tId.value;
-  const prev=isNew?null:{...DB.tasks.find(x=>x.id===o.id)};
+  const prev=isNew?null:{...DB.tasks.find(x=>x.id===tId.value)};
+  const reviewRequested=document.getElementById('tReviewRequested').checked;
+  const reviewer=reviewRequested?document.getElementById('tReviewer').value:'';
+  const o={id:tId.value||uid(),name:tName.value.trim(),client:tClient.value,owner:tOwner.value,status:tStatus.value,due:tDue.value,prio:tPrio.value,repeat,notes:tNotes.value.trim(),link:tLink.value.trim(),channels:[...selectedChannels],urgent:document.getElementById('tUrgent').checked,checklist:[...currentTaskChecklist],comments:prev?prev.comments||[]:[],reviewRequested,reviewer};
   closeModal('taskModal');await _upsertTask(o);renderAll();
   if(isNew)_pushUndo({type:'create',id:o.id,msg:`"${o.name}" criada — desfazer?`});
   else if(prev)_pushUndo({type:'update',task:o,prev,msg:`"${o.name}" editada — desfazer?`});
+  if(reviewRequested&&reviewer&&reviewer!==currentTeamId&&(!prev||!prev.reviewRequested||prev.reviewer!==reviewer)){
+    await sb.from('notifications').insert([{id:uid(),to_team:reviewer,from_team:currentTeamId,task_id:o.id,task_name:o.name,comment_text:'Solicitou sua revisão nesta tarefa',read:false}]);
+  }
 }
 async function toggleUrgent(id){const t=DB.tasks.find(x=>x.id===id);if(!t)return;t.urgent=!t.urgent;await _upsertTask(t);renderAll()}
+async function approveReview(id){const t=DB.tasks.find(x=>x.id===id);if(!t)return;t.reviewRequested=false;t.reviewer='';await _upsertTask(t);closeModal('taskModal');renderAll()}
 async function delTask(id){
   const t=DB.tasks.find(x=>x.id===id);
   if(!t)return;
