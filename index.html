@@ -161,12 +161,11 @@
     </div>
     <nav class="tabs">
       <button class="tab active" data-tab="operacional">Operacional</button>
-      <button class="tab" data-tab="finOverview">Fin. Geral</button>
+      <button class="tab" data-tab="financeiro">Financeiro</button>
       <button class="tab" data-tab="churn">⚠ Churn <span class="badge" id="churnBadge" style="background:var(--red)">0</span></button>
       <button class="tab" data-tab="clients">Clientes <span class="badge" id="cBadge">0</span></button>
       <button class="tab" data-tab="tasks">Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="shows">Shows <span class="badge" id="sBadge">0</span></button>
-      <button class="tab" data-tab="finance">Lançamentos</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px">
       <span id="userLabel" style="font-size:12px;color:var(--muted)"></span>
@@ -227,41 +226,100 @@
     </div>
   </section>
 
-  <!-- FIN. GERAL -->
-  <section class="panel" id="finOverview">
-    <div class="grid kpis" id="kpiGridFin"></div>
-    <div class="grid kpis" id="kpiGridFin2" style="margin-top:-8px"></div>
-    <div class="card" style="margin-bottom:18px">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
-        <div>
-          <h3 style="margin:0">Evolução do MRR</h3>
-          <div class="hint">Receita recorrente mensal — histórico de lançamentos + projeção futura com fees atuais</div>
+  <!-- FINANCEIRO -->
+  <section class="panel" id="financeiro">
+    <div class="seg" id="finSubSeg" style="margin-bottom:18px">
+      <button class="active" data-fsub="dashboard" onclick="setFinSub('dashboard')">📊 Dashboard</button>
+      <button data-fsub="lancamentos" onclick="setFinSub('lancamentos')">🧾 Lançamentos</button>
+    </div>
+
+    <div id="finDashboardView">
+      <div class="grid kpis" id="kpiGridFin"></div>
+      <div class="grid kpis" id="kpiGridFin2" style="margin-top:-8px"></div>
+
+      <div id="cashflowAlert" style="display:none;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:var(--radius);padding:12px 18px;margin-bottom:14px;font-size:13px;color:#f87171;font-weight:600"></div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:4px 16px 6px;margin-bottom:6px;font-size:11px;color:var(--faint);display:flex;align-items:center;gap:6px">
+        ⚠ <span><strong>Previsão de caixa</strong> — baseada nos lançamentos cadastrados (pendentes). Não reflete valores já recebidos/pagos.</span>
+      </div>
+      <div class="grid" id="cashflowCards" style="grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px"></div>
+      <div class="card" style="margin-bottom:18px">
+        <h3>Previsão de Caixa — próximos 3 meses</h3>
+        <div class="hint">Entradas previstas, saídas previstas e saldo acumulado</div>
+        <div class="chart-box"><canvas id="cCashflow"></canvas></div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+          <div>
+            <h3 style="margin:0">Evolução do MRR</h3>
+            <div class="hint">Receita recorrente mensal — histórico de lançamentos + projeção futura com fees atuais</div>
+          </div>
+          <div id="mrrLegendExtra" style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;align-items:center"></div>
         </div>
-        <div id="mrrLegendExtra" style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;align-items:center"></div>
+        <div class="chart-box" style="height:220px"><canvas id="cMrr"></canvas></div>
+        <div id="mrrEvents" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>
       </div>
-      <div class="chart-box" style="height:220px"><canvas id="cMrr"></canvas></div>
-      <div id="mrrEvents" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>
-    </div>
-    <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start;margin-bottom:18px">
+      <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start;margin-bottom:18px">
+        <div class="card">
+          <h3>Receita por tipo de cobrança</h3>
+          <div class="hint">Concentração do faturamento recorrente</div>
+          <div class="chart-box"><canvas id="cRev"></canvas></div>
+        </div>
+        <div class="card">
+          <h3>Receita vs Despesas por mês</h3>
+          <div class="hint">Comparativo mensal de entradas e saídas (realizado)</div>
+          <div class="chart-box"><canvas id="cProfit"></canvas></div>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:18px">
+        <h3>Contas a receber por mês de vencimento</h3>
+        <div class="hint">Fluxo previsto de entrada</div>
+        <div class="chart-box"><canvas id="cFin"></canvas></div>
+      </div>
+      <div class="card" style="margin-bottom:18px">
+        <h3>Resultado mensal</h3>
+        <div class="hint">Receita recebida, despesas pagas e lucro por mês</div>
+        <div id="profitTable" style="overflow:auto"></div>
+      </div>
       <div class="card">
-        <h3>Receita por tipo de cobrança</h3>
-        <div class="hint">Concentração do faturamento recorrente</div>
-        <div class="chart-box"><canvas id="cRev"></canvas></div>
-      </div>
-      <div class="card">
-        <h3>Receita vs Despesas por mês</h3>
-        <div class="hint">Comparativo mensal de entradas e saídas</div>
-        <div class="chart-box"><canvas id="cProfit"></canvas></div>
+        <div class="section-head"><h2>Cobranças em aberto</h2></div>
+        <div id="openInvoices"></div>
       </div>
     </div>
-    <div class="card" style="margin-bottom:18px">
-      <h3>Resultado mensal</h3>
-      <div class="hint">Receita recebida, despesas pagas e lucro por mês</div>
-      <div id="profitTable" style="overflow:auto"></div>
-    </div>
-    <div class="card">
-      <div class="section-head"><h2>Cobranças em aberto</h2></div>
-      <div id="openInvoices"></div>
+
+    <div id="finLancamentosView" style="display:none">
+      <div class="section-head">
+        <h2>Lançamentos</h2>
+        <div style="display:flex;gap:8px">
+          <button class="btn sm ghost" onclick="openCreditorModal()">🏦 Credores</button>
+          <button class="btn" onclick="gerarDespesasRecorrentes()">⟳ Gerar despesas do mês</button>
+          <button class="btn" onclick="gerarMensalidades()">⟳ Gerar mensalidades do mês</button>
+          <button class="btn primary" onclick="openFinModal()">+ Lançamento</button>
+        </div>
+      </div>
+      <div class="filterbar">
+        <label style="margin:0">Mês:</label>
+        <input type="month" id="finMonth" style="width:auto" onchange="renderFinance()">
+        <select id="finEntryType" style="width:auto" onchange="renderFinance()">
+          <option value="">Receitas e Despesas</option>
+          <option value="receita">Só Receitas</option>
+          <option value="despesa">Só Despesas</option>
+        </select>
+        <label style="margin:0 0 0 8px">Tipo cliente:</label>
+        <select id="finType" style="width:auto" onchange="renderFinance()"></select>
+        <label style="margin:0 0 0 8px">Situação:</label>
+        <select id="finSit" style="width:auto" onchange="renderFinance()">
+          <option value="">Todas</option>
+          <option value="pendente">Pendente</option>
+          <option value="pago">Pago/Recebido</option>
+          <option value="atrasado">Atrasado</option>
+        </select>
+        <input id="finSearch" placeholder="🔍 Buscar cliente..." style="width:180px" oninput="renderFinance()">
+        <button class="btn sm ghost" onclick="clearFinFilters()">Limpar filtros</button>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table id="finTable"></table>
+      </div>
     </div>
   </section>
 
@@ -374,59 +432,6 @@
   </section>
 
   <!-- FINANCE -->
-  <section class="panel" id="finance">
-    <div class="grid kpis" id="finKpis" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))"></div>
-
-    <!-- PREVISÃO DE CAIXA -->
-    <div id="cashflowAlert" style="display:none;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:var(--radius);padding:12px 18px;margin-bottom:14px;font-size:13px;color:#f87171;font-weight:600"></div>
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:4px 16px 6px;margin-bottom:6px;font-size:11px;color:var(--faint);display:flex;align-items:center;gap:6px">
-      ⚠ <span><strong>Previsão de caixa</strong> — baseada nos lançamentos cadastrados (pendentes). Não reflete valores já recebidos/pagos.</span>
-    </div>
-    <div class="grid" id="cashflowCards" style="grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px"></div>
-    <div class="card" style="margin-bottom:18px">
-      <h3>Previsão de Caixa — próximos 3 meses</h3>
-      <div class="hint">Entradas previstas, saídas previstas e saldo acumulado</div>
-      <div class="chart-box"><canvas id="cCashflow"></canvas></div>
-    </div>
-
-    <div class="card" style="margin-bottom:18px">
-      <h3>Contas a receber por mês de vencimento</h3>
-      <div class="hint">Fluxo previsto de entrada</div>
-      <div class="chart-box"><canvas id="cFin"></canvas></div>
-    </div>
-    <div class="section-head">
-      <h2>Lançamentos</h2>
-      <div style="display:flex;gap:8px">
-        <button class="btn sm ghost" onclick="openCreditorModal()">🏦 Credores</button>
-        <button class="btn" onclick="gerarDespesasRecorrentes()">⟳ Gerar despesas do mês</button>
-        <button class="btn" onclick="gerarMensalidades()">⟳ Gerar mensalidades do mês</button>
-        <button class="btn primary" onclick="openFinModal()">+ Lançamento</button>
-      </div>
-    </div>
-    <div class="filterbar">
-      <label style="margin:0">Mês:</label>
-      <input type="month" id="finMonth" style="width:auto" onchange="renderFinance()">
-      <select id="finEntryType" style="width:auto" onchange="renderFinance()">
-        <option value="">Receitas e Despesas</option>
-        <option value="receita">Só Receitas</option>
-        <option value="despesa">Só Despesas</option>
-      </select>
-      <label style="margin:0 0 0 8px">Tipo cliente:</label>
-      <select id="finType" style="width:auto" onchange="renderFinance()"></select>
-      <label style="margin:0 0 0 8px">Situação:</label>
-      <select id="finSit" style="width:auto" onchange="renderFinance()">
-        <option value="">Todas</option>
-        <option value="pendente">Pendente</option>
-        <option value="pago">Pago/Recebido</option>
-        <option value="atrasado">Atrasado</option>
-      </select>
-      <input id="finSearch" placeholder="🔍 Buscar cliente..." style="width:180px" oninput="renderFinance()">
-      <button class="btn sm ghost" onclick="clearFinFilters()">Limpar filtros</button>
-    </div>
-    <div class="card" style="padding:0;overflow:hidden">
-      <table id="finTable"></table>
-    </div>
-  </section>
 </div>
 </div>
 
@@ -967,6 +972,7 @@ async function loadAll(){
   const [c,t,f,s,tm,cr,w]=await Promise.all([sb.from('clients').select('*'),sb.from('tasks').select('*'),sb.from('finance').select('*'),sb.from('shows').select('*'),sb.from('team').select('*'),sb.from('creditors').select('*').order('name'),sb.from('wallet').select('*').order('date')]);
   DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask);DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];DB.creditors=cr.data||[];DB.wallet=w.data||[];
   if(!DB.team.length){const dt=[{id:'eu',name:'Andreia'},{id:'col1',name:'Dionathan'}];await sb.from('team').insert(dt);DB.team=dt;}
+  setFinSub(finSub);
   renderAll();setupRealtime();
   setTimeout(showAlertsPopup, 600);
 }
@@ -1050,7 +1056,7 @@ function showAlertsPopup(){
           <span style="color:#f0c040;white-space:nowrap;margin-left:12px">${fmt(f.val)} · ${dias}d</span>
         </div>`;
       })+(fAtrasadas.length>5?`<div style="font-size:11px;color:var(--faint);margin-top:4px">+${fAtrasadas.length-5} mais...</div>`:''),
-      btn:{label:'Ver lançamentos',action:"goToTab('finance')"}
+      btn:{label:'Ver lançamentos',action:"goToTab('financeiro');setFinSub('lancamentos')"}
     });
   }
 
@@ -1272,6 +1278,7 @@ function renderOperacional(){
 }
 
 function renderFinOverview(){
+  try{renderCashflow()}catch(e){console.error('renderCashflow',e)}
   const ym=today().slice(0,7);
   const activeFeeCli=DB.clients.filter(c=>c.status==='Ativo'&&(c.billing||'mensal')==='mensal'&&(+c.fee||0)>0);
   const mrr=activeFeeCli.reduce((s,c)=>s+(+c.fee||0),0);
@@ -1393,6 +1400,13 @@ async function delShow(id){if(!confirm('Excluir show?'))return;await sb.from('sh
 let taskView='list',ownerFilterVal='all',hideDone=false;
 let taskListStyle=localStorage.getItem('taskListStyle')||'compact';
 function setTaskStyle(v){taskListStyle=v;localStorage.setItem('taskListStyle',v);document.querySelectorAll('#taskStyleSeg [data-style]').forEach(b=>b.classList.toggle('active',b.dataset.style===v));renderTasks()}
+let finSub=localStorage.getItem('finSub')||'dashboard';
+function setFinSub(v){
+  finSub=v;localStorage.setItem('finSub',v);
+  document.querySelectorAll('#finSubSeg [data-fsub]').forEach(b=>b.classList.toggle('active',b.dataset.fsub===v));
+  document.getElementById('finDashboardView').style.display=v==='dashboard'?'block':'none';
+  document.getElementById('finLancamentosView').style.display=v==='lancamentos'?'block':'none';
+}
 let taskFilters={client:'',status:'',prio:'',dateFrom:'',dateTo:''};
 function ownerName(id){const m=DB.team.find(x=>x.id===id);return m?m.name:'—'}
 const _ownerPalette=['#d4a520','#60a5fa','#f472b6','#34d399','#a78bfa','#f0904a','#4ade80','#38bdf8'];
@@ -1701,7 +1715,6 @@ function renderCashflow(){
 }
 
 function renderFinance(){
-  try{renderCashflow()}catch(e){console.error('renderCashflow',e)}
   fillFinTypeFilter();
   const fMonth=document.getElementById('finMonth')?document.getElementById('finMonth').value:'';
   const fType=document.getElementById('finType')?document.getElementById('finType').value:'all';
@@ -1715,12 +1728,7 @@ function renderFinance(){
   if(fType&&fType!=='all')all=all.filter(f=>clientType(f.client)===fType);
   if(fSit)all=all.filter(f=>f.status===fSit);
   if(fSearch)all=all.filter(f=>clientName(f.client).toLowerCase().includes(fSearch)||( f.desc&&f.desc.toLowerCase().includes(fSearch)));
-  const recArr=all.filter(f=>f.type==='receita'),despArr=all.filter(f=>f.type==='despesa');
-  const recTotal=recArr.reduce((s,f)=>s+(+f.val||0),0),despTotal=despArr.reduce((s,f)=>s+(+f.val||0),0);
-  const recebido=recArr.filter(f=>f.status==='pago').reduce((s,f)=>s+(+f.val||0),0);
   const filtroAtivo=fMonth||(fType&&fType!=='all');
-  const k=[{label:filtroAtivo?'Receita (filtro)':'Receita total',val:fmt(recTotal)},{label:'Já recebido',val:fmt(recebido),cls:'money-pos'},{label:'A receber',val:fmt(recTotal-recebido),cls:'money-neg'},{label:'Despesas',val:fmt(despTotal)},{label:'Resultado líquido',val:fmt(recebido-despTotal),cls:recebido-despTotal>=0?'money-pos':'money-neg'}];
-  document.getElementById('finKpis').innerHTML=k.map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val ${x.cls||''}">${x.val}</div></div>`).join('');
   const t=document.getElementById('finTable');
   if(!t)return;
   if(!all.length){t.innerHTML='<tr><td colspan="8"><div class="empty">Nenhum lançamento'+(filtroAtivo?' com esses filtros':'')+'.</div></td></tr>';return}
