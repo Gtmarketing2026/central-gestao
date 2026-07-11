@@ -75,6 +75,7 @@
   .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
   .modal-bg.open{display:flex}
   .modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:480px;max-height:90vh;overflow:auto}
+  .modal.wide{max-width:920px}
   .modal h3{font-size:16px;margin-bottom:18px}
   .form-row{margin-bottom:14px}
   .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -777,6 +778,38 @@
   </div>
 </div>
 
+<!-- DESPESA DETAIL MODAL -->
+<div class="modal-bg" id="despesaDetailModal">
+  <div class="modal wide">
+    <div class="section-head" style="margin-top:0">
+      <h2>💸 Despesas — detalhamento</h2>
+      <button class="btn sm ghost" onclick="closeModal('despesaDetailModal')">✕ Fechar</button>
+    </div>
+    <div class="grid kpis" id="despKpis" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px"></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start;margin-bottom:18px">
+      <div class="card">
+        <h3>Por categoria</h3>
+        <div class="hint">Onde o dinheiro está indo (pago, mês atual)</div>
+        <div class="chart-box"><canvas id="cDespCategoria"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Fixas vs Variáveis</h3>
+        <div class="hint">Composição das despesas do mês</div>
+        <div class="chart-box"><canvas id="cDespFixaVar"></canvas></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:18px">
+      <h3>Histórico mensal</h3>
+      <div class="hint">Últimos 6 meses de despesas pagas</div>
+      <div class="chart-box"><canvas id="cDespHistorico"></canvas></div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="section-head" style="padding:14px 16px 0"><h2 style="font-size:14px">Últimos lançamentos</h2></div>
+      <table id="despTable"></table>
+    </div>
+  </div>
+</div>
+
 <!-- BROADCAST MODAL -->
 <div class="modal-bg" id="broadcastModal">
   <div class="modal">
@@ -823,6 +856,25 @@
         <option value="trimestral">Trimestralmente</option>
         <option value="anual">Anualmente</option>
       </select>
+    </div>
+    <div class="form-grid" id="fDespesaExtraRow" style="display:none">
+      <div class="form-row"><label>Categoria</label>
+        <select id="fCategory">
+          <option value="Ferramentas">Ferramentas</option>
+          <option value="Equipe">Equipe</option>
+          <option value="Tráfego pago próprio">Tráfego pago próprio</option>
+          <option value="Infraestrutura">Infraestrutura</option>
+          <option value="Impostos">Impostos</option>
+          <option value="Marketing">Marketing</option>
+          <option value="Outros">Outros</option>
+        </select>
+      </div>
+      <div class="form-row"><label>Tipo</label>
+        <select id="fFixedType">
+          <option value="fixa">Fixa</option>
+          <option value="variavel">Variável</option>
+        </select>
+      </div>
     </div>
     <div class="form-row"><label>Situação</label>
       <select id="fStatus"><option value="pendente">Pendente</option><option value="pago">Pago/Recebido</option><option value="atrasado">Atrasado</option></select>
@@ -964,8 +1016,8 @@ const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ati
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||''});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
-const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||''});
-const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false,creditor:o.creditor||null,repeat:o.repeat||''});
+const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||'',category:r.category||'',fixedType:r.fixed_type||''});
+const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false,creditor:o.creditor||null,repeat:o.repeat||'',category:o.category||null,fixed_type:o.fixedType||null});
 const mapShow = r => ({id:r.id,client:r.client||'',name:r.name||'',date:r.date||'',val:+r.val||0,state:r.state||'ativo',payments:r.payments||[]});
 const dbShow = o => ({id:o.id,client:o.client||null,name:o.name||'',date:o.date||'',val:+o.val||0,state:o.state||'ativo',payments:o.payments||[]});
 
@@ -1434,10 +1486,10 @@ function renderFinOverview(){
 
   document.getElementById('kpiGridFin2').innerHTML=[
     {label:'Receita recebida (mês)',val:fmt(recebidoMes),sub:'mês atual',cls:'money-pos'},
-    {label:'Despesas pagas (mês)',val:fmt(despesasMes),sub:'mês atual',cls:'money-neg'},
+    {label:'Despesas pagas (mês)',val:fmt(despesasMes),sub:'mês atual · clique para detalhar',cls:'money-neg',click:'openDespesaDetail()'},
     {label:`Lucro do mês`,val:fmt(lucroMes),sub:`margem ${margemMes}%`,cls:lucroMes>=0?'money-pos':'money-neg'},
     {label:'Lucro acumulado',val:fmt(lucroTotal),sub:'desde o início',cls:lucroTotal>=0?'money-pos':'money-neg'},
-  ].map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val ${x.cls||''}">${x.val}</div><div class="sub">${x.sub}</div></div>`).join('');
+  ].map(x=>`<div class="kpi" ${x.click?`onclick="${x.click}" style="cursor:pointer" title="Ver detalhes"`:''}><div class="label">${x.label}</div><div class="val ${x.cls||''}">${x.val}</div><div class="sub">${x.sub}</div></div>`).join('');
 
   // Tabela mensal
   const meses={};
@@ -1755,7 +1807,7 @@ async function gerarDespesasRecorrentes(){
     let dueDate=f.due||`${y}-${m}-01`;
     const baseDay=dueDate.slice(8,10);
     dueDate=`${y}-${m}-${baseDay}`;
-    novas.push({id:uid(),type:'despesa',client:f.client||null,desc:f.desc,val:f.val,due:dueDate,status:'pendente',creditor:f.creditor||null,repeat:'',_auto:true});
+    novas.push({id:uid(),type:'despesa',client:f.client||null,desc:f.desc,val:f.val,due:dueDate,status:'pendente',creditor:f.creditor||null,repeat:'',_auto:true,category:f.category||'',fixedType:f.fixedType||''});
   });
   const nomeMes=mesNome(m)+'/'+y;
   if(!novas.length){alert(`Nenhuma despesa recorrente nova para ${nomeMes}.${jaExistiam?` (${jaExistiam} já existiam)`:''}`);return}
@@ -1842,6 +1894,7 @@ function renderCashflow(){
   // Gráfico
   const cfEl=document.getElementById('cCashflow');
   if(cfEl){
+    const gc={grid:{color:CHART_C.grid},border:{display:false}};
     destroyChart('cashflow');
     _charts.cashflow=new Chart(cfEl,{
       data:{
@@ -2624,6 +2677,7 @@ function finTypeChange(){
   const isDespesa=document.getElementById('fType').value==='despesa';
   document.getElementById('fCreditorRow').style.display=isDespesa?'block':'none';
   document.getElementById('fRepeatRow').style.display=isDespesa?'block':'none';
+  document.getElementById('fDespesaExtraRow').style.display=isDespesa?'grid':'none';
   document.getElementById('fClient').closest('.form-grid').querySelector('div').style.opacity=isDespesa?'.5':'1';
 }
 async function addCreditor(){
@@ -2655,11 +2709,14 @@ function openFinModal(id){
   fId.value=id||'';fType.value=f.type||'receita';fClient.value=f.client||'';fDesc.value=f.desc||'';fVal.value=f.val||'';fDue.value=f.due||'';fStatus.value=f.status||'pendente';
   document.getElementById('fCreditor').value=f.creditor||'';
   document.getElementById('fRepeat').value=f.repeat||'';
+  document.getElementById('fCategory').value=f.category||'Outros';
+  document.getElementById('fFixedType').value=f.fixedType||'fixa';
   finTypeChange();openModal('finModal');
 }
 async function saveFin(){
   if(!fDesc.value.trim())return fDesc.focus();
-  const o={id:fId.value||uid(),type:fType.value,client:fClient.value,desc:fDesc.value.trim(),val:+fVal.value||0,due:fDue.value,status:fStatus.value,creditor:document.getElementById('fCreditor').value||null,repeat:fType.value==='despesa'?document.getElementById('fRepeat').value:''};
+  const isDespesa=fType.value==='despesa';
+  const o={id:fId.value||uid(),type:fType.value,client:fClient.value,desc:fDesc.value.trim(),val:+fVal.value||0,due:fDue.value,status:fStatus.value,creditor:document.getElementById('fCreditor').value||null,repeat:isDespesa?document.getElementById('fRepeat').value:'',category:isDespesa?document.getElementById('fCategory').value:'',fixedType:isDespesa?document.getElementById('fFixedType').value:''};
   await _upsertFinance(o);closeModal('finModal');renderAll();
 }
 async function delFin(id){await sb.from('finance').delete().eq('id',id);DB.finance=DB.finance.filter(f=>f.id!==id);renderAll()}
@@ -2668,6 +2725,57 @@ async function delFin(id){await sb.from('finance').delete().eq('id',id);DB.finan
 const CHART_C={accent:'#d4a520',v2:'#a07010',gold:'#f0c040',blue:'#60a5fa',pink:'#f472b6',red:'#f87171',green:'#34d399',muted:'#8a8070',grid:'#1c1a14'};
 let _charts={};
 function destroyChart(k){if(_charts[k]){_charts[k].destroy();delete _charts[k]}}
+function openDespesaDetail(){renderDespesaDetail();openModal('despesaDetailModal')}
+function renderDespesaDetail(){
+  const ym=today().slice(0,7);
+  const todasDesp=DB.finance.filter(f=>f.type==='despesa');
+  const pagasMes=todasDesp.filter(f=>f.status==='pago'&&(f.due||'').slice(0,7)===ym);
+  const totalMes=pagasMes.reduce((s,f)=>s+(+f.val||0),0);
+  const fixasMes=pagasMes.filter(f=>f.fixedType==='variavel'?false:true).reduce((s,f)=>s+(+f.val||0),0);
+  const variaveisMes=pagasMes.filter(f=>f.fixedType==='variavel').reduce((s,f)=>s+(+f.val||0),0);
+  const pendentesMes=todasDesp.filter(f=>f.status!=='pago'&&(f.due||'').slice(0,7)===ym).reduce((s,f)=>s+(+f.val||0),0);
+  const last6=[];{const d=new Date();for(let i=5;i>=0;i--){const dt=new Date(d.getFullYear(),d.getMonth()-i,1);last6.push(dt.toISOString().slice(0,7))}}
+  const mediaMensal=last6.length?last6.reduce((s,m)=>s+todasDesp.filter(f=>f.status==='pago'&&(f.due||'').slice(0,7)===m).reduce((a,f)=>a+(+f.val||0),0),0)/last6.length:0;
+
+  document.getElementById('despKpis').innerHTML=[
+    {label:'Total pago (mês)',val:fmt(totalMes)},
+    {label:'Fixas (mês)',val:fmt(fixasMes)},
+    {label:'Variáveis (mês)',val:fmt(variaveisMes)},
+    {label:'Pendente (mês)',val:fmt(pendentesMes)},
+    {label:'Média mensal (6m)',val:fmt(mediaMensal)},
+  ].map(x=>`<div class="kpi"><div class="label">${x.label}</div><div class="val">${x.val}</div></div>`).join('');
+
+  if(!window.Chart)return;
+  const gc={grid:{color:CHART_C.grid},border:{display:false}};
+  const catEl=document.getElementById('cDespCategoria');
+  if(catEl){
+    const byCat={};pagasMes.forEach(f=>{const k=f.category||'Outros';byCat[k]=(byCat[k]||0)+(+f.val||0)});
+    destroyChart('despCat');
+    _charts.despCat=new Chart(catEl,{type:'doughnut',data:{labels:Object.keys(byCat).length?Object.keys(byCat):['Sem dados'],datasets:[{data:Object.keys(byCat).length?Object.values(byCat):[1],backgroundColor:[CHART_C.accent,CHART_C.v2,CHART_C.gold,CHART_C.blue,CHART_C.pink,CHART_C.red,CHART_C.muted],borderColor:'#131210',borderWidth:3}]},options:{maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{boxWidth:10,padding:10,font:{size:11}}}}}});
+  }
+  const fvEl=document.getElementById('cDespFixaVar');
+  if(fvEl){
+    destroyChart('despFV');
+    _charts.despFV=new Chart(fvEl,{type:'doughnut',data:{labels:['Fixas','Variáveis'],datasets:[{data:[fixasMes,variaveisMes],backgroundColor:[CHART_C.blue,CHART_C.gold],borderColor:'#131210',borderWidth:3}]},options:{maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{boxWidth:10,padding:10}}}}});
+  }
+  const histEl=document.getElementById('cDespHistorico');
+  if(histEl){
+    const vals=last6.map(m=>todasDesp.filter(f=>f.status==='pago'&&(f.due||'').slice(0,7)===m).reduce((s,f)=>s+(+f.val||0),0));
+    const labels=last6.map(m=>mesNome(m.slice(5,7))+'/'+m.slice(2,4));
+    destroyChart('despHist');
+    _charts.despHist=new Chart(histEl,{type:'bar',data:{labels,datasets:[{data:vals,backgroundColor:CHART_C.red,borderRadius:7}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gc,ticks:{callback:v=>'R$ '+(v>=1000?v/1000+'k':v)}},x:gc}}});
+  }
+
+  const t=document.getElementById('despTable');
+  if(t){
+    const recentes=[...todasDesp].sort((a,b)=>(b.due||'')>(a.due||'')?1:-1).slice(0,15);
+    t.innerHTML=recentes.length?`<thead><tr><th>Descrição</th><th>Categoria</th><th>Tipo</th><th>Valor</th><th>Vencimento</th><th>Situação</th></tr></thead><tbody>`+recentes.map(f=>{
+      const sp={pago:'green',pendente:'amber',atrasado:'red'}[f.status]||'amber';
+      const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[f.status]||f.status;
+      return`<tr><td>${f.desc||'—'}</td><td style="color:var(--muted)">${f.category||'—'}</td><td>${f.fixedType==='variavel'?'Variável':'Fixa'}</td><td class="money-neg">-${fmt(f.val)}</td><td>${dateBR(f.due)}</td><td><span class="pill ${sp}">${sl}</span></td></tr>`;
+    }).join('')+'</tbody>':'<tr><td><div class="empty">Nenhuma despesa lançada ainda.</div></td></tr>';
+  }
+}
 function renderCharts(){
   if(!window.Chart)return;
   Chart.defaults.color=CHART_C.muted;Chart.defaults.font.family='Inter';Chart.defaults.font.size=12;
