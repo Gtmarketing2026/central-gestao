@@ -168,6 +168,18 @@
       <button class="tab" data-tab="shows">Shows <span class="badge" id="sBadge">0</span></button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:11px;color:var(--faint)">Você é:</span>
+      <select id="whoAmI" onchange="setWhoAmI(this.value)" style="width:auto;padding:5px 8px;font-size:12px"></select>
+      <div style="position:relative">
+        <button class="btn sm ghost" id="notifBtn" onclick="toggleNotifPanel()" title="Notificações" style="position:relative">🔔<span id="notifCount" style="display:none;position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;border-radius:10px;font-size:9px;font-weight:700;padding:1px 5px;line-height:1.3">0</span></button>
+        <div id="notifPanel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);width:340px;max-height:420px;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 12px 32px rgba(0,0,0,.4);z-index:200;padding:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px 8px;border-bottom:1px solid var(--border);margin-bottom:6px">
+            <strong style="font-size:13px">Notificações</strong>
+            <button class="btn sm ghost" style="font-size:11px;padding:3px 8px" onclick="markAllNotifsRead()">Marcar todas lidas</button>
+          </div>
+          <div id="notifList"></div>
+        </div>
+      </div>
       <span id="userLabel" style="font-size:12px;color:var(--muted)"></span>
       <button class="btn sm ghost" id="updateBtn" onclick="checkUpdate()" title="Verificar nova versão">⟳ Atualizar</button>
       <button class="btn sm ghost" onclick="doLogout()">Sair</button>
@@ -729,6 +741,17 @@
       <input type="checkbox" id="tUrgent" style="width:16px;height:16px;accent-color:#f87171;cursor:pointer">
       <label for="tUrgent" style="margin:0;cursor:pointer;display:flex;align-items:center;gap:6px">🚩 <strong>Marcar como urgente</strong> <span style="font-size:11px;color:var(--faint);font-weight:400">— aparece destacada no topo da lista</span></label>
     </div>
+    <div class="form-row" id="tCommentsRow" style="display:none">
+      <label>Comentários</label>
+      <div id="tComments" style="display:flex;flex-direction:column;gap:8px;margin-top:4px;max-height:220px;overflow:auto"></div>
+      <div style="margin-top:8px">
+        <textarea id="tCommentNew" rows="2" placeholder="Escreva um comentário... use @ pra marcar alguém"></textarea>
+        <div id="tCommentMentions" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:6px">
+          <button type="button" class="btn sm primary" onclick="addTaskComment()">Comentar</button>
+        </div>
+      </div>
+    </div>
     <div class="form-row"><label>Anotações</label><textarea id="tNotes" rows="2" placeholder="Detalhes, links de referência, observações..."></textarea></div>
     <div class="form-row">
       <label>Link / Anexo</label>
@@ -914,8 +937,8 @@ function nextMonthlyDate(dateStr){
 
 const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||''});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||''});
-const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[]});
-const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[]});
+const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[]});
+const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[]});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||''});
 const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false,creditor:o.creditor||null,repeat:o.repeat||''});
 const mapShow = r => ({id:r.id,client:r.client||'',name:r.name||'',date:r.date||'',val:+r.val||0,state:r.state||'ativo',payments:r.payments||[]});
@@ -962,8 +985,9 @@ async function doLogin(){
 }
 async function doLogout(){
   await sb.auth.signOut();
-  DB.clients=[];DB.tasks=[];DB.finance=[];DB.shows=[];DB.team=[];
+  DB.clients=[];DB.tasks=[];DB.finance=[];DB.shows=[];DB.team=[];DB.notifications=[];
   if(realtimeChannel){sb.removeChannel(realtimeChannel);realtimeChannel=null;}
+  if(notifChannel){sb.removeChannel(notifChannel);notifChannel=null;}
   showLogin();
 }
 
@@ -973,12 +997,13 @@ async function loadAll(){
   DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask);DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];DB.creditors=cr.data||[];DB.wallet=w.data||[];
   if(!DB.team.length){const dt=[{id:'eu',name:'Andreia'},{id:'col1',name:'Dionathan'}];await sb.from('team').insert(dt);DB.team=dt;}
   setFinSub(finSub);
+  renderWhoAmI();loadNotifications();
   renderAll();setupRealtime();
   setTimeout(showAlertsPopup, 600);
 }
 
 /* ---- REALTIME ---- */
-let realtimeChannel=null;
+let realtimeChannel=null,notifChannel=null;
 function setupRealtime(){
   if(realtimeChannel)sb.removeChannel(realtimeChannel);
   realtimeChannel=sb.channel('tasks-rt')
@@ -987,6 +1012,9 @@ function setupRealtime(){
       DB.tasks=(data||[]).map(mapTask);renderTasks();
       document.getElementById('tBadge').textContent=DB.tasks.filter(t=>t.status!=='done').length;
     }).subscribe();
+  if(notifChannel)sb.removeChannel(notifChannel);
+  notifChannel=sb.channel('notif-rt')
+    .on('postgres_changes',{event:'*',schema:'public',table:'notifications'},()=>{loadNotifications()}).subscribe();
 }
 
 /* ---- CRUD ---- */
@@ -994,6 +1022,64 @@ async function _upsertClient(o){await sb.from('clients').upsert(dbClient(o));con
 async function _upsertTask(o){await sb.from('tasks').upsert(dbTask(o));const i=DB.tasks.findIndex(x=>x.id===o.id);i>=0?DB.tasks[i]=o:DB.tasks.push(o);}
 async function _upsertFinance(o){await sb.from('finance').upsert(dbFinance(o));const i=DB.finance.findIndex(x=>x.id===o.id);i>=0?DB.finance[i]=o:DB.finance.push(o);}
 async function _upsertShow(o){await sb.from('shows').upsert(dbShow(o));const i=DB.shows.findIndex(x=>x.id===o.id);i>=0?DB.shows[i]=o:DB.shows.push(o);}
+
+/* ---- QUEM SOU EU / NOTIFICAÇÕES ---- */
+let currentTeamId=localStorage.getItem('currentTeamId')||'';
+DB.notifications=DB.notifications||[];
+function renderWhoAmI(){
+  const sel=document.getElementById('whoAmI');
+  if(!sel)return;
+  if(!currentTeamId||!DB.team.some(m=>m.id===currentTeamId))currentTeamId=DB.team[0]?DB.team[0].id:'';
+  sel.innerHTML=DB.team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
+  sel.value=currentTeamId;
+}
+function setWhoAmI(id){currentTeamId=id;localStorage.setItem('currentTeamId',id);loadNotifications()}
+async function loadNotifications(){
+  if(!currentTeamId)return;
+  const {data}=await sb.from('notifications').select('*').eq('to_team',currentTeamId).order('created_at',{ascending:false}).limit(30);
+  DB.notifications=data||[];
+  renderNotifBadge();
+}
+function renderNotifBadge(){
+  const n=DB.notifications.filter(x=>!x.read).length;
+  const el=document.getElementById('notifCount');
+  if(!el)return;
+  el.style.display=n?'block':'none';
+  el.textContent=n>9?'9+':n;
+}
+function toggleNotifPanel(){
+  const p=document.getElementById('notifPanel');
+  const opening=p.style.display==='none';
+  p.style.display=opening?'block':'none';
+  if(opening)renderNotifList();
+}
+function renderNotifList(){
+  const el=document.getElementById('notifList');
+  if(!DB.notifications.length){el.innerHTML='<div class="empty" style="padding:16px 4px">Nenhuma notificação ainda.</div>';return}
+  el.innerHTML=DB.notifications.map(n=>`<div onclick="openNotif('${n.id}','${n.task_id}')" style="padding:9px 8px;border-radius:8px;cursor:pointer;background:${n.read?'transparent':'rgba(212,164,32,.08)'};margin-bottom:2px">
+    <div style="font-size:12px;${n.read?'':'font-weight:600'}"><strong>${teamName(n.from_team)}</strong> te marcou em "${n.task_name||'tarefa'}"</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.comment_text||''}</div>
+    <div style="font-size:10px;color:var(--faint);margin-top:2px">${new Date(n.created_at).toLocaleString('pt-BR')}</div>
+  </div>`).join('');
+}
+function teamName(id){const m=DB.team.find(x=>x.id===id);return m?m.name:'—'}
+async function openNotif(id,taskId){
+  const n=DB.notifications.find(x=>x.id===id);
+  if(n&&!n.read){n.read=true;await sb.from('notifications').update({read:true}).eq('id',id);renderNotifBadge();renderNotifList()}
+  document.getElementById('notifPanel').style.display='none';
+  if(taskId&&DB.tasks.some(t=>t.id===taskId))openTaskModal(taskId);
+}
+async function markAllNotifsRead(){
+  const unread=DB.notifications.filter(x=>!x.read);
+  if(!unread.length)return;
+  await sb.from('notifications').update({read:true}).eq('to_team',currentTeamId).eq('read',false);
+  DB.notifications.forEach(n=>n.read=true);
+  renderNotifBadge();renderNotifList();
+}
+document.addEventListener('click',e=>{
+  const panel=document.getElementById('notifPanel');
+  if(panel&&panel.style.display==='block'&&!panel.contains(e.target)&&e.target.id!=='notifBtn')panel.style.display='none';
+});
 
 /* ---- TABS ---- */
 function goToTab(tabId){
@@ -1436,7 +1522,7 @@ function renderTasks(){
     if(!sorted.length){el.innerHTML='<div class="empty">Nenhuma tarefa com esses filtros.</div>'}
     else if(taskListStyle==='grouped')renderTaskListGrouped(sorted,el);
     else if(taskListStyle==='focus')renderTaskListFocus(sorted,el);
-    else el.innerHTML=sorted.map(taskRowHTML).join('');
+    else renderTaskListCompact(sorted,el);
   }else{
     const cols=[['todo','A fazer'],['doing','Em andamento'],['review','Revisão'],['done','Concluído']];
     document.getElementById('kanban').innerHTML=cols.map(([k,lbl])=>{const items=sorted.filter(t=>t.status===k);return`<div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'${k}')"><h4>${lbl}<span>${items.length}</span></h4>${items.map(t=>{const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];return`<div class="kanban-card" draggable="true" ondragstart="dragTask(event,'${t.id}')" onclick="openTaskModal('${t.id}')" style="${t.urgent?'border-left:3px solid #f87171;':''}">${t.urgent?'<span style="font-size:12px">🚩</span> ':''}<div class="client">${ownerName(t.owner)} · ${clientName(t.client)}</div>${t.name}<div class="due"><span class="pill ${pp}" style="font-size:10px">${t.prio}</span> ${t.due?dateBR(t.due):''}</div></div>`}).join('')}</div>`}).join('');
@@ -1451,6 +1537,17 @@ const ownerClr=ownerColor(t.owner);
 const cl=t.checklist||[];const clDone=cl.filter(ci=>ci.done).length;
 const clBadge=cl.length?`<span class="pill ${clDone===cl.length?'green':'gray'}" style="white-space:nowrap;cursor:pointer" title="Ver checklist" onclick="openTaskModal('${t.id}')">☑ ${clDone}/${cl.length}</span>`:'';
 return`<div class="task-item ${done?'done':''}" style="border-left-color:${stripe}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')" title="Concluir"></div><div class="task-avatar" title="${ownerName(t.owner)}" style="background:${ownerClr}26;color:${ownerClr}">${initial}</div><span class="task-name" title="${t.name}">${t.name}</span><span class="task-meta"><span style="color:var(--accent);font-weight:600;white-space:nowrap">${clientName(t.client)}</span><span class="pill ${pp}" style="padding:2px 8px">${t.prio}</span><span class="task-hover">${extras}</span>${clBadge}${dt?`<span class="pill ${dp}" style="white-space:nowrap">${dt}</span>`:''}</span>${urgBtn}<span class="task-hover"><button class="btn sm ghost" onclick="openTaskModal('${t.id}')" title="Editar">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')" title="Excluir">✕</button></span></div>`}
+function renderTaskListCompact(sorted,el){
+  const pend=sorted.filter(t=>t.status!=='done');
+  const done=sorted.filter(t=>t.status==='done');
+  const urgentes=pend.filter(t=>t.urgent);
+  const atrasadas=pend.filter(t=>!t.urgent&&t.due&&daysUntil(t.due)<0);
+  const hoje=pend.filter(t=>!t.urgent&&t.due&&daysUntil(t.due)===0);
+  const semana=pend.filter(t=>!t.urgent&&t.due&&daysUntil(t.due)>0&&daysUntil(t.due)<=7);
+  const outras=pend.filter(t=>!t.urgent&&(!t.due||daysUntil(t.due)>7));
+  const block=(label,items)=>items.length?`<div class="section-label" style="margin:12px 0 6px;padding:0 2px">${label}</div>${items.map(taskRowHTML).join('')}`:'';
+  el.innerHTML=block('🚩 Urgentes',urgentes)+block('🔥 Atrasadas',atrasadas)+block('☀ Hoje',hoje)+block('📅 Esta semana',semana)+block('🗓 Próximas / sem prazo',outras)+(done.length?block('✅ Concluídas',done):'');
+}
 function renderTaskListGrouped(sorted,el){
   const groups={};const order=[];
   sorted.forEach(t=>{const key=t.client||'__none';if(!groups[key]){groups[key]=[];order.push(key)}groups[key].push(t)});
@@ -2305,9 +2402,60 @@ function openTaskModal(id){
   repeatModeUpdate();
   selectedChannels=[...(t.channels||[])];renderChannelPicker();
   currentTaskChecklist=(t.checklist||[]).map(ci=>({...ci}));document.getElementById('tChecklistNew').value='';renderChecklistEditor();
-  tNotes.value=t.notes||'';tLink.value=t.link||'';document.getElementById('tUrgent').checked=t.urgent||false;openModal('taskModal');
+  tNotes.value=t.notes||'';tLink.value=t.link||'';document.getElementById('tUrgent').checked=t.urgent||false;
+  document.getElementById('tCommentsRow').style.display=id?'block':'none';
+  if(id){
+    currentCommentTaskId=id;currentCommentMentions=new Set();
+    document.getElementById('tCommentNew').value='';
+    renderTaskComments();renderMentionPicker();
+  }
+  openModal('taskModal');
 }
 let currentTaskChecklist=[];
+let currentCommentTaskId=null,currentCommentMentions=new Set();
+function renderTaskComments(){
+  const t=DB.tasks.find(x=>x.id===currentCommentTaskId);
+  const el=document.getElementById('tComments');
+  if(!t||!el)return;
+  const comments=t.comments||[];
+  el.innerHTML=comments.length?comments.map(c=>{
+    const mentionTags=(c.mentions||[]).map(id=>`<span class="pill blue" style="font-size:10px">@${teamName(id)}</span>`).join(' ');
+    return`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+        <strong style="font-size:12px">${teamName(c.author)}</strong>
+        <span style="font-size:10px;color:var(--faint)">${new Date(c.date).toLocaleString('pt-BR')}</span>
+      </div>
+      <div style="font-size:13px;white-space:pre-wrap">${c.text}</div>
+      ${mentionTags?`<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">${mentionTags}</div>`:''}
+    </div>`;
+  }).join(''):'<div style="font-size:12px;color:var(--faint)">Nenhum comentário ainda.</div>';
+}
+function renderMentionPicker(){
+  const el=document.getElementById('tCommentMentions');
+  if(!el)return;
+  const others=DB.team.filter(m=>m.id!==currentTeamId);
+  el.innerHTML=`<span style="font-size:11px;color:var(--faint);align-self:center">Marcar:</span>`+others.map(m=>`<span onclick="toggleCommentMention('${m.id}')" class="pill ${currentCommentMentions.has(m.id)?'blue':'gray'}" style="cursor:pointer">@${m.name}</span>`).join('');
+}
+function toggleCommentMention(id){
+  if(currentCommentMentions.has(id))currentCommentMentions.delete(id);else currentCommentMentions.add(id);
+  renderMentionPicker();
+}
+async function addTaskComment(){
+  const inp=document.getElementById('tCommentNew');
+  const text=inp.value.trim();
+  if(!text||!currentCommentTaskId)return;
+  const t=DB.tasks.find(x=>x.id===currentCommentTaskId);
+  if(!t)return;
+  const comment={id:uid(),author:currentTeamId,text,mentions:[...currentCommentMentions],date:new Date().toISOString()};
+  t.comments=[...(t.comments||[]),comment];
+  await _upsertTask(t);
+  if(comment.mentions.length){
+    const rows=comment.mentions.map(toId=>({id:uid(),to_team:toId,from_team:currentTeamId,task_id:t.id,task_name:t.name,comment_text:text,read:false}));
+    await sb.from('notifications').insert(rows);
+  }
+  inp.value='';currentCommentMentions=new Set();
+  renderTaskComments();renderMentionPicker();
+}
 function renderChecklistEditor(){
   const el=document.getElementById('tChecklist');
   el.innerHTML=currentTaskChecklist.length?currentTaskChecklist.map((ci,i)=>`<div style="display:flex;align-items:center;gap:8px">
