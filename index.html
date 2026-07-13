@@ -1187,7 +1187,8 @@ function renderNotifList(){
   if(!DB.notifications.length){el.innerHTML='<div class="empty" style="padding:16px 4px">Nenhuma notificação ainda.</div>';return}
   el.innerHTML=DB.notifications.map(n=>{
     const isSystem=n.type==='system';
-    const title=isSystem?`📢 <strong>${n.task_name||'Novidade no sistema'}</strong>`:`<strong>${teamName(n.from_team)}</strong> te marcou em "${n.task_name||'tarefa'}"`;
+    const isAssigned=n.type==='task_assigned';
+    const title=isSystem?`📢 <strong>${n.task_name||'Novidade no sistema'}</strong>`:isAssigned?`📋 <strong>${n.task_name||'Nova atividade'}</strong>`:`<strong>${teamName(n.from_team)}</strong> te marcou em "${n.task_name||'tarefa'}"`;
     return`<div onclick="openNotif('${n.id}','${n.task_id||''}')" style="padding:9px 8px;border-radius:8px;cursor:pointer;background:${n.read?'transparent':'rgba(212,164,32,.08)'};margin-bottom:2px">
     <div style="font-size:12px;${n.read?'':'font-weight:600'}">${title}</div>
     <div style="font-size:11px;color:var(--muted);margin-top:2px;${isSystem?'':'overflow:hidden;text-overflow:ellipsis;white-space:nowrap'}">${n.comment_text||''}</div>
@@ -1202,6 +1203,19 @@ async function openNotif(id,taskId){
   if(n&&n.type==='system')return;
   document.getElementById('notifPanel').style.display='none';
   if(taskId&&DB.tasks.some(t=>t.id===taskId))openTaskModal(taskId);
+  else if(n&&n.type==='task_assigned')goToTab('tasks');
+}
+async function notifyNewTaskAssignments(rows){
+  const byOwner={};
+  rows.forEach(r=>{if(!r.owner||r.owner===currentTeamId)return;(byOwner[r.owner]=byOwner[r.owner]||[]).push(r)});
+  const inserts=Object.entries(byOwner).map(([ownerId,tasks])=>({
+    id:uid(),to_team:ownerId,from_team:currentTeamId,
+    task_id:tasks.length===1?tasks[0].id:null,
+    task_name:tasks.length===1?tasks[0].name:`${tasks.length} novas atividades atribuídas`,
+    comment_text:tasks.length===1?(clientName(tasks[0].client)||''):tasks.slice(0,5).map(t=>t.name).join(', ')+(tasks.length>5?'…':''),
+    read:false,type:'task_assigned'
+  }));
+  if(inserts.length)await sb.from('notifications').insert(inserts);
 }
 async function markAllNotifsRead(){
   const unread=DB.notifications.filter(x=>!x.read);
@@ -2289,6 +2303,7 @@ async function executeBulkTask(){
   DB.tasks=[...DB.tasks,...rows.map(r=>({...r}))];
   closeModal('bulkTaskModal');renderAll();
   _pushUndo({type:'bulk_create',ids:rows.map(r=>r.id),msg:`${rows.length} tarefa(s) em massa criadas — desfazer?`});
+  notifyNewTaskAssignments(rows);
 }
 /* ---- WEEKLY REPORT ---- */
 const WR_DAY_NUM={segunda:1,terca:2,quarta:3,quinta:4,sexta:5,sabado:6,domingo:0};
@@ -2406,6 +2421,7 @@ async function executeWeeklyReport(){
   DB.tasks=[...DB.tasks,...rows];
   closeModal('weeklyReportModal');renderAll();
   _pushUndo({type:'bulk_create',ids:rows.map(r=>r.id),msg:`Relatórios semanais de ${targets.length} cliente(s) criados — desfazer?`});
+  notifyNewTaskAssignments(rows);
 }
 
 /* ---- REPORT CHECKLIST ---- */
@@ -2522,6 +2538,7 @@ async function executeReportChecklist(){
   DB.tasks=[...DB.tasks,...rows];
   closeModal('reportChecklistModal');renderAll();
   _pushUndo({type:'bulk_create',ids:rows.map(r=>r.id),msg:`${rows.length} tarefa(s) criadas — desfazer?`});
+  notifyNewTaskAssignments(rows);
 }
 
 async function gerarOnboarding(){
@@ -2667,6 +2684,9 @@ async function saveTask(){
   else if(prev)_pushUndo({type:'update',task:o,prev,msg:`"${o.name}" editada — desfazer?`});
   if(reviewRequested&&reviewer&&reviewer!==currentTeamId&&(!prev||!prev.reviewRequested||prev.reviewer!==reviewer)){
     await sb.from('notifications').insert([{id:uid(),to_team:reviewer,from_team:currentTeamId,task_id:o.id,task_name:o.name,comment_text:'Solicitou sua revisão nesta tarefa',read:false}]);
+  }
+  if(isNew||(prev&&prev.owner!==o.owner)){
+    notifyNewTaskAssignments([o]);
   }
 }
 async function toggleUrgent(id){const t=DB.tasks.find(x=>x.id===id);if(!t)return;t.urgent=!t.urgent;await _upsertTask(t);renderAll()}
