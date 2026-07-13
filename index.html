@@ -550,10 +550,17 @@
     <div class="form-row" style="margin-bottom:10px">
       <span style="font-size:13px;font-weight:600;color:var(--text)">📊 Relatório automático (Google Sheets)</span>
     </div>
+    <div style="background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.35);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:var(--text)">
+      ⚠️ <strong>Ação obrigatória na planilha:</strong> compartilhe (botão "Compartilhar" do Google Sheets) como <strong>Leitor</strong> com este e-mail:
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+        <code style="background:var(--surface2);padding:4px 8px;border-radius:6px;font-size:12px;flex:1;word-break:break-all">leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com</code>
+        <button type="button" class="btn sm ghost" onclick="navigator.clipboard.writeText('leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com');this.textContent='Copiado ✓';setTimeout(()=>this.textContent='Copiar',1500)">Copiar</button>
+      </div>
+      <div style="margin-top:6px;color:var(--faint)">Sem esse passo, o relatório não consegue puxar os dados dessa planilha.</div>
+    </div>
     <div class="form-row"><label>Link da planilha</label><input id="cReportSheetUrl" placeholder="Cole a URL da planilha do cliente"></div>
     <div class="form-row"><label>Abas a exibir <span style="font-size:11px;color:var(--faint);font-weight:400">— nomes separados por vírgula, exatamente como estão na planilha</span></label>
       <input id="cReportTabs" placeholder="Ex: GOOGLE, WHATSAPP, E-MAIL, INSTAGRAM BIO">
-      <div style="font-size:11px;color:var(--faint);margin-top:6px">💡 Lembre de compartilhar a planilha (como Leitor) com: leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com</div>
     </div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('clientModal')">Cancelar</button>
@@ -2881,7 +2888,14 @@ function renderClientReportBody(tabs,dataByTab){
     card.className='card';
     const title=`<h3>${reportChannelLabel(tab)}</h3>`;
     if(!raw||raw.error){
-      card.innerHTML=`${title}<div class="empty">${raw&&raw.error?'Erro: '+raw.error:'Sem dados ainda.'}</div>`;
+      const isPermError=raw&&raw.error&&/permission|403|not have access|caller does not have/i.test(raw.error);
+      card.innerHTML=isPermError?`${title}<div style="background:rgba(240,192,64,.1);border:1px solid rgba(240,192,64,.35);border-radius:var(--radius-sm);padding:10px 12px;font-size:12px">
+        ⚠️ <strong>Falta compartilhar essa planilha.</strong> Compartilhe (como Leitor) com:
+        <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+          <code style="background:var(--surface2);padding:3px 6px;border-radius:6px;font-size:11px;flex:1;word-break:break-all">leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com</code>
+          <button type="button" class="btn sm ghost" onclick="navigator.clipboard.writeText('leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com');this.textContent='Copiado ✓';setTimeout(()=>this.textContent='Copiar',1500)">Copiar</button>
+        </div>
+      </div>`:`${title}<div class="empty">${raw&&raw.error?'Erro: '+raw.error:'Sem dados ainda.'}</div>`;
       grid.appendChild(card);return;
     }
     if(!Array.isArray(raw)||raw.length<2){
