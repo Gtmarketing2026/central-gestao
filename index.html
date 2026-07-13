@@ -418,6 +418,9 @@
         <option value="media">Média</option>
         <option value="baixa">Baixa</option>
       </select>
+      <select id="tfChannel" style="width:auto" onchange="applyTaskFilters()">
+        <option value="">Todos os canais</option>
+      </select>
       <input type="date" id="tfDateFrom" style="width:auto" title="Prazo a partir de" onchange="applyTaskFilters()">
       <input type="date" id="tfDateTo" style="width:auto" title="Prazo até" onchange="applyTaskFilters()">
       <button class="btn sm ghost" onclick="clearTaskFilters()">Limpar filtros</button>
@@ -1637,26 +1640,28 @@ function setFinSub(v){
   document.getElementById('finDashboardView').style.display=v==='dashboard'?'block':'none';
   document.getElementById('finLancamentosView').style.display=v==='lancamentos'?'block':'none';
 }
-let taskFilters={client:'',status:'',prio:'',dateFrom:'',dateTo:''};
+let taskFilters={client:'',status:'',prio:'',channel:'',dateFrom:'',dateTo:''};
 function ownerName(id){const m=DB.team.find(x=>x.id===id);return m?m.name:'—'}
 const _ownerPalette=['#d4a520','#60a5fa','#f472b6','#34d399','#a78bfa','#f0904a','#4ade80','#38bdf8'];
 function ownerColor(id){if(!id)return'#8a8070';let h=0;for(let i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))>>>0;return _ownerPalette[h%_ownerPalette.length]}
 function setTaskView(v){taskView=v;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));document.getElementById('taskListView').style.display=v==='list'?'block':'none';document.getElementById('taskKanbanView').style.display=v==='kanban'?'block':'none';renderTasks()}
 function setOwnerFilter(v){ownerFilterVal=v;renderOwnerFilter();renderTasks()}
 function renderOwnerFilter(){const opts=[['all','Todos'],...DB.team.map(m=>[m.id,m.name])];document.getElementById('ownerFilter').innerHTML=opts.map(([v,l])=>`<button class="${ownerFilterVal===v?'active':''}" onclick="setOwnerFilter('${v}')">${l}</button>`).join('')}
-function applyTaskFilters(){taskFilters={client:document.getElementById('tfClient').value,status:document.getElementById('tfStatus').value,prio:document.getElementById('tfPrio').value,dateFrom:document.getElementById('tfDateFrom').value,dateTo:document.getElementById('tfDateTo').value};renderTasks()}
-function clearTaskFilters(){taskFilters={client:'',status:'',prio:'',dateFrom:'',dateTo:''};['tfClient','tfStatus','tfPrio'].forEach(id=>document.getElementById(id).value='');['tfDateFrom','tfDateTo'].forEach(id=>document.getElementById(id).value='');renderTasks()}
+function applyTaskFilters(){taskFilters={client:document.getElementById('tfClient').value,status:document.getElementById('tfStatus').value,prio:document.getElementById('tfPrio').value,channel:document.getElementById('tfChannel').value,dateFrom:document.getElementById('tfDateFrom').value,dateTo:document.getElementById('tfDateTo').value};renderTasks()}
+function clearTaskFilters(){taskFilters={client:'',status:'',prio:'',channel:'',dateFrom:'',dateTo:''};['tfClient','tfStatus','tfPrio','tfChannel'].forEach(id=>document.getElementById(id).value='');['tfDateFrom','tfDateTo'].forEach(id=>document.getElementById(id).value='');renderTasks()}
 function fillTaskClientFilter(){const sel=document.getElementById('tfClient');if(!sel)return;const cur=sel.value;sel.innerHTML='<option value="">Todos os clientes</option>'+DB.clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');sel.value=cur}
+function fillTaskChannelFilter(){const sel=document.getElementById('tfChannel');if(!sel)return;const cur=sel.value;sel.innerHTML='<option value="">Todos os canais</option>'+TASK_CHANNELS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');sel.value=cur}
 function repeatCustomDays(r){const m=r&&r.match(/^custom:(\d+)$/);return m?+m[1]:null}
 function repeatLabel(r){if(!r)return'';const d=repeatCustomDays(r);if(d!==null)return`${d}d`;return{diaria:'diária',semanal:'semanal',quinzenal:'15 dias',mensal:'mensal'}[r]||r}
 function repeatModeUpdate(){const v=document.getElementById('tRepeat').value;document.getElementById('tRepeatCustomRow').style.display=v==='custom'?'block':'none'}
 function renderTasks(){
-  renderOwnerFilter();fillTaskClientFilter();
+  renderOwnerFilter();fillTaskClientFilter();fillTaskChannelFilter();
   let base=ownerFilterVal==='all'?DB.tasks:DB.tasks.filter(t=>t.owner===ownerFilterVal||(t.reviewRequested&&t.reviewer===ownerFilterVal));
   if(hideDone)base=base.filter(t=>t.status!=='done');
   if(taskFilters.client)base=base.filter(t=>t.client===taskFilters.client);
   if(taskFilters.status)base=base.filter(t=>t.status===taskFilters.status);
   if(taskFilters.prio)base=base.filter(t=>t.prio===taskFilters.prio);
+  if(taskFilters.channel)base=base.filter(t=>(t.channels||[]).includes(taskFilters.channel));
   if(taskFilters.dateFrom)base=base.filter(t=>t.due&&t.due>=taskFilters.dateFrom);
   if(taskFilters.dateTo)base=base.filter(t=>t.due&&t.due<=taskFilters.dateTo);
   const sorted=[...base].sort((a,b)=>{if(a.urgent&&!b.urgent)return -1;if(!a.urgent&&b.urgent)return 1;const dueDiff=(a.due||'9')>(b.due||'9')?1:(a.due||'9')<(b.due||'9')?-1:0;if(dueDiff!==0)return dueDiff;return clientName(a.client).localeCompare(clientName(b.client),'pt')});
