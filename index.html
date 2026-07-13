@@ -1646,10 +1646,10 @@ const _ownerPalette=['#d4a520','#60a5fa','#f472b6','#34d399','#a78bfa','#f0904a'
 function ownerColor(id){if(!id)return'#8a8070';let h=0;for(let i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))>>>0;return _ownerPalette[h%_ownerPalette.length]}
 function setTaskView(v){taskView=v;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));document.getElementById('taskListView').style.display=v==='list'?'block':'none';document.getElementById('taskKanbanView').style.display=v==='kanban'?'block':'none';renderTasks()}
 function setOwnerFilter(v){ownerFilterVal=v;renderOwnerFilter();renderTasks()}
-function renderOwnerFilter(){const opts=[['all','Todos'],...DB.team.map(m=>[m.id,m.name])];document.getElementById('ownerFilter').innerHTML=opts.map(([v,l])=>`<button class="${ownerFilterVal===v?'active':''}" onclick="setOwnerFilter('${v}')">${l}</button>`).join('')}
+function renderOwnerFilter(){const opts=[['all','Todos'],...[...DB.team].sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(m=>[m.id,m.name])];document.getElementById('ownerFilter').innerHTML=opts.map(([v,l])=>`<button class="${ownerFilterVal===v?'active':''}" onclick="setOwnerFilter('${v}')">${l}</button>`).join('')}
 function applyTaskFilters(){taskFilters={client:document.getElementById('tfClient').value,status:document.getElementById('tfStatus').value,prio:document.getElementById('tfPrio').value,channel:document.getElementById('tfChannel').value,dateFrom:document.getElementById('tfDateFrom').value,dateTo:document.getElementById('tfDateTo').value};renderTasks()}
 function clearTaskFilters(){taskFilters={client:'',status:'',prio:'',channel:'',dateFrom:'',dateTo:''};['tfClient','tfStatus','tfPrio','tfChannel'].forEach(id=>document.getElementById(id).value='');['tfDateFrom','tfDateTo'].forEach(id=>document.getElementById(id).value='');renderTasks()}
-function fillTaskClientFilter(){const sel=document.getElementById('tfClient');if(!sel)return;const cur=sel.value;sel.innerHTML='<option value="">Todos os clientes</option>'+DB.clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');sel.value=cur}
+function fillTaskClientFilter(){const sel=document.getElementById('tfClient');if(!sel)return;const cur=sel.value;sel.innerHTML='<option value="">Todos os clientes</option>'+[...DB.clients].sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}">${c.name}</option>`).join('');sel.value=cur}
 function fillTaskChannelFilter(){const sel=document.getElementById('tfChannel');if(!sel)return;const cur=sel.value;sel.innerHTML='<option value="">Todos os canais</option>'+TASK_CHANNELS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');sel.value=cur}
 function repeatCustomDays(r){const m=r&&r.match(/^custom:(\d+)$/);return m?+m[1]:null}
 function repeatLabel(r){if(!r)return'';const d=repeatCustomDays(r);if(d!==null)return`${d}d`;return{diaria:'diária',semanal:'semanal',quinzenal:'15 dias',mensal:'mensal'}[r]||r}
@@ -1833,7 +1833,7 @@ function budgetAutoCalc(){
 }
 
 /* ---- FINANCE ---- */
-function fillFinTypeFilter(){const sel=document.getElementById('finType');if(!sel)return;const used=[...new Set(DB.clients.map(c=>c.category||c.billing||'mensal'))];const cur=sel.value;sel.innerHTML='<option value="all">Todos</option>'+used.map(b=>`<option value="${b}">${clientTypeLabel(b)}</option>`).join('');sel.value=cur||'all'}
+function fillFinTypeFilter(){const sel=document.getElementById('finType');if(!sel)return;const used=[...new Set(DB.clients.map(c=>c.category||c.billing||'mensal'))].sort((a,b)=>clientTypeLabel(a).localeCompare(clientTypeLabel(b),'pt'));const cur=sel.value;sel.innerHTML='<option value="all">Todos</option>'+used.map(b=>`<option value="${b}">${clientTypeLabel(b)}</option>`).join('');sel.value=cur||'all'}
 function clearFinFilters(){document.getElementById('finMonth').value='';document.getElementById('finEntryType').value='';document.getElementById('finType').value='all';document.getElementById('finSit').value='';document.getElementById('finSearch').value='';renderFinance()}
 async function gerarMensalidades(){
   const ym=(document.getElementById('finMonth')&&document.getElementById('finMonth').value)||today().slice(0,7);
@@ -2003,9 +2003,10 @@ async function toggleFinPaid(id){const f=DB.finance.find(x=>x.id===id);if(!f)ret
 
 /* ---- SELECTS ---- */
 function fillClientSelects(){
-  const opts='<option value="">— sem cliente —</option>'+DB.clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  const sortedClients=[...DB.clients].sort((a,b)=>a.name.localeCompare(b.name,'pt'));
+  const opts='<option value="">— sem cliente —</option>'+sortedClients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
   ['tClient','fClient'].forEach(id=>{const el=document.getElementById(id);if(!el)return;const v=el.value;el.innerHTML=opts;el.value=v});
-  const sEl=document.getElementById('sClient');if(sEl){const v=sEl.value,ev=DB.clients.filter(c=>c.billing==='evento'),ot=DB.clients.filter(c=>c.billing!=='evento');sEl.innerHTML='<option value="">— selecione —</option>'+(ev.length?'<optgroup label="Por evento/show">'+ev.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')+'</optgroup>':'')+'<optgroup label="Outros">'+ot.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')+'</optgroup>';sEl.value=v}
+  const sEl=document.getElementById('sClient');if(sEl){const v=sEl.value,ev=sortedClients.filter(c=>c.billing==='evento'),ot=sortedClients.filter(c=>c.billing!=='evento');sEl.innerHTML='<option value="">— selecione —</option>'+(ev.length?'<optgroup label="Por evento/show">'+ev.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')+'</optgroup>':'')+'<optgroup label="Outros">'+ot.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')+'</optgroup>';sEl.value=v}
 }
 function openModal(id){document.getElementById(id).classList.add('open')}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
@@ -2193,7 +2194,7 @@ function bulkTargetClients(){
     if((c.budgetChannels||[]).some(b=>(b.name||'').toLowerCase().includes(needle)))return true;
     if((c.plat||'').toLowerCase().includes(needle))return true;
     return false;
-  });
+  }).sort((a,b)=>a.name.localeCompare(b.name,'pt'));
 }
 function updateBtPreview(){
   const targets=bulkTargetClients();
@@ -2331,7 +2332,7 @@ function openWeeklyReportModal(){
 }
 
 function getWrTargets(){
-  return DB.clients.filter(c=>c.status==='Ativo'&&c.reportWeekly&&c.reportWeeklyDay);
+  return DB.clients.filter(c=>c.status==='Ativo'&&c.reportWeekly&&c.reportWeeklyDay).sort((a,b)=>a.name.localeCompare(b.name,'pt'));
 }
 
 function updateWrPreview(){
@@ -2417,7 +2418,7 @@ function openReportChecklistModal(){
 }
 
 function getRcTargets(month){
-  return DB.clients.filter(c=>c.status==='Ativo'&&c.report&&c.report.slice(0,7)===month);
+  return DB.clients.filter(c=>c.status==='Ativo'&&c.report&&c.report.slice(0,7)===month).sort((a,b)=>a.name.localeCompare(b.name,'pt'));
 }
 
 function rcAlreadyExists(clientId,month){
@@ -2543,7 +2544,7 @@ function toggleChannel(id){
 function channelLabel(id){const c=TASK_CHANNELS.find(x=>x.id===id);return c?`${c.icon} ${c.label}`:id}
 
 /* ---- TASK MODAL ---- */
-function fillOwnerSelect(sel){sel.innerHTML=DB.team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}
+function fillOwnerSelect(sel){sel.innerHTML=[...DB.team].sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}
 function openTaskModal(id){
   fillClientSelects();fillOwnerSelect(document.getElementById('tOwner'));fillOwnerSelect(document.getElementById('tReviewer'));
   const t=id?DB.tasks.find(x=>x.id===id):{};
