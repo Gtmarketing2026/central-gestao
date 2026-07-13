@@ -418,9 +418,12 @@
         <option value="media">Média</option>
         <option value="baixa">Baixa</option>
       </select>
-      <select id="tfChannel" style="width:auto" onchange="applyTaskFilters()">
-        <option value="">Todos os canais</option>
-      </select>
+      <div style="position:relative;display:inline-block">
+        <button type="button" id="tfChannelBtn" onclick="toggleTfChannelMenu()" class="btn sm ghost" style="min-width:150px;justify-content:space-between;display:inline-flex;align-items:center">
+          <span id="tfChannelBtnLabel">Todos os canais</span><span style="color:var(--faint)">▾</span>
+        </button>
+        <div id="tfChannelMenu" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px;z-index:150;min-width:190px;max-height:320px;overflow:auto;box-shadow:0 12px 32px rgba(0,0,0,.4)"></div>
+      </div>
       <input type="date" id="tfDateFrom" style="width:auto" title="Prazo a partir de" onchange="applyTaskFilters()">
       <input type="date" id="tfDateTo" style="width:auto" title="Prazo até" onchange="applyTaskFilters()">
       <button class="btn sm ghost" onclick="clearTaskFilters()">Limpar filtros</button>
@@ -1647,15 +1650,32 @@ function ownerColor(id){if(!id)return'#8a8070';let h=0;for(let i=0;i<id.length;i
 function setTaskView(v){taskView=v;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));document.getElementById('taskListView').style.display=v==='list'?'block':'none';document.getElementById('taskKanbanView').style.display=v==='kanban'?'block':'none';renderTasks()}
 function setOwnerFilter(v){ownerFilterVal=v;renderOwnerFilter();renderTasks()}
 function renderOwnerFilter(){const opts=[['all','Todos'],...[...DB.team].sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(m=>[m.id,m.name])];document.getElementById('ownerFilter').innerHTML=opts.map(([v,l])=>`<button class="${ownerFilterVal===v?'active':''}" onclick="setOwnerFilter('${v}')">${l}</button>`).join('')}
-function applyTaskFilters(){taskFilters={client:document.getElementById('tfClient').value,status:document.getElementById('tfStatus').value,prio:document.getElementById('tfPrio').value,channel:document.getElementById('tfChannel').value,dateFrom:document.getElementById('tfDateFrom').value,dateTo:document.getElementById('tfDateTo').value};renderTasks()}
-function clearTaskFilters(){taskFilters={client:'',status:'',prio:'',channel:'',dateFrom:'',dateTo:''};['tfClient','tfStatus','tfPrio','tfChannel'].forEach(id=>document.getElementById(id).value='');['tfDateFrom','tfDateTo'].forEach(id=>document.getElementById(id).value='');renderTasks()}
+function applyTaskFilters(){taskFilters={...taskFilters,client:document.getElementById('tfClient').value,status:document.getElementById('tfStatus').value,prio:document.getElementById('tfPrio').value,dateFrom:document.getElementById('tfDateFrom').value,dateTo:document.getElementById('tfDateTo').value};renderTasks()}
+function clearTaskFilters(){taskFilters={client:'',status:'',prio:'',channel:'',dateFrom:'',dateTo:''};['tfClient','tfStatus','tfPrio'].forEach(id=>document.getElementById(id).value='');['tfDateFrom','tfDateTo'].forEach(id=>document.getElementById(id).value='');const lbl=document.getElementById('tfChannelBtnLabel');if(lbl)lbl.innerHTML='Todos os canais';renderTasks()}
 function fillTaskClientFilter(){const sel=document.getElementById('tfClient');if(!sel)return;const cur=sel.value;sel.innerHTML='<option value="">Todos os clientes</option>'+[...DB.clients].sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}">${c.name}</option>`).join('');sel.value=cur}
-function fillTaskChannelFilter(){const sel=document.getElementById('tfChannel');if(!sel)return;const cur=sel.value;sel.innerHTML='<option value="">Todos os canais</option>'+TASK_CHANNELS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('');sel.value=cur}
+function renderTfChannelMenu(){
+  const menu=document.getElementById('tfChannelMenu');
+  if(!menu)return;
+  const items=[{id:'',label:'Todos os canais'},...TASK_CHANNELS];
+  menu.innerHTML=items.map(c=>`<div onclick="selectTfChannel('${c.id}')" style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer;font-size:13px${taskFilters.channel===c.id?';background:var(--surface2)':''}" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background='${taskFilters.channel===c.id?'var(--surface2)':'transparent'}'">${c.id?channelIconHTML(c,15):'<span style=\'width:15px;display:inline-block\'></span>'}<span>${c.label}</span></div>`).join('');
+}
+function toggleTfChannelMenu(){const m=document.getElementById('tfChannelMenu');if(!m)return;m.style.display=m.style.display==='none'?'block':'none'}
+function selectTfChannel(id){
+  taskFilters.channel=id;
+  const c=TASK_CHANNELS.find(x=>x.id===id);
+  document.getElementById('tfChannelBtnLabel').innerHTML=c?`${channelIconHTML(c,14)} ${c.label}`:'Todos os canais';
+  document.getElementById('tfChannelMenu').style.display='none';
+  renderTasks();
+}
+document.addEventListener('click',e=>{
+  const menu=document.getElementById('tfChannelMenu');
+  if(menu&&menu.style.display==='block'&&!menu.contains(e.target)&&e.target.id!=='tfChannelBtn'&&!(e.target.closest&&e.target.closest('#tfChannelBtn')))menu.style.display='none';
+});
 function repeatCustomDays(r){const m=r&&r.match(/^custom:(\d+)$/);return m?+m[1]:null}
 function repeatLabel(r){if(!r)return'';const d=repeatCustomDays(r);if(d!==null)return`${d}d`;return{diaria:'diária',semanal:'semanal',quinzenal:'15 dias',mensal:'mensal'}[r]||r}
 function repeatModeUpdate(){const v=document.getElementById('tRepeat').value;document.getElementById('tRepeatCustomRow').style.display=v==='custom'?'block':'none'}
 function renderTasks(){
-  renderOwnerFilter();fillTaskClientFilter();fillTaskChannelFilter();
+  renderOwnerFilter();fillTaskClientFilter();renderTfChannelMenu();
   let base=ownerFilterVal==='all'?DB.tasks:DB.tasks.filter(t=>t.owner===ownerFilterVal||(t.reviewRequested&&t.reviewer===ownerFilterVal));
   if(hideDone)base=base.filter(t=>t.status!=='done');
   if(taskFilters.client)base=base.filter(t=>t.client===taskFilters.client);
