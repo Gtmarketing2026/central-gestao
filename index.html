@@ -32,6 +32,7 @@
   .tab .badge{background:var(--accent);color:#0a0906;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700}
   .panel{display:none;animation:fade .35s ease}
   .panel.active{display:block}
+  #relatorios.panel.active{width:100vw;max-width:100vw;position:relative;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;padding:0 24px;box-sizing:border-box}
   @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
   .grid{display:grid;gap:18px}
   .grid.c2{grid-template-columns:1fr 1fr}
@@ -470,6 +471,8 @@
       <input type="date" id="crDateFrom" style="width:auto" onchange="applyReportDateFilter()">
       <label style="margin:0">Até:</label>
       <input type="date" id="crDateTo" style="width:auto" onchange="applyReportDateFilter()">
+      <label style="margin:0 0 0 8px">Canal:</label>
+      <div id="crChannelFilter" style="display:flex;gap:6px;flex-wrap:wrap"></div>
     </div>
     <div id="clientReportBody"><div class="empty">Selecione um cliente com planilha de relatório configurada.</div></div>
   </section>
@@ -2907,11 +2910,31 @@ async function loadClientReport(clientId){
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{spreadsheetId,tabs}});
     if(error)throw error;
     currentReport={tabs,dataByTab:(data&&data.data)||{}};
+    selectedReportChannels=new Set(tabs);
+    renderChannelFilter();
     document.getElementById('crFilterBar').style.display='flex';
     setReportRange(30);
   }catch(e){
     document.getElementById('clientReportBody').innerHTML=`<div class="empty">Erro ao buscar dados: ${e.message}</div>`;
   }
+}
+let selectedReportChannels=null;
+function renderChannelFilter(){
+  const el=document.getElementById('crChannelFilter');
+  if(!el||!currentReport)return;
+  el.innerHTML=currentReport.tabs.map(tab=>{
+    const on=selectedReportChannels.has(tab);
+    return `<span onclick="toggleReportChannel('${tab.replace(/'/g,"\\'")}')" class="pill ${on?'blue':'gray'}" style="cursor:pointer">${reportChannelLabel(tab)}</span>`;
+  }).join('');
+}
+function toggleReportChannel(tab){
+  if(selectedReportChannels.has(tab))selectedReportChannels.delete(tab);else selectedReportChannels.add(tab);
+  renderChannelFilter();
+  applyReportDateFilter();
+}
+function visibleReportTabs(){
+  if(!currentReport)return[];
+  return currentReport.tabs.filter(t=>!selectedReportChannels||selectedReportChannels.has(t));
 }
 function setReportRange(range){
   document.querySelectorAll('#crFilterBar [data-range]').forEach(b=>b.classList.toggle('active',String(b.dataset.range)===String(range)));
@@ -2919,18 +2942,18 @@ function setReportRange(range){
   const from=range==='all'?'2000-01-01':daysAgoISO(range);
   document.getElementById('crDateFrom').value=from;
   document.getElementById('crDateTo').value=to;
-  if(currentReport)renderClientReportBody(currentReport.tabs,currentReport.dataByTab,from,to);
+  if(currentReport)renderClientReportBody(visibleReportTabs(),currentReport.dataByTab,from,to);
 }
 function applyReportDateFilter(){
   document.querySelectorAll('#crFilterBar [data-range]').forEach(b=>b.classList.remove('active'));
   const from=document.getElementById('crDateFrom').value||'2000-01-01';
   const to=document.getElementById('crDateTo').value||today();
-  if(currentReport)renderClientReportBody(currentReport.tabs,currentReport.dataByTab,from,to);
+  if(currentReport)renderClientReportBody(visibleReportTabs(),currentReport.dataByTab,from,to);
 }
 function reportChannelLabel(tab){return tab.replace(/^GERAL\s+/i,'').replace(/\s+VENDAS?$/i,'').trim()}
 function renderClientReportBody(tabs,dataByTab,dateFrom,dateTo){
   const el=document.getElementById('clientReportBody');
-  el.innerHTML=`<div class="grid" style="grid-template-columns:1fr 1fr;gap:16px" id="crGrid"></div>`;
+  el.innerHTML=`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px" id="crGrid"></div>`;
   const grid=document.getElementById('crGrid');
   const periodLabel=dateFrom&&dateFrom>'2000-01-01'?`${dateBR(dateFrom)}–${dateBR(dateTo)}`:'período';
   tabs.forEach(tab=>{
