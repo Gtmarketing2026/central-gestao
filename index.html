@@ -801,6 +801,18 @@
       <h2 id="clientReportTitle">📊 Relatório de anúncios</h2>
       <button class="btn sm ghost" onclick="closeModal('clientReportModal')">✕ Fechar</button>
     </div>
+    <div class="filterbar" id="crFilterBar" style="display:none;margin-bottom:14px">
+      <div class="seg">
+        <button data-range="7" onclick="setReportRange(7)">7 dias</button>
+        <button data-range="30" class="active" onclick="setReportRange(30)">30 dias</button>
+        <button data-range="90" onclick="setReportRange(90)">90 dias</button>
+        <button data-range="all" onclick="setReportRange('all')">Tudo</button>
+      </div>
+      <label style="margin:0 0 0 8px">De:</label>
+      <input type="date" id="crDateFrom" style="width:auto" onchange="applyReportDateFilter()">
+      <label style="margin:0">Até:</label>
+      <input type="date" id="crDateTo" style="width:auto" onchange="applyReportDateFilter()">
+    </div>
     <div id="clientReportBody"><div class="empty">Carregando...</div></div>
   </div>
 </div>
@@ -2855,9 +2867,12 @@ function parseReportTab(rows){
   }).filter(r=>r.date);
   return {colIdx,has,records};
 }
+let currentReport=null;
 async function openClientReport(clientId){
   const c=DB.clients.find(x=>x.id===clientId);
   if(!c||!c.reportSheetUrl)return;
+  currentReport=null;
+  document.getElementById('crFilterBar').style.display='none';
   document.getElementById('clientReportTitle').textContent=`📊 Relatório de anúncios — ${c.name}`;
   document.getElementById('clientReportBody').innerHTML='<div class="empty">Carregando dados da planilha...</div>';
   openModal('clientReportModal');
@@ -2871,16 +2886,33 @@ async function openClientReport(clientId){
   try{
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{spreadsheetId,tabs}});
     if(error)throw error;
-    renderClientReportBody(tabs,(data&&data.data)||{});
+    currentReport={tabs,dataByTab:(data&&data.data)||{}};
+    document.getElementById('crFilterBar').style.display='flex';
+    setReportRange(30);
   }catch(e){
     document.getElementById('clientReportBody').innerHTML=`<div class="empty">Erro ao buscar dados: ${e.message}</div>`;
   }
 }
+function setReportRange(range){
+  document.querySelectorAll('#crFilterBar [data-range]').forEach(b=>b.classList.toggle('active',String(b.dataset.range)===String(range)));
+  const to=today();
+  const from=range==='all'?'2000-01-01':daysAgoISO(range);
+  document.getElementById('crDateFrom').value=from;
+  document.getElementById('crDateTo').value=to;
+  if(currentReport)renderClientReportBody(currentReport.tabs,currentReport.dataByTab,from,to);
+}
+function applyReportDateFilter(){
+  document.querySelectorAll('#crFilterBar [data-range]').forEach(b=>b.classList.remove('active'));
+  const from=document.getElementById('crDateFrom').value||'2000-01-01';
+  const to=document.getElementById('crDateTo').value||today();
+  if(currentReport)renderClientReportBody(currentReport.tabs,currentReport.dataByTab,from,to);
+}
 function reportChannelLabel(tab){return tab.replace(/^GERAL\s+/i,'').replace(/\s+VENDAS?$/i,'').trim()}
-function renderClientReportBody(tabs,dataByTab){
+function renderClientReportBody(tabs,dataByTab,dateFrom,dateTo){
   const el=document.getElementById('clientReportBody');
   el.innerHTML=`<div class="grid" style="grid-template-columns:1fr 1fr;gap:16px" id="crGrid"></div>`;
   const grid=document.getElementById('crGrid');
+  const periodLabel=dateFrom&&dateFrom>'2000-01-01'?`${dateBR(dateFrom)}–${dateBR(dateTo)}`:'período';
   tabs.forEach(tab=>{
     const raw=dataByTab[tab];
     const safeId=tab.replace(/[^a-zA-Z0-9]/g,'_');
@@ -2903,20 +2935,20 @@ function renderClientReportBody(tabs,dataByTab){
       grid.appendChild(card);return;
     }
     const parsed=parseReportTab(raw);
-    const cutoff=daysAgoISO(30);
-    const last30=parsed.records.filter(r=>r.date&&r.date>=cutoff);
+    const inRange=parsed.records.filter(r=>r.date&&r.date>=dateFrom&&r.date<=dateTo);
+    if(!inRange.length){card.innerHTML=`${title}<div class="empty">Sem dados nesse período.</div>`;grid.appendChild(card);return}
     const sum=(arr,k)=>arr.reduce((s,r)=>s+(r[k]||0),0);
-    const spend=sum(last30,'spend'),impr=sum(last30,'impressions'),clicks=sum(last30,'clicks'),sales=sum(last30,'sales'),revenue=sum(last30,'revenue');
+    const spend=sum(inRange,'spend'),impr=sum(inRange,'impressions'),clicks=sum(inRange,'clicks'),sales=sum(inRange,'sales'),revenue=sum(inRange,'revenue');
     const ctr=impr?((clicks/impr)*100).toFixed(2)+'%':'—';
     const cpa=sales?fmt(spend/sales):'—';
     const roas=(spend&&revenue)?(revenue/spend).toFixed(2)+'x':'—';
     const kpis=[];
-    if(parsed.has.spend)kpis.push({l:'Investimento (30d)',v:fmt(spend)});
-    if(parsed.has.impressions)kpis.push({l:'Impressões (30d)',v:impr.toLocaleString('pt-BR')});
-    if(parsed.has.clicks)kpis.push({l:'Cliques (30d)',v:clicks.toLocaleString('pt-BR')});
+    if(parsed.has.spend)kpis.push({l:`Investimento (${periodLabel})`,v:fmt(spend)});
+    if(parsed.has.impressions)kpis.push({l:`Impressões (${periodLabel})`,v:impr.toLocaleString('pt-BR')});
+    if(parsed.has.clicks)kpis.push({l:`Cliques (${periodLabel})`,v:clicks.toLocaleString('pt-BR')});
     if(parsed.has.impressions&&parsed.has.clicks)kpis.push({l:'CTR',v:ctr});
-    if(parsed.has.sales)kpis.push({l:'Vendas (30d)',v:sales});
-    if(parsed.has.revenue)kpis.push({l:'Faturamento (30d)',v:fmt(revenue)});
+    if(parsed.has.sales)kpis.push({l:`Vendas (${periodLabel})`,v:sales});
+    if(parsed.has.revenue)kpis.push({l:`Faturamento (${periodLabel})`,v:fmt(revenue)});
     if(parsed.has.spend&&parsed.has.sales)kpis.push({l:'CPA',v:cpa});
     if(parsed.has.spend&&parsed.has.revenue)kpis.push({l:'ROAS',v:roas});
     if(!kpis.length){card.innerHTML=`${title}<div class="empty">Não reconheci as colunas dessa aba.</div>`;grid.appendChild(card);return}
@@ -2929,7 +2961,7 @@ function renderClientReportBody(tabs,dataByTab){
         const elc=document.getElementById(`crChart_${safeId}`);
         if(!elc)return;
         destroyChart('cr_'+safeId);
-        const days=[...last30].sort((a,b)=>a.date>b.date?1:-1);
+        const days=[...inRange].sort((a,b)=>a.date>b.date?1:-1);
         _charts['cr_'+safeId]=new Chart(elc,{type:'bar',data:{labels:days.map(d=>d.date.slice(8,10)+'/'+d.date.slice(5,7)),datasets:[{data:days.map(d=>d.spend),backgroundColor:CHART_C.accent,borderRadius:4}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{display:false},x:{grid:{display:false},ticks:{font:{size:9}}}}}});
       },0);
     }
