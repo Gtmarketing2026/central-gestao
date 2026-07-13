@@ -546,6 +546,15 @@
     <div id="cOnboardingBtn" style="display:none;margin-top:4px">
       <button class="btn ghost sm" style="width:100%;border-style:dashed" onclick="gerarOnboarding()">⚡ Gerar tarefas de onboarding para este cliente</button>
     </div>
+    <hr class="budget-divider">
+    <div class="form-row" style="margin-bottom:10px">
+      <span style="font-size:13px;font-weight:600;color:var(--text)">📊 Relatório automático (Google Sheets)</span>
+    </div>
+    <div class="form-row"><label>Link da planilha</label><input id="cReportSheetUrl" placeholder="Cole a URL da planilha do cliente"></div>
+    <div class="form-row"><label>Abas a exibir <span style="font-size:11px;color:var(--faint);font-weight:400">— nomes separados por vírgula, exatamente como estão na planilha</span></label>
+      <input id="cReportTabs" placeholder="Ex: GOOGLE, WHATSAPP, E-MAIL, INSTAGRAM BIO">
+      <div style="font-size:11px;color:var(--faint);margin-top:6px">💡 Lembre de compartilhar a planilha (como Leitor) com: leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com</div>
+    </div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('clientModal')">Cancelar</button>
       <button class="btn primary" onclick="saveClient()">Salvar</button>
@@ -775,6 +784,17 @@
       <button class="btn ghost" onclick="closeModal('taskModal')">Cancelar</button>
       <button class="btn primary" onclick="saveTask()">Salvar</button>
     </div>
+  </div>
+</div>
+
+<!-- CLIENT REPORT MODAL -->
+<div class="modal-bg" id="clientReportModal">
+  <div class="modal wide">
+    <div class="section-head" style="margin-top:0">
+      <h2 id="clientReportTitle">📊 Relatório de anúncios</h2>
+      <button class="btn sm ghost" onclick="closeModal('clientReportModal')">✕ Fechar</button>
+    </div>
+    <div id="clientReportBody"><div class="empty">Carregando...</div></div>
   </div>
 </div>
 
@@ -1012,8 +1032,8 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||''});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||''});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||''});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||'',category:r.category||'',fixedType:r.fixed_type||''});
@@ -1547,7 +1567,8 @@ function renderClients(){
     const budgetTxt=c.budget?`<div style="font-weight:600">${fmt(c.budget)}</div>${(c.budgetChannels||[]).map(ch=>`<div style="font-size:11px;color:var(--muted)">${ch.name}: ${fmt(ch.val)}</div>`).join('')}`:'—';
     const saldo=c.usesBalance?calcBalance(c.id):null;
     const balanceTxt=saldo!==null?`<div style="font-weight:700;color:${saldo>=0?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div><button class="btn sm ghost" style="margin-top:4px;font-size:11px" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:'—';
-    return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td>${rep}</td><td class="row-actions"><button class="btn sm ghost" onclick="openClientModal('${c.id}')">Editar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
+    const reportBtn=c.reportSheetUrl?`<button class="btn sm ghost" onclick="openClientReport('${c.id}')" title="Ver relatório de anúncios">📊 Relatório</button>`:'';
+    return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td>${rep}</td><td class="row-actions">${reportBtn}<button class="btn sm ghost" onclick="openClientModal('${c.id}')">Editar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
   }).join('')+'</tbody>';
 }
 function showPays(s){if(s.payments&&s.payments.length)return s.payments;return [{id:s.id+'_p',date:s.date,val:s.val,status:s.status||'pendente',_virtual:1}]}
@@ -1987,6 +2008,8 @@ function openClientModal(id){
   document.getElementById('cReportWeeklyDay').value=c.reportWeeklyDay||'segunda';
   document.getElementById('cBalanceInit').value=c.balanceInit||'';
   balanceToggle();
+  document.getElementById('cReportSheetUrl').value=c.reportSheetUrl||'';
+  document.getElementById('cReportTabs').value=c.reportTabs||'';
   setTemp(c.temp||'');
   billingLabelUpdate();categoryUpdate();openModal('clientModal');
 }
@@ -2004,7 +2027,7 @@ async function saveClient(){
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
   const reportWeekly=document.getElementById('cReportWeekly').checked;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:''};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim()};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
@@ -2776,6 +2799,129 @@ function renderDespesaDetail(){
     }).join('')+'</tbody>':'<tr><td><div class="empty">Nenhuma despesa lançada ainda.</div></td></tr>';
   }
 }
+
+/* ---- RELATÓRIO DO CLIENTE (Google Sheets) ---- */
+const REPORT_FIELD_SYNONYMS={
+  date:['data','day'],
+  spend:['investimento','cost (spend)','amount spent','total cost (spend)','gasto','custo'],
+  impressions:['impressoes','impressions'],
+  clicks:['cliques','clicks','link clicks'],
+  sales:['venda','vendas'],
+  revenue:['faturamento'],
+  reach:['reach','alcance'],
+};
+function normHeader(h){return String(h||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim()}
+function parseNumberBR(v){
+  if(v==null)return 0;
+  let s=String(v).replace(/R\$/gi,'').trim();
+  if(!s||s==='-')return 0;
+  s=s.replace(/\s/g,'');
+  if(s.includes(',')&&s.includes('.'))s=s.replace(/\./g,'').replace(',','.');
+  else if(s.includes(','))s=s.replace(',','.');
+  const n=parseFloat(s);
+  return isNaN(n)?0:n;
+}
+function parseDateFlexible(v){
+  if(!v)return null;
+  const s=String(v).trim();
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m)return `${m[1]}-${m[2]}-${m[3]}`;
+  m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if(m)return `${m[3]}-${m[2]}-${m[1]}`;
+  return null;
+}
+function daysAgoISO(n){const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().slice(0,10)}
+function parseReportTab(rows){
+  const header=rows[0].map(normHeader);
+  const colIdx={};
+  Object.keys(REPORT_FIELD_SYNONYMS).forEach(field=>{
+    const idx=header.findIndex(h=>REPORT_FIELD_SYNONYMS[field].includes(h));
+    if(idx!==-1)colIdx[field]=idx;
+  });
+  const has={};Object.keys(colIdx).forEach(f=>has[f]=true);
+  const records=rows.slice(1).map(row=>{
+    const rec={date:colIdx.date!=null?parseDateFlexible(row[colIdx.date]):null};
+    ['spend','impressions','clicks','sales','revenue','reach'].forEach(f=>{
+      if(colIdx[f]!=null)rec[f]=parseNumberBR(row[colIdx[f]]);
+    });
+    return rec;
+  }).filter(r=>r.date);
+  return {colIdx,has,records};
+}
+async function openClientReport(clientId){
+  const c=DB.clients.find(x=>x.id===clientId);
+  if(!c||!c.reportSheetUrl)return;
+  document.getElementById('clientReportTitle').textContent=`📊 Relatório de anúncios — ${c.name}`;
+  document.getElementById('clientReportBody').innerHTML='<div class="empty">Carregando dados da planilha...</div>';
+  openModal('clientReportModal');
+  const m=c.reportSheetUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  const spreadsheetId=m?m[1]:null;
+  const tabs=(c.reportTabs||'').split(',').map(t=>t.trim()).filter(Boolean);
+  if(!spreadsheetId||!tabs.length){
+    document.getElementById('clientReportBody').innerHTML='<div class="empty">Configure o link da planilha e as abas no cadastro do cliente (botão Editar).</div>';
+    return;
+  }
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{spreadsheetId,tabs}});
+    if(error)throw error;
+    renderClientReportBody(tabs,(data&&data.data)||{});
+  }catch(e){
+    document.getElementById('clientReportBody').innerHTML=`<div class="empty">Erro ao buscar dados: ${e.message}</div>`;
+  }
+}
+function reportChannelLabel(tab){return tab.replace(/^GERAL\s+/i,'').replace(/\s+VENDAS?$/i,'').trim()}
+function renderClientReportBody(tabs,dataByTab){
+  const el=document.getElementById('clientReportBody');
+  el.innerHTML=`<div class="grid" style="grid-template-columns:1fr 1fr;gap:16px" id="crGrid"></div>`;
+  const grid=document.getElementById('crGrid');
+  tabs.forEach(tab=>{
+    const raw=dataByTab[tab];
+    const safeId=tab.replace(/[^a-zA-Z0-9]/g,'_');
+    const card=document.createElement('div');
+    card.className='card';
+    const title=`<h3>${reportChannelLabel(tab)}</h3>`;
+    if(!raw||raw.error){
+      card.innerHTML=`${title}<div class="empty">${raw&&raw.error?'Erro: '+raw.error:'Sem dados ainda.'}</div>`;
+      grid.appendChild(card);return;
+    }
+    if(!Array.isArray(raw)||raw.length<2){
+      card.innerHTML=`${title}<div class="empty">Sem dados ainda.</div>`;
+      grid.appendChild(card);return;
+    }
+    const parsed=parseReportTab(raw);
+    const cutoff=daysAgoISO(30);
+    const last30=parsed.records.filter(r=>r.date&&r.date>=cutoff);
+    const sum=(arr,k)=>arr.reduce((s,r)=>s+(r[k]||0),0);
+    const spend=sum(last30,'spend'),impr=sum(last30,'impressions'),clicks=sum(last30,'clicks'),sales=sum(last30,'sales'),revenue=sum(last30,'revenue');
+    const ctr=impr?((clicks/impr)*100).toFixed(2)+'%':'—';
+    const cpa=sales?fmt(spend/sales):'—';
+    const roas=(spend&&revenue)?(revenue/spend).toFixed(2)+'x':'—';
+    const kpis=[];
+    if(parsed.has.spend)kpis.push({l:'Investimento (30d)',v:fmt(spend)});
+    if(parsed.has.impressions)kpis.push({l:'Impressões (30d)',v:impr.toLocaleString('pt-BR')});
+    if(parsed.has.clicks)kpis.push({l:'Cliques (30d)',v:clicks.toLocaleString('pt-BR')});
+    if(parsed.has.impressions&&parsed.has.clicks)kpis.push({l:'CTR',v:ctr});
+    if(parsed.has.sales)kpis.push({l:'Vendas (30d)',v:sales});
+    if(parsed.has.revenue)kpis.push({l:'Faturamento (30d)',v:fmt(revenue)});
+    if(parsed.has.spend&&parsed.has.sales)kpis.push({l:'CPA',v:cpa});
+    if(parsed.has.spend&&parsed.has.revenue)kpis.push({l:'ROAS',v:roas});
+    if(!kpis.length){card.innerHTML=`${title}<div class="empty">Não reconheci as colunas dessa aba.</div>`;grid.appendChild(card);return}
+    card.innerHTML=`${title}
+      <div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr));margin-bottom:10px">${kpis.map(k=>`<div class="kpi" style="padding:10px"><div class="label" style="font-size:10px">${k.l}</div><div class="val" style="font-size:15px">${k.v}</div></div>`).join('')}</div>
+      ${parsed.has.spend?`<div class="chart-box" style="height:140px"><canvas id="crChart_${safeId}"></canvas></div>`:''}`;
+    grid.appendChild(card);
+    if(parsed.has.spend&&window.Chart){
+      setTimeout(()=>{
+        const elc=document.getElementById(`crChart_${safeId}`);
+        if(!elc)return;
+        destroyChart('cr_'+safeId);
+        const days=[...last30].sort((a,b)=>a.date>b.date?1:-1);
+        _charts['cr_'+safeId]=new Chart(elc,{type:'bar',data:{labels:days.map(d=>d.date.slice(8,10)+'/'+d.date.slice(5,7)),datasets:[{data:days.map(d=>d.spend),backgroundColor:CHART_C.accent,borderRadius:4}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{display:false},x:{grid:{display:false},ticks:{font:{size:9}}}}}});
+      },0);
+    }
+  });
+}
+
 function renderCharts(){
   if(!window.Chart)return;
   Chart.defaults.color=CHART_C.muted;Chart.defaults.font.family='Inter';Chart.defaults.font.size=12;
