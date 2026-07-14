@@ -3266,6 +3266,29 @@ async function generateAIAnalysis(){
   btn.textContent='🤖 Gerar análise com IA';btn.disabled=false;
 }
 function exportReportTemplate(){window.print()}
+function exportReportHTML(){
+  const area=document.getElementById('rtPrintArea');
+  if(!area)return;
+  const clone=area.cloneNode(true);
+  const ta=clone.querySelector('#rtAnalysisText');
+  if(ta){const div=document.createElement('div');div.style.cssText='white-space:pre-wrap;font-size:13px;line-height:1.7;color:#f8fafc;background:#0e0e1c;border:1px solid rgba(109,40,217,.18);border-radius:12px;padding:14px';div.textContent=ta.value||'';ta.parentNode.replaceChild(div,ta);}
+  clone.querySelectorAll('.rt-no-print').forEach(el=>el.remove());
+  let css='';
+  for(const sheet of document.styleSheets){let rules;try{rules=sheet.cssRules}catch(e){continue}if(!rules)continue;for(const rule of rules){const sel=rule.selectorText||'';if(sel&&/\.rt-/.test(sel))css+=rule.cssText+'\n';}}
+  const clientName=(document.getElementById('crClientSelect')&&document.getElementById('crClientSelect').selectedOptions[0]?document.getElementById('crClientSelect').selectedOptions[0].textContent:'Relatório');
+  const monthVal=document.getElementById('crtMonth')?document.getElementById('crtMonth').value:'';
+  const title=`${clientName} — ${monthVal}`;
+  const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#070711;font-family:'Inter',sans-serif;padding:24px;display:flex;justify-content:center}#rtPrintArea{max-width:1240px;width:100%}${css}</style>
+</head><body>${clone.outerHTML}</body></html>`;
+  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=`relatorio-${title.replace(/[^a-zA-Z0-9]+/g,'-').toLowerCase().replace(/^-|-$/g,'')}.html`;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);
+}
 async function renderClientTemplate(c,month,dataByTab,adTabs){
   const body=document.getElementById('crTemplateBody');
   const ordersResult=dataByTab[c.reportOrdersTab];
@@ -3316,8 +3339,9 @@ async function renderClientTemplate(c,month,dataByTab,adTabs){
     funil:funnelStages.map(s=>({etapa:s.label,valor:s.value})),
   };
 
-  body.innerHTML=`<div style="display:flex;justify-content:flex-end;margin-bottom:10px" class="rt-no-print">
-      <button class="btn sm primary" onclick="exportReportTemplate()">⬇ Exportar / Imprimir PDF</button>
+  body.innerHTML=`<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px" class="rt-no-print">
+      <button class="btn sm ghost" onclick="exportReportHTML()">⬇ Exportar HTML</button>
+      <button class="btn sm primary" onclick="exportReportTemplate()">🖨 Imprimir / PDF</button>
     </div>
     <div class="rt-doc" id="rtPrintArea">
     <div class="rt-hdr">
