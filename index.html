@@ -7,6 +7,7 @@
 <link rel="icon" type="image/x-icon" href="logo.ico">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
@@ -545,6 +546,7 @@
   <section class="panel" id="iagestora">
     <div class="section-head" style="margin-top:0">
       <h2>🤖 AndréIA</h2>
+      <button class="btn sm ghost" onclick="openKnowledgeGlobal()" title="Alimentar a inteligência da AndréIA com PDFs (frameworks, métodos de gestores)">🧠 Conhecimento</button>
     </div>
     <div class="hint" style="margin-bottom:14px">Sua gestora de tráfego em linguagem natural. Escolha um cliente (projeto) pra conversar com foco nele — cada cliente guarda o próprio histórico de conversas.</div>
     <div class="filterbar" style="margin-bottom:12px">
@@ -698,6 +700,18 @@
     <div id="cReportOrdersSheetRow">
       <div class="form-row"><label>Link(s) da planilha de pedidos <span style="font-size:11px;color:var(--faint);font-weight:400">— uma URL por linha, se tiver mais de uma (ex: histórico + atual)</span></label><textarea id="cReportOrdersSheetUrl" rows="2" placeholder="Cole a URL (uma por linha se tiver mais de uma planilha)"></textarea></div>
       <div class="form-row"><label>Nome da aba de pedidos</label><input id="cReportOrdersTab" placeholder="Ex: SITE"></div>
+    </div>
+    <hr class="budget-divider">
+    <div id="cKnowledgeSection">
+      <div class="form-row" style="margin-bottom:8px">
+        <span style="font-size:13px;font-weight:600;color:var(--text)">🧠 Conhecimento do cliente (DNA para a AndréIA)</span>
+        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">PDFs específicos deste cliente (briefing, persona, tom de voz, particularidades). A AndréIA usa isso só nas análises dele. <span id="cKnowledgeHint"></span></div>
+      </div>
+      <div class="form-row">
+        <input type="file" accept="application/pdf" id="cKnowledgeUpload" onchange="handleClientKnowledgeUpload(this)">
+        <div id="cKnowledgeStatus" style="font-size:12px;color:var(--accent);margin-top:6px"></div>
+      </div>
+      <div id="cKnowledgeList"></div>
     </div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('clientModal')">Cancelar</button>
@@ -959,6 +973,23 @@
     <div class="card" style="padding:0;overflow:hidden">
       <div class="section-head" style="padding:14px 16px 0"><h2 style="font-size:14px">Últimos lançamentos</h2></div>
       <table id="despTable"></table>
+    </div>
+  </div>
+</div>
+
+<!-- KNOWLEDGE (GLOBAL) MODAL -->
+<div class="modal-bg" id="knowledgeModal">
+  <div class="modal">
+    <h3>🧠 Conhecimento da AndréIA — Global</h3>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:14px">Suba PDFs de frameworks e métodos (ex: aulas do Pedro Sobral e outros gestores). A AndréIA passa a recomendar seguindo esse material em <strong>todos os clientes</strong>. Para conhecimento específico de um cliente, use o cadastro do cliente.</div>
+    <div class="form-row">
+      <label>Adicionar PDF</label>
+      <input type="file" accept="application/pdf" onchange="handleKnowledgeUpload(this,'','knGlobalList','knGlobalStatus')">
+      <div id="knGlobalStatus" style="font-size:12px;color:var(--accent);margin-top:6px"></div>
+    </div>
+    <div class="form-row"><label>Materiais adicionados</label><div id="knGlobalList"></div></div>
+    <div class="modal-actions">
+      <button class="btn primary" onclick="closeModal('knowledgeModal')">Fechar</button>
     </div>
   </div>
 </div>
@@ -2181,6 +2212,9 @@ function openClientModal(id){
   document.getElementById('cReportOrdersTab').value=c.reportOrdersTab||'';
   document.getElementById('cReportOrdersMode').value=c.reportOrdersMode||'sheet';
   document.getElementById('cReportOrdersSheetRow').style.display=(c.reportOrdersMode==='local')?'none':'block';
+  document.getElementById('cKnowledgeUpload').value='';document.getElementById('cKnowledgeStatus').textContent='';
+  if(id){document.getElementById('cKnowledgeHint').textContent='';renderKnowledgeList('cKnowledgeList',id)}
+  else{document.getElementById('cKnowledgeHint').textContent='(disponível após salvar o cliente)';document.getElementById('cKnowledgeList').innerHTML=''}
   setTemp(c.temp||'');
   billingLabelUpdate();categoryUpdate();openModal('clientModal');
 }
@@ -3514,6 +3548,72 @@ async function executeAgentAction(mi,ai){
   await persistAgentChat();renderAgentChat();
 }
 async function cancelAgentAction(mi,ai){const act=agentActiveChat.messages[mi].actions[ai];act.status='cancelled';await persistAgentChat();renderAgentChat()}
+
+/* ---- BASE DE CONHECIMENTO DA ANDREIA ---- */
+async function extractPdfText(file){
+  if(!window.pdfjsLib)throw new Error('Leitor de PDF ainda carregando, tente de novo em instantes.');
+  try{pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}catch(e){}
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  let text='';
+  const maxPages=Math.min(pdf.numPages,80);
+  for(let i=1;i<=maxPages;i++){const page=await pdf.getPage(i);const c=await page.getTextContent();text+=c.items.map(it=>it.str).join(' ')+'\n'}
+  return text.replace(/\s+/g,' ').trim();
+}
+async function saveKnowledgeDoc(clientId,title,text){
+  const doc={id:'kn_'+uid(),client_id:clientId||'',title:title.slice(0,120),text:text.slice(0,40000),created_at:new Date().toISOString()};
+  await sb.from('agent_knowledge').insert(doc);
+  return doc;
+}
+async function listKnowledgeDocs(clientId){
+  const {data}=await sb.from('agent_knowledge').select('id,title,created_at,text').eq('client_id',clientId||'').order('created_at',{ascending:false});
+  return data||[];
+}
+async function deleteKnowledgeDoc(id){await sb.from('agent_knowledge').delete().eq('id',id)}
+async function fetchAgentKnowledge(clientId){
+  // Global + (se houver cliente) o do cliente
+  const {data:g}=await sb.from('agent_knowledge').select('title,text').eq('client_id','').order('created_at',{ascending:false}).limit(4);
+  let arr=(g||[]).map(d=>({title:'[Global] '+d.title,text:d.text}));
+  if(clientId){
+    const {data:c}=await sb.from('agent_knowledge').select('title,text').eq('client_id',clientId).order('created_at',{ascending:false}).limit(4);
+    arr=arr.concat((c||[]).map(d=>({title:'[Cliente] '+d.title,text:d.text})));
+  }
+  return arr;
+}
+// UI de gerenciamento (usada tanto no global quanto no cadastro do cliente)
+async function renderKnowledgeList(listElId,clientId){
+  const el=document.getElementById(listElId);if(!el)return;
+  el.innerHTML='<div style="color:var(--faint);font-size:12px">Carregando...</div>';
+  const docs=await listKnowledgeDocs(clientId);
+  el.innerHTML=docs.length?docs.map(d=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+    <span style="flex:1;font-size:12.5px">📄 ${d.title||'Documento'} <span style="color:var(--faint);font-size:11px">· ${Math.round((d.text||'').length/1000)}k caracteres</span></span>
+    <button class="btn sm ghost danger" onclick="removeKnowledge('${d.id}','${listElId}','${clientId||''}')">✕</button>
+  </div>`).join(''):'<div style="color:var(--faint);font-size:12px">Nenhum material ainda. Suba um PDF acima.</div>';
+}
+async function removeKnowledge(id,listElId,clientId){await deleteKnowledgeDoc(id);renderKnowledgeList(listElId,clientId)}
+async function handleKnowledgeUpload(inputEl,clientId,listElId,statusElId){
+  const file=inputEl.files&&inputEl.files[0];
+  if(!file)return;
+  const st=document.getElementById(statusElId);
+  if(!/\.pdf$/i.test(file.name)){if(st)st.textContent='Só PDF por enquanto.';return}
+  if(st)st.textContent='Lendo o PDF...';
+  try{
+    const text=await extractPdfText(file);
+    if(!text||text.length<30){if(st)st.textContent='Não consegui extrair texto (PDF pode ser imagem/escaneado).';return}
+    if(st)st.textContent='Salvando...';
+    await saveKnowledgeDoc(clientId,file.name.replace(/\.pdf$/i,''),text);
+    if(st)st.textContent='✓ Adicionado à inteligência da AndréIA.';
+    inputEl.value='';
+    renderKnowledgeList(listElId,clientId);
+    setTimeout(()=>{if(st)st.textContent=''},2500);
+  }catch(e){if(st)st.textContent='Erro: '+e.message}
+}
+function openKnowledgeGlobal(){renderKnowledgeList('knGlobalList','');openModal('knowledgeModal')}
+function handleClientKnowledgeUpload(input){
+  const id=document.getElementById('cId').value;
+  if(!id){document.getElementById('cKnowledgeStatus').textContent='Salve o cliente primeiro, depois adicione PDFs.';input.value='';return}
+  handleKnowledgeUpload(input,id,'cKnowledgeList','cKnowledgeStatus');
+}
 async function loadAgentProject(clientId){
   agentClientId=clientId;
   agentActiveChat=null;agentClientKpis=null;agentKpisClientId=null;agentKpisPromise=null;
@@ -3583,8 +3683,9 @@ async function sendAgentMessage(){
   try{
     if(agentClientId)await ensureClientKpis(); // garante os KPIs do relatório no snapshot
     const snapshot=currentAgentSnapshot();
+    const knowledge=await fetchAgentKnowledge(agentClientId).catch(()=>[]);
     const history=agentActiveChat.messages.filter(m=>m.role==='user'||m.role==='assistant').slice(-12).map(m=>({role:m.role,text:m.text}));
-    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{agent:{question:q,history,snapshot}}});
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{agent:{question:q,history,snapshot,knowledge}}});
     if(error)throw error;
     agentActiveChat.messages=agentActiveChat.messages.filter(m=>m.role!=='typing');
     const resp=(data&&data.data)||{};
