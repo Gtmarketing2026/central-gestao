@@ -3188,6 +3188,16 @@ function weekBucketsForMonth(month){
   }
   return buckets;
 }
+function computeFunnelStages(channelList,aprovadosCount){
+  const totalImpr=channelList.reduce((s,c)=>s+c.impressions,0);
+  const totalReach=channelList.reduce((s,c)=>s+(c.reach||0),0);
+  const totalClicks=channelList.reduce((s,c)=>s+c.clicks,0);
+  const stages=[{label:'Impressões',value:totalImpr}];
+  if(totalReach)stages.push({label:'Alcance',value:totalReach});
+  stages.push({label:'Cliques no link',value:totalClicks});
+  stages.push({label:'Vendas',value:aprovadosCount});
+  return stages;
+}
 function computeChannelStats(adTabs,dataByTab,month){
   const stats={};
   (adTabs||[]).forEach(tab=>{
@@ -3195,11 +3205,11 @@ function computeChannelStats(adTabs,dataByTab,month){
     if(!raw||raw.error||!Array.isArray(raw)||raw.length<2)return;
     const parsed=parseReportTab(raw);
     const key=reportChannelLabel(tab);
-    if(!stats[key])stats[key]={label:key,spend:0,impressions:0,clicks:0,revenue:0,sales:0,records:[]};
+    if(!stats[key])stats[key]={label:key,spend:0,impressions:0,clicks:0,reach:0,revenue:0,sales:0,records:[]};
     const inMonth=parsed.records.filter(r=>r.date&&r.date.slice(0,7)===month);
     inMonth.forEach(r=>{
       stats[key].spend+=r.spend||0;stats[key].impressions+=r.impressions||0;stats[key].clicks+=r.clicks||0;
-      stats[key].revenue+=r.revenue||0;stats[key].sales+=r.sales||0;
+      stats[key].reach+=r.reach||0;stats[key].revenue+=r.revenue||0;stats[key].sales+=r.sales||0;
       stats[key].records.push(r);
     });
   });
@@ -3255,6 +3265,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs){
     return{...w,geral,perChannel};
   });
 
+  const funnelStages=computeFunnelStages(channelList,aprovadosCount);
   const mesLabel=new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   const analysis=await loadReportAnalysis(c.id,month);
 
@@ -3309,6 +3320,24 @@ async function renderClientTemplate(c,month,dataByTab,adTabs){
               return`<tr><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${ch.label}</td><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${ch.spend?fmt(ch.spend):'—'}</td><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${cpc}</td><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${cpm}</td><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${ctr}</td><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${roas}</td></tr>`;
             }).join('')}
           </table>
+        </div>
+      </div>`:''}
+
+      ${funnelStages[0].value?`<div class="rt-div"></div>
+      <div class="rt-sec">
+        <div class="rt-sec-hdr"><div class="rt-sec-num">04</div><div class="rt-sec-title">🔻 Funil de Venda</div><div class="rt-sec-ln"></div></div>
+        <div class="rt-tc">
+          <div style="padding:18px">
+            ${funnelStages.map((s,i)=>{
+              const pct=funnelStages[0].value?(s.value/funnelStages[0].value*100):0;
+              const stepPct=i>0&&funnelStages[i-1].value?(s.value/funnelStages[i-1].value*100):100;
+              return`<div style="margin-bottom:12px">
+                <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--rt2);margin-bottom:4px"><span>${s.label}</span><span>${s.value.toLocaleString('pt-BR')}${i>0?` <span style="color:var(--rtm)">(${stepPct.toFixed(1)}% da etapa anterior)</span>`:''}</span></div>
+                <div style="height:28px;background:rgba(255,255,255,.05);border-radius:8px;overflow:hidden"><div style="height:100%;width:${Math.max(pct,3).toFixed(1)}%;background:linear-gradient(90deg,#1d4ed8,#60a5fa);border-radius:8px"></div></div>
+              </div>`;
+            }).join('')}
+            <div style="margin-top:14px;padding:12px 14px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:10px;font-size:12px;color:var(--rt2)">⚠️ Etapa de <strong>Checkout</strong> ainda não incluída — falta uma fonte de dados (ex: eventos de checkout iniciado do Google Analytics ou Pixel). Assim que tiver essa informação, é só me passar.</div>
+          </div>
         </div>
       </div>`:''}
 
