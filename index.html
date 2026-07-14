@@ -3464,13 +3464,56 @@ function renderAgentChat(){
   const el=document.getElementById('agentChat');
   const msgs=agentActiveChat?agentActiveChat.messages:[];
   if(!msgs.length){el.innerHTML='<div class="empty">'+(agentActiveChat?'Comece a conversa — pergunte ou use uma sugestão acima.':'Selecione um projeto e clique em "+ Nova conversa".')+'</div>';return}
-  el.innerHTML=msgs.map(m=>{
+  el.innerHTML=msgs.map((m,idx)=>{
     if(m.role==='user')return`<div style="align-self:flex-end;max-width:80%;background:var(--accent);color:#0a0906;border-radius:14px 14px 4px 14px;padding:10px 14px;font-size:13px;font-weight:500;white-space:pre-wrap">${m.text.replace(/</g,'&lt;')}</div>`;
     if(m.role==='typing')return`<div style="align-self:flex-start;color:var(--muted);font-size:13px;padding:6px 4px">AndréIA pensando...</div>`;
-    return`<div style="align-self:flex-start;max-width:88%;background:var(--surface2);border:1px solid var(--border);border-radius:14px 14px 14px 4px;padding:12px 14px;font-size:13px;line-height:1.65;white-space:pre-wrap">${m.text.replace(/</g,'&lt;')}</div>`;
+    const txt=m.text?`<div style="align-self:flex-start;max-width:88%;background:var(--surface2);border:1px solid var(--border);border-radius:14px 14px 14px 4px;padding:12px 14px;font-size:13px;line-height:1.65;white-space:pre-wrap">${m.text.replace(/</g,'&lt;')}</div>`:'';
+    const acts=(m.actions||[]).map((a,ai)=>agentActionCardHTML(a,idx,ai)).join('');
+    return txt+acts;
   }).join('');
   el.scrollTop=el.scrollHeight;
 }
+function agentActionCardHTML(a,mi,ai){
+  const label=a.name==='criar_tarefa'?'Criar tarefa':(a.name==='concluir_tarefa'?'Concluir tarefa':a.name);
+  if(a.status==='done')return`<div style="align-self:flex-start;max-width:88%;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.35);color:var(--green);border-radius:12px;padding:10px 14px;font-size:12.5px">✓ ${a.result||'Feito'}</div>`;
+  if(a.status==='error')return`<div style="align-self:flex-start;max-width:88%;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.35);color:var(--red);border-radius:12px;padding:10px 14px;font-size:12.5px">⚠ ${a.result||'Não consegui executar'}</div>`;
+  if(a.status==='cancelled')return`<div style="align-self:flex-start;max-width:88%;color:var(--faint);font-size:12px;padding:4px 6px">Ação cancelada.</div>`;
+  const g=a.args||{};
+  const det=a.name==='criar_tarefa'
+    ?`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">Tarefa</span><span style="font-weight:600;text-align:right">${(g.nome||'—')}</span></div>`+(g.cliente?`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">Cliente</span><span style="font-weight:600">${g.cliente}</span></div>`:'')+(g.responsavel?`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">Responsável</span><span style="font-weight:600">${g.responsavel}</span></div>`:'')+(g.prazo?`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">Prazo</span><span style="font-weight:600">${g.prazo}</span></div>`:'')+`<div style="display:flex;justify-content:space-between;padding:5px 0"><span style="color:var(--muted)">Prioridade</span><span style="font-weight:600">${g.prioridade||'media'}${g.urgente?' · 🚩':''}</span></div>`
+    :`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">Concluir tarefa</span><span style="font-weight:600;text-align:right">${(g.nome||'—')}</span></div>`+(g.cliente?`<div style="display:flex;justify-content:space-between;padding:5px 0"><span style="color:var(--muted)">Cliente</span><span style="font-weight:600">${g.cliente}</span></div>`:'');
+  return`<div style="align-self:flex-start;max-width:88%;width:340px;background:var(--surface2);border:1px solid var(--accent);border-radius:12px;padding:14px 16px">
+    <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:8px">Confirmação · ${label}</div>
+    <div style="font-size:12.5px;margin-bottom:10px">${det}</div>
+    <div style="display:flex;gap:8px"><button class="btn sm primary" onclick="executeAgentAction(${mi},${ai})">Executar</button><button class="btn sm ghost" onclick="cancelAgentAction(${mi},${ai})">Cancelar</button></div>
+  </div>`;
+}
+function resolveClientIdByName(name){if(!name)return'';const q=name.toLowerCase();return (DB.clients.find(c=>c.name.toLowerCase()===q)||DB.clients.find(c=>c.name.toLowerCase().includes(q))||{}).id||''}
+function resolveOwnerIdByName(name){if(!name)return (DB.team[0]||{}).id||'';const q=name.toLowerCase();return (DB.team.find(m=>m.name.toLowerCase()===q)||DB.team.find(m=>m.name.toLowerCase().includes(q))||DB.team[0]||{}).id||''}
+async function executeAgentAction(mi,ai){
+  const msg=agentActiveChat.messages[mi];const act=msg.actions[ai];
+  if(act.status&&act.status!=='pending')return;
+  try{
+    if(act.name==='criar_tarefa'){
+      const clientId=resolveClientIdByName(act.args.cliente)||agentClientId||'';
+      const owner=resolveOwnerIdByName(act.args.responsavel);
+      const o={id:uid(),name:(act.args.nome||'Nova tarefa').trim(),client:clientId,owner,status:'todo',due:act.args.prazo||'',prio:act.args.prioridade||'media',repeat:'',notes:'',link:'',channels:[],urgent:!!act.args.urgente,checklist:[],comments:[],reviewRequested:false,reviewer:''};
+      await _upsertTask(o);renderAll();notifyNewTaskAssignments([o]);
+      act.status='done';act.result='Tarefa criada: '+o.name+(clientId?' ('+clientName(clientId)+')':'');
+    }else if(act.name==='concluir_tarefa'){
+      const clientId=resolveClientIdByName(act.args.cliente)||agentClientId||'';
+      let cands=DB.tasks.filter(t=>t.status!=='done');
+      if(clientId)cands=cands.filter(t=>t.client===clientId);
+      const q=(act.args.nome||'').toLowerCase().trim();
+      const match=cands.filter(t=>t.name.toLowerCase().includes(q));
+      if(match.length===1){await completeTask(match[0]);act.status='done';act.result='Concluída: '+match[0].name}
+      else if(!match.length){act.status='error';act.result='Não achei tarefa aberta com esse nome'+(clientId?' pra '+clientName(clientId):'')+'.'}
+      else{act.status='error';act.result='Achei '+match.length+' tarefas parecidas — seja mais específica (nome exato).'}
+    }
+  }catch(e){act.status='error';act.result='Erro: '+e.message}
+  await persistAgentChat();renderAgentChat();
+}
+async function cancelAgentAction(mi,ai){const act=agentActiveChat.messages[mi].actions[ai];act.status='cancelled';await persistAgentChat();renderAgentChat()}
 async function loadAgentProject(clientId){
   agentClientId=clientId;
   agentActiveChat=null;agentClientKpis=null;agentKpisClientId=null;agentKpisPromise=null;
@@ -3544,7 +3587,10 @@ async function sendAgentMessage(){
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{agent:{question:q,history,snapshot}}});
     if(error)throw error;
     agentActiveChat.messages=agentActiveChat.messages.filter(m=>m.role!=='typing');
-    agentActiveChat.messages.push({role:'assistant',text:(data&&data.data&&data.data.answer)||'Não consegui responder agora.'});
+    const resp=(data&&data.data)||{};
+    const actions=(resp.actions||[]).map(a=>({name:a.name,args:a.args||{},status:'pending'}));
+    const answerText=resp.answer||(actions.length?'Preparei uma ação pra você confirmar:':'Não consegui responder agora.');
+    agentActiveChat.messages.push({role:'assistant',text:answerText,actions});
     await persistAgentChat();
   }catch(e){
     agentActiveChat.messages=agentActiveChat.messages.filter(m=>m.role!=='typing');
