@@ -3226,6 +3226,24 @@ async function saveReportAnalysis(clientId,month){
   await sb.from('report_analysis').upsert({id:`${clientId}_${month}`,client_id:clientId,month,text,updated_at:new Date().toISOString()});
   btn.textContent='✓ Salvo';setTimeout(()=>{btn.textContent='Salvar análise';btn.disabled=false},1500);
 }
+let currentTemplateMetrics=null;
+async function generateAIAnalysis(){
+  if(!currentTemplateMetrics)return;
+  const btn=document.getElementById('rtAiBtn');
+  btn.textContent='Gerando com IA...';btn.disabled=true;
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{analysis:currentTemplateMetrics}});
+    if(error)throw error;
+    if(data&&data.data&&data.data.analysisText){
+      document.getElementById('rtAnalysisText').value=data.data.analysisText;
+    }else{
+      alert('Não recebi o texto da IA. Tente de novo.');
+    }
+  }catch(e){
+    alert('Erro ao gerar análise: '+e.message);
+  }
+  btn.textContent='🤖 Gerar análise com IA';btn.disabled=false;
+}
 function exportReportTemplate(){window.print()}
 async function renderClientTemplate(c,month,dataByTab,adTabs){
   const body=document.getElementById('crTemplateBody');
@@ -3268,6 +3286,14 @@ async function renderClientTemplate(c,month,dataByTab,adTabs){
   const funnelStages=computeFunnelStages(channelList,aprovadosCount);
   const mesLabel=new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   const analysis=await loadReportAnalysis(c.id,month);
+  currentTemplateMetrics={
+    clientName:c.name,mesLabel,
+    totalPedidos,aprovadosCount,aprovadosVal,ticketMedio,aguardando,
+    statusBreakdown:byStatusChip,
+    canais:channelList.map(ch=>({nome:ch.label,investimento:ch.spend,faturamento:ch.revenue,vendas:ch.sales,cliques:ch.clicks,impressoes:ch.impressions,roas:ch.spend?+(ch.revenue/ch.spend).toFixed(2):null})),
+    evolucaoSemanal:weekly.map(w=>({semana:w.label,periodo:w.dates,aprovados:w.geral})),
+    funil:funnelStages.map(s=>({etapa:s.label,valor:s.value})),
+  };
 
   body.innerHTML=`<div style="display:flex;justify-content:flex-end;margin-bottom:10px" class="rt-no-print">
       <button class="btn sm primary" onclick="exportReportTemplate()">⬇ Exportar / Imprimir PDF</button>
@@ -3356,8 +3382,9 @@ async function renderClientTemplate(c,month,dataByTab,adTabs){
       <div class="rt-div"></div>
       <div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">✎</div><div class="rt-sec-title">Análise do Gestor</div><div class="rt-sec-ln"></div></div>
-        <textarea id="rtAnalysisText" rows="6" style="width:100%;background:var(--rbg2);border:1px solid var(--rbr);border-radius:12px;padding:14px;color:var(--rt1);font-family:inherit;font-size:13px;line-height:1.7" placeholder="Escreva aqui a leitura do mês: o que impulsionou os resultados, pontos de atenção, próximos passos...">${analysis?analysis.text||'':''}</textarea>
-        <div style="display:flex;justify-content:flex-end;margin-top:8px" class="rt-no-print">
+        <textarea id="rtAnalysisText" rows="6" style="width:100%;background:var(--rbg2);border:1px solid var(--rbr);border-radius:12px;padding:14px;color:var(--rt1);font-family:inherit;font-size:13px;line-height:1.7" placeholder="Clique em &quot;Gerar análise com IA&quot; ou escreva aqui a leitura do mês...">${analysis?analysis.text||'':''}</textarea>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px" class="rt-no-print">
+          <button id="rtAiBtn" class="btn sm ghost" onclick="generateAIAnalysis()">🤖 Gerar análise com IA</button>
           <button id="rtAnalysisSaveBtn" class="btn sm primary" onclick="saveReportAnalysis('${c.id}','${month}')">Salvar análise</button>
         </div>
       </div>
