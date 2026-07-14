@@ -3240,30 +3240,69 @@ async function loadReportAnalysis(clientId,month){
   const {data}=await sb.from('report_analysis').select('*').eq('client_id',clientId).eq('month',month).maybeSingle();
   return data;
 }
+async function loadStyleExamples(clientId,month){
+  // Exemplos de análises anteriores salvas (qualquer cliente) para a IA aprender o jeito do gestor
+  const {data}=await sb.from('report_analysis').select('text,updated_at').neq('id',`${clientId}_${month}`).order('updated_at',{ascending:false}).limit(4);
+  return (data||[]).map(r=>r.text).filter(t=>t&&t.trim().length>40).slice(0,3);
+}
 async function saveReportAnalysis(clientId,month){
   const text=document.getElementById('rtAnalysisText').value;
   const btn=document.getElementById('rtAnalysisSaveBtn');
   btn.textContent='Salvando...';btn.disabled=true;
-  await sb.from('report_analysis').upsert({id:`${clientId}_${month}`,client_id:clientId,month,text,updated_at:new Date().toISOString()});
+  await sb.from('report_analysis').upsert({id:`${clientId}_${month}`,client_id:clientId,month,text,chat:currentAnalysisChat||[],updated_at:new Date().toISOString()});
   btn.textContent='✓ Salvo';setTimeout(()=>{btn.textContent='Salvar análise';btn.disabled=false},1500);
 }
 let currentTemplateMetrics=null;
+let currentAnalysisChat=[];
+let currentAnalysisCtx={clientId:null,month:null};
+function renderAnalysisChat(){
+  const el=document.getElementById('rtAnalysisChat');
+  if(!el)return;
+  const dirs=currentAnalysisChat.filter(m=>m.role==='user');
+  if(!dirs.length){el.innerHTML='';return}
+  el.innerHTML='<div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--rtm);margin-bottom:6px">Ajustes que você pediu</div>'+dirs.map(m=>`<div style="display:inline-block;background:rgba(109,40,217,.18);border:1px solid var(--rbrb);color:#c4b5fd;border-radius:8px;padding:4px 10px;font-size:11.5px;margin:0 6px 6px 0">${m.text}</div>`).join('');
+}
+async function callAnalysisAI(){
+  const styleExamples=await loadStyleExamples(currentAnalysisCtx.clientId,currentAnalysisCtx.month);
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{analysis:currentTemplateMetrics,chat:currentAnalysisChat,styleExamples}});
+  if(error)throw error;
+  if(!data||!data.data||!data.data.analysisText)throw new Error('Não recebi o texto da IA.');
+  return data.data.analysisText;
+}
 async function generateAIAnalysis(){
   if(!currentTemplateMetrics)return;
   const btn=document.getElementById('rtAiBtn');
-  btn.textContent='Gerando com IA...';btn.disabled=true;
+  btn.textContent='Gerando...';btn.disabled=true;
   try{
-    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{analysis:currentTemplateMetrics}});
-    if(error)throw error;
-    if(data&&data.data&&data.data.analysisText){
-      document.getElementById('rtAnalysisText').value=data.data.analysisText;
-    }else{
-      alert('Não recebi o texto da IA. Tente de novo.');
-    }
-  }catch(e){
-    alert('Erro ao gerar análise: '+e.message);
+    currentAnalysisChat=[]; // recomeça a conversa
+    const text=await callAnalysisAI();
+    currentAnalysisChat=[{role:'assistant',text}];
+    document.getElementById('rtAnalysisText').value=text;
+    renderAnalysisChat();
+  }catch(e){alert('Erro ao gerar análise: '+e.message)}
+  btn.textContent='🤖 Gerar / Refazer com IA';btn.disabled=false;
+}
+async function sendAnalysisDirective(){
+  if(!currentTemplateMetrics)return;
+  const inp=document.getElementById('rtAnalysisDirective');
+  const directive=inp.value.trim();
+  if(!directive)return;
+  // garante que exista uma análise base
+  if(!currentAnalysisChat.some(m=>m.role==='assistant')){
+    const cur=document.getElementById('rtAnalysisText').value.trim();
+    if(cur)currentAnalysisChat.push({role:'assistant',text:cur});
   }
-  btn.textContent='🤖 Gerar análise com IA';btn.disabled=false;
+  currentAnalysisChat.push({role:'user',text:directive});
+  const btn=document.getElementById('rtDirectiveBtn');
+  btn.textContent='...';btn.disabled=true;inp.disabled=true;
+  renderAnalysisChat();
+  try{
+    const text=await callAnalysisAI();
+    currentAnalysisChat.push({role:'assistant',text});
+    document.getElementById('rtAnalysisText').value=text;
+    inp.value='';
+  }catch(e){alert('Erro: '+e.message);currentAnalysisChat.pop()}
+  btn.textContent='Enviar';btn.disabled=false;inp.disabled=false;
 }
 function exportReportTemplate(){window.print()}
 function exportReportHTML(){
@@ -3330,6 +3369,8 @@ async function renderClientTemplate(c,month,dataByTab,adTabs){
   const funnelStages=computeFunnelStages(channelList,aprovadosCount);
   const mesLabel=new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   const analysis=await loadReportAnalysis(c.id,month);
+  currentAnalysisChat=(analysis&&Array.isArray(analysis.chat))?analysis.chat:[];
+  currentAnalysisCtx={clientId:c.id,month};
   currentTemplateMetrics={
     clientName:c.name,mesLabel,
     totalPedidos,aprovadosCount,aprovadosVal,ticketMedio,aguardando,
@@ -3427,15 +3468,24 @@ async function renderClientTemplate(c,month,dataByTab,adTabs){
       <div class="rt-div"></div>
       <div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">✎</div><div class="rt-sec-title">Análise do Gestor</div><div class="rt-sec-ln"></div></div>
-        <textarea id="rtAnalysisText" rows="6" style="width:100%;background:var(--rbg2);border:1px solid var(--rbr);border-radius:12px;padding:14px;color:var(--rt1);font-family:inherit;font-size:13px;line-height:1.7" placeholder="Clique em &quot;Gerar análise com IA&quot; ou escreva aqui a leitura do mês...">${analysis?analysis.text||'':''}</textarea>
-        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px" class="rt-no-print">
-          <button id="rtAiBtn" class="btn sm ghost" onclick="generateAIAnalysis()">🤖 Gerar análise com IA</button>
-          <button id="rtAnalysisSaveBtn" class="btn sm primary" onclick="saveReportAnalysis('${c.id}','${month}')">Salvar análise</button>
+        <textarea id="rtAnalysisText" rows="6" style="width:100%;background:var(--rbg2);border:1px solid var(--rbr);border-radius:12px;padding:14px;color:var(--rt1);font-family:inherit;font-size:13px;line-height:1.7" placeholder="Clique em &quot;Gerar / Refazer com IA&quot; ou escreva aqui a leitura do mês...">${analysis?analysis.text||'':''}</textarea>
+        <div id="rtAnalysisChat" class="rt-no-print" style="margin-top:10px"></div>
+        <div class="rt-no-print" style="display:flex;gap:8px;margin-top:8px">
+          <input id="rtAnalysisDirective" placeholder="Peça um ajuste à IA... ex: mais curto, foca no ROAS, tom mais direto" style="flex:1;background:var(--rbg2);border:1px solid var(--rbr);border-radius:10px;padding:9px 12px;color:var(--rt1);font-family:inherit;font-size:12.5px" onkeydown="if(event.key==='Enter'){event.preventDefault();sendAnalysisDirective()}">
+          <button id="rtDirectiveBtn" class="btn sm ghost" onclick="sendAnalysisDirective()">Enviar</button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:10px" class="rt-no-print">
+          <span style="font-size:11px;color:var(--rtm)">💡 A IA aprende seu estilo com as análises que você salva. Quanto mais usar, mais parecida com a sua fica.</span>
+          <div style="display:flex;gap:8px">
+            <button id="rtAiBtn" class="btn sm ghost" onclick="generateAIAnalysis()">🤖 Gerar / Refazer com IA</button>
+            <button id="rtAnalysisSaveBtn" class="btn sm primary" onclick="saveReportAnalysis('${c.id}','${month}')">Salvar análise</button>
+          </div>
         </div>
       </div>
     </div>
     <div class="rt-ftr">Relatório gerado automaticamente a partir dos dados da planilha · Central de Gestão · ${mesLabel}</div>
   </div>`;
+  renderAnalysisChat();
 }
 
 function renderCharts(){
