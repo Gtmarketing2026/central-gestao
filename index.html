@@ -211,7 +211,7 @@
       <button class="tab" data-tab="tasks">Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="shows">Shows <span class="badge" id="sBadge">0</span></button>
       <button class="tab" data-tab="relatorios">📊 Relatórios</button>
-      <button class="tab" data-tab="iagestora">🤖 IA Gestora</button>
+      <button class="tab" data-tab="iagestora">🤖 AndréIA</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px">
       <span style="font-size:11px;color:var(--faint)">Você é:</span>
@@ -544,7 +544,7 @@
   <!-- IA GESTORA -->
   <section class="panel" id="iagestora">
     <div class="section-head" style="margin-top:0">
-      <h2>🤖 IA Gestora</h2>
+      <h2>🤖 AndréIA</h2>
     </div>
     <div class="hint" style="margin-bottom:14px">Sua gestora de tráfego em linguagem natural. Ela lê os dados de todos os clientes do sistema e ajuda com prioridades, saúde da carteira e sugestões de otimização.</div>
     <div id="agentSuggestions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
@@ -557,7 +557,7 @@
       <div class="empty" id="agentEmpty">Faça uma pergunta ou escolha uma sugestão acima.</div>
     </div>
     <div class="filterbar" style="margin-top:12px;flex-wrap:nowrap">
-      <input id="agentInput" placeholder="Pergunte à IA Gestora..." style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();sendAgentMessage()}">
+      <input id="agentInput" placeholder="Pergunte à AndréIA..." style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();sendAgentMessage()}">
       <button class="btn primary" id="agentSendBtn" onclick="sendAgentMessage()">Enviar</button>
     </div>
   </section>
@@ -3383,7 +3383,7 @@ function renderAgentChat(){
   if(!agentHistory.length){if(empty)empty.style.display='block';return}
   el.innerHTML=agentHistory.map(m=>{
     if(m.role==='user')return`<div style="align-self:flex-end;max-width:80%;background:var(--accent);color:#0a0906;border-radius:14px 14px 4px 14px;padding:10px 14px;font-size:13px;font-weight:500">${m.text.replace(/</g,'&lt;')}</div>`;
-    if(m.role==='typing')return`<div style="align-self:flex-start;color:var(--muted);font-size:13px;padding:6px 4px">IA Gestora pensando...</div>`;
+    if(m.role==='typing')return`<div style="align-self:flex-start;color:var(--muted);font-size:13px;padding:6px 4px">AndréIA pensando...</div>`;
     return`<div style="align-self:flex-start;max-width:88%;background:var(--surface2);border:1px solid var(--border);border-radius:14px 14px 14px 4px;padding:12px 14px;font-size:13px;line-height:1.65;white-space:pre-wrap">${m.text.replace(/</g,'&lt;')}</div>`;
   }).join('');
   el.scrollTop=el.scrollHeight;
