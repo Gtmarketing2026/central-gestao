@@ -211,6 +211,7 @@
       <button class="tab" data-tab="tasks">Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="shows">Shows <span class="badge" id="sBadge">0</span></button>
       <button class="tab" data-tab="relatorios">📊 Relatórios</button>
+      <button class="tab" data-tab="iagestora">🤖 IA Gestora</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px">
       <span style="font-size:11px;color:var(--faint)">Você é:</span>
@@ -537,6 +538,27 @@
         <input type="month" id="crtMonth" style="width:auto" onchange="loadClientTemplate()">
       </div>
       <div id="crTemplateBody"><div class="empty">Selecione um cliente com planilha de pedidos configurada.</div></div>
+    </div>
+  </section>
+
+  <!-- IA GESTORA -->
+  <section class="panel" id="iagestora">
+    <div class="section-head" style="margin-top:0">
+      <h2>🤖 IA Gestora</h2>
+    </div>
+    <div class="hint" style="margin-bottom:14px">Sua gestora de tráfego em linguagem natural. Ela lê os dados de todos os clientes do sistema e ajuda com prioridades, saúde da carteira e sugestões de otimização.</div>
+    <div id="agentSuggestions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <button class="btn sm ghost" onclick="askAgent('Quais clientes precisam de atenção agora e por quê?')">Quais clientes precisam de atenção?</button>
+      <button class="btn sm ghost" onclick="askAgent('Como está a saúde geral da carteira este mês?')">Saúde geral da carteira</button>
+      <button class="btn sm ghost" onclick="askAgent('Quais clientes têm tarefas atrasadas ou relatório vencido?')">Pendências operacionais</button>
+      <button class="btn sm ghost" onclick="askAgent('Me dê 3 recomendações de otimização pra semana.')">Recomendações da semana</button>
+    </div>
+    <div class="card" id="agentChat" style="min-height:280px;max-height:55vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:18px">
+      <div class="empty" id="agentEmpty">Faça uma pergunta ou escolha uma sugestão acima.</div>
+    </div>
+    <div class="filterbar" style="margin-top:12px;flex-wrap:nowrap">
+      <input id="agentInput" placeholder="Pergunte à IA Gestora..." style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();sendAgentMessage()}">
+      <button class="btn primary" id="agentSendBtn" onclick="sendAgentMessage()">Enviar</button>
     </div>
   </section>
 
@@ -3327,6 +3349,64 @@ function exportReportHTML(){
   a.href=url;a.download=`relatorio-${title.replace(/[^a-zA-Z0-9]+/g,'-').toLowerCase().replace(/^-|-$/g,'')}.html`;
   document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),2000);
+}
+
+/* ---- IA GESTORA (agente global) ---- */
+let agentHistory=[];
+function buildAgencySnapshot(){
+  const clientes=DB.clients.map(c=>{
+    const tarefas=DB.tasks.filter(t=>t.client===c.id&&t.status!=='done');
+    const atrasadas=tarefas.filter(t=>t.due&&daysUntil(t.due)<0).length;
+    const relAtrasado=c.report&&daysUntil(c.report)<0;
+    const cobrancasAbertas=DB.finance.filter(f=>f.client===c.id&&f.type==='receita'&&f.status!=='pago'&&f.due&&daysUntil(f.due)<0).length;
+    return{
+      nome:c.name,status:c.status,tipo:clientTypeLabel(c.category||c.billing||'mensal'),
+      temperatura:c.temp||'sem avaliação',feeMensal:+c.fee||0,verbaMidia:+c.budget||0,
+      tarefasPendentes:tarefas.length,tarefasAtrasadas:atrasadas,
+      relatorioMensalAtrasado:!!relAtrasado,cobrancasVencidas:cobrancasAbertas,
+    };
+  });
+  const ativos=DB.clients.filter(c=>c.status==='Ativo');
+  const mrr=ativos.filter(c=>(c.billing||'mensal')==='mensal').reduce((s,c)=>s+(+c.fee||0),0);
+  return{
+    totalClientes:DB.clients.length,ativos:ativos.length,mrr,
+    clientesEmRisco:DB.clients.filter(c=>c.temp==='critico'||c.temp==='atencao').map(c=>c.name),
+    clientes,
+  };
+}
+function renderAgentChat(){
+  const el=document.getElementById('agentChat');
+  const empty=document.getElementById('agentEmpty');
+  if(!agentHistory.length){if(empty)empty.style.display='block';return}
+  el.innerHTML=agentHistory.map(m=>{
+    if(m.role==='user')return`<div style="align-self:flex-end;max-width:80%;background:var(--accent);color:#0a0906;border-radius:14px 14px 4px 14px;padding:10px 14px;font-size:13px;font-weight:500">${m.text.replace(/</g,'&lt;')}</div>`;
+    if(m.role==='typing')return`<div style="align-self:flex-start;color:var(--muted);font-size:13px;padding:6px 4px">IA Gestora pensando...</div>`;
+    return`<div style="align-self:flex-start;max-width:88%;background:var(--surface2);border:1px solid var(--border);border-radius:14px 14px 14px 4px;padding:12px 14px;font-size:13px;line-height:1.65;white-space:pre-wrap">${m.text.replace(/</g,'&lt;')}</div>`;
+  }).join('');
+  el.scrollTop=el.scrollHeight;
+}
+function askAgent(q){document.getElementById('agentInput').value=q;sendAgentMessage()}
+async function sendAgentMessage(){
+  const inp=document.getElementById('agentInput');
+  const q=inp.value.trim();
+  if(!q)return;
+  const btn=document.getElementById('agentSendBtn');
+  agentHistory.push({role:'user',text:q});
+  agentHistory.push({role:'typing'});
+  inp.value='';btn.disabled=true;inp.disabled=true;
+  renderAgentChat();
+  try{
+    const snapshot=buildAgencySnapshot();
+    const history=agentHistory.filter(m=>m.role==='user'||m.role==='assistant').slice(-10).map(m=>({role:m.role,text:m.text}));
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{agent:{question:q,history,snapshot}}});
+    if(error)throw error;
+    agentHistory=agentHistory.filter(m=>m.role!=='typing');
+    agentHistory.push({role:'assistant',text:(data&&data.data&&data.data.answer)||'Não consegui responder agora.'});
+  }catch(e){
+    agentHistory=agentHistory.filter(m=>m.role!=='typing');
+    agentHistory.push({role:'assistant',text:'Erro ao consultar a IA: '+e.message});
+  }
+  btn.disabled=false;inp.disabled=false;renderAgentChat();inp.focus();
 }
 async function renderClientTemplate(c,month,dataByTab,adTabs){
   const body=document.getElementById('crTemplateBody');
