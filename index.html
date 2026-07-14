@@ -165,6 +165,13 @@
   .rt-b-fill{height:100%;border-radius:10px;background:linear-gradient(90deg,#1d4ed8,#60a5fa)}
   .rt-b-val{min-width:110px;text-align:right;font-size:12px;font-weight:600}
   .rt-ftr{padding:16px 32px;border-top:1px solid var(--rbrb);font-size:11px;color:var(--rtm);background:var(--rbg2)}
+  @media print{
+    body *{visibility:hidden}
+    #rtPrintArea,#rtPrintArea *{visibility:visible}
+    #rtPrintArea{position:absolute;top:0;left:0;width:100%;border-radius:0}
+    .rt-no-print{display:none!important}
+    textarea#rtAnalysisText{border:none;resize:none}
+  }
 </style>
 </head>
 <body>
@@ -3171,7 +3178,46 @@ async function loadClientTemplate(){
     body.innerHTML=`<div class="empty">Erro ao buscar dados: ${e.message}</div>`;
   }
 }
-function renderClientTemplate(c,month,dataByTab,adTabs){
+function weekBucketsForMonth(month){
+  const [y,m]=month.split('-').map(Number);
+  const daysInMonth=new Date(y,m,0).getDate();
+  const buckets=[];
+  for(let start=1;start<=daysInMonth;start+=7){
+    const end=Math.min(start+6,daysInMonth);
+    buckets.push({label:`Sem. ${buckets.length+1}`,from:`${month}-${String(start).padStart(2,'0')}`,to:`${month}-${String(end).padStart(2,'0')}`,dates:`${String(start).padStart(2,'0')}–${String(end).padStart(2,'0')}`});
+  }
+  return buckets;
+}
+function computeChannelStats(adTabs,dataByTab,month){
+  const stats={};
+  (adTabs||[]).forEach(tab=>{
+    const raw=dataByTab[tab];
+    if(!raw||raw.error||!Array.isArray(raw)||raw.length<2)return;
+    const parsed=parseReportTab(raw);
+    const key=reportChannelLabel(tab);
+    if(!stats[key])stats[key]={label:key,spend:0,impressions:0,clicks:0,revenue:0,sales:0,records:[]};
+    const inMonth=parsed.records.filter(r=>r.date&&r.date.slice(0,7)===month);
+    inMonth.forEach(r=>{
+      stats[key].spend+=r.spend||0;stats[key].impressions+=r.impressions||0;stats[key].clicks+=r.clicks||0;
+      stats[key].revenue+=r.revenue||0;stats[key].sales+=r.sales||0;
+      stats[key].records.push(r);
+    });
+  });
+  return stats;
+}
+async function loadReportAnalysis(clientId,month){
+  const {data}=await sb.from('report_analysis').select('*').eq('client_id',clientId).eq('month',month).maybeSingle();
+  return data;
+}
+async function saveReportAnalysis(clientId,month){
+  const text=document.getElementById('rtAnalysisText').value;
+  const btn=document.getElementById('rtAnalysisSaveBtn');
+  btn.textContent='Salvando...';btn.disabled=true;
+  await sb.from('report_analysis').upsert({id:`${clientId}_${month}`,client_id:clientId,month,text,updated_at:new Date().toISOString()});
+  btn.textContent='✓ Salvo';setTimeout(()=>{btn.textContent='Salvar análise';btn.disabled=false},1500);
+}
+function exportReportTemplate(){window.print()}
+async function renderClientTemplate(c,month,dataByTab,adTabs){
   const body=document.getElementById('crTemplateBody');
   const ordersResult=dataByTab[c.reportOrdersTab];
   if(!ordersResult||ordersResult.error){
@@ -3184,32 +3230,38 @@ function renderClientTemplate(c,month,dataByTab,adTabs){
   }
   let totalPedidos=0,aprovadosCount=0,aprovadosVal=0,aguardando=0;
   const byStatusChip={};
+  const aprovadosByDate={};
   rows.forEach(r=>{
     const grp=classifyOrderStatus(r.status);
     if(grp==='ignorar')return;
     totalPedidos+=r.count;
     byStatusChip[r.status]=(byStatusChip[r.status]||0)+r.count;
-    if(grp==='aprovado'){aprovadosCount+=r.count;aprovadosVal+=r.total}
+    if(grp==='aprovado'){aprovadosCount+=r.count;aprovadosVal+=r.total;aprovadosByDate[r.date]=(aprovadosByDate[r.date]||0)+r.count}
     else if(grp==='aguardando')aguardando+=r.count;
   });
   const ticketMedio=aprovadosCount?aprovadosVal/aprovadosCount:0;
 
-  const channelRevenue=[];
-  (adTabs||[]).forEach(tab=>{
-    const raw=dataByTab[tab];
-    if(!raw||raw.error||!Array.isArray(raw)||raw.length<2)return;
-    const parsed=parseReportTab(raw);
-    if(!parsed.has.revenue)return;
-    const inMonth=parsed.records.filter(r=>r.date&&r.date.slice(0,7)===month);
-    const rev=inMonth.reduce((s,r)=>s+(r.revenue||0),0);
-    if(rev>0)channelRevenue.push({label:reportChannelLabel(tab),value:rev});
+  const chStats=computeChannelStats(adTabs,dataByTab,month);
+  const channelList=Object.values(chStats).sort((a,b)=>b.revenue-a.revenue);
+  const maxRev=channelList[0]?channelList[0].revenue:1;
+
+  const weeks=weekBucketsForMonth(month);
+  const weekly=weeks.map(w=>{
+    const geral=Object.entries(aprovadosByDate).filter(([d])=>d>=w.from&&d<=w.to).reduce((s,[,v])=>s+v,0);
+    const perChannel={};
+    channelList.forEach(ch=>{
+      perChannel[ch.label]=ch.records.filter(r=>r.date>=w.from&&r.date<=w.to).reduce((s,r)=>s+(r.sales||0),0);
+    });
+    return{...w,geral,perChannel};
   });
-  channelRevenue.sort((a,b)=>b.value-a.value);
-  const maxRev=channelRevenue[0]?channelRevenue[0].value:1;
 
   const mesLabel=new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const analysis=await loadReportAnalysis(c.id,month);
 
-  body.innerHTML=`<div class="rt-doc">
+  body.innerHTML=`<div style="display:flex;justify-content:flex-end;margin-bottom:10px" class="rt-no-print">
+      <button class="btn sm primary" onclick="exportReportTemplate()">⬇ Exportar / Imprimir PDF</button>
+    </div>
+    <div class="rt-doc" id="rtPrintArea">
     <div class="rt-hdr">
       <div><div class="rt-brand">${c.name}</div><div class="rt-sub">Relatório Gerencial de Performance</div></div>
       <div class="rt-period">● ${mesLabel}</div>
@@ -3226,14 +3278,60 @@ function renderClientTemplate(c,month,dataByTab,adTabs){
         </div>
         <div class="rt-chips">${Object.entries(byStatusChip).map(([st,ct])=>`<div class="rt-chip"><div class="rt-dot" style="background:${orderStatusColor(st)}"></div> ${st}: ${ct}</div>`).join('')}</div>
       </div>
-      ${channelRevenue.length?`<div class="rt-div"></div>
+
+      ${weekly.length?`<div class="rt-div"></div>
       <div class="rt-sec">
-        <div class="rt-sec-hdr"><div class="rt-sec-num">02</div><div class="rt-sec-title">Ranking de Canais — Faturamento</div><div class="rt-sec-ln"></div></div>
-        <div class="rt-tc">
-          <div class="rt-tc-hdr">📊 Faturamento por canal — ${mesLabel}</div>
-          <div style="padding:16px 18px">${channelRevenue.map(ch=>`<div class="rt-bar-row"><div class="rt-b-lbl">${ch.label}</div><div class="rt-b-track"><div class="rt-b-fill" style="width:${(ch.value/maxRev*100).toFixed(1)}%"></div></div><div class="rt-b-val">${fmt(ch.value)}</div></div>`).join('')}</div>
+        <div class="rt-sec-hdr"><div class="rt-sec-num">02</div><div class="rt-sec-title">📅 Evolução Semanal por Canal — Volume de Vendas</div><div class="rt-sec-ln"></div></div>
+        <div class="rt-tc" style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse">
+            <tr><th style="text-align:left;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Canal</th>${weeks.map(w=>`<th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">${w.label}<br><span style="font-weight:400">${w.dates}</span></th>`).join('')}<th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Total</th></tr>
+            <tr><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">🟣 Geral (Aprovados)</td>${weekly.map(w=>`<td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${w.geral}</td>`).join('')}<td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${weekly.reduce((s,w)=>s+w.geral,0)}</td></tr>
+            ${channelList.map(ch=>`<tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${ch.label}</td>${weekly.map(w=>`<td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${w.perChannel[ch.label]||0}</td>`).join('')}<td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${weekly.reduce((s,w)=>s+(w.perChannel[ch.label]||0),0)}</td></tr>`).join('')}
+          </table>
         </div>
       </div>`:''}
+
+      ${channelList.length?`<div class="rt-div"></div>
+      <div class="rt-sec">
+        <div class="rt-sec-hdr"><div class="rt-sec-num">03</div><div class="rt-sec-title">Ranking de Canais — Faturamento e Eficiência</div><div class="rt-sec-ln"></div></div>
+        <div class="rt-tc" style="margin-bottom:18px">
+          <div class="rt-tc-hdr">📊 Faturamento por canal — ${mesLabel}</div>
+          <div style="padding:16px 18px">${channelList.map(ch=>`<div class="rt-bar-row"><div class="rt-b-lbl">${ch.label}</div><div class="rt-b-track"><div class="rt-b-fill" style="width:${(ch.revenue/maxRev*100).toFixed(1)}%"></div></div><div class="rt-b-val">${fmt(ch.revenue)}</div></div>`).join('')}</div>
+        </div>
+        <div class="rt-tc" style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse">
+            <tr><th style="text-align:left;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Canal</th><th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Investimento</th><th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">CPC</th><th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">CPM</th><th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">CTR</th><th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">ROAS</th></tr>
+            ${channelList.map(ch=>{
+              const cpc=ch.clicks?fmt(ch.spend/ch.clicks):'—';
+              const cpm=ch.impressions?fmt(ch.spend/ch.impressions*1000):'—';
+              const ctr=ch.impressions?((ch.clicks/ch.impressions)*100).toFixed(2)+'%':'—';
+              const roas=ch.spend?(ch.revenue/ch.spend).toFixed(2)+'x':'—';
+              return`<tr><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${ch.label}</td><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${ch.spend?fmt(ch.spend):'—'}</td><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${cpc}</td><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${cpm}</td><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${ctr}</td><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${roas}</td></tr>`;
+            }).join('')}
+          </table>
+        </div>
+      </div>`:''}
+
+      <div class="rt-div"></div>
+      <div class="rt-tc" style="margin-bottom:0">
+        <div class="rt-tc-hdr">📋 Resumo Executivo — Números-Chave · ${mesLabel}</div>
+        <table style="width:100%;border-collapse:collapse">
+          <tr><th style="text-align:left;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Indicador</th><th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Valor</th></tr>
+          <tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">Faturamento Aprovado</td><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${fmt(aprovadosVal)}</td></tr>
+          <tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">Pedidos Aprovados</td><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${aprovadosCount.toLocaleString('pt-BR')}</td></tr>
+          <tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">Ticket Médio</td><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${fmt(ticketMedio)}</td></tr>
+          ${channelList.map(ch=>`<tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">Faturamento ${ch.label}</td><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${fmt(ch.revenue)}${ch.spend?` <span style="color:var(--rtm);font-weight:400">(ROAS ${(ch.revenue/ch.spend).toFixed(2)}x)</span>`:''}</td></tr>`).join('')}
+        </table>
+      </div>
+
+      <div class="rt-div"></div>
+      <div class="rt-sec">
+        <div class="rt-sec-hdr"><div class="rt-sec-num">✎</div><div class="rt-sec-title">Análise do Gestor</div><div class="rt-sec-ln"></div></div>
+        <textarea id="rtAnalysisText" rows="6" style="width:100%;background:var(--rbg2);border:1px solid var(--rbr);border-radius:12px;padding:14px;color:var(--rt1);font-family:inherit;font-size:13px;line-height:1.7" placeholder="Escreva aqui a leitura do mês: o que impulsionou os resultados, pontos de atenção, próximos passos...">${analysis?analysis.text||'':''}</textarea>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px" class="rt-no-print">
+          <button id="rtAnalysisSaveBtn" class="btn sm primary" onclick="saveReportAnalysis('${c.id}','${month}')">Salvar análise</button>
+        </div>
+      </div>
     </div>
     <div class="rt-ftr">Relatório gerado automaticamente a partir dos dados da planilha · Central de Gestão · ${mesLabel}</div>
   </div>`;
