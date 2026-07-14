@@ -3134,8 +3134,8 @@ function setReportSub(v){
 const ORDER_STATUS_GROUPS={
   aprovado:['Pago','Liberado Automaticamente'],
   cancelado:['Cancelado'],
-  aguardando:['Aguardando Pagamento'],
-  estornado:['Estornado'],
+  aguardando:['Aguardando Pagamento','Pagamento Pendente'],
+  estornado:['Estornado','Estornado Parcialmente','Chargeback','Aguardando Estorno'],
   naoprocessado:['Não Processado','Não Autorizada'],
   ignorar:['Lead','Disponível'],
 };
@@ -3144,7 +3144,7 @@ function classifyOrderStatus(status){
   return 'outro';
 }
 function orderStatusColor(st){
-  const m={'Pago':'#10b981','Liberado Automaticamente':'#10b981','Cancelado':'#64748b','Aguardando Pagamento':'#f59e0b','Estornado':'#ef4444','Não Processado':'#64748b','Não Autorizada':'#ef4444'};
+  const m={'Pago':'#10b981','Liberado Automaticamente':'#10b981','Cancelado':'#64748b','Aguardando Pagamento':'#f59e0b','Pagamento Pendente':'#f59e0b','Estornado':'#ef4444','Estornado Parcialmente':'#ef4444','Chargeback':'#ef4444','Aguardando Estorno':'#f59e0b','Não Processado':'#64748b','Não Autorizada':'#ef4444'};
   return m[st]||'#94a3b8';
 }
 async function loadClientTemplate(){
