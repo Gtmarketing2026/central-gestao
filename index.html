@@ -3184,7 +3184,7 @@ async function loadClientTemplate(){
       dataByTab=(data&&data.data)||{};
     }
     if(isLocal){
-      const {data:rows,error}=await sb.from('order_aggregates').select('date,status,count,total').eq('client_id',c.id);
+      const {data:rows,error}=await sb.from('order_aggregates').select('date,status,count,total').eq('client_id',c.id).gte('date',month+'-01').lte('date',month+'-31');
       if(error)throw error;
       dataByTab[ordersKey]={aggregated:true,rows:rows||[]};
     }else{
@@ -3336,7 +3336,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs){
   }
   const rows=(ordersResult.rows||[]).filter(r=>r.date.slice(0,7)===month);
   if(!rows.length){
-    body.innerHTML=`<div class="empty">Nenhum pedido encontrado nesse mês. A busca cobre as últimas ~60 mil linhas da aba (${ordersResult.rowsScanned||0} linhas analisadas de ${ordersResult.sheetRowCount||'?'} no total) — se o mês escolhido for muito antigo, pode estar fora desse alcance.</div>`;
+    body.innerHTML=`<div class="empty">Nenhum pedido encontrado em ${new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}.${ordersResult.sheetRowCount?` (A busca cobre as últimas ~60 mil linhas da planilha — se o mês for muito antigo, pode estar fora desse alcance.)`:''}</div>`;
     return;
   }
   let totalPedidos=0,aprovadosCount=0,aprovadosVal=0,aguardando=0;
