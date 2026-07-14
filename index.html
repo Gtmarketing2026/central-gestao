@@ -3400,8 +3400,51 @@ function buildAgencySnapshot(){
   };
 }
 function currentAgentSnapshot(){
-  if(agentClientId){const c=DB.clients.find(x=>x.id===agentClientId);if(c)return{escopo:'cliente específico',cliente:clientSnapshot(c)}}
+  if(agentClientId){
+    const c=DB.clients.find(x=>x.id===agentClientId);
+    if(c){
+      const snap={escopo:'cliente específico',cliente:clientSnapshot(c)};
+      if(agentClientKpis)snap.kpisRelatorio=agentClientKpis;
+      else{const hasReport=c.reportSheetUrl||c.reportOrdersMode==='local'||c.reportOrdersSheetUrl;snap.kpisRelatorio=hasReport?'(dados do relatório ainda carregando)':'(cliente sem relatório configurado no sistema)'}
+      return snap;
+    }
+  }
   return buildAgencySnapshot();
+}
+let agentClientKpis=null,agentKpisClientId=null,agentKpisPromise=null;
+async function fetchClientReportMetrics(c,month){
+  const adM=(c.reportSheetUrl||'').match(/\/d\/([a-zA-Z0-9_-]+)/);
+  const adSpreadsheetId=adM?adM[1]:null;
+  const adTabs=(c.reportTabs||'').split(',').map(t=>t.trim()).filter(Boolean);
+  const dataByTab={};
+  if(adSpreadsheetId&&adTabs.length){
+    const {data}=await sb.functions.invoke('dynamic-responder',{body:{spreadsheetId:adSpreadsheetId,tabs:adTabs}});
+    Object.assign(dataByTab,(data&&data.data)||{});
+  }
+  let orderRows=[];
+  if(c.reportOrdersMode==='local'){
+    const {data:rows}=await sb.from('order_aggregates').select('date,status,count,total').eq('client_id',c.id).gte('date',month+'-01').lte('date',month+'-31');
+    orderRows=rows||[];
+  }else if(c.reportOrdersSheetUrl&&c.reportOrdersTab){
+    const ids=c.reportOrdersSheetUrl.split('\n').map(l=>{const m=l.match(/\/d\/([a-zA-Z0-9_-]+)/);return m?m[1]:null}).filter(Boolean);
+    if(ids.length){const {data}=await sb.functions.invoke('dynamic-responder',{body:{orders:{spreadsheetIds:ids,tab:c.reportOrdersTab}}});const r=data&&data.data&&data.data[c.reportOrdersTab];if(r&&r.rows)orderRows=r.rows.filter(x=>x.date.slice(0,7)===month)}
+  }
+  let totalPedidos=0,aprovadosCount=0,aprovadosVal=0;const statusB={};
+  orderRows.forEach(r=>{const g=classifyOrderStatus(r.status);if(g==='ignorar')return;totalPedidos+=r.count;statusB[r.status]=(statusB[r.status]||0)+r.count;if(g==='aprovado'){aprovadosCount+=r.count;aprovadosVal+=(+r.total||0)}});
+  const ticketMedio=aprovadosCount?aprovadosVal/aprovadosCount:0;
+  const chStats=computeChannelStats(adTabs,dataByTab,month);
+  const canais=Object.values(chStats).map(ch=>({nome:ch.label,investimento:Math.round(ch.spend),faturamento:Math.round(ch.revenue),vendas:ch.sales,cliques:ch.clicks,impressoes:ch.impressions,cpc:ch.clicks?+(ch.spend/ch.clicks).toFixed(2):null,ctrPct:ch.impressions?+((ch.clicks/ch.impressions)*100).toFixed(2):null,roas:ch.spend?+(ch.revenue/ch.spend).toFixed(2):null}));
+  return{mesReferencia:month,pedidos:{total:totalPedidos,aprovados:aprovadosCount,faturamentoAprovado:Math.round(aprovadosVal),ticketMedio:Math.round(ticketMedio),porStatus:statusB},canaisDeAnuncio:canais};
+}
+async function ensureClientKpis(){
+  if(!agentClientId)return null;
+  if(agentKpisClientId===agentClientId&&agentClientKpis)return agentClientKpis;
+  const c=DB.clients.find(x=>x.id===agentClientId);
+  if(!c||!(c.reportSheetUrl||c.reportOrdersMode==='local'||c.reportOrdersSheetUrl))return null;
+  if(agentKpisClientId===agentClientId&&agentKpisPromise)return agentKpisPromise;
+  agentKpisClientId=agentClientId;agentClientKpis=null;
+  agentKpisPromise=fetchClientReportMetrics(c,today().slice(0,7)).then(m=>{if(agentKpisClientId===c.id)agentClientKpis=m;return m}).catch(()=>null);
+  return agentKpisPromise;
 }
 function fillAgentClientSelect(){
   const sel=document.getElementById('agentClientSelect');
@@ -3430,8 +3473,9 @@ function renderAgentChat(){
 }
 async function loadAgentProject(clientId){
   agentClientId=clientId;
-  agentActiveChat=null;
+  agentActiveChat=null;agentClientKpis=null;agentKpisClientId=null;agentKpisPromise=null;
   renderAgentSuggestions();
+  if(clientId)ensureClientKpis(); // pré-carrega os KPIs do relatório em background
   const {data}=await sb.from('agent_chats').select('id,title,updated_at,messages').eq('client_id',clientId||'').order('updated_at',{ascending:false}).limit(50);
   agentConversations=data||[];
   const sel=document.getElementById('agentHistorySelect');
@@ -3494,6 +3538,7 @@ async function sendAgentMessage(){
   inp.value='';btn.disabled=true;inp.disabled=true;
   renderAgentChat();
   try{
+    if(agentClientId)await ensureClientKpis(); // garante os KPIs do relatório no snapshot
     const snapshot=currentAgentSnapshot();
     const history=agentActiveChat.messages.filter(m=>m.role==='user'||m.role==='assistant').slice(-12).map(m=>({role:m.role,text:m.text}));
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{agent:{question:q,history,snapshot}}});
