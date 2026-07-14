@@ -546,15 +546,22 @@
     <div class="section-head" style="margin-top:0">
       <h2>🤖 AndréIA</h2>
     </div>
-    <div class="hint" style="margin-bottom:14px">Sua gestora de tráfego em linguagem natural. Ela lê os dados de todos os clientes do sistema e ajuda com prioridades, saúde da carteira e sugestões de otimização.</div>
-    <div id="agentSuggestions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-      <button class="btn sm ghost" onclick="askAgent('Quais clientes precisam de atenção agora e por quê?')">Quais clientes precisam de atenção?</button>
-      <button class="btn sm ghost" onclick="askAgent('Como está a saúde geral da carteira este mês?')">Saúde geral da carteira</button>
-      <button class="btn sm ghost" onclick="askAgent('Quais clientes têm tarefas atrasadas ou relatório vencido?')">Pendências operacionais</button>
-      <button class="btn sm ghost" onclick="askAgent('Me dê 3 recomendações de otimização pra semana.')">Recomendações da semana</button>
+    <div class="hint" style="margin-bottom:14px">Sua gestora de tráfego em linguagem natural. Escolha um cliente (projeto) pra conversar com foco nele — cada cliente guarda o próprio histórico de conversas.</div>
+    <div class="filterbar" style="margin-bottom:12px">
+      <label style="margin:0">Projeto:</label>
+      <select id="agentClientSelect" style="width:auto;min-width:220px" onchange="loadAgentProject(this.value)">
+        <option value="">🏢 Geral — toda a carteira</option>
+      </select>
+      <button class="btn sm primary" onclick="newAgentConversation()">+ Nova conversa</button>
+      <span style="flex:1"></span>
+      <label style="margin:0;color:var(--muted);font-size:12px">Histórico:</label>
+      <select id="agentHistorySelect" style="width:auto;min-width:220px" onchange="openAgentConversation(this.value)">
+        <option value="">— conversas anteriores —</option>
+      </select>
     </div>
+    <div id="agentSuggestions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
     <div class="card" id="agentChat" style="min-height:280px;max-height:55vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:18px">
-      <div class="empty" id="agentEmpty">Faça uma pergunta ou escolha uma sugestão acima.</div>
+      <div class="empty" id="agentEmpty">Selecione um projeto e comece uma conversa.</div>
     </div>
     <div class="filterbar" style="margin-top:12px;flex-wrap:nowrap">
       <input id="agentInput" placeholder="Pergunte à AndréIA... (ou clique no 🎤 pra falar)" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();sendAgentMessage()}">
@@ -3030,7 +3037,10 @@ function renderRelatorios(){
   const withSheet=DB.clients.filter(c=>c.reportSheetUrl||c.reportOrdersSheetUrl||c.reportOrdersMode==='local').sort((a,b)=>a.name.localeCompare(b.name,'pt'));
   sel.innerHTML='<option value="">— selecione um cliente —</option>'+withSheet.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
   if(cur&&withSheet.some(c=>c.id===cur))sel.value=cur;
+  fillAgentClientSelect();
+  if(!agentSuggestionsInit){renderAgentSuggestions();agentSuggestionsInit=true}
 }
+let agentSuggestionsInit=false;
 function selectReportClient(clientId){
   goToTab('relatorios');
   const sel=document.getElementById('crClientSelect');
@@ -3356,38 +3366,105 @@ function exportReportHTML(){
 }
 
 /* ---- IA GESTORA (agente global) ---- */
-let agentHistory=[];
+let agentClientId='',agentActiveChat=null,agentConversations=[];
+function clientSnapshot(c){
+  const tarefas=DB.tasks.filter(t=>t.client===c.id&&t.status!=='done');
+  const atrasadas=tarefas.filter(t=>t.due&&daysUntil(t.due)<0);
+  const cobrancas=DB.finance.filter(f=>f.client===c.id&&f.type==='receita'&&f.status!=='pago'&&f.due&&daysUntil(f.due)<0);
+  return{
+    nome:c.name,status:c.status,tipo:clientTypeLabel(c.category||c.billing||'mensal'),
+    segmento:c.seg||'',plataformas:c.plat||'',temperatura:c.temp||'sem avaliação',
+    feeMensal:+c.fee||0,verbaMidiaMensal:+c.budget||0,canaisAtivos:c.activeChannels||[],
+    tarefasPendentes:tarefas.map(t=>t.name),tarefasAtrasadas:atrasadas.map(t=>t.name),
+    relatorioMensalAtrasado:!!(c.report&&daysUntil(c.report)<0),
+    cobrancasVencidas:cobrancas.length,observacoes:c.notes||'',
+  };
+}
 function buildAgencySnapshot(){
   const clientes=DB.clients.map(c=>{
     const tarefas=DB.tasks.filter(t=>t.client===c.id&&t.status!=='done');
-    const atrasadas=tarefas.filter(t=>t.due&&daysUntil(t.due)<0).length;
-    const relAtrasado=c.report&&daysUntil(c.report)<0;
-    const cobrancasAbertas=DB.finance.filter(f=>f.client===c.id&&f.type==='receita'&&f.status!=='pago'&&f.due&&daysUntil(f.due)<0).length;
     return{
       nome:c.name,status:c.status,tipo:clientTypeLabel(c.category||c.billing||'mensal'),
       temperatura:c.temp||'sem avaliação',feeMensal:+c.fee||0,verbaMidia:+c.budget||0,
-      tarefasPendentes:tarefas.length,tarefasAtrasadas:atrasadas,
-      relatorioMensalAtrasado:!!relAtrasado,cobrancasVencidas:cobrancasAbertas,
+      tarefasPendentes:tarefas.length,tarefasAtrasadas:tarefas.filter(t=>t.due&&daysUntil(t.due)<0).length,
+      relatorioMensalAtrasado:!!(c.report&&daysUntil(c.report)<0),
+      cobrancasVencidas:DB.finance.filter(f=>f.client===c.id&&f.type==='receita'&&f.status!=='pago'&&f.due&&daysUntil(f.due)<0).length,
     };
   });
   const ativos=DB.clients.filter(c=>c.status==='Ativo');
-  const mrr=ativos.filter(c=>(c.billing||'mensal')==='mensal').reduce((s,c)=>s+(+c.fee||0),0);
   return{
-    totalClientes:DB.clients.length,ativos:ativos.length,mrr,
+    escopo:'carteira inteira',totalClientes:DB.clients.length,ativos:ativos.length,
+    mrr:ativos.filter(c=>(c.billing||'mensal')==='mensal').reduce((s,c)=>s+(+c.fee||0),0),
     clientesEmRisco:DB.clients.filter(c=>c.temp==='critico'||c.temp==='atencao').map(c=>c.name),
     clientes,
   };
 }
+function currentAgentSnapshot(){
+  if(agentClientId){const c=DB.clients.find(x=>x.id===agentClientId);if(c)return{escopo:'cliente específico',cliente:clientSnapshot(c)}}
+  return buildAgencySnapshot();
+}
+function fillAgentClientSelect(){
+  const sel=document.getElementById('agentClientSelect');
+  if(!sel)return;
+  const cur=sel.value;
+  sel.innerHTML='<option value="">🏢 Geral — toda a carteira</option>'+[...DB.clients].sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  sel.value=cur;
+}
+function renderAgentSuggestions(){
+  const el=document.getElementById('agentSuggestions');if(!el)return;
+  const gerais=[['Quais clientes precisam de atenção agora e por quê?','Quem precisa de atenção?'],['Como está a saúde geral da carteira?','Saúde da carteira'],['Quais clientes têm tarefas atrasadas ou relatório vencido?','Pendências operacionais'],['Me dê 3 recomendações de otimização pra semana.','Recomendações da semana']];
+  const doCliente=[['Como está esse cliente? Faça um diagnóstico rápido.','Diagnóstico do cliente'],['O que priorizar nesse cliente essa semana?','O que priorizar?'],['Sugira otimizações de campanha pra esse cliente.','Sugestões de otimização'],['Há algum risco ou ponto de atenção nesse cliente?','Riscos e atenção']];
+  const list=agentClientId?doCliente:gerais;
+  el.innerHTML=list.map(([q,l])=>`<button class="btn sm ghost" onclick="askAgent('${q.replace(/'/g,"\\'")}')">${l}</button>`).join('');
+}
 function renderAgentChat(){
   const el=document.getElementById('agentChat');
-  const empty=document.getElementById('agentEmpty');
-  if(!agentHistory.length){if(empty)empty.style.display='block';return}
-  el.innerHTML=agentHistory.map(m=>{
-    if(m.role==='user')return`<div style="align-self:flex-end;max-width:80%;background:var(--accent);color:#0a0906;border-radius:14px 14px 4px 14px;padding:10px 14px;font-size:13px;font-weight:500">${m.text.replace(/</g,'&lt;')}</div>`;
+  const msgs=agentActiveChat?agentActiveChat.messages:[];
+  if(!msgs.length){el.innerHTML='<div class="empty">'+(agentActiveChat?'Comece a conversa — pergunte ou use uma sugestão acima.':'Selecione um projeto e clique em "+ Nova conversa".')+'</div>';return}
+  el.innerHTML=msgs.map(m=>{
+    if(m.role==='user')return`<div style="align-self:flex-end;max-width:80%;background:var(--accent);color:#0a0906;border-radius:14px 14px 4px 14px;padding:10px 14px;font-size:13px;font-weight:500;white-space:pre-wrap">${m.text.replace(/</g,'&lt;')}</div>`;
     if(m.role==='typing')return`<div style="align-self:flex-start;color:var(--muted);font-size:13px;padding:6px 4px">AndréIA pensando...</div>`;
     return`<div style="align-self:flex-start;max-width:88%;background:var(--surface2);border:1px solid var(--border);border-radius:14px 14px 14px 4px;padding:12px 14px;font-size:13px;line-height:1.65;white-space:pre-wrap">${m.text.replace(/</g,'&lt;')}</div>`;
   }).join('');
   el.scrollTop=el.scrollHeight;
+}
+async function loadAgentProject(clientId){
+  agentClientId=clientId;
+  agentActiveChat=null;
+  renderAgentSuggestions();
+  const {data}=await sb.from('agent_chats').select('id,title,updated_at,messages').eq('client_id',clientId||'').order('updated_at',{ascending:false}).limit(50);
+  agentConversations=data||[];
+  const sel=document.getElementById('agentHistorySelect');
+  sel.innerHTML='<option value="">— conversas anteriores —</option>'+agentConversations.map(c=>`<option value="${c.id}">${c.title||'Conversa'}</option>`).join('');
+  if(agentConversations.length){openAgentConversation(agentConversations[0].id)}
+  else{newAgentConversation()}
+}
+function newAgentConversation(){
+  agentActiveChat={id:'ac_'+uid(),client_id:agentClientId||'',title:'Nova conversa',messages:[],_new:true};
+  document.getElementById('agentHistorySelect').value='';
+  renderAgentChat();renderAgentSuggestions();
+}
+function openAgentConversation(id){
+  if(!id)return;
+  const c=agentConversations.find(x=>x.id===id);
+  if(!c)return;
+  agentActiveChat={id:c.id,client_id:agentClientId||'',title:c.title,messages:(c.messages||[]).slice(),_new:false};
+  document.getElementById('agentHistorySelect').value=id;
+  renderAgentChat();
+}
+async function persistAgentChat(){
+  if(!agentActiveChat)return;
+  const first=agentActiveChat.messages.find(m=>m.role==='user');
+  if(agentActiveChat.title==='Nova conversa'&&first)agentActiveChat.title=first.text.slice(0,50);
+  await sb.from('agent_chats').upsert({id:agentActiveChat.id,client_id:agentActiveChat.client_id,title:agentActiveChat.title,messages:agentActiveChat.messages.filter(m=>m.role!=='typing'),updated_at:new Date().toISOString()});
+  // atualiza lista local/histórico
+  const ex=agentConversations.find(x=>x.id===agentActiveChat.id);
+  if(ex){ex.title=agentActiveChat.title;ex.messages=agentActiveChat.messages}
+  else{agentConversations.unshift({id:agentActiveChat.id,title:agentActiveChat.title,messages:agentActiveChat.messages});
+    const sel=document.getElementById('agentHistorySelect');
+    const opt=document.createElement('option');opt.value=agentActiveChat.id;opt.textContent=agentActiveChat.title;sel.insertBefore(opt,sel.children[1]);sel.value=agentActiveChat.id;
+  }
+  agentActiveChat._new=false;
 }
 let _voiceRec=null,_voiceOn=false;
 function toggleVoiceInput(inputId,btnId){
@@ -3410,21 +3487,23 @@ async function sendAgentMessage(){
   const inp=document.getElementById('agentInput');
   const q=inp.value.trim();
   if(!q)return;
+  if(!agentActiveChat)newAgentConversation();
   const btn=document.getElementById('agentSendBtn');
-  agentHistory.push({role:'user',text:q});
-  agentHistory.push({role:'typing'});
+  agentActiveChat.messages.push({role:'user',text:q});
+  agentActiveChat.messages.push({role:'typing'});
   inp.value='';btn.disabled=true;inp.disabled=true;
   renderAgentChat();
   try{
-    const snapshot=buildAgencySnapshot();
-    const history=agentHistory.filter(m=>m.role==='user'||m.role==='assistant').slice(-10).map(m=>({role:m.role,text:m.text}));
+    const snapshot=currentAgentSnapshot();
+    const history=agentActiveChat.messages.filter(m=>m.role==='user'||m.role==='assistant').slice(-12).map(m=>({role:m.role,text:m.text}));
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{agent:{question:q,history,snapshot}}});
     if(error)throw error;
-    agentHistory=agentHistory.filter(m=>m.role!=='typing');
-    agentHistory.push({role:'assistant',text:(data&&data.data&&data.data.answer)||'Não consegui responder agora.'});
+    agentActiveChat.messages=agentActiveChat.messages.filter(m=>m.role!=='typing');
+    agentActiveChat.messages.push({role:'assistant',text:(data&&data.data&&data.data.answer)||'Não consegui responder agora.'});
+    await persistAgentChat();
   }catch(e){
-    agentHistory=agentHistory.filter(m=>m.role!=='typing');
-    agentHistory.push({role:'assistant',text:'Erro ao consultar a IA: '+e.message});
+    agentActiveChat.messages=agentActiveChat.messages.filter(m=>m.role!=='typing');
+    agentActiveChat.messages.push({role:'assistant',text:'Erro ao consultar a IA: '+e.message});
   }
   btn.disabled=false;inp.disabled=false;renderAgentChat();inp.focus();
 }
