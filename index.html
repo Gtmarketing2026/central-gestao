@@ -557,7 +557,8 @@
       <div class="empty" id="agentEmpty">Faça uma pergunta ou escolha uma sugestão acima.</div>
     </div>
     <div class="filterbar" style="margin-top:12px;flex-wrap:nowrap">
-      <input id="agentInput" placeholder="Pergunte à AndréIA..." style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();sendAgentMessage()}">
+      <input id="agentInput" placeholder="Pergunte à AndréIA... (ou clique no 🎤 pra falar)" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();sendAgentMessage()}">
+      <button class="btn ghost" id="agentMicBtn" onclick="toggleVoiceInput('agentInput','agentMicBtn')" title="Falar (ditado por voz)" style="min-width:44px">🎤</button>
       <button class="btn primary" id="agentSendBtn" onclick="sendAgentMessage()">Enviar</button>
     </div>
   </section>
@@ -3387,6 +3388,22 @@ function renderAgentChat(){
     return`<div style="align-self:flex-start;max-width:88%;background:var(--surface2);border:1px solid var(--border);border-radius:14px 14px 14px 4px;padding:12px 14px;font-size:13px;line-height:1.65;white-space:pre-wrap">${m.text.replace(/</g,'&lt;')}</div>`;
   }).join('');
   el.scrollTop=el.scrollHeight;
+}
+let _voiceRec=null,_voiceOn=false;
+function toggleVoiceInput(inputId,btnId){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  const btn=document.getElementById(btnId);
+  if(!SR){alert('Seu navegador não suporta ditado por voz. Use o Chrome ou o Edge.');return}
+  if(_voiceOn){if(_voiceRec)_voiceRec.stop();return}
+  const inp=document.getElementById(inputId);
+  const base=inp.value?inp.value.trim()+' ':'';
+  _voiceRec=new SR();
+  _voiceRec.lang='pt-BR';_voiceRec.interimResults=true;_voiceRec.continuous=true;
+  _voiceRec.onstart=()=>{_voiceOn=true;btn.textContent='⏹';btn.style.color='#f87171';inp.placeholder='Ouvindo... fale agora'};
+  _voiceRec.onresult=(e)=>{let txt='';for(let i=0;i<e.results.length;i++)txt+=e.results[i][0].transcript;inp.value=base+txt};
+  _voiceRec.onerror=(e)=>{if(e.error==='not-allowed'||e.error==='service-not-allowed')alert('Permita o acesso ao microfone no navegador pra usar o ditado.')};
+  _voiceRec.onend=()=>{_voiceOn=false;btn.textContent='🎤';btn.style.color='';inp.placeholder='Pergunte à AndréIA... (ou clique no 🎤 pra falar)'};
+  try{_voiceRec.start()}catch(e){}
 }
 function askAgent(q){document.getElementById('agentInput').value=q;sendAgentMessage()}
 async function sendAgentMessage(){
