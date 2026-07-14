@@ -3216,7 +3216,9 @@ async function loadClientTemplate(){
       if(error)throw error;
       Object.assign(dataByTab,(data&&data.data)||{});
     }
-    renderClientTemplate({...c,reportOrdersTab:ordersKey},month,dataByTab,adTabs);
+    let checkoutCount=0;
+    try{const {count}=await sb.from('checkout_events').select('*',{count:'exact',head:true}).eq('client_id',c.id).gte('event_date',month+'-01').lte('event_date',month+'-31');checkoutCount=count||0}catch(e){}
+    renderClientTemplate({...c,reportOrdersTab:ordersKey},month,dataByTab,adTabs,checkoutCount);
   }catch(e){
     body.innerHTML=`<div class="empty">Erro ao buscar dados: ${e.message}</div>`;
   }
@@ -3231,13 +3233,14 @@ function weekBucketsForMonth(month){
   }
   return buckets;
 }
-function computeFunnelStages(channelList,aprovadosCount){
+function computeFunnelStages(channelList,aprovadosCount,checkoutCount){
   const totalImpr=channelList.reduce((s,c)=>s+c.impressions,0);
   const totalReach=channelList.reduce((s,c)=>s+(c.reach||0),0);
   const totalClicks=channelList.reduce((s,c)=>s+c.clicks,0);
   const stages=[{label:'Impressões',value:totalImpr}];
   if(totalReach)stages.push({label:'Alcance',value:totalReach});
   stages.push({label:'Cliques no link',value:totalClicks});
+  if(checkoutCount>0)stages.push({label:'Checkout',value:checkoutCount});
   stages.push({label:'Vendas',value:aprovadosCount});
   return stages;
 }
@@ -3408,7 +3411,7 @@ async function sendAgentMessage(){
   }
   btn.disabled=false;inp.disabled=false;renderAgentChat();inp.focus();
 }
-async function renderClientTemplate(c,month,dataByTab,adTabs){
+async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount){
   const body=document.getElementById('crTemplateBody');
   const ordersResult=dataByTab[c.reportOrdersTab];
   if(!ordersResult||ordersResult.error){
@@ -3446,7 +3449,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs){
     return{...w,geral,perChannel};
   });
 
-  const funnelStages=computeFunnelStages(channelList,aprovadosCount);
+  const funnelStages=computeFunnelStages(channelList,aprovadosCount,checkoutCount||0);
   const mesLabel=new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   const analysis=await loadReportAnalysis(c.id,month);
   currentAnalysisChat=(analysis&&Array.isArray(analysis.chat))?analysis.chat:[];
@@ -3528,7 +3531,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs){
                 <div style="height:28px;background:rgba(255,255,255,.05);border-radius:8px;overflow:hidden"><div style="height:100%;width:${Math.max(pct,3).toFixed(1)}%;background:linear-gradient(90deg,#1d4ed8,#60a5fa);border-radius:8px"></div></div>
               </div>`;
             }).join('')}
-            <div style="margin-top:14px;padding:12px 14px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:10px;font-size:12px;color:var(--rt2)">⚠️ Etapa de <strong>Checkout</strong> ainda não incluída — falta uma fonte de dados (ex: eventos de checkout iniciado do Google Analytics ou Pixel). Assim que tiver essa informação, é só me passar.</div>
+            ${checkoutCount?'':`<div style="margin-top:14px;padding:12px 14px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:10px;font-size:12px;color:var(--rt2)">⚠️ Etapa de <strong>Checkout</strong> sem dados neste mês — conecte o webhook do RD Station no cadastro do cliente pra ela aparecer no funil.</div>`}
           </div>
         </div>
       </div>`:''}
