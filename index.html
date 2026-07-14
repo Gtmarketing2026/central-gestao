@@ -659,8 +659,16 @@
       <span style="font-size:13px;font-weight:600;color:var(--text)">📋 Template de relatório — dados de pedidos</span>
       <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Opcional. Usa uma aba de pedidos (com colunas Data/Status/Total) pra montar o dashboard de pedidos aprovados/cancelados/etc. Pode ser a mesma planilha acima ou outra.</div>
     </div>
-    <div class="form-row"><label>Link(s) da planilha de pedidos <span style="font-size:11px;color:var(--faint);font-weight:400">— uma URL por linha, se tiver mais de uma (ex: histórico + atual)</span></label><textarea id="cReportOrdersSheetUrl" rows="2" placeholder="Cole a URL (uma por linha se tiver mais de uma planilha)"></textarea></div>
-    <div class="form-row"><label>Nome da aba de pedidos</label><input id="cReportOrdersTab" placeholder="Ex: SITE"></div>
+    <div class="form-row"><label>Fonte dos dados</label>
+      <select id="cReportOrdersMode" onchange="document.getElementById('cReportOrdersSheetRow').style.display=this.value==='sheet'?'block':'none'">
+        <option value="sheet">Planilha do Google Sheets</option>
+        <option value="local">Arquivo local sincronizado (configurado manualmente)</option>
+      </select>
+    </div>
+    <div id="cReportOrdersSheetRow">
+      <div class="form-row"><label>Link(s) da planilha de pedidos <span style="font-size:11px;color:var(--faint);font-weight:400">— uma URL por linha, se tiver mais de uma (ex: histórico + atual)</span></label><textarea id="cReportOrdersSheetUrl" rows="2" placeholder="Cole a URL (uma por linha se tiver mais de uma planilha)"></textarea></div>
+      <div class="form-row"><label>Nome da aba de pedidos</label><input id="cReportOrdersTab" placeholder="Ex: SITE"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('clientModal')">Cancelar</button>
       <button class="btn primary" onclick="saveClient()">Salvar</button>
@@ -1127,8 +1135,8 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||''});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet'});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet'});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||'',category:r.category||'',fixedType:r.fixed_type||''});
@@ -2141,6 +2149,8 @@ function openClientModal(id){
   document.getElementById('cReportTabs').value=c.reportTabs||'';
   document.getElementById('cReportOrdersSheetUrl').value=c.reportOrdersSheetUrl||'';
   document.getElementById('cReportOrdersTab').value=c.reportOrdersTab||'';
+  document.getElementById('cReportOrdersMode').value=c.reportOrdersMode||'sheet';
+  document.getElementById('cReportOrdersSheetRow').style.display=(c.reportOrdersMode==='local')?'none':'block';
   setTemp(c.temp||'');
   billingLabelUpdate();categoryUpdate();openModal('clientModal');
 }
@@ -2158,7 +2168,7 @@ async function saveClient(){
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
   const reportWeekly=document.getElementById('cReportWeekly').checked;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim()};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
@@ -2994,7 +3004,7 @@ function renderRelatorios(){
   const sel=document.getElementById('crClientSelect');
   if(!sel)return;
   const cur=sel.value;
-  const withSheet=DB.clients.filter(c=>c.reportSheetUrl||c.reportOrdersSheetUrl).sort((a,b)=>a.name.localeCompare(b.name,'pt'));
+  const withSheet=DB.clients.filter(c=>c.reportSheetUrl||c.reportOrdersSheetUrl||c.reportOrdersMode==='local').sort((a,b)=>a.name.localeCompare(b.name,'pt'));
   sel.innerHTML='<option value="">— selecione um cliente —</option>'+withSheet.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
   if(cur&&withSheet.some(c=>c.id===cur))sel.value=cur;
 }
@@ -3158,20 +3168,33 @@ async function loadClientTemplate(){
   const c=DB.clients.find(x=>x.id===clientId);
   const body=document.getElementById('crTemplateBody');
   if(!c){body.innerHTML='<div class="empty">Selecione um cliente.</div>';return}
-  if(!c.reportOrdersSheetUrl||!c.reportOrdersTab){body.innerHTML='<div class="empty">Configure a planilha e a aba de pedidos no cadastro do cliente (botão Editar → Template de relatório).</div>';return}
+  const isLocal=c.reportOrdersMode==='local';
+  if(!isLocal&&(!c.reportOrdersSheetUrl||!c.reportOrdersTab)){body.innerHTML='<div class="empty">Configure a planilha e a aba de pedidos no cadastro do cliente (botão Editar → Template de relatório).</div>';return}
   const month=document.getElementById('crtMonth').value||today().slice(0,7);
   body.innerHTML='<div class="empty">Carregando (pode levar alguns segundos, estamos processando um volume grande de pedidos)...</div>';
-  const ordersSpreadsheetIds=c.reportOrdersSheetUrl.split('\n').map(l=>{const m=l.match(/\/d\/([a-zA-Z0-9_-]+)/);return m?m[1]:null}).filter(Boolean);
-  if(!ordersSpreadsheetIds.length){body.innerHTML='<div class="empty">Link da planilha de pedidos inválido.</div>';return}
   const adM=(c.reportSheetUrl||'').match(/\/d\/([a-zA-Z0-9_-]+)/);
   const adSpreadsheetId=adM?adM[1]:null;
   const adTabs=(c.reportTabs||'').split(',').map(t=>t.trim()).filter(Boolean);
+  const ordersKey=isLocal?'PEDIDOS':c.reportOrdersTab;
   try{
-    const payload={orders:{spreadsheetIds:ordersSpreadsheetIds,tab:c.reportOrdersTab}};
-    if(adSpreadsheetId&&adTabs.length){payload.spreadsheetId=adSpreadsheetId;payload.tabs=adTabs}
-    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:payload});
-    if(error)throw error;
-    renderClientTemplate(c,month,(data&&data.data)||{},adTabs);
+    let dataByTab={};
+    if(adSpreadsheetId&&adTabs.length){
+      const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{spreadsheetId:adSpreadsheetId,tabs:adTabs}});
+      if(error)throw error;
+      dataByTab=(data&&data.data)||{};
+    }
+    if(isLocal){
+      const {data:rows,error}=await sb.from('order_aggregates').select('date,status,count,total').eq('client_id',c.id);
+      if(error)throw error;
+      dataByTab[ordersKey]={aggregated:true,rows:rows||[]};
+    }else{
+      const ordersSpreadsheetIds=c.reportOrdersSheetUrl.split('\n').map(l=>{const m=l.match(/\/d\/([a-zA-Z0-9_-]+)/);return m?m[1]:null}).filter(Boolean);
+      if(!ordersSpreadsheetIds.length){body.innerHTML='<div class="empty">Link da planilha de pedidos inválido.</div>';return}
+      const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{orders:{spreadsheetIds:ordersSpreadsheetIds,tab:c.reportOrdersTab}}});
+      if(error)throw error;
+      Object.assign(dataByTab,(data&&data.data)||{});
+    }
+    renderClientTemplate({...c,reportOrdersTab:ordersKey},month,dataByTab,adTabs);
   }catch(e){
     body.innerHTML=`<div class="empty">Erro ao buscar dados: ${e.message}</div>`;
   }
