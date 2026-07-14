@@ -659,7 +659,7 @@
       <span style="font-size:13px;font-weight:600;color:var(--text)">📋 Template de relatório — dados de pedidos</span>
       <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Opcional. Usa uma aba de pedidos (com colunas Data/Status/Total) pra montar o dashboard de pedidos aprovados/cancelados/etc. Pode ser a mesma planilha acima ou outra.</div>
     </div>
-    <div class="form-row"><label>Link da planilha de pedidos</label><input id="cReportOrdersSheetUrl" placeholder="Cole a URL (pode repetir a de cima, se for a mesma)"></div>
+    <div class="form-row"><label>Link(s) da planilha de pedidos <span style="font-size:11px;color:var(--faint);font-weight:400">— uma URL por linha, se tiver mais de uma (ex: histórico + atual)</span></label><textarea id="cReportOrdersSheetUrl" rows="2" placeholder="Cole a URL (uma por linha se tiver mais de uma planilha)"></textarea></div>
     <div class="form-row"><label>Nome da aba de pedidos</label><input id="cReportOrdersTab" placeholder="Ex: SITE"></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('clientModal')">Cancelar</button>
@@ -3161,14 +3161,13 @@ async function loadClientTemplate(){
   if(!c.reportOrdersSheetUrl||!c.reportOrdersTab){body.innerHTML='<div class="empty">Configure a planilha e a aba de pedidos no cadastro do cliente (botão Editar → Template de relatório).</div>';return}
   const month=document.getElementById('crtMonth').value||today().slice(0,7);
   body.innerHTML='<div class="empty">Carregando (pode levar alguns segundos, estamos processando um volume grande de pedidos)...</div>';
-  const om=c.reportOrdersSheetUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  const ordersSpreadsheetId=om?om[1]:null;
-  if(!ordersSpreadsheetId){body.innerHTML='<div class="empty">Link da planilha de pedidos inválido.</div>';return}
+  const ordersSpreadsheetIds=c.reportOrdersSheetUrl.split('\n').map(l=>{const m=l.match(/\/d\/([a-zA-Z0-9_-]+)/);return m?m[1]:null}).filter(Boolean);
+  if(!ordersSpreadsheetIds.length){body.innerHTML='<div class="empty">Link da planilha de pedidos inválido.</div>';return}
   const adM=(c.reportSheetUrl||'').match(/\/d\/([a-zA-Z0-9_-]+)/);
   const adSpreadsheetId=adM?adM[1]:null;
   const adTabs=(c.reportTabs||'').split(',').map(t=>t.trim()).filter(Boolean);
   try{
-    const payload={orders:{spreadsheetId:ordersSpreadsheetId,tab:c.reportOrdersTab}};
+    const payload={orders:{spreadsheetIds:ordersSpreadsheetIds,tab:c.reportOrdersTab}};
     if(adSpreadsheetId&&adTabs.length){payload.spreadsheetId=adSpreadsheetId;payload.tabs=adTabs}
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:payload});
     if(error)throw error;
