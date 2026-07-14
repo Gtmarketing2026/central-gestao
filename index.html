@@ -582,136 +582,152 @@
     <h3 id="clientModalTitle">Novo cliente</h3>
     <input type="hidden" id="cId">
     <div class="form-row"><label>Nome do cliente</label><input id="cName" placeholder="Ex: Clínica Ideal"></div>
-    <div class="form-grid">
-      <div class="form-row"><label>Segmento</label><input id="cSeg" placeholder="Ex: Clínica estética"></div>
-      <div class="form-row"><label>Status</label>
-        <select id="cStatus"><option>Ativo</option><option>Onboarding</option><option>Pausado</option><option>Encerrado</option></select>
+    <div class="seg" id="cModalTabs" style="margin:6px 0 16px;flex-wrap:wrap">
+      <button class="active" data-cpanel="dados" onclick="setClientTab('dados')">Dados</button>
+      <button data-cpanel="midia" onclick="setClientTab('midia')">Mídia &amp; Verba</button>
+      <button data-cpanel="relatorios" onclick="setClientTab('relatorios')">Relatórios</button>
+      <button data-cpanel="dna" onclick="setClientTab('dna')">DNA &amp; Conhecimento</button>
+    </div>
+
+    <div class="cpanel" data-panel="dados">
+      <div class="form-grid">
+        <div class="form-row"><label>Segmento</label><input id="cSeg" placeholder="Ex: Clínica estética"></div>
+        <div class="form-row"><label>Status</label>
+          <select id="cStatus"><option>Ativo</option><option>Onboarding</option><option>Pausado</option><option>Encerrado</option></select>
+        </div>
       </div>
-    </div>
-    <div class="form-grid">
-      <div class="form-row"><label>Plataformas</label><input id="cPlat" placeholder="Meta Ads, Google Ads"></div>
-      <div class="form-row"><label>Cobrança</label>
-        <select id="cBilling" onchange="billingLabelUpdate()"><option value="mensal">Fee mensal</option><option value="evento">Por evento/show</option><option value="parceria">Parceria (sem fee)</option><option value="permuta">Permuta</option></select>
+      <div class="form-grid">
+        <div class="form-row"><label>Plataformas</label><input id="cPlat" placeholder="Meta Ads, Google Ads"></div>
+        <div class="form-row"><label>Cobrança</label>
+          <select id="cBilling" onchange="billingLabelUpdate()"><option value="mensal">Fee mensal</option><option value="evento">Por evento/show</option><option value="parceria">Parceria (sem fee)</option><option value="permuta">Permuta</option></select>
+        </div>
       </div>
-    </div>
-    <div class="form-row"><label>Tipo de cliente <span style="color:var(--faint)">(usado nos filtros)</span></label>
-      <select id="cCategory" onchange="categoryUpdate()"><option value="mensal">Mensal</option><option value="funil">Funil</option><option value="show">Show</option><option value="parceria">Parceria</option><option value="permuta">Permuta</option><option value="agencia">Agência</option><option value="custom">+ Outro tipo...</option></select>
-    </div>
-    <div class="form-row" id="cCustomTypeRow" style="display:none"><label>Nome do tipo personalizado</label><input id="cCustomType" placeholder="Ex: Consultoria"></div>
-    <div class="form-grid">
-      <div class="form-row"><label id="cFeeLbl">Fee mensal (R$)</label><input id="cFee" type="number" placeholder="0"></div>
-      <div class="form-row"><label>Dia de vencimento</label><input id="cDay" type="number" min="1" max="31" placeholder="10"></div>
-    </div>
-    <div id="cPayDelayRow" style="display:none">
-      <div class="form-row"><label>Regra de pagamento do show</label>
-        <select id="cPayRule" onchange="payRuleUpdate()">
-          <option value="dias">X dias após o show</option>
-          <option value="dia30mes">Dia 30 do mês seguinte ao início da campanha</option>
-          <option value="mesmodia">No dia do show</option>
-        </select>
+      <div class="form-row"><label>Tipo de cliente <span style="color:var(--faint)">(usado nos filtros)</span></label>
+        <select id="cCategory" onchange="categoryUpdate()"><option value="mensal">Mensal</option><option value="funil">Funil</option><option value="show">Show</option><option value="parceria">Parceria</option><option value="permuta">Permuta</option><option value="agencia">Agência</option><option value="custom">+ Outro tipo...</option></select>
       </div>
-      <div class="form-row" id="cPayDelayDiasRow"><label>Quantos dias após o show?</label><input id="cPayDelay" type="number" min="0" placeholder="7"></div>
-    </div>
-    <hr class="budget-divider">
-    <div class="form-row" style="margin-bottom:10px;display:flex;align-items:center;gap:10px">
-      <label style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text);margin:0;cursor:pointer">
-        <input type="checkbox" id="cUsesBalance" class="checkbox" style="width:auto" onchange="balanceToggle()">
-        Cliente acumula saldo (carteira)
-      </label>
-    </div>
-    <div id="cBalanceInitRow" style="display:none" class="form-row">
-      <label>Saldo inicial (R$)</label>
-      <input id="cBalanceInit" type="number" placeholder="Ex: 1246.40" step="0.01">
-    </div>
-    <hr class="budget-divider">
-    <div class="form-row" style="margin-bottom:10px">
-      <span style="font-size:13px;font-weight:600;color:var(--text)">Verba mensal de mídia</span>
-    </div>
-    <div class="form-grid">
-      <div class="form-row"><label>Verba total (R$)</label><input id="cBudget" type="number" placeholder="0" oninput="budgetAutoCalc()"></div>
-      <div class="form-row" style="display:flex;align-items:flex-end">
-        <button class="btn sm" style="width:100%;justify-content:center" type="button" onclick="addBudgetChannel()">+ Canal</button>
+      <div class="form-row" id="cCustomTypeRow" style="display:none"><label>Nome do tipo personalizado</label><input id="cCustomType" placeholder="Ex: Consultoria"></div>
+      <div class="form-grid">
+        <div class="form-row"><label id="cFeeLbl">Fee mensal (R$)</label><input id="cFee" type="number" placeholder="0"></div>
+        <div class="form-row"><label>Dia de vencimento</label><input id="cDay" type="number" min="1" max="31" placeholder="10"></div>
       </div>
-    </div>
-    <div id="cBudgetChannels"></div>
-    <div id="cBudgetAlert" style="display:none;font-size:12px;color:var(--red);margin-bottom:10px"></div>
-    <hr class="budget-divider">
-    <div class="form-row">
-      <label>Temperatura do cliente</label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
-        <span class="temp-btn" data-temp="" onclick="setTemp('')">⚪ Sem avaliação</span>
-        <span class="temp-btn" data-temp="otimo" onclick="setTemp('otimo')">🟢 Ótimo</span>
-        <span class="temp-btn" data-temp="estavel" onclick="setTemp('estavel')">🟡 Estável</span>
-        <span class="temp-btn" data-temp="atencao" onclick="setTemp('atencao')">🟠 Atenção</span>
-        <span class="temp-btn" data-temp="critico" onclick="setTemp('critico')">🔴 Crítico</span>
-      </div>
-    </div>
-    <div class="form-row"><label>Próximo relatório mensal</label><input id="cReport" type="date"></div>
-    <div class="form-row" style="display:flex;align-items:center;gap:10px">
-      <input type="checkbox" id="cReportWeekly" class="checkbox" style="width:auto" onchange="document.getElementById('cReportWeeklyDayRow').style.display=this.checked?'block':'none'">
-      <label for="cReportWeekly" style="margin:0;cursor:pointer">Tem relatório semanal?</label>
-    </div>
-    <div class="form-row" id="cReportWeeklyDayRow" style="display:none">
-      <label>Dia do relatório semanal</label>
-      <select id="cReportWeeklyDay">
-        <option value="segunda">Segunda-feira</option>
-        <option value="terca">Terça-feira</option>
-        <option value="quarta">Quarta-feira</option>
-        <option value="quinta">Quinta-feira</option>
-        <option value="sexta">Sexta-feira</option>
-        <option value="sabado">Sábado</option>
-        <option value="domingo">Domingo</option>
-      </select>
-    </div>
-    <div class="form-row"><label>Notas</label><textarea id="cNotes" rows="2" placeholder="Contato, observações..."></textarea></div>
-    <div class="form-row">
-      <label>Canais ativos <span style="font-size:11px;color:var(--faint);font-weight:400">(define as tarefas de onboarding geradas)</span></label>
-      <div id="cChannelPicker" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
-    </div>
-    <div id="cOnboardingBtn" style="display:none;margin-top:4px">
-      <button class="btn ghost sm" style="width:100%;border-style:dashed" onclick="gerarOnboarding()">⚡ Gerar tarefas de onboarding para este cliente</button>
-    </div>
-    <hr class="budget-divider">
-    <div class="form-row" style="margin-bottom:10px">
-      <span style="font-size:13px;font-weight:600;color:var(--text)">📊 Relatório automático (Google Sheets)</span>
-    </div>
-    <div style="background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.35);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:var(--text)">
-      ⚠️ <strong>Ação obrigatória na planilha:</strong> compartilhe (botão "Compartilhar" do Google Sheets) como <strong>Leitor</strong> com este e-mail:
-      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
-        <code style="background:var(--surface2);padding:4px 8px;border-radius:6px;font-size:12px;flex:1;word-break:break-all">leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com</code>
-        <button type="button" class="btn sm ghost" onclick="navigator.clipboard.writeText('leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com');this.textContent='Copiado ✓';setTimeout(()=>this.textContent='Copiar',1500)">Copiar</button>
-      </div>
-      <div style="margin-top:6px;color:var(--faint)">Sem esse passo, o relatório não consegue puxar os dados dessa planilha.</div>
-    </div>
-    <div class="form-row"><label>Link da planilha</label><input id="cReportSheetUrl" placeholder="Cole a URL da planilha do cliente"></div>
-    <div class="form-row"><label>Abas a exibir <span style="font-size:11px;color:var(--faint);font-weight:400">— nomes separados por vírgula, exatamente como estão na planilha</span></label>
-      <input id="cReportTabs" placeholder="Ex: GOOGLE, WHATSAPP, E-MAIL, INSTAGRAM BIO">
-    </div>
-    <div class="form-row" style="margin-bottom:10px">
-      <span style="font-size:13px;font-weight:600;color:var(--text)">📋 Template de relatório — dados de pedidos</span>
-      <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Opcional. Usa uma aba de pedidos (com colunas Data/Status/Total) pra montar o dashboard de pedidos aprovados/cancelados/etc. Pode ser a mesma planilha acima ou outra.</div>
-    </div>
-    <div class="form-row"><label>Fonte dos dados</label>
-      <select id="cReportOrdersMode" onchange="document.getElementById('cReportOrdersSheetRow').style.display=this.value==='sheet'?'block':'none'">
-        <option value="sheet">Planilha do Google Sheets</option>
-        <option value="local">Arquivo local sincronizado (configurado manualmente)</option>
-      </select>
-    </div>
-    <div id="cReportOrdersSheetRow">
-      <div class="form-row"><label>Link(s) da planilha de pedidos <span style="font-size:11px;color:var(--faint);font-weight:400">— uma URL por linha, se tiver mais de uma (ex: histórico + atual)</span></label><textarea id="cReportOrdersSheetUrl" rows="2" placeholder="Cole a URL (uma por linha se tiver mais de uma planilha)"></textarea></div>
-      <div class="form-row"><label>Nome da aba de pedidos</label><input id="cReportOrdersTab" placeholder="Ex: SITE"></div>
-    </div>
-    <hr class="budget-divider">
-    <div id="cKnowledgeSection">
-      <div class="form-row" style="margin-bottom:8px">
-        <span style="font-size:13px;font-weight:600;color:var(--text)">🧠 Conhecimento do cliente (DNA para a AndréIA)</span>
-        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">PDFs específicos deste cliente (briefing, persona, tom de voz, particularidades). A AndréIA usa isso só nas análises dele. <span id="cKnowledgeHint"></span></div>
+      <div id="cPayDelayRow" style="display:none">
+        <div class="form-row"><label>Regra de pagamento do show</label>
+          <select id="cPayRule" onchange="payRuleUpdate()">
+            <option value="dias">X dias após o show</option>
+            <option value="dia30mes">Dia 30 do mês seguinte ao início da campanha</option>
+            <option value="mesmodia">No dia do show</option>
+          </select>
+        </div>
+        <div class="form-row" id="cPayDelayDiasRow"><label>Quantos dias após o show?</label><input id="cPayDelay" type="number" min="0" placeholder="7"></div>
       </div>
       <div class="form-row">
-        <input type="file" accept="application/pdf" id="cKnowledgeUpload" onchange="handleClientKnowledgeUpload(this)">
-        <div id="cKnowledgeStatus" style="font-size:12px;color:var(--accent);margin-top:6px"></div>
+        <label>Temperatura do cliente</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+          <span class="temp-btn" data-temp="" onclick="setTemp('')">⚪ Sem avaliação</span>
+          <span class="temp-btn" data-temp="otimo" onclick="setTemp('otimo')">🟢 Ótimo</span>
+          <span class="temp-btn" data-temp="estavel" onclick="setTemp('estavel')">🟡 Estável</span>
+          <span class="temp-btn" data-temp="atencao" onclick="setTemp('atencao')">🟠 Atenção</span>
+          <span class="temp-btn" data-temp="critico" onclick="setTemp('critico')">🔴 Crítico</span>
+        </div>
       </div>
-      <div id="cKnowledgeList"></div>
+    </div>
+
+    <div class="cpanel" data-panel="midia" style="display:none">
+      <div class="form-row" style="margin-bottom:10px;display:flex;align-items:center;gap:10px">
+        <label style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text);margin:0;cursor:pointer">
+          <input type="checkbox" id="cUsesBalance" class="checkbox" style="width:auto" onchange="balanceToggle()">
+          Cliente acumula saldo (carteira)
+        </label>
+      </div>
+      <div id="cBalanceInitRow" style="display:none" class="form-row">
+        <label>Saldo inicial (R$)</label>
+        <input id="cBalanceInit" type="number" placeholder="Ex: 1246.40" step="0.01">
+      </div>
+      <hr class="budget-divider">
+      <div class="form-row" style="margin-bottom:10px">
+        <span style="font-size:13px;font-weight:600;color:var(--text)">Verba mensal de mídia</span>
+      </div>
+      <div class="form-grid">
+        <div class="form-row"><label>Verba total (R$)</label><input id="cBudget" type="number" placeholder="0" oninput="budgetAutoCalc()"></div>
+        <div class="form-row" style="display:flex;align-items:flex-end">
+          <button class="btn sm" style="width:100%;justify-content:center" type="button" onclick="addBudgetChannel()">+ Canal</button>
+        </div>
+      </div>
+      <div id="cBudgetChannels"></div>
+      <div id="cBudgetAlert" style="display:none;font-size:12px;color:var(--red);margin-bottom:10px"></div>
+    </div>
+
+    <div class="cpanel" data-panel="relatorios" style="display:none">
+      <div class="form-row"><label>Próximo relatório mensal</label><input id="cReport" type="date"></div>
+      <div class="form-row" style="display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="cReportWeekly" class="checkbox" style="width:auto" onchange="document.getElementById('cReportWeeklyDayRow').style.display=this.checked?'block':'none'">
+        <label for="cReportWeekly" style="margin:0;cursor:pointer">Tem relatório semanal?</label>
+      </div>
+      <div class="form-row" id="cReportWeeklyDayRow" style="display:none">
+        <label>Dia do relatório semanal</label>
+        <select id="cReportWeeklyDay">
+          <option value="segunda">Segunda-feira</option>
+          <option value="terca">Terça-feira</option>
+          <option value="quarta">Quarta-feira</option>
+          <option value="quinta">Quinta-feira</option>
+          <option value="sexta">Sexta-feira</option>
+          <option value="sabado">Sábado</option>
+          <option value="domingo">Domingo</option>
+        </select>
+      </div>
+      <hr class="budget-divider">
+      <div class="form-row" style="margin-bottom:10px">
+        <span style="font-size:13px;font-weight:600;color:var(--text)">📊 Relatório automático (Google Sheets)</span>
+      </div>
+      <div style="background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.35);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:var(--text)">
+        ⚠️ <strong>Ação obrigatória na planilha:</strong> compartilhe (botão "Compartilhar" do Google Sheets) como <strong>Leitor</strong> com este e-mail:
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <code style="background:var(--surface2);padding:4px 8px;border-radius:6px;font-size:12px;flex:1;word-break:break-all">leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com</code>
+          <button type="button" class="btn sm ghost" onclick="navigator.clipboard.writeText('leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com');this.textContent='Copiado ✓';setTimeout(()=>this.textContent='Copiar',1500)">Copiar</button>
+        </div>
+        <div style="margin-top:6px;color:var(--faint)">Sem esse passo, o relatório não consegue puxar os dados dessa planilha.</div>
+      </div>
+      <div class="form-row"><label>Link da planilha</label><input id="cReportSheetUrl" placeholder="Cole a URL da planilha do cliente"></div>
+      <div class="form-row"><label>Abas a exibir <span style="font-size:11px;color:var(--faint);font-weight:400">— nomes separados por vírgula, exatamente como estão na planilha</span></label>
+        <input id="cReportTabs" placeholder="Ex: GOOGLE, WHATSAPP, E-MAIL, INSTAGRAM BIO">
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <span style="font-size:13px;font-weight:600;color:var(--text)">📋 Template de relatório — dados de pedidos</span>
+        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Opcional. Usa uma aba de pedidos (com colunas Data/Status/Total) pra montar o dashboard de pedidos aprovados/cancelados/etc. Pode ser a mesma planilha acima ou outra.</div>
+      </div>
+      <div class="form-row"><label>Fonte dos dados</label>
+        <select id="cReportOrdersMode" onchange="document.getElementById('cReportOrdersSheetRow').style.display=this.value==='sheet'?'block':'none'">
+          <option value="sheet">Planilha do Google Sheets</option>
+          <option value="local">Arquivo local sincronizado (configurado manualmente)</option>
+        </select>
+      </div>
+      <div id="cReportOrdersSheetRow">
+        <div class="form-row"><label>Link(s) da planilha de pedidos <span style="font-size:11px;color:var(--faint);font-weight:400">— uma URL por linha, se tiver mais de uma (ex: histórico + atual)</span></label><textarea id="cReportOrdersSheetUrl" rows="2" placeholder="Cole a URL (uma por linha se tiver mais de uma planilha)"></textarea></div>
+        <div class="form-row"><label>Nome da aba de pedidos</label><input id="cReportOrdersTab" placeholder="Ex: SITE"></div>
+      </div>
+    </div>
+
+    <div class="cpanel" data-panel="dna" style="display:none">
+      <div class="form-row"><label>Notas</label><textarea id="cNotes" rows="2" placeholder="Contato, observações..."></textarea></div>
+      <div class="form-row">
+        <label>Canais ativos <span style="font-size:11px;color:var(--faint);font-weight:400">(define as tarefas de onboarding geradas)</span></label>
+        <div id="cChannelPicker" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+      </div>
+      <div id="cOnboardingBtn" style="display:none;margin-top:4px">
+        <button class="btn ghost sm" style="width:100%;border-style:dashed" onclick="gerarOnboarding()">⚡ Gerar tarefas de onboarding para este cliente</button>
+      </div>
+      <hr class="budget-divider">
+      <div id="cKnowledgeSection">
+        <div class="form-row" style="margin-bottom:8px">
+          <span style="font-size:13px;font-weight:600;color:var(--text)">🧠 Conhecimento do cliente (DNA para a AndréIA)</span>
+          <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">PDFs específicos deste cliente (briefing, persona, tom de voz, particularidades). A AndréIA usa isso só nas análises dele. <span id="cKnowledgeHint"></span></div>
+        </div>
+        <div class="form-row">
+          <input type="file" accept="application/pdf" id="cKnowledgeUpload" onchange="handleClientKnowledgeUpload(this)">
+          <div id="cKnowledgeStatus" style="font-size:12px;color:var(--accent);margin-top:6px"></div>
+        </div>
+        <div id="cKnowledgeList"></div>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('clientModal')">Cancelar</button>
@@ -2187,9 +2203,14 @@ function tempBadge(t){if(!t)return'';const c=TEMP_CFG[t];return c?`<span class="
 function billingLabelUpdate(){const v=document.getElementById('cBilling').value;document.getElementById('cFeeLbl').textContent=v==='evento'?'Valor por show (R$)':'Fee mensal (R$)';document.getElementById('cPayDelayRow').style.display=v==='evento'?'block':'none';payRuleUpdate()}
 function categoryUpdate(){document.getElementById('cCustomTypeRow').style.display=document.getElementById('cCategory').value==='custom'?'block':'none'}
 function payRuleUpdate(){document.getElementById('cPayDelayDiasRow').style.display=document.getElementById('cPayRule').value==='dias'?'block':'none'}
+function setClientTab(name){
+  document.querySelectorAll('#cModalTabs [data-cpanel]').forEach(b=>b.classList.toggle('active',b.dataset.cpanel===name));
+  document.querySelectorAll('#clientModal .cpanel').forEach(p=>p.style.display=p.dataset.panel===name?'block':'none');
+}
 function openClientModal(id){
   fillClientSelects();const c=id?DB.clients.find(x=>x.id===id):{};
   document.getElementById('clientModalTitle').textContent=id?'Editar cliente':'Novo cliente';
+  setClientTab('dados');
   cId.value=id||'';cName.value=c.name||'';cSeg.value=c.seg||'';cStatus.value=c.status||'Ativo';cPlat.value=c.plat||'';cFee.value=c.fee||'';cDay.value=c.day||'';cReport.value=c.report||'';cNotes.value=c.notes||'';cBilling.value=c.billing||'mensal';
   const stdCat=['mensal','funil','show','parceria','permuta','agencia'];const cat=c.category||c.billing||'mensal';
   if(stdCat.includes(cat)){document.getElementById('cCategory').value=cat;document.getElementById('cCustomType').value=''}
