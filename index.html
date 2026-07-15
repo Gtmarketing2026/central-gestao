@@ -169,11 +169,16 @@
   .rt-b-fill{height:100%;border-radius:10px;background:linear-gradient(90deg,#1d4ed8,#60a5fa)}
   .rt-b-val{min-width:110px;text-align:right;font-size:12px;font-weight:600}
   .rt-ftr{padding:16px 32px;border-top:1px solid var(--rbrb);font-size:11px;color:var(--rtm);background:var(--rbg2)}
+  .rtTab.rtoff{display:none}
+  .rtTabBar{display:flex;gap:4px;flex-wrap:wrap;background:var(--rbg2,#0e0e1c);border:1px solid var(--rbr,rgba(255,255,255,.08));border-radius:12px;padding:5px;margin-bottom:18px}
+  .rtTabBtn{padding:8px 14px;border:none;background:transparent;color:var(--rtm,#9aa0aa);font-size:12.5px;font-weight:600;border-radius:8px;cursor:pointer;font-family:inherit}
+  .rtTabBtn.on{background:var(--accent);color:#0a0906}
   @media print{
     body *{visibility:hidden}
     #rtPrintArea,#rtPrintArea *{visibility:visible}
     #rtPrintArea{position:absolute;top:0;left:0;width:100%;border-radius:0}
     .rt-no-print{display:none!important}
+    .rtTab.rtoff{display:block!important}
     textarea#rtAnalysisText{border:none;resize:none}
   }
 </style>
@@ -4061,6 +4066,7 @@ function exportReportHTML(){
   const area=document.getElementById('rtPrintArea');
   if(!area)return;
   const clone=area.cloneNode(true);
+  clone.querySelectorAll('.rtTab').forEach(el=>el.classList.remove('rtoff')); // export mostra todas as abas
   const ta=clone.querySelector('#rtAnalysisText');
   if(ta){const div=document.createElement('div');div.style.cssText='white-space:pre-wrap;font-size:13px;line-height:1.7;color:#f8fafc;background:#0e0e1c;border:1px solid rgba(109,40,217,.18);border-radius:12px;padding:14px';div.textContent=ta.value||'';ta.parentNode.replaceChild(div,ta);}
   clone.querySelectorAll('.rt-no-print').forEach(el=>el.remove());
@@ -4568,6 +4574,51 @@ function raioXSectionHTML(ads){
       <div id="raioXWrap">${raioXInnerHTML()}</div>
     </div>`;
 }
+/* ===== RELATÓRIO POR FOCO (abas) ===== */
+function deriveMeta(x){x.ctr=x.impressions?(x.clicks/x.impressions)*100:0;x.cpc=x.clicks?x.spend/x.clicks:0;x.cpm=x.impressions?(x.spend/x.impressions)*1000:0;x.roas=x.spend?x.revenue/x.spend:0;x.cpa=x.purchases?x.spend/x.purchases:0;x.frequency=x.reach?x.impressions/x.reach:0;return x;}
+function groupAdsByObjective(metaAds){
+  const g={};
+  (metaAds||[]).filter(a=>a.spend>0).forEach(a=>{
+    const t=(a.objetivo&&a.objetivo.tipo)||'outro';
+    if(!g[t])g[t]={tipo:t,rotulo:(a.objetivo&&a.objetivo.rotulo)||t,objetivo:a.objetivo,ads:[],camps:{},agg:{spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,conversas:0,videoViews:0,engajamentos:0}};
+    const grp=g[t];grp.ads.push(a);
+    ['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'].forEach(k=>grp.agg[k]+=(a[k]||0));
+    const cn=a.campaign||'—';
+    if(!grp.camps[cn])grp.camps[cn]={campanha:cn,objetivo:a.objetivo,spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,conversas:0,videoViews:0,engajamentos:0};
+    const C=grp.camps[cn];['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'].forEach(k=>C[k]+=(a[k]||0));
+  });
+  return Object.values(g).map(grp=>{deriveMeta(grp.agg);return grp;}).sort((a,b)=>b.agg.spend-a.agg.spend);
+}
+function focusKpiHTML(agg,tipo){
+  const rows=raioXMetricRows(agg,tipo);
+  return `<div class="rt-kpi-grid">${rows.map(([l,v],i)=>`<div class="rt-kpi ${i===1?'gr':'pu'}"${i===1?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${l}${i===1?' ★':''}</div><div class="rt-kpi-val sm">${v}</div></div>`).join('')}</div>`;
+}
+function focusCampTableHTML(camps,tipo){
+  const list=Object.values(camps).map(deriveMeta).sort((a,b)=>b.spend-a.spend);
+  if(!list.length)return '';
+  const th=s=>`<th style="text-align:left;padding:9px 12px;font-size:10px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">${s}</th>`;
+  const td=(s,b)=>`<td style="padding:8px 12px;font-size:12px;${b?'font-weight:700;':''}border-bottom:1px solid rgba(255,255,255,.035)">${s}</td>`;
+  return `<div class="rt-tc" style="overflow-x:auto;margin-top:12px"><table style="width:100%;border-collapse:collapse">
+    <tr>${th('Campanha')}${th('Invest.')}${th('Métrica do objetivo')}${th('Avaliação')}</tr>
+    ${list.map(cm=>{const cl=classifyAdByObjective(cm);const m=raioXMetricRows(cm,tipo)[1];const av=cl.v==='good'?'<span style="color:#34d399">▲ Escalar</span>':cl.v==='bad'?'<span style="color:#f87171">▼ Rever</span>':'<span style="color:var(--rtm)">Observar</span>';
+      return `<tr>${td((cm.campanha||'—').replace(/</g,'&lt;'),true)}${td(fmt(cm.spend))}${td(m[0]+': <b>'+m[1]+'</b>')}${td(av)}</tr>`;}).join('')}
+  </table></div>`;
+}
+function osFocosHTML(objGroups){
+  if(!objGroups.length)return '';
+  const cards=objGroups.map(g=>{const m=raioXMetricRows(g.agg,g.tipo);return `<div class="rt-tc" style="padding:14px 16px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--accent)">🎯 ${g.rotulo}</div>
+    <div style="font-size:12px;color:var(--rtm);margin:2px 0 8px">${g.ads.length} anúncio(s) · ${Object.keys(g.camps).length} campanha(s)</div>
+    <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0"><span style="color:var(--rtm)">Investimento</span><b>${fmt(g.agg.spend)}</b></div>
+    <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0"><span style="color:var(--rtm)">${m[1][0]}</span><b>${m[1][1]}</b></div>
+  </div>`;}).join('');
+  return `<div class="rt-sec"><div class="rt-sec-hdr"><div class="rt-sec-num">◎</div><div class="rt-sec-title">Os focos da operação</div><div class="rt-sec-ln"></div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">${cards}</div></div>`;
+}
+function setReportTab(id){
+  document.querySelectorAll('#rtPrintArea .rtTab').forEach(el=>el.classList.toggle('rtoff',el.dataset.rtab!==id));
+  document.querySelectorAll('.rtTabBtn').forEach(b=>b.classList.toggle('on',b.dataset.rtab===id));
+}
 async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds){
   const body=document.getElementById('crTemplateBody');
   const hasMetaData=!!(metaChStats&&Object.keys(metaChStats).length)||!!(metaAds&&metaAds.length);
@@ -4637,18 +4688,8 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
     funil:funnelStages.map(s=>({etapa:s.label,valor:s.value})),
   };
 
-  body.innerHTML=`<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px" class="rt-no-print">
-      <button class="btn sm ghost" onclick="exportReportHTML()">⬇ Exportar HTML</button>
-      <button class="btn sm primary" onclick="exportReportTemplate()">🖨 Imprimir / PDF</button>
-    </div>
-    <div class="rt-doc" id="rtPrintArea">
-    <div class="rt-hdr">
-      <div><div class="rt-brand">${c.name}</div><div class="rt-sub">Relatório Gerencial de Performance</div></div>
-      <div class="rt-period">● ${mesLabel}</div>
-    </div>
-    <div class="rt-wrap">
-      ${templatePanelHTML(clientTpl,tplAgg)}
-      ${totalPedidos>0?`<div class="rt-sec">
+  const objGroups=groupAdsByObjective(metaAds);
+  const secPedidos=totalPedidos>0?`<div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">01</div><div class="rt-sec-title">Resultados Gerais — Dashboard de Pedidos</div><div class="rt-sec-ln"></div></div>
         <div class="rt-kpi-grid">
           <div class="rt-kpi pu"><div class="rt-kpi-lbl">Todos os Pedidos</div><div class="rt-kpi-val">${totalPedidos.toLocaleString('pt-BR')}</div></div>
@@ -4658,11 +4699,9 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
           <div class="rt-kpi cy"><div class="rt-kpi-lbl">Aguardando Pagamento</div><div class="rt-kpi-val">${aguardando.toLocaleString('pt-BR')}</div></div>
         </div>
         <div class="rt-chips">${Object.entries(byStatusChip).map(([st,ct])=>`<div class="rt-chip"><div class="rt-dot" style="background:${orderStatusColor(st)}"></div> ${st}: ${ct}</div>`).join('')}</div>
-      </div>`:''}
-
-      ${(totalPedidos>0&&weekly.length)?`<div class="rt-div"></div>
-      <div class="rt-sec">
-        <div class="rt-sec-hdr"><div class="rt-sec-num">02</div><div class="rt-sec-title">📅 Evolução Semanal por Canal — Volume de Vendas</div><div class="rt-sec-ln"></div></div>
+      </div>`:'';
+  const secSemanal=weekly.length?`<div class="rt-sec">
+        <div class="rt-sec-hdr"><div class="rt-sec-num">◷</div><div class="rt-sec-title">📅 Evolução Semanal por Canal — Volume de Vendas</div><div class="rt-sec-ln"></div></div>
         <div class="rt-tc" style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse">
             <tr><th style="text-align:left;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Canal</th>${weeks.map(w=>`<th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">${w.label}<br><span style="font-weight:400">${w.dates}</span></th>`).join('')}<th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Total</th></tr>
@@ -4670,10 +4709,8 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
             ${channelList.map(ch=>`<tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${ch.label}</td>${weekly.map(w=>`<td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${w.perChannel[ch.label]||0}</td>`).join('')}<td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${weekly.reduce((s,w)=>s+(w.perChannel[ch.label]||0),0)}</td></tr>`).join('')}
           </table>
         </div>
-      </div>`:''}
-
-      ${channelList.length?`<div class="rt-div"></div>
-      <div class="rt-sec">
+      </div>`:'';
+  const secRanking=channelList.length?`<div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">03</div><div class="rt-sec-title">Ranking de Canais — Faturamento e Eficiência</div><div class="rt-sec-ln"></div></div>
         <div class="rt-tc" style="margin-bottom:18px">
           <div class="rt-tc-hdr">📊 Faturamento por canal — ${mesLabel}</div>
@@ -4691,11 +4728,9 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
             }).join('')}
           </table>
         </div>
-      </div>`:''}
-
-      ${funnelStages[0].value?`<div class="rt-div"></div>
-      <div class="rt-sec">
-        <div class="rt-sec-hdr"><div class="rt-sec-num">04</div><div class="rt-sec-title">🔻 Funil de Venda</div><div class="rt-sec-ln"></div></div>
+      </div>`:'';
+  const secFunil=(funnelStages[0]&&funnelStages[0].value)?`<div class="rt-sec">
+        <div class="rt-sec-hdr"><div class="rt-sec-num">🔻</div><div class="rt-sec-title">Funil de Conversão</div><div class="rt-sec-ln"></div></div>
         <div class="rt-tc">
           <div style="padding:18px">
             ${funnelStages.map((s,i)=>{
@@ -4708,12 +4743,8 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
             }).join('')}
           </div>
         </div>
-      </div>`:''}
-
-      ${raioXSectionHTML(metaAds)}
-
-      <div class="rt-div"></div>
-      <div class="rt-tc" style="margin-bottom:0">
+      </div>`:'';
+  const secResumo=`<div class="rt-tc" style="margin-bottom:0">
         <div class="rt-tc-hdr">📋 Resumo Executivo — Números-Chave · ${mesLabel}</div>
         <table style="width:100%;border-collapse:collapse">
           <tr><th style="text-align:left;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Indicador</th><th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Valor</th></tr>
@@ -4722,10 +4753,8 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
           <tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">Ticket Médio</td><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${fmt(ticketMedio)}</td></tr>
           ${channelList.map(ch=>`<tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">Faturamento ${ch.label}</td><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${fmt(ch.revenue)}${ch.spend?` <span style="color:var(--rtm);font-weight:400">(ROAS ${(ch.revenue/ch.spend).toFixed(2)}x)</span>`:''}</td></tr>`).join('')}
         </table>
-      </div>
-
-      <div class="rt-div"></div>
-      <div class="rt-sec">
+      </div>`;
+  const secAnalise=`<div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">✎</div><div class="rt-sec-title">Análise do Gestor</div><div class="rt-sec-ln"></div></div>
         <textarea id="rtAnalysisText" rows="6" style="width:100%;background:var(--rbg2);border:1px solid var(--rbr);border-radius:12px;padding:14px;color:var(--rt1);font-family:inherit;font-size:13px;line-height:1.7" placeholder="Clique em &quot;Gerar / Refazer com IA&quot; ou escreva aqui a leitura do mês...">${analysis?analysis.text||'':''}</textarea>
         <div id="rtAnalysisChat" class="rt-no-print" style="margin-top:10px"></div>
@@ -4740,9 +4769,39 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
             <button id="rtAnalysisSaveBtn" class="btn sm primary" onclick="saveReportAnalysis('${c.id}','${month}')">Salvar análise</button>
           </div>
         </div>
-      </div>
+      </div>`;
+  const focosHTML=osFocosHTML(objGroups);
+  const focoTabs=objGroups.map(g=>`<div class="rtTab rtoff" data-rtab="foco_${g.tipo}"><div class="rt-sec"><div class="rt-sec-hdr"><div class="rt-sec-num">🎯</div><div class="rt-sec-title">${g.rotulo} — foco em ${((g.objetivo&&g.objetivo.metrica)||'').replace(/</g,'&lt;')}</div><div class="rt-sec-ln"></div></div>${focusKpiHTML(g.agg,g.tipo)}${focusCampTableHTML(g.camps,g.tipo)}</div></div>`).join('');
+  const dv='<div class="rt-div"></div>';
+  const _tabs=[['geral','Visão Geral']];
+  if(secSemanal)_tabs.push(['semanal','Comparativo Semanal']);
+  objGroups.forEach(g=>_tabs.push(['foco_'+g.tipo,g.rotulo]));
+  _tabs.push(['criativos','Criativos']);
+  const tabBtns=_tabs.map((t,i)=>`<button class="rtTabBtn ${i===0?'on':''}" data-rtab="${t[0]}" onclick="setReportTab('${t[0]}')">${t[1]}</button>`).join('');
+  body.innerHTML=`<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px" class="rt-no-print">
+      <button class="btn sm ghost" onclick="exportReportHTML()">⬇ Exportar HTML</button>
+      <button class="btn sm primary" onclick="exportReportTemplate()">🖨 Imprimir / PDF</button>
     </div>
-    <div class="rt-ftr">Relatório gerado automaticamente a partir dos dados da planilha · Central de Gestão · ${mesLabel}</div>
+    <div class="rt-doc" id="rtPrintArea">
+    <div class="rt-hdr">
+      <div><div class="rt-brand">${c.name}</div><div class="rt-sub">Relatório Gerencial de Performance</div></div>
+      <div class="rt-period">● ${mesLabel}</div>
+    </div>
+    <div class="rt-wrap">
+      <div class="rtTabBar rt-no-print">${tabBtns}</div>
+      <div class="rtTab" data-rtab="geral">
+        ${templatePanelHTML(clientTpl,tplAgg)}
+        ${secPedidos?dv+secPedidos:''}
+        ${focosHTML?dv+focosHTML:''}
+        ${secRanking?dv+secRanking:''}
+        ${dv}${secResumo}
+        ${dv}${secAnalise}
+      </div>
+      ${secSemanal?`<div class="rtTab rtoff" data-rtab="semanal">${secSemanal}</div>`:''}
+      ${focoTabs}
+      <div class="rtTab rtoff" data-rtab="criativos">${secFunil}${secFunil?dv:''}${raioXSectionHTML(metaAds)||'<div class="empty">Sem criativos do Meta neste período.</div>'}</div>
+    </div>
+    <div class="rt-ftr">Relatório gerado automaticamente · Central de Gestão · ${mesLabel}</div>
   </div>`;
   renderAnalysisChat();
 }
