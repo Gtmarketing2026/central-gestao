@@ -141,17 +141,21 @@ Voce tambem pode EXECUTAR acoes quando o gestor pedir explicitamente: criar tare
 async function metaAdsInsights(m: any) {
   const token = Deno.env.get("META_USER_TOKEN");
   if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
-  const acct = String(m.accountId || "").replace(/^act_/, "");
-  if (!acct) throw new Error("accountId obrigatorio");
+  // aceita: accounts [{id,name}], accountIds [id], ou accountId (compat)
+  let accounts: { id: string; name: string }[] = [];
+  if (Array.isArray(m.accounts) && m.accounts.length) accounts = m.accounts.map((a: any) => ({ id: String(a.id).replace(/^act_/, ""), name: a.name || "" }));
+  else if (Array.isArray(m.accountIds) && m.accountIds.length) accounts = m.accountIds.map((id: any) => ({ id: String(id).replace(/^act_/, ""), name: "" }));
+  else if (m.accountId) accounts = [{ id: String(m.accountId).replace(/^act_/, ""), name: "" }];
+  if (!accounts.length) throw new Error("accountId(s) obrigatorio");
+  const multi = accounts.length > 1;
   const ver = "v21.0";
   const base = `https://graph.facebook.com/${ver}`;
-  // periodo: since/until (YYYY-MM-DD) ou date_preset (ex: last_30d)
   let range = "";
   if (m.since && m.until) range = `&time_range=${encodeURIComponent(JSON.stringify({ since: m.since, until: m.until }))}`;
   else range = `&date_preset=${m.datePreset || "last_30d"}`;
   const fields = "spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,action_values,purchase_roas";
 
-  async function fetchInsights(level: string, extra = "") {
+  async function fetchInsights(acct: string, level: string, extra = "") {
     const url = `${base}/act_${acct}/insights?level=${level}&fields=${fields}${level !== "account" ? ",campaign_name" : ""}${range}${extra}&limit=200&access_token=${token}`;
     const r = await fetch(url);
     const j = await r.json();
@@ -177,34 +181,42 @@ async function metaAdsInsights(m: any) {
       initiateCheckout: pickAction(row.actions, ["initiate_checkout", "offsite_conversion.fb_pixel_initiate_checkout"]),
     };
   }
-  const accountRows = await fetchInsights("account");
-  const total = accountRows.length ? shape(accountRows[0]) : shape({});
-  let campaigns: any[] = [];
-  if (m.byCampaign && !m.daily) {
-    const rows = await fetchInsights("campaign");
-    campaigns = rows.map(shape).sort((a: any, b: any) => b.spend - a.spend);
-  } else if (m.byCampaign && m.daily) {
-    // detalhe diario por campanha: agrega e guarda records por dia (para a tabela semanal)
-    const rows = await fetchInsights("campaign", "&time_increment=1");
-    const byCamp: Record<string, any> = {};
-    for (const row of rows) {
-      const name = row.campaign_name || "Meta Ads";
-      const s = shape(row);
-      if (!byCamp[name]) byCamp[name] = { campaign: name, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
-      const c = byCamp[name];
-      c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks; c.reach += s.reach;
-      c.revenue += s.revenue; c.purchases += s.purchases; c.leads += s.leads; c.addToCart += s.addToCart; c.initiateCheckout += s.initiateCheckout;
-      c.records.push({ date: row.date_start, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions });
+  const totAgg: any = { spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0 };
+  const byCamp: Record<string, any> = {};
+  for (const acc of accounts) {
+    const accountRows = await fetchInsights(acc.id, "account");
+    const at = accountRows.length ? shape(accountRows[0]) : shape({});
+    totAgg.spend += at.spend; totAgg.impressions += at.impressions; totAgg.clicks += at.clicks; totAgg.reach += at.reach;
+    totAgg.revenue += at.revenue; totAgg.purchases += at.purchases; totAgg.leads += at.leads; totAgg.addToCart += at.addToCart; totAgg.initiateCheckout += at.initiateCheckout;
+    if (m.byCampaign) {
+      const rows = await fetchInsights(acc.id, "campaign", m.daily ? "&time_increment=1" : "");
+      for (const row of rows) {
+        const cname = row.campaign_name || "Meta Ads";
+        const label = multi ? `${acc.name || acc.id} · ${cname}` : cname;
+        const s = shape(row);
+        if (!byCamp[label]) byCamp[label] = { campaign: label, account: acc.name || acc.id, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
+        const c = byCamp[label];
+        c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks; c.reach += s.reach;
+        c.revenue += s.revenue; c.purchases += s.purchases; c.leads += s.leads; c.addToCart += s.addToCart; c.initiateCheckout += s.initiateCheckout;
+        if (m.daily) c.records.push({ date: row.date_start, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions });
+      }
     }
-    campaigns = Object.values(byCamp).map((c: any) => {
-      c.ctr = c.impressions ? (c.clicks / c.impressions) * 100 : 0;
-      c.cpc = c.clicks ? c.spend / c.clicks : 0;
-      c.cpm = c.impressions ? (c.spend / c.impressions) * 1000 : 0;
-      c.roas = c.spend ? c.revenue / c.spend : 0;
-      return c;
-    }).sort((a: any, b: any) => b.spend - a.spend);
   }
-  return { total, campaigns, period: m.since && m.until ? { since: m.since, until: m.until } : { datePreset: m.datePreset || "last_30d" } };
+  const total = {
+    ...totAgg,
+    ctr: totAgg.impressions ? (totAgg.clicks / totAgg.impressions) * 100 : 0,
+    cpc: totAgg.clicks ? totAgg.spend / totAgg.clicks : 0,
+    cpm: totAgg.impressions ? (totAgg.spend / totAgg.impressions) * 1000 : 0,
+    roas: totAgg.spend ? totAgg.revenue / totAgg.spend : 0,
+  };
+  const campaigns = Object.values(byCamp).map((c: any) => {
+    c.ctr = c.impressions ? (c.clicks / c.impressions) * 100 : 0;
+    c.cpc = c.clicks ? c.spend / c.clicks : 0;
+    c.cpm = c.impressions ? (c.spend / c.impressions) * 1000 : 0;
+    c.roas = c.spend ? c.revenue / c.spend : 0;
+    return c;
+  }).sort((a: any, b: any) => b.spend - a.spend);
+  return { total, campaigns, accounts, period: m.since && m.until ? { since: m.since, until: m.until } : { datePreset: m.datePreset || "last_30d" } };
 }
 
 async function metaListAccounts() {
