@@ -213,6 +213,10 @@
         <p>Tráfego · multi-cliente</p>
       </div>
     </div>
+    <div style="margin-bottom:6px">
+      <label style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);display:block;margin-bottom:4px">Cliente</label>
+      <select id="sidebarClient" onchange="selectSidebarClient(this.value)" style="width:100%;font-size:13px"></select>
+    </div>
     <nav class="tabs">
       <button class="tab active" data-tab="operacional">Operacional</button>
       <button class="tab" data-tab="financeiro">Financeiro</button>
@@ -1707,10 +1711,24 @@ function setClientsSub(v){
   document.querySelectorAll('[data-csub]').forEach(b=>{const on=b.dataset.csub===v;b.classList.toggle('primary',on);b.classList.toggle('ghost',!on)});
   if(v==='shows')renderShows();else renderClients();
 }
+function fillSidebarClient(){
+  const s=document.getElementById('sidebarClient');if(!s)return;
+  const cur=s.value;
+  s.innerHTML='<option value="">— selecionar cliente —</option>'+[...DB.clients].sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}">${c.name.replace(/</g,'&lt;')}</option>`).join('');
+  s.value=cur;
+}
+function selectSidebarClient(id){
+  if(!id)return;
+  const active=((document.querySelector('.tab.active')||{}).dataset||{}).tab||'';
+  if(active==='relatorios'){const s=document.getElementById('crClientSelect');if(s){s.value=id;loadClientReport(id)}}
+  else if(active==='iagestora'){loadAgentProject(id);}
+  else{openClientConfig(id);}
+}
 /* ===== PÁGINA DE CONFIGURAÇÃO DO CLIENTE (cards) ===== */
 let _configClientId=null;
 function openClientConfig(id){
   _configClientId=id;
+  {const s=document.getElementById('sidebarClient');if(s)s.value=id;}
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   document.getElementById('clientConfig').classList.add('active');
@@ -2088,6 +2106,7 @@ function renderFinOverview(){
 let _clientSortAsc=true;
 function toggleClientSort(){_clientSortAsc=!_clientSortAsc;document.getElementById('cSortBtn').textContent=_clientSortAsc?'A → Z':'Z → A';renderClients()}
 function renderClients(){
+  fillSidebarClient();
   const t=document.getElementById('clientTable');
   if(!DB.clients.length){t.innerHTML='<tr><td><div class="empty">Nenhum cliente cadastrado</div></td></tr>';return}
   const search=(document.getElementById('cSearch')?.value||'').toLowerCase().trim();
@@ -3516,6 +3535,7 @@ function selectReportClient(clientId){
 }
 async function loadClientReport(clientId){
   const myToken=++_tplLoadToken;
+  {const s=document.getElementById('sidebarClient');if(s&&clientId)s.value=clientId;}
   const c=DB.clients.find(x=>x.id===clientId);
   // sempre reseta o estado do dashboard ao trocar de cliente (evita mostrar dados do cliente anterior)
   currentReport=null;selectedReportChannels=null;
@@ -4412,6 +4432,7 @@ function handleClientKnowledgeUpload(input){
   handleKnowledgeUpload(input,id,'cKnowledgeList','cKnowledgeStatus');
 }
 async function loadAgentProject(clientId){
+  {const s=document.getElementById('sidebarClient');if(s&&clientId)s.value=clientId;}
   agentClientId=clientId;
   agentActiveChat=null;agentClientKpis=null;agentKpisClientId=null;agentKpisPromise=null;
   renderAgentSuggestions();
