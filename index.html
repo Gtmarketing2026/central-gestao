@@ -567,6 +567,20 @@
     <div id="modelosGrid"></div>
   </section>
 
+  <!-- CONFIG DO CLIENTE (página de cards) -->
+  <section class="panel" id="clientConfig">
+    <button class="btn sm ghost" onclick="goToTab('clients')" style="margin-bottom:14px">← Voltar aos clientes</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:4px">
+      <div>
+        <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)">Cliente</div>
+        <h2 id="ccName" style="margin:2px 0 0">Cliente</h2>
+        <div style="font-size:12.5px;color:var(--muted)">Credenciais, DNA, benchmark e relatório — a configuração que alimenta a AndréIA.</div>
+      </div>
+      <button class="btn primary" onclick="openClientModal(_configClientId)">✎ Editar cadastro</button>
+    </div>
+    <div id="ccCards"></div>
+  </section>
+
   <!-- IA GESTORA -->
   <section class="panel" id="iagestora">
     <div class="section-head" style="margin-top:0">
@@ -1675,6 +1689,50 @@ function setClientsSub(v){
   document.querySelectorAll('[data-csub]').forEach(b=>{const on=b.dataset.csub===v;b.classList.toggle('primary',on);b.classList.toggle('ghost',!on)});
   if(v==='shows')renderShows();else renderClients();
 }
+/* ===== PÁGINA DE CONFIGURAÇÃO DO CLIENTE (cards) ===== */
+let _configClientId=null;
+function openClientConfig(id){
+  _configClientId=id;
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.getElementById('clientConfig').classList.add('active');
+  renderClientConfig();
+}
+function ccOpen(tab){openClientModal(_configClientId);if(tab)setClientTab(tab);}
+function ccRow(k,v){return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:var(--muted)">${k}</span><span style="font-weight:600;text-align:right">${v}</span></div>`;}
+function ccCard(o){
+  return `<div class="card" style="display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;justify-content:space-between;align-items:start">
+      <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">${o.icon||''} ${o.label}</div>
+      ${o.badge?`<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);white-space:nowrap">${o.badge}</span>`:''}
+    </div>
+    <div style="font-size:14px;font-weight:700">${(o.title||'').replace(/</g,'&lt;')}</div>
+    <div style="font-size:12px;color:var(--muted);flex:1">${o.desc||''}</div>
+    ${o.rows?`<div style="margin-top:4px">${o.rows}</div>`:''}
+    <div style="margin-top:8px"><button class="btn sm ${o.primary?'primary':'ghost'}" onclick="${o.onclick}">${o.btn}</button></div>
+  </div>`;
+}
+function renderClientConfig(){
+  const c=DB.clients.find(x=>x.id===_configClientId);if(!c){goToTab('clients');return;}
+  document.getElementById('ccName').textContent=c.name;
+  const metaCount=(c.metaAccountIds||[]).length;
+  const metaNames=(c.metaAccountIds||[]).map(id=>(metaAccountsCache.find(a=>a.id===id)||{}).name||id).slice(0,2).join(', ');
+  const dna=c.dna, personas=dna&&dna.personas?dna.personas.length:0;
+  const bm=c.benchmarkMetas||{}; const metasSet=Object.values(bm).filter(v=>v!=null).length;
+  const tplName=c.reportTemplateId?((templateById(c.reportTemplateId)||{}).name||'—'):'Automático (pelo objetivo)';
+  const convLbl={'':'Automático','orders':'Pedidos (planilha/site)','meta':'Meta (gerenciador)','none':'Não trabalha com vendas'}[c.conversionSource||''];
+  const grp=(title,cards)=>`<div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:18px 0 10px">${title}</div><div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">${cards}</div>`;
+  document.getElementById('ccCards').innerHTML=
+    grp('Perfil',
+      ccCard({icon:'👤',label:'Informações',badge:c.status,title:c.name,desc:'Dados básicos, plataforma e cobrança.',rows:ccRow('Segmento',c.seg||'—')+ccRow('Plataforma',c.plat||'—')+ccRow('Cobrança',c.billing||'—'),btn:'Editar',onclick:"ccOpen('dados')"})
+     +ccCard({icon:'📡',label:'Mídia & Verba',badge:metaCount?metaCount+' conta(s) Meta':'sem Meta',title:metaCount?metaNames:'Nenhuma conta vinculada',desc:'Contas de anúncio e verba por canal.',rows:ccRow('Contas Meta',metaCount||'—')+ccRow('Verba',c.budget?fmt(c.budget):'—'),btn:'Editar',onclick:"ccOpen('midia')"}))
+   +grp('Inteligência',
+      ccCard({icon:'🧬',label:'DNA do Cliente',badge:personas?personas+' personas':'sem DNA',title:personas?'DNA configurado':'Montar DNA com IA',desc:'Identidade, personas e diretrizes de copy que a AndréIA usa.',rows:dna&&dna.diretrizes&&dna.diretrizes.tom?ccRow('Tom',(dna.diretrizes.tom||'').slice(0,26)):'',btn:personas?'Abrir DNA':'Montar DNA',primary:!personas,onclick:"openDnaModal(_configClientId)"})
+     +ccCard({icon:'🎯',label:'Benchmark / Metas',badge:metasSet?metasSet+' metas':'sem metas',title:metasSet?'Metas definidas':'Definir metas',desc:'Metas de CTR, CPC, CPA, ROAS... a AndréIA cobra contra elas.',rows:(bm.roas!=null?ccRow('ROAS alvo',bm.roas+'x'):'')+(bm.cpa!=null?ccRow('CPA alvo',fmt(bm.cpa)):'')+(bm.ctr!=null?ccRow('CTR alvo',bm.ctr+'%'):''),btn:'Editar metas',onclick:"ccOpen('relatorios')"}))
+   +grp('Relatório',
+      ccCard({icon:'📋',label:'Relatório & Template',title:tplName,desc:'Modelo do relatório e fonte de vendas.',rows:ccRow('Modelo',tplName.slice(0,24))+ccRow('Fonte de vendas',convLbl),btn:'Editar',onclick:"ccOpen('relatorios')"})
+     +ccCard({icon:'🧠',label:'Conhecimento',title:'Materiais do cliente',desc:'PDFs específicos (briefing, tom, particularidades) pra AndréIA.',btn:'Gerenciar',onclick:"ccOpen('dna')"}));
+}
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>goToTab(t.dataset.tab));
 
 let weekTasksOpen=false;
@@ -1814,7 +1872,7 @@ function renderChurn(){
               <td class="money-pos">${c.fee?fmt(c.fee):'—'}</td>
               <td class="money-neg" style="font-weight:600">${c.fee?fmt(c.fee):'—'}</td>
               <td style="color:var(--faint);font-size:12px">${c.tempSince?c.tempSince.split('-').reverse().join('/'):'—'}</td>
-              <td class="row-actions"><button class="btn sm ghost" onclick="openClientModal('${c.id}')">✎ Editar</button></td>
+              <td class="row-actions"><button class="btn sm ghost" onclick="openClientConfig('${c.id}')">⚙ Configurar</button></td>
             </tr>`;
           }).join('')}</tbody>
         </table>
@@ -2036,7 +2094,7 @@ function renderClients(){
     const saldo=c.usesBalance?calcBalance(c.id):null;
     const balanceTxt=saldo!==null?`<div style="font-weight:700;color:${saldo>=0?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div><button class="btn sm ghost" style="margin-top:4px;font-size:11px" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:'—';
     const reportBtn=c.reportSheetUrl?`<button class="btn sm ghost" onclick="selectReportClient('${c.id}')" title="Ver relatório de anúncios">📊 Relatório</button>`:'';
-    return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td>${rep}</td><td class="row-actions">${reportBtn}<button class="btn sm ghost" onclick="openClientModal('${c.id}')">Editar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
+    return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td>${rep}</td><td class="row-actions">${reportBtn}<button class="btn sm ghost" onclick="openClientConfig('${c.id}')">⚙ Configurar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
   }).join('')+'</tbody>';
 }
 function showPays(s){if(s.payments&&s.payments.length)return s.payments;return [{id:s.id+'_p',date:s.date,val:s.val,status:s.status||'pendente',_virtual:1}]}
@@ -2577,6 +2635,7 @@ async function saveClient(){
   await _upsertClient(o);
   if(isNew&&activeClientChannels.length)await createClientTasks(o);
   if(isNew&&activeClientChannels.length)renderAll();
+  if(_configClientId===o.id&&document.getElementById('clientConfig').classList.contains('active'))renderClientConfig();
 }
 async function _maybeDeleteClientTasks(clientId,clientName){
   const tarefas=DB.tasks.filter(t=>t.client===clientId);
@@ -3702,6 +3761,7 @@ async function saveDna(){
   const c=DB.clients.find(x=>x.id===dnaClientId);if(c)c.dna=dnaDraft;
   const st=document.getElementById('cDnaStatus');if(st)st.textContent='✓ DNA salvo · '+dnaDraft.personas.length+' personas, '+dnaDraft.produtos.length+' produtos';
   closeModal('dnaModal');
+  if(_configClientId===dnaClientId&&document.getElementById('clientConfig').classList.contains('active'))renderClientConfig();
 }
 
 let _tplCache={};
