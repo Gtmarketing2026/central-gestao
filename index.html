@@ -212,6 +212,7 @@
       <button class="tab" data-tab="tasks">Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="shows">Shows <span class="badge" id="sBadge">0</span></button>
       <button class="tab" data-tab="relatorios">📊 Relatórios</button>
+      <button class="tab" data-tab="modelos">📋 Modelos</button>
       <button class="tab" data-tab="iagestora">🤖 AndréIA</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px">
@@ -540,6 +541,16 @@
       </div>
       <div id="crTemplateBody"><div class="empty">Selecione um cliente com planilha de pedidos configurada.</div></div>
     </div>
+  </section>
+
+  <!-- MODELOS DE RELATÓRIO -->
+  <section class="panel" id="modelos">
+    <div class="section-head" style="margin-top:0">
+      <h2>📋 Modelos de Relatório</h2>
+      <button class="btn primary" onclick="editTemplate(null)">+ Novo modelo</button>
+    </div>
+    <div style="font-size:13px;color:var(--muted);margin:-6px 0 16px">Modelos-base (travados 🔒) saem automáticos do objetivo da campanha no Meta. Crie modelos personalizados com as métricas, métrica-chave e funil que quiser — e escolha o modelo de cada cliente no cadastro.</div>
+    <div id="modelosGrid"></div>
   </section>
 
   <!-- IA GESTORA -->
@@ -1325,7 +1336,34 @@ function renderTemplatesList(){
 }
 function editTemplate(id){
   _tplEditing=id?JSON.parse(JSON.stringify((DB.reportTemplates||[]).find(t=>t.id===id)||{})):{id:'',name:'',keyMetric:'compras',metrics:['valorGasto','roas','compras','custoPorCompra'],funnel:['impressoes','cliques','compras'],source:'meta'};
+  openModal('templatesModal');
   renderTemplateEditor();
+}
+function renderModelosPage(){
+  const el=document.getElementById('modelosGrid');if(!el)return;
+  const chip=(txt,on)=>`<span style="display:inline-block;font-size:11px;padding:3px 9px;border-radius:14px;margin:0 4px 4px 0;${on?'background:rgba(52,211,153,.15);border:1px solid rgba(52,211,153,.45);color:#34d399;font-weight:600':'background:var(--surface2);border:1px solid var(--border);color:var(--muted)'}">${txt}</span>`;
+  const card=(t,locked)=>{
+    const km=METRIC_CATALOG[t.keyMetric]?METRIC_CATALOG[t.keyMetric].label:t.keyMetric;
+    const kpis=(t.metrics||[]).map(k=>chip(METRIC_CATALOG[k]?METRIC_CATALOG[k].label:k,k===t.keyMetric)).join('');
+    const funil=(t.funnel||[]).map(k=>FUNNEL_CATALOG[k]?FUNNEL_CATALOG[k].label:k).join(' → ')||'—';
+    return`<div class="card" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:start">
+        <div><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)">📡 Meta Ads</div>
+        <div style="font-size:15px;font-weight:700;margin-top:2px">${locked?'🔒 ':''}${(t.name||'').replace(/</g,'&lt;')}</div></div>
+        <span style="font-size:11px;color:var(--faint)">${locked?'base':'personalizado'}</span>
+      </div>
+      <div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin-bottom:4px">KPIs (★ = métrica-chave)</div>${kpis}</div>
+      <div style="font-size:12px;color:var(--rt2)"><b style="color:var(--muted)">Métrica-chave:</b> ${km}</div>
+      <div style="font-size:12px;color:var(--rt2)"><b style="color:var(--muted)">Funil:</b> ${funil}</div>
+      ${locked?'':`<div style="display:flex;gap:8px;margin-top:4px"><button class="btn sm ghost" onclick="editTemplate('${t.id}')">Editar</button><button class="btn sm ghost" style="color:var(--red)" onclick="deleteTemplate('${t.id}')">Excluir</button></div>`}
+    </div>`;
+  };
+  const custom=(DB.reportTemplates||[]);
+  el.innerHTML=`
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin:0 0 10px">Modelos-base (automáticos do Meta)</div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">${BASE_TEMPLATES.map(t=>card(t,true)).join('')}</div>
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin:22px 0 10px">Seus modelos</div>
+    ${custom.length?`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">${custom.map(t=>card(t,false)).join('')}</div>`:'<div style="font-size:13px;color:var(--faint)">Nenhum modelo personalizado ainda. Clique em “+ Novo modelo”.</div>'}`;
 }
 function renderTemplateEditor(){
   const t=_tplEditing;const el=document.getElementById('templatesModalBody');
@@ -1353,14 +1391,14 @@ async function saveTemplateForm(){
   const i=(DB.reportTemplates||[]).findIndex(t=>t.id===o.id);
   if(i>=0)DB.reportTemplates[i]={...o,isBase:false};else{DB.reportTemplates=DB.reportTemplates||[];DB.reportTemplates.push({...o,isBase:false})}
   if(document.getElementById('cReportTemplate'))fillTemplateSelect(document.getElementById('cReportTemplate').value);
-  renderTemplatesList();
+  renderTemplatesList();renderModelosPage();
 }
 async function deleteTemplate(id){
   if(!confirm('Excluir este modelo? Clientes que o usam voltam para "Automático".'))return;
   await sb.from('report_templates').delete().eq('id',id);
   DB.reportTemplates=(DB.reportTemplates||[]).filter(t=>t.id!==id);
   if(document.getElementById('cReportTemplate'))fillTemplateSelect(document.getElementById('cReportTemplate').value);
-  renderTemplatesList();
+  renderTemplatesList();renderModelosPage();
 }
 // Retorna a próxima ocorrência da data de relatório mensal a partir de hoje
 function nextMonthlyDate(dateStr){
@@ -1564,6 +1602,7 @@ function goToTab(tabId){
   if(tab)tab.classList.add('active');
   const panel=document.getElementById(tabId);
   if(panel)panel.classList.add('active');
+  if(tabId==='modelos')renderModelosPage();
 }
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>goToTab(t.dataset.tab));
 
