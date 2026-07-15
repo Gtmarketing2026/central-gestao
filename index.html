@@ -3144,7 +3144,7 @@ function renderRelatorios(){
   const sel=document.getElementById('crClientSelect');
   if(!sel)return;
   const cur=sel.value;
-  const withSheet=DB.clients.filter(c=>c.reportSheetUrl||c.reportOrdersSheetUrl||c.reportOrdersMode==='local').sort((a,b)=>a.name.localeCompare(b.name,'pt'));
+  const withSheet=DB.clients.filter(c=>c.reportSheetUrl||c.reportOrdersSheetUrl||c.reportOrdersMode==='local'||(c.metaAccountIds&&c.metaAccountIds.length)).sort((a,b)=>a.name.localeCompare(b.name,'pt'));
   sel.innerHTML='<option value="">— selecione um cliente —</option>'+withSheet.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
   if(cur&&withSheet.some(c=>c.id===cur))sel.value=cur;
   fillAgentClientSelect();
@@ -3157,8 +3157,12 @@ function selectReportClient(clientId){
   if(sel){sel.value=clientId;loadClientReport(clientId)}
 }
 async function loadClientReport(clientId){
-  setReportSub('dashboard');
   const c=DB.clients.find(x=>x.id===clientId);
+  // cliente sem dashboard de planilha, mas com Meta/pedidos → abre direto o Template gerencial
+  if(c&&!c.reportSheetUrl&&((c.metaAccountIds&&c.metaAccountIds.length)||c.reportOrdersMode==='local'||c.reportOrdersSheetUrl)){
+    setReportSub('template');return;
+  }
+  setReportSub('dashboard');
   if(!c||!c.reportSheetUrl){
     currentReport=null;
     document.getElementById('crFilterBar').style.display='none';
@@ -3312,13 +3316,15 @@ async function loadClientTemplate(){
   const body=document.getElementById('crTemplateBody');
   if(!c){body.innerHTML='<div class="empty">Selecione um cliente.</div>';return}
   const isLocal=c.reportOrdersMode==='local';
-  if(!isLocal&&(!c.reportOrdersSheetUrl||!c.reportOrdersTab)){body.innerHTML='<div class="empty">Configure a planilha e a aba de pedidos no cadastro do cliente (botão Editar → Template de relatório).</div>';return}
+  const hasMeta=!!(c.metaAccountIds&&c.metaAccountIds.length);
+  const hasOrdersSource=isLocal||!!(c.reportOrdersSheetUrl&&c.reportOrdersTab);
+  if(!hasOrdersSource&&!hasMeta){body.innerHTML='<div class="empty">Este cliente não tem fonte de dados. Vincule uma conta do Meta (aba Mídia) ou configure a planilha de pedidos no cadastro.</div>';return}
   const month=document.getElementById('crtMonth').value||today().slice(0,7);
-  body.innerHTML='<div class="empty">Carregando (pode levar alguns segundos, estamos processando um volume grande de pedidos)...</div>';
+  body.innerHTML='<div class="empty">Carregando dados ao vivo (pode levar alguns segundos)...</div>';
   const adM=(c.reportSheetUrl||'').match(/\/d\/([a-zA-Z0-9_-]+)/);
   const adSpreadsheetId=adM?adM[1]:null;
   const adTabs=(c.reportTabs||'').split(',').map(t=>t.trim()).filter(Boolean);
-  const ordersKey=isLocal?'PEDIDOS':c.reportOrdersTab;
+  const ordersKey=isLocal?'PEDIDOS':(c.reportOrdersTab||'PEDIDOS');
   try{
     let dataByTab={};
     if(adSpreadsheetId&&adTabs.length){
@@ -3326,7 +3332,10 @@ async function loadClientTemplate(){
       if(error)throw error;
       dataByTab=(data&&data.data)||{};
     }
-    if(isLocal){
+    if(!hasOrdersSource){
+      // cliente só-Meta: sem fonte de pedidos, seção de vendas fica vazia
+      dataByTab[ordersKey]={aggregated:true,rows:[]};
+    }else if(isLocal){
       const {data:rows,error}=await sb.from('order_aggregates').select('date,status,count,total').eq('client_id',c.id).gte('date',month+'-01').lte('date',month+'-31');
       if(error)throw error;
       dataByTab[ordersKey]={aggregated:true,rows:rows||[]};
@@ -3900,12 +3909,13 @@ function raioXSectionHTML(ads){
 }
 async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds){
   const body=document.getElementById('crTemplateBody');
-  const ordersResult=dataByTab[c.reportOrdersTab];
-  if(!ordersResult||ordersResult.error){
-    body.innerHTML=`<div class="empty">${ordersResult&&ordersResult.error?'Erro: '+ordersResult.error:'Sem dados.'}</div>`;return;
+  const hasMetaData=!!(metaChStats&&Object.keys(metaChStats).length)||!!(metaAds&&metaAds.length);
+  const ordersResult=dataByTab[c.reportOrdersTab]||{aggregated:true,rows:[]};
+  if(ordersResult.error&&!hasMetaData){
+    body.innerHTML=`<div class="empty">Erro: ${ordersResult.error}</div>`;return;
   }
   const rows=(ordersResult.rows||[]).filter(r=>r.date.slice(0,7)===month);
-  if(!rows.length){
+  if(!rows.length&&!hasMetaData){
     body.innerHTML=`<div class="empty">Nenhum pedido encontrado em ${new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}.${ordersResult.sheetRowCount?` (A busca cobre as últimas ~60 mil linhas da planilha — se o mês for muito antigo, pode estar fora desse alcance.)`:''}</div>`;
     return;
   }
