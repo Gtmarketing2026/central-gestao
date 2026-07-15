@@ -3590,10 +3590,12 @@ async function fetchClientReportMetrics(c,month){
       let ads=[];try{ads=(await fetchMetaCreatives(c,month))||[]}catch(e){}
       const statusById={};(ent.ads||[]).forEach(a=>{statusById[a.id]=a.status});
       const anuncios=ads.filter(a=>a.spend>0).slice(0,15).map(a=>({id:a.adId,nome:a.adName,campanha:a.campaign,status:statusById[a.adId]||'?',investimento:Math.round(a.spend),roas:+(a.roas||0).toFixed(2),compras:Math.round(a.purchases||0)}));
+      const ativa=x=>x.status==='ACTIVE'||x.entrega==='ACTIVE';
       metaEntidades={
-        campanhas:(ent.campaigns||[]).map(x=>({id:x.id,nome:x.nome,status:x.status,orcamentoDiario:x.orcamentoDiario})),
-        conjuntos:(ent.adsets||[]).map(x=>({id:x.id,nome:x.nome,status:x.status,orcamentoDiario:x.orcamentoDiario,campanhaId:x.campanhaId})),
-        anuncios
+        campanhas:(ent.campaigns||[]).filter(ativa).slice(0,40).map(x=>({id:x.id,nome:x.nome,status:x.status,orcamentoDiario:x.orcamentoDiario})),
+        conjuntos:(ent.adsets||[]).filter(x=>ativa(x)&&x.orcamentoDiario).slice(0,40).map(x=>({id:x.id,nome:x.nome,status:x.status,orcamentoDiario:x.orcamentoDiario,campanhaId:x.campanhaId})),
+        anuncios,
+        obs:'Só campanhas/conjuntos ATIVOS (máx 40) e top 15 anúncios por investimento. Use estes ids nas ações.'
       };
     }catch(e){}
   }
