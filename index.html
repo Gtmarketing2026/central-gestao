@@ -4272,7 +4272,6 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
                 <div style="height:28px;background:rgba(255,255,255,.05);border-radius:8px;overflow:hidden"><div style="height:100%;width:${Math.max(pct,3).toFixed(1)}%;background:linear-gradient(90deg,#1d4ed8,#60a5fa);border-radius:8px"></div></div>
               </div>`;
             }).join('')}
-            ${(()=>{const cs=funnelStages.find(s=>s.label==='Checkout');return (cs&&cs.value===0)?`<div style="margin-top:14px;padding:12px 14px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:10px;font-size:12px;color:var(--rt2)">⚠️ Etapa de <strong>Checkout</strong> sem dados neste mês — conecte o webhook do RD Station no cadastro do cliente (ou o Pixel de checkout) pra ela aparecer no funil.</div>`:''})()}
           </div>
         </div>
       </div>`:''}
