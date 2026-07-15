@@ -214,7 +214,6 @@
       <button class="tab" data-tab="churn">⚠ Churn <span class="badge" id="churnBadge" style="background:var(--red)">0</span></button>
       <button class="tab" data-tab="clients">Clientes <span class="badge" id="cBadge">0</span></button>
       <button class="tab" data-tab="tasks">Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
-      <button class="tab" data-tab="shows">Shows <span class="badge" id="sBadge">0</span></button>
       <button class="tab" data-tab="relatorios">📊 Relatórios</button>
       <button class="tab" data-tab="modelos">📋 Modelos</button>
       <button class="tab" data-tab="iagestora">🤖 AndréIA</button>
@@ -401,6 +400,10 @@
 
   <!-- CLIENTS -->
   <section class="panel" id="clients">
+    <div class="subnav" style="display:flex;gap:4px;background:var(--surface2);padding:5px;border-radius:12px;margin-bottom:16px;width:fit-content">
+      <button class="btn sm primary" data-csub="clientes" onclick="setClientsSub('clientes')">👥 Clientes</button>
+      <button class="btn sm ghost" data-csub="shows" onclick="setClientsSub('shows')">🎤 Shows <span class="badge" id="sBadge">0</span></button>
+    </div>
     <div class="section-head">
       <h2>Carteira de clientes</h2>
       <button class="btn primary" onclick="openClientModal()">+ Novo cliente</button>
@@ -490,6 +493,10 @@
 
   <!-- SHOWS -->
   <section class="panel" id="shows">
+    <div class="subnav" style="display:flex;gap:4px;background:var(--surface2);padding:5px;border-radius:12px;margin-bottom:16px;width:fit-content">
+      <button class="btn sm ghost" data-csub="clientes" onclick="setClientsSub('clientes')">👥 Clientes</button>
+      <button class="btn sm primary" data-csub="shows" onclick="setClientsSub('shows')">🎤 Shows</button>
+    </div>
     <div class="grid kpis" id="showKpis" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"></div>
     <div class="card" style="margin-bottom:18px">
       <h3>Calendário de shows</h3>
@@ -1643,6 +1650,15 @@ function goToTab(tabId){
   const panel=document.getElementById(tabId);
   if(panel)panel.classList.add('active');
   if(tabId==='modelos')renderModelosPage();
+  if(tabId==='clients')document.querySelectorAll('[data-csub]').forEach(b=>{const on=b.dataset.csub==='clientes';b.classList.toggle('primary',on);b.classList.toggle('ghost',!on)});
+}
+function setClientsSub(v){
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  const t=document.querySelector('.tab[data-tab="clients"]');if(t)t.classList.add('active');
+  document.getElementById(v==='shows'?'shows':'clients').classList.add('active');
+  document.querySelectorAll('[data-csub]').forEach(b=>{const on=b.dataset.csub===v;b.classList.toggle('primary',on);b.classList.toggle('ghost',!on)});
+  if(v==='shows')renderShows();else renderClients();
 }
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>goToTab(t.dataset.tab));
 
@@ -3397,11 +3413,12 @@ async function loadClientReport(clientId){
   const activeSub=((document.querySelector('#crSubSeg [data-sub].active')||{}).dataset||{}).sub||'dashboard';
   if(activeSub==='template'){setReportSub('template');return;}
   setReportSub('dashboard');
+  const temMeta=c&&c.metaAccountIds&&c.metaAccountIds.length;
+  if(c&&!c.reportSheetUrl&&temMeta){return loadMetaDashboard(c,myToken,30);}
   if(!c||!c.reportSheetUrl){
     currentReport=null;
     document.getElementById('crFilterBar').style.display='none';
-    const temMeta=c&&c.metaAccountIds&&c.metaAccountIds.length;
-    document.getElementById('clientReportBody').innerHTML=`<div class="empty">Este cliente não tem planilha de dashboard configurada.${temMeta?' Ele tem Meta vinculado — use a aba <b>Template</b> pra ver o relatório ao vivo (o Dashboard com Meta está em construção).':''}</div>`;
+    document.getElementById('clientReportBody').innerHTML=`<div class="empty">Este cliente não tem planilha de dashboard nem Meta vinculado. Vincule uma conta do Meta (aba Mídia) ou configure a planilha.</div>`;
     return;
   }
   currentReport=null;
@@ -3784,6 +3801,53 @@ async function fetchMetaReport(c,month){
   if(data&&data.error)throw new Error('Meta Ads: '+data.error);
   const d=(data&&data.data)||data;
   return {channelStats:metaChannelFromData(d),ads:(d&&d.ads)||[],total:d&&d.total};
+}
+// Dashboard Meta ao vivo (por período) para clientes com Meta vinculado
+async function fetchMetaReportRange(c,since,until){
+  const ids=c.metaAccountIds||[];if(!ids.length)return {channelStats:null,ads:[]};
+  const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,daily:true,byAd:true}}});
+  if(error)throw new Error('Meta Ads: '+(error.message||error));
+  if(data&&data.error)throw new Error('Meta Ads: '+data.error);
+  const d=(data&&data.data)||data;
+  return {channelStats:metaChannelFromData(d),ads:(d&&d.ads)||[],total:d&&d.total};
+}
+let _metaDashChart=null,_metaDashDays=30;
+function metaDashRange(clientId,days){_metaDashDays=days;const c=DB.clients.find(x=>x.id===clientId);if(c)loadMetaDashboard(c,++_tplLoadToken,days);}
+async function loadMetaDashboard(c,myToken,days){
+  _metaDashDays=days||30;
+  document.getElementById('crFilterBar').style.display='none';
+  const body=document.getElementById('clientReportBody');
+  body.innerHTML='<div class="empty">Carregando Meta ao vivo...</div>';
+  const until=today(),since=daysAgoISO(_metaDashDays);
+  try{
+    const rep=await fetchMetaReportRange(c,since,until);
+    if(myToken!==_tplLoadToken)return;
+    renderMetaDashboard(c,rep,since,until);
+  }catch(e){if(myToken!==_tplLoadToken)return;body.innerHTML=`<div class="empty">Erro ao carregar Meta: ${e.message}</div>`;}
+}
+function renderMetaDashboard(c,rep,since,until){
+  const body=document.getElementById('clientReportBody');
+  const t=rep.total||{},meta=(rep.channelStats&&rep.channelStats.META)||{records:[]};
+  const noSales=c.conversionSource==='none';
+  const tpl=resolveClientTemplate(c,rep.ads);
+  const agg={spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:noSales?0:(t.revenue||0),compras:noSales?0:Math.round(t.purchases||0),leads:t.leads||0,addCarrinho:t.addToCart||0,checkout:t.initiateCheckout||0,conversas:t.conversas||0,videoViews:t.videoViews||0,engajamentos:t.engajamentos||0,frequencia:t.reach?t.impressions/t.reach:0};
+  const rangeBtns=[[7,'7 dias'],[30,'30 dias'],[90,'90 dias']].map(([d,l])=>`<button class="btn sm ${_metaDashDays===d?'primary':'ghost'}" onclick="metaDashRange('${c.id}',${d})">${l}</button>`).join('');
+  const cards=(tpl.metrics||[]).filter(k=>METRIC_CATALOG[k]).map(k=>{const mc=METRIC_CATALOG[k];const key=k===tpl.keyMetric;return`<div class="rt-kpi ${key?'gr':'pu'}"${key?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${mc.label}${key?' ★':''}</div><div class="rt-kpi-val sm">${fmtMetric(mc.calc(agg),mc.fmt)}</div></div>`}).join('');
+  body.innerHTML=`<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+        <div><h3 style="margin:0">📡 META — ao vivo</h3><div class="hint">${dateBR(since)}–${dateBR(until)} · modelo: ${(tpl.name||'').replace(/</g,'&lt;')}</div></div>
+        <div style="display:flex;gap:5px">${rangeBtns}</div>
+      </div>
+      <div class="rt-kpi-grid" style="margin-bottom:16px">${cards}</div>
+      <div class="chart-box tall"><canvas id="cMetaDash"></canvas></div>
+    </div>`;
+  const recs=(meta.records||[]).slice().sort((a,b)=>a.date<b.date?-1:1);
+  const ctx=document.getElementById('cMetaDash');
+  if(_metaDashChart){_metaDashChart.destroy();_metaDashChart=null;}
+  if(ctx&&window.Chart){
+    _metaDashChart=new Chart(ctx,{type:'bar',data:{labels:recs.map(r=>r.date.slice(8,10)+'/'+r.date.slice(5,7)),datasets:[{label:'Investimento/dia',data:recs.map(r=>r.spend),backgroundColor:'#f0c040',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{color:'#9aa0aa'},grid:{color:'rgba(255,255,255,.05)'}},x:{ticks:{color:'#9aa0aa',maxRotation:0,autoSkip:true,maxTicksLimit:15},grid:{display:false}}}}});
+  }
 }
 async function fetchMetaChannelStats(c,month){
   const ids=c.metaAccountIds||[];
