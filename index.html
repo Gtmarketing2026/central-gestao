@@ -4064,7 +4064,8 @@ async function fetchClientReportMetrics(c,month){
       let ads=[];try{ads=(await fetchMetaCreatives(c,month))||[]}catch(e){}
       const statusById={};(ent.ads||[]).forEach(a=>{statusById[a.id]=a.status});
       const objMin=o=>o?{tipo:o.tipo,rotulo:o.rotulo,metrica:o.metrica}:null;
-      const anuncios=ads.filter(a=>a.spend>0).slice(0,15).map(a=>({id:a.adId,nome:a.adName,campanha:a.campaign,objetivo:objMin(a.objetivo),status:statusById[a.adId]||'?',investimento:Math.round(a.spend),ctrPct:+(a.ctr||0).toFixed(2),cpc:+(a.cpc||0).toFixed(2),cpm:+(a.cpm||0).toFixed(2),roas:+(a.roas||0).toFixed(2),compras:Math.round(a.purchases||0),leads:Math.round(a.leads||0)}));
+      const vLbl={good:'BOM para o objetivo (escalar)',bad:'RUIM para o objetivo (rever)',obs:'observar'};
+      const anuncios=ads.filter(a=>a.spend>0).slice(0,15).map(a=>{const cl=classifyAdByObjective(a);return{id:a.adId,nome:a.adName,campanha:a.campaign,objetivo:objMin(a.objetivo),metricaDoObjetivo:cl.metricaChave,avaliacao:vLbl[cl.v]||'observar',status:statusById[a.adId]||'?',investimento:Math.round(a.spend),ctrPct:+(a.ctr||0).toFixed(2),cpc:+(a.cpc||0).toFixed(2),cpm:+(a.cpm||0).toFixed(2),roas:+(a.roas||0).toFixed(2),compras:Math.round(a.purchases||0),leads:Math.round(a.leads||0),conversas:Math.round(a.conversas||0),videoViews:Math.round(a.videoViews||0)}});
       const ativa=x=>x.status==='ACTIVE'||x.entrega==='ACTIVE';
       metaEntidades={
         campanhas:(ent.campaigns||[]).filter(ativa).slice(0,40).map(x=>({id:x.id,nome:x.nome,status:x.status,objetivo:objMin(x.objetivo),orcamentoDiario:x.orcamentoDiario})),
