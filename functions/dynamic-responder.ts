@@ -156,11 +156,35 @@ async function metaAdsInsights(m: any) {
   const fields = "spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,action_values,purchase_roas";
 
   async function fetchInsights(acct: string, level: string, extra = "") {
-    const url = `${base}/act_${acct}/insights?level=${level}&fields=${fields}${level !== "account" ? ",campaign_name" : ""}${range}${extra}&limit=200&access_token=${token}`;
-    const r = await fetch(url);
-    const j = await r.json();
-    if (j.error) throw new Error(j.error.message);
-    return j.data || [];
+    let lvlFields = "";
+    if (level === "campaign") lvlFields = ",campaign_name";
+    else if (level === "ad") lvlFields = ",campaign_name,adset_name,ad_name,ad_id";
+    let url: string | null = `${base}/act_${acct}/insights?level=${level}&fields=${fields}${lvlFields}${range}${extra}&limit=200&access_token=${token}`;
+    const out: any[] = [];
+    for (let i = 0; i < 20 && url; i++) {
+      const r = await fetch(url);
+      const j = await r.json();
+      if (j.error) throw new Error(j.error.message);
+      out.push(...(j.data || []));
+      url = j.paging?.next || null;
+    }
+    return out;
+  }
+  // miniaturas dos criativos por ad_id (uma chamada por conta)
+  async function fetchThumbs(acct: string) {
+    const map: Record<string, string> = {};
+    let url: string | null = `${base}/act_${acct}/ads?fields=id,creative{thumbnail_url,image_url}&limit=200&access_token=${token}`;
+    for (let i = 0; i < 20 && url; i++) {
+      const r = await fetch(url);
+      const j = await r.json();
+      if (j.error) break;
+      for (const ad of (j.data || [])) {
+        const t = ad.creative?.thumbnail_url || ad.creative?.image_url;
+        if (t) map[ad.id] = t;
+      }
+      url = j.paging?.next || null;
+    }
+    return map;
   }
   function pickAction(arr: any[], types: string[]) {
     if (!Array.isArray(arr)) return 0;
@@ -183,11 +207,27 @@ async function metaAdsInsights(m: any) {
   }
   const totAgg: any = { spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0 };
   const byCamp: Record<string, any> = {};
+  const ads: any[] = [];
   for (const acc of accounts) {
     const accountRows = await fetchInsights(acc.id, "account");
     const at = accountRows.length ? shape(accountRows[0]) : shape({});
     totAgg.spend += at.spend; totAgg.impressions += at.impressions; totAgg.clicks += at.clicks; totAgg.reach += at.reach;
     totAgg.revenue += at.revenue; totAgg.purchases += at.purchases; totAgg.leads += at.leads; totAgg.addToCart += at.addToCart; totAgg.initiateCheckout += at.initiateCheckout;
+    if (m.byAd) {
+      const rows = await fetchInsights(acc.id, "ad");
+      const thumbs = rows.length ? await fetchThumbs(acc.id) : {};
+      for (const row of rows) {
+        const s = shape(row);
+        ads.push({
+          adId: row.ad_id, adName: row.ad_name || "(sem nome)", campaign: row.campaign_name || "", adset: row.adset_name || "",
+          account: acc.name || acc.id, thumbnail: thumbs[row.ad_id] || null,
+          spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: s.reach, frequency: s.frequency,
+          ctr: s.ctr, cpc: s.cpc, cpm: s.cpm, purchases: s.purchases, revenue: s.revenue, roas: s.roas,
+          leads: s.leads, addToCart: s.addToCart, initiateCheckout: s.initiateCheckout,
+          cpa: s.purchases ? s.spend / s.purchases : 0,
+        });
+      }
+    }
     if (m.byCampaign) {
       const rows = await fetchInsights(acc.id, "campaign", m.daily ? "&time_increment=1" : "");
       for (const row of rows) {
@@ -216,7 +256,8 @@ async function metaAdsInsights(m: any) {
     c.roas = c.spend ? c.revenue / c.spend : 0;
     return c;
   }).sort((a: any, b: any) => b.spend - a.spend);
-  return { total, campaigns, accounts, period: m.since && m.until ? { since: m.since, until: m.until } : { datePreset: m.datePreset || "last_30d" } };
+  ads.sort((a: any, b: any) => b.spend - a.spend);
+  return { total, campaigns, ads, accounts, period: m.since && m.until ? { since: m.since, until: m.until } : { datePreset: m.datePreset || "last_30d" } };
 }
 
 async function metaListAccounts() {
