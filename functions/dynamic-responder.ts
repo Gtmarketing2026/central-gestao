@@ -271,39 +271,42 @@ async function metaAdsInsights(m: any) {
   const totAgg: any = { spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0 };
   const byCamp: Record<string, any> = {};
   const ads: any[] = [];
-  for (const acc of accounts) {
-    const accountRows = await fetchInsights(acc.id, "account");
+  const wantObj = m.byAd || m.byCampaign;
+  // Contas em PARALELO, e dentro de cada conta as chamadas (conta/objetivos/anuncios/campanhas/thumbs) tambem em paralelo.
+  const perAccount = await Promise.all(accounts.map(async (acc) => {
+    const [accountRows, objByCampId, adRows, campRows, thumbs] = await Promise.all([
+      fetchInsights(acc.id, "account"),
+      wantObj ? fetchObjectives(acc.id) : Promise.resolve({} as Record<string, any>),
+      m.byAd ? fetchInsights(acc.id, "ad") : Promise.resolve([] as any[]),
+      m.byCampaign ? fetchInsights(acc.id, "campaign", m.daily ? "&time_increment=1" : "") : Promise.resolve([] as any[]),
+      m.byAd ? fetchThumbs(acc.id) : Promise.resolve({} as Record<string, string>),
+    ]);
+    return { acc, accountRows, objByCampId, adRows, campRows, thumbs };
+  }));
+  for (const { acc, accountRows, objByCampId, adRows, campRows, thumbs } of perAccount) {
     const at = accountRows.length ? shape(accountRows[0]) : shape({});
     totAgg.spend += at.spend; totAgg.impressions += at.impressions; totAgg.clicks += at.clicks; totAgg.reach += at.reach;
     totAgg.revenue += at.revenue; totAgg.purchases += at.purchases; totAgg.leads += at.leads; totAgg.addToCart += at.addToCart; totAgg.initiateCheckout += at.initiateCheckout;
-    const objByCampId = (m.byAd || m.byCampaign) ? await fetchObjectives(acc.id) : {};
-    if (m.byAd) {
-      const rows = await fetchInsights(acc.id, "ad");
-      const thumbs = rows.length ? await fetchThumbs(acc.id) : {};
-      for (const row of rows) {
-        const s = shape(row);
-        ads.push({
-          adId: row.ad_id, adName: row.ad_name || "(sem nome)", campaign: row.campaign_name || "", adset: row.adset_name || "",
-          account: acc.name || acc.id, thumbnail: thumbs[row.ad_id] || null,
-          objetivo: objByCampId[row.campaign_id] || metaObjetivo(""),
-          spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: s.reach, frequency: s.frequency,
-          ctr: s.ctr, cpc: s.cpc, cpm: s.cpm, purchases: s.purchases, revenue: s.revenue, roas: s.roas,
-          leads: s.leads, addToCart: s.addToCart, initiateCheckout: s.initiateCheckout,
-          cpa: s.purchases ? s.spend / s.purchases : 0,
-        });
-      }
+    for (const row of adRows) {
+      const s = shape(row);
+      ads.push({
+        adId: row.ad_id, adName: row.ad_name || "(sem nome)", campaign: row.campaign_name || "", adset: row.adset_name || "",
+        account: acc.name || acc.id, thumbnail: thumbs[row.ad_id] || null,
+        objetivo: objByCampId[row.campaign_id] || metaObjetivo(""),
+        spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: s.reach, frequency: s.frequency,
+        ctr: s.ctr, cpc: s.cpc, cpm: s.cpm, purchases: s.purchases, revenue: s.revenue, roas: s.roas,
+        leads: s.leads, addToCart: s.addToCart, initiateCheckout: s.initiateCheckout,
+        cpa: s.purchases ? s.spend / s.purchases : 0,
+      });
     }
-    if (m.byCampaign) {
-      const rows = await fetchInsights(acc.id, "campaign", m.daily ? "&time_increment=1" : "");
-      for (const row of rows) {
-        const label = row.campaign_name || "Meta Ads";
-        const s = shape(row);
-        if (!byCamp[label]) byCamp[label] = { campaign: label, account: acc.name || acc.id, objetivo: objByCampId[row.campaign_id] || metaObjetivo(""), spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
-        const c = byCamp[label];
-        c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks; c.reach += s.reach;
-        c.revenue += s.revenue; c.purchases += s.purchases; c.leads += s.leads; c.addToCart += s.addToCart; c.initiateCheckout += s.initiateCheckout;
-        if (m.daily) c.records.push({ date: row.date_start, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions });
-      }
+    for (const row of campRows) {
+      const label = row.campaign_name || "Meta Ads";
+      const s = shape(row);
+      if (!byCamp[label]) byCamp[label] = { campaign: label, account: acc.name || acc.id, objetivo: objByCampId[row.campaign_id] || metaObjetivo(""), spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
+      const c = byCamp[label];
+      c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks; c.reach += s.reach;
+      c.revenue += s.revenue; c.purchases += s.purchases; c.leads += s.leads; c.addToCart += s.addToCart; c.initiateCheckout += s.initiateCheckout;
+      if (m.daily) c.records.push({ date: row.date_start, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions });
     }
   }
   const total = {

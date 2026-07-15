@@ -3500,12 +3500,14 @@ async function loadClientTemplate(){
       if(error)throw error;
       Object.assign(dataByTab,(data&&data.data)||{});
     }
-    let checkoutCount=0;
-    try{const {count}=await sb.from('checkout_events').select('*',{count:'exact',head:true}).eq('client_id',c.id).gte('event_date',month+'-01').lte('event_date',month+'-31');checkoutCount=count||0}catch(e){}
-    let metaChStats=null,metaAds=null;
-    try{const mr=await fetchMetaChannelStats(c,month);if(mr)metaChStats=mr.stats;}catch(e){body.innerHTML=`<div class="empty">Erro ao buscar Meta Ads ao vivo: ${e.message}</div>`;return}
-    try{if(c.metaAccountIds&&c.metaAccountIds.length)metaAds=await fetchMetaCreatives(c,month);}catch(e){metaAds=null;}
-    renderClientTemplate({...c,reportOrdersTab:ordersKey},month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds);
+    // checkout e Meta em PARALELO (Meta numa única chamada que já traz canal + Raio-X)
+    const hasMeta=c.metaAccountIds&&c.metaAccountIds.length;
+    const [checkoutCount,metaRep]=await Promise.all([
+      sb.from('checkout_events').select('*',{count:'exact',head:true}).eq('client_id',c.id).gte('event_date',month+'-01').lte('event_date',month+'-31').then(r=>r.count||0).catch(()=>0),
+      hasMeta?fetchMetaReport(c,month).catch(e=>({_err:e.message})):Promise.resolve({channelStats:null,ads:null})
+    ]);
+    if(metaRep&&metaRep._err){body.innerHTML=`<div class="empty">Erro ao buscar Meta Ads ao vivo: ${metaRep._err}</div>`;return}
+    renderClientTemplate({...c,reportOrdersTab:ordersKey},month,dataByTab,adTabs,checkoutCount,(metaRep&&metaRep.channelStats)||null,(metaRep&&metaRep.ads)||null);
   }catch(e){
     body.innerHTML=`<div class="empty">Erro ao buscar dados: ${e.message}</div>`;
   }
@@ -3541,6 +3543,30 @@ function mergeChannelStats(sheetStats,metaStats){
   return out;
 }
 // Busca insights do Meta Ads ao vivo e devolve um objeto de canais (1 por campanha) no mesmo formato de computeChannelStats. Substitui a planilha quando o cliente tem conta vinculada.
+// Constrói o canal META (agregado) a partir da resposta do backend
+function metaChannelFromData(d){
+  if(!d||!d.total)return null;
+  const t=d.total;
+  const recByDate={};
+  (d.campaigns||[]).forEach(r=>(r.records||[]).forEach(x=>{
+    const k=x.date;if(!k)return;
+    if(!recByDate[k])recByDate[k]={date:k,sales:0,spend:0,revenue:0,clicks:0,impressions:0};
+    recByDate[k].sales+=Math.round(x.sales||0);recByDate[k].spend+=x.spend||0;recByDate[k].revenue+=x.revenue||0;recByDate[k].clicks+=x.clicks||0;recByDate[k].impressions+=x.impressions||0;
+  }));
+  return {META:{label:'META',spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:t.revenue||0,sales:Math.round(t.purchases||0),leads:t.leads||0,addToCart:t.addToCart||0,initiateCheckout:t.initiateCheckout||0,records:Object.values(recByDate),_meta:true}};
+}
+// UMA chamada só: traz canal META + anúncios (Raio-X) juntos (mais rápido que 2 chamadas)
+async function fetchMetaReport(c,month){
+  const ids=c.metaAccountIds||[];
+  if(!ids.length)return {channelStats:null,ads:null};
+  const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
+  const {since,until}=monthRange(month);
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,byCampaign:true,daily:true,byAd:true}}});
+  if(error)throw new Error('Meta Ads: '+(error.message||error));
+  if(data&&data.error)throw new Error('Meta Ads: '+data.error);
+  const d=(data&&data.data)||data;
+  return {channelStats:metaChannelFromData(d),ads:(d&&d.ads)||[],total:d&&d.total};
+}
 async function fetchMetaChannelStats(c,month){
   const ids=c.metaAccountIds||[];
   if(!ids.length)return null;
@@ -3549,17 +3575,8 @@ async function fetchMetaChannelStats(c,month){
   const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,byCampaign:true,daily:true}}});
   if(error)throw new Error('Meta Ads: '+(error.message||error));
   if(data&&data.error)throw new Error('Meta Ads: '+data.error);
-  const d=(data&&data.data)||data;if(!d||!d.total)return null;
-  const t=d.total;
-  // Agrega TODAS as campanhas num único canal META (não uma linha por campanha; sem nome de conta/campanha).
-  const recByDate={};
-  (d.campaigns||[]).forEach(r=>(r.records||[]).forEach(x=>{
-    const k=x.date;if(!k)return;
-    if(!recByDate[k])recByDate[k]={date:k,sales:0,spend:0,revenue:0,clicks:0,impressions:0};
-    recByDate[k].sales+=Math.round(x.sales||0);recByDate[k].spend+=x.spend||0;recByDate[k].revenue+=x.revenue||0;recByDate[k].clicks+=x.clicks||0;recByDate[k].impressions+=x.impressions||0;
-  }));
-  const stats={META:{label:'META',spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:t.revenue||0,sales:Math.round(t.purchases||0),leads:t.leads||0,addToCart:t.addToCart||0,initiateCheckout:t.initiateCheckout||0,records:Object.values(recByDate),_meta:true}};
-  return {stats,total:t};
+  const d=(data&&data.data)||data;const stats=metaChannelFromData(d);
+  return stats?{stats,total:d.total}:null;
 }
 // Raio-X: performance por anúncio (criativo) ao vivo. Retorna array de ads ordenado por investimento.
 async function fetchMetaCreatives(c,month){
