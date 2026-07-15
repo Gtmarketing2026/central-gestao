@@ -96,6 +96,18 @@ const AGENT_TOOLS = [
   { type: "function", function: { name: "concluir_tarefa", description: "Marca uma tarefa existente como concluida (dar baixa).", parameters: { type: "object", properties: {
     nome: { type: "string" }, cliente: { type: "string" },
   }, required: ["nome"] } } },
+  { type: "function", function: { name: "pausar_meta", description: "Pausa um anuncio, conjunto ou campanha no Meta Ads. Use quando algo esta drenando verba sem retorno. Pegue o 'id' e o 'nivel' da lista metaEntidades do snapshot.", parameters: { type: "object", properties: {
+    id: { type: "string", description: "id do objeto no Meta (campaign/adset/ad)" }, nivel: { type: "string", enum: ["campanha", "conjunto", "anuncio"] }, nome: { type: "string", description: "nome legivel para o card de confirmacao" },
+  }, required: ["id", "nivel", "nome"] } } },
+  { type: "function", function: { name: "reativar_meta", description: "Reativa (liga) um anuncio, conjunto ou campanha pausado no Meta Ads. Use os dados de metaEntidades.", parameters: { type: "object", properties: {
+    id: { type: "string" }, nivel: { type: "string", enum: ["campanha", "conjunto", "anuncio"] }, nome: { type: "string" },
+  }, required: ["id", "nivel", "nome"] } } },
+  { type: "function", function: { name: "ajustar_orcamento", description: "Ajusta o orcamento diario de uma campanha ou conjunto no Meta Ads. Informe OU 'percentual' (ex: 20 para subir 20%, -30 para descer 30%) OU 'novoOrcamentoDiario' em reais. Use os dados de metaEntidades.", parameters: { type: "object", properties: {
+    id: { type: "string" }, nivel: { type: "string", enum: ["campanha", "conjunto"] }, nome: { type: "string" }, percentual: { type: "number" }, novoOrcamentoDiario: { type: "number", description: "em reais" },
+  }, required: ["id", "nivel", "nome"] } } },
+  { type: "function", function: { name: "duplicar_campanha", description: "Duplica uma campanha vencedora no Meta Ads (a copia nasce PAUSADA por seguranca). Use para escalar. Pegue o id da campanha em metaEntidades.", parameters: { type: "object", properties: {
+    id: { type: "string" }, nome: { type: "string" },
+  }, required: ["id", "nome"] } } },
 ];
 
 async function runAgent(a: any) {
@@ -116,7 +128,7 @@ Metodo de analise:
 3. Compare os canais entre si e realoque verba para quem tem melhor ROAS/CPA.
 4. Traga recomendacoes priorizadas (o que fazer primeiro), usando os numeros reais do snapshot.
 
-Voce tambem pode EXECUTAR acoes quando o gestor pedir explicitamente: criar tarefas e concluir (dar baixa em) tarefas, chamando as funcoes disponiveis. O sistema mostra um card de confirmacao antes de executar, entao apenas proponha a acao chamando a funcao; nao afirme que ja executou. Mas seu valor principal e a analise tecnica de otimizacao.`;
+Voce tambem pode EXECUTAR acoes quando o gestor pedir explicitamente: criar/concluir tarefas E acoes reais no Meta Ads (pausar_meta, reativar_meta, ajustar_orcamento, duplicar_campanha). Para as acoes do Meta, use SEMPRE o 'id' e o 'nivel' que estao na lista 'metaEntidades' do snapshot (campanhas, conjuntos e anuncios com id, status e orcamento atuais) — nunca invente ids. O sistema mostra um card de confirmacao antes de executar; entao apenas PROPONHA a acao chamando a funcao e explique o porque em texto; nunca afirme que ja executou. So proponha acao no Meta quando o gestor pedir ou quando os dados claramente justificarem (ex: anuncio com gasto alto e 0 compras -> propor pausar). Seu valor principal continua sendo a analise tecnica.`;
 
   if (Array.isArray(a.knowledge) && a.knowledge.length) {
     system += `\n\nBASE DE CONHECIMENTO (metodos e frameworks de gestores de trafego que a agencia quer que voce siga). Use estes principios como referencia nas suas recomendacoes:\n` +
@@ -274,6 +286,84 @@ async function metaListAccounts() {
   return out.map((a) => ({ id: a.account_id, name: a.name, status: a.account_status, currency: a.currency }));
 }
 
+// Lista entidades acionaveis (campanhas, conjuntos, anuncios) com id/status/orcamento atuais.
+async function metaEntities(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN");
+  if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
+  let accounts: { id: string; name: string }[] = [];
+  if (Array.isArray(m.accounts) && m.accounts.length) accounts = m.accounts.map((a: any) => ({ id: String(a.id).replace(/^act_/, ""), name: a.name || "" }));
+  else if (Array.isArray(m.accountIds) && m.accountIds.length) accounts = m.accountIds.map((id: any) => ({ id: String(id).replace(/^act_/, ""), name: "" }));
+  else if (m.accountId) accounts = [{ id: String(m.accountId).replace(/^act_/, ""), name: "" }];
+  if (!accounts.length) throw new Error("accountId(s) obrigatorio");
+  const base = "https://graph.facebook.com/v21.0";
+  async function pageAll(path: string) {
+    const out: any[] = [];
+    let url: string | null = `${base}/${path}${path.includes("?") ? "&" : "?"}limit=200&access_token=${token}`;
+    for (let i = 0; i < 15 && url; i++) {
+      const r = await fetch(url); const j = await r.json();
+      if (j.error) throw new Error(j.error.message);
+      out.push(...(j.data || []));
+      url = j.paging?.next || null;
+    }
+    return out;
+  }
+  const campaigns: any[] = [], adsets: any[] = [], ads: any[] = [];
+  for (const acc of accounts) {
+    const cs = await pageAll(`act_${acc.id}/campaigns?fields=id,name,status,effective_status,daily_budget,lifetime_budget`);
+    for (const c of cs) campaigns.push({ id: c.id, nome: c.name, status: c.status, entrega: c.effective_status, orcamentoDiario: c.daily_budget ? +c.daily_budget / 100 : null, conta: acc.name || acc.id });
+    const as = await pageAll(`act_${acc.id}/adsets?fields=id,name,status,effective_status,daily_budget,campaign_id`);
+    for (const s of as) adsets.push({ id: s.id, nome: s.name, status: s.status, entrega: s.effective_status, orcamentoDiario: s.daily_budget ? +s.daily_budget / 100 : null, campanhaId: s.campaign_id, conta: acc.name || acc.id });
+    const ds = await pageAll(`act_${acc.id}/ads?fields=id,name,status,effective_status,campaign_id,adset_id`);
+    for (const d of ds) ads.push({ id: d.id, nome: d.name, status: d.status, entrega: d.effective_status, campanhaId: d.campaign_id, conjuntoId: d.adset_id, conta: acc.name || acc.id });
+  }
+  return { campaigns, adsets, ads };
+}
+
+// Executa acoes de escrita no Meta (pausar/reativar/orcamento/duplicar). Requer escopo ads_management no token.
+async function metaAction(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN");
+  if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
+  const base = "https://graph.facebook.com/v21.0";
+  const id = String(m.id || "");
+  if (!id) throw new Error("id obrigatorio");
+  async function post(path: string, params: Record<string, string>) {
+    const bodyp = new URLSearchParams({ ...params, access_token: token });
+    const r = await fetch(`${base}/${path}`, { method: "POST", body: bodyp });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error.message);
+    return j;
+  }
+  async function getField(objId: string, field: string) {
+    const r = await fetch(`${base}/${objId}?fields=${field}&access_token=${token}`);
+    const j = await r.json();
+    if (j.error) throw new Error(j.error.message);
+    return j;
+  }
+  if (m.action === "pause" || m.action === "activate") {
+    const status = m.action === "pause" ? "PAUSED" : "ACTIVE";
+    await post(id, { status });
+    return { ok: true, detail: `${m.action === "pause" ? "Pausado" : "Reativado"}: ${m.nome || id}` };
+  }
+  if (m.action === "budget") {
+    let cents: number;
+    if (m.novoOrcamentoDiario != null) cents = Math.round(Number(m.novoOrcamentoDiario) * 100);
+    else if (m.percentual != null) {
+      const cur = await getField(id, "daily_budget");
+      const curCents = Number(cur.daily_budget || 0);
+      if (!curCents) throw new Error("Objeto sem orcamento diario (pode ser CBO no nivel da campanha ou orcamento vitalicio). Ajuste no nivel certo.");
+      cents = Math.round(curCents * (1 + Number(m.percentual) / 100));
+    } else throw new Error("Informe percentual ou novoOrcamentoDiario");
+    if (cents < 100) throw new Error("Orcamento diario minimo ~R$1,00");
+    await post(id, { daily_budget: String(cents) });
+    return { ok: true, detail: `Orcamento diario ajustado para R$${(cents / 100).toFixed(2)}: ${m.nome || id}` };
+  }
+  if (m.action === "duplicate") {
+    const j = await post(`${id}/copies`, { deep_copy: "true", status_option: "PAUSED" });
+    return { ok: true, detail: `Campanha duplicada (copia PAUSADA): ${m.nome || id}`, copiedId: j.copied_campaign_id || j.id || null };
+  }
+  throw new Error("action invalida");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -290,6 +380,14 @@ Deno.serve(async (req) => {
     }
     if (body.metaAccounts) {
       const r = await metaListAccounts();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.metaEntities) {
+      const r = await metaEntities(body.metaEntities);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.metaAction) {
+      const r = await metaAction(body.metaAction);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (agent) {

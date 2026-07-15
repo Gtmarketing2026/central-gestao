@@ -3581,7 +3581,25 @@ async function fetchClientReportMetrics(c,month){
   try{const mr=await fetchMetaChannelStats(c,month);chStats=mr?mr.stats:computeChannelStats(adTabs,dataByTab,month);}
   catch(e){chStats=computeChannelStats(adTabs,dataByTab,month);}
   const canais=Object.values(chStats).map(ch=>({nome:ch.label,investimento:Math.round(ch.spend),faturamento:Math.round(ch.revenue),vendas:ch.sales,cliques:ch.clicks,impressoes:ch.impressions,cpc:ch.clicks?+(ch.spend/ch.clicks).toFixed(2):null,ctrPct:ch.impressions?+((ch.clicks/ch.impressions)*100).toFixed(2):null,roas:ch.spend?+(ch.revenue/ch.spend).toFixed(2):null}));
-  return{mesReferencia:month,pedidos:{total:totalPedidos,aprovados:aprovadosCount,faturamentoAprovado:Math.round(aprovadosVal),ticketMedio:Math.round(ticketMedio),porStatus:statusB},canaisDeAnuncio:canais};
+  let metaEntidades=null;
+  if(c.metaAccountIds&&c.metaAccountIds.length){
+    try{
+      const accounts=c.metaAccountIds.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
+      const {data}=await sb.functions.invoke('dynamic-responder',{body:{metaEntities:{accounts}}});
+      const ent=(data&&data.data)||{};
+      let ads=[];try{ads=(await fetchMetaCreatives(c,month))||[]}catch(e){}
+      const statusById={};(ent.ads||[]).forEach(a=>{statusById[a.id]=a.status});
+      const anuncios=ads.filter(a=>a.spend>0).slice(0,15).map(a=>({id:a.adId,nome:a.adName,campanha:a.campaign,status:statusById[a.adId]||'?',investimento:Math.round(a.spend),roas:+(a.roas||0).toFixed(2),compras:Math.round(a.purchases||0)}));
+      metaEntidades={
+        campanhas:(ent.campaigns||[]).map(x=>({id:x.id,nome:x.nome,status:x.status,orcamentoDiario:x.orcamentoDiario})),
+        conjuntos:(ent.adsets||[]).map(x=>({id:x.id,nome:x.nome,status:x.status,orcamentoDiario:x.orcamentoDiario,campanhaId:x.campanhaId})),
+        anuncios
+      };
+    }catch(e){}
+  }
+  const out={mesReferencia:month,pedidos:{total:totalPedidos,aprovados:aprovadosCount,faturamentoAprovado:Math.round(aprovadosVal),ticketMedio:Math.round(ticketMedio),porStatus:statusB},canaisDeAnuncio:canais};
+  if(metaEntidades)out.metaEntidades=metaEntidades;
+  return out;
 }
 async function ensureClientKpis(){
   if(!agentClientId)return null;
@@ -3620,12 +3638,26 @@ function renderAgentChat(){
   }).join('');
   el.scrollTop=el.scrollHeight;
 }
+const META_ACTION_LABELS={pausar_meta:'⏸ Pausar no Meta',reativar_meta:'▶ Reativar no Meta',ajustar_orcamento:'💰 Ajustar orçamento',duplicar_campanha:'⧉ Duplicar campanha'};
+function metaActionRow(k,v){return`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">${k}</span><span style="font-weight:600;text-align:right">${v}</span></div>`;}
 function agentActionCardHTML(a,mi,ai){
-  const label=a.name==='criar_tarefa'?'Criar tarefa':(a.name==='concluir_tarefa'?'Concluir tarefa':a.name);
+  const label=a.name==='criar_tarefa'?'Criar tarefa':(a.name==='concluir_tarefa'?'Concluir tarefa':(META_ACTION_LABELS[a.name]||a.name));
   if(a.status==='done')return`<div style="align-self:flex-start;max-width:88%;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.35);color:var(--green);border-radius:12px;padding:10px 14px;font-size:12.5px">✓ ${a.result||'Feito'}</div>`;
   if(a.status==='error')return`<div style="align-self:flex-start;max-width:88%;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.35);color:var(--red);border-radius:12px;padding:10px 14px;font-size:12.5px">⚠ ${a.result||'Não consegui executar'}</div>`;
   if(a.status==='cancelled')return`<div style="align-self:flex-start;max-width:88%;color:var(--faint);font-size:12px;padding:4px 6px">Ação cancelada.</div>`;
   const g=a.args||{};
+  if(META_ACTION_LABELS[a.name]){
+    const nivel=g.nivel?g.nivel.charAt(0).toUpperCase()+g.nivel.slice(1):'';
+    let det=metaActionRow(a.name==='duplicar_campanha'?'Campanha':(nivel||'Objeto'),(g.nome||'—'));
+    if(a.name==='ajustar_orcamento')det+=metaActionRow('Novo orçamento',g.novoOrcamentoDiario!=null?('R$ '+(+g.novoOrcamentoDiario).toFixed(2)+'/dia'):(g.percentual!=null?((g.percentual>0?'+':'')+g.percentual+'% /dia'):'—'));
+    if(a.name==='duplicar_campanha')det+=metaActionRow('Como','Cópia nasce pausada');
+    const warn=a.name==='ajustar_orcamento'||a.name==='reativar_meta'||a.name==='duplicar_campanha';
+    return`<div style="align-self:flex-start;max-width:88%;width:340px;background:var(--surface2);border:1px solid ${warn?'#f59e0b':'var(--accent)'};border-radius:12px;padding:14px 16px">
+      <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:${warn?'#f59e0b':'var(--accent)'};font-weight:700;margin-bottom:8px">⚠ Ação real no Meta · ${label}</div>
+      <div style="font-size:12.5px;margin-bottom:10px">${det}</div>
+      <div style="display:flex;gap:8px"><button class="btn sm primary" onclick="executeAgentAction(${mi},${ai})">Confirmar e executar</button><button class="btn sm ghost" onclick="cancelAgentAction(${mi},${ai})">Cancelar</button></div>
+    </div>`;
+  }
   const det=a.name==='criar_tarefa'
     ?`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">Tarefa</span><span style="font-weight:600;text-align:right">${(g.nome||'—')}</span></div>`+(g.cliente?`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">Cliente</span><span style="font-weight:600">${g.cliente}</span></div>`:'')+(g.responsavel?`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">Responsável</span><span style="font-weight:600">${g.responsavel}</span></div>`:'')+(g.prazo?`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">Prazo</span><span style="font-weight:600">${g.prazo}</span></div>`:'')+`<div style="display:flex;justify-content:space-between;padding:5px 0"><span style="color:var(--muted)">Prioridade</span><span style="font-weight:600">${g.prioridade||'media'}${g.urgente?' · 🚩':''}</span></div>`
     :`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">Concluir tarefa</span><span style="font-weight:600;text-align:right">${(g.nome||'—')}</span></div>`+(g.cliente?`<div style="display:flex;justify-content:space-between;padding:5px 0"><span style="color:var(--muted)">Cliente</span><span style="font-weight:600">${g.cliente}</span></div>`:'');
@@ -3656,9 +3688,26 @@ async function executeAgentAction(mi,ai){
       if(match.length===1){await completeTask(match[0]);act.status='done';act.result='Concluída: '+match[0].name}
       else if(!match.length){act.status='error';act.result='Não achei tarefa aberta com esse nome'+(clientId?' pra '+clientName(clientId):'')+'.'}
       else{act.status='error';act.result='Achei '+match.length+' tarefas parecidas — seja mais específica (nome exato).'}
+    }else if(act.name==='pausar_meta'||act.name==='reativar_meta'||act.name==='ajustar_orcamento'||act.name==='duplicar_campanha'){
+      const g=act.args||{};
+      const payload=act.name==='pausar_meta'?{action:'pause',id:g.id,nome:g.nome}
+        :act.name==='reativar_meta'?{action:'activate',id:g.id,nome:g.nome}
+        :act.name==='duplicar_campanha'?{action:'duplicate',id:g.id,nome:g.nome}
+        :{action:'budget',id:g.id,nome:g.nome,percentual:g.percentual,novoOrcamentoDiario:g.novoOrcamentoDiario};
+      const d=await metaExecute(payload);
+      act.status='done';act.result=d.detail||'Feito';
+      agentClientKpis=null;agentKpisClientId=null; // força recarregar entidades/KPIs após mudança
     }
   }catch(e){act.status='error';act.result='Erro: '+e.message}
   await persistAgentChat();renderAgentChat();
+}
+async function metaExecute(payload){
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAction:payload}});
+  if(error)throw new Error(error.message||error);
+  if(data&&data.error)throw new Error(data.error);
+  const d=(data&&data.data)||data;
+  if(!d||!d.ok)throw new Error((d&&d.detail)||'Falha na ação no Meta');
+  return d;
 }
 async function cancelAgentAction(mi,ai){const act=agentActiveChat.messages[mi].actions[ai];act.status='cancelled';await persistAgentChat();renderAgentChat()}
 
