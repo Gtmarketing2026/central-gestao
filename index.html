@@ -675,6 +675,13 @@
     </div>
 
     <div class="cpanel" data-panel="relatorios" style="display:none">
+      <div class="form-row"><label>Modelo de relatório <span style="font-size:11px;color:var(--faint);font-weight:400">— define métrica-chave, KPIs e funil</span></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="cReportTemplate" style="flex:1"></select>
+          <button type="button" class="btn sm ghost" onclick="openTemplatesModal()">⚙ Modelos</button>
+        </div>
+        <div style="font-size:11px;color:var(--faint);margin-top:3px">"Automático" usa o modelo-base do objetivo da campanha no Meta.</div>
+      </div>
       <div class="form-row"><label>Próximo relatório mensal</label><input id="cReport" type="date"></div>
       <div class="form-row" style="display:flex;align-items:center;gap:10px">
         <input type="checkbox" id="cReportWeekly" class="checkbox" style="width:auto" onchange="document.getElementById('cReportWeeklyDayRow').style.display=this.checked?'block':'none'">
@@ -1027,6 +1034,18 @@
   </div>
 </div>
 
+<!-- MODELOS DE RELATÓRIO -->
+<div class="modal-bg" id="templatesModal">
+  <div class="modal" style="max-width:720px">
+    <h3>📋 Modelos de Relatório</h3>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:14px">Modelos-base (travados) saem automáticos do objetivo da campanha no Meta. Crie modelos personalizados com as métricas, métrica-chave e funil que quiser.</div>
+    <div id="templatesModalBody"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal('templatesModal')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- BROADCAST MODAL -->
 <div class="modal-bg" id="broadcastModal">
   <div class="modal">
@@ -1215,6 +1234,126 @@ const today = () => {const d=new Date();return`${d.getFullYear()}-${String(d.get
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function dateBR(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}`}
 function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date(today()))/864e5)}
+
+/* ===== MODELOS DE RELATÓRIO ===== */
+const mapTemplate=r=>({id:r.id,name:r.name,source:r.source||'meta',keyMetric:r.key_metric||'',metrics:r.metrics||[],funnel:r.funnel||[],objectiveType:r.objective_type||'',isBase:false});
+const dbTemplate=o=>({id:o.id,name:o.name,source:o.source||'meta',key_metric:o.keyMetric||null,metrics:o.metrics||[],funnel:o.funnel||[],objective_type:o.objectiveType||null,updated_at:new Date().toISOString()});
+// Catálogo de métricas: como calcular a partir do agregado {spend,impressions,clicks,reach,revenue,compras,leads,addCarrinho,checkout,frequencia}
+const METRIC_CATALOG={
+  valorGasto:{label:'Valor Gasto',calc:a=>a.spend,fmt:'money'},
+  receita:{label:'Receita',calc:a=>a.revenue,fmt:'money'},
+  roas:{label:'ROAS',calc:a=>a.spend?a.revenue/a.spend:0,fmt:'x'},
+  compras:{label:'Compras',calc:a=>a.compras,fmt:'int'},
+  custoPorCompra:{label:'Custo por Compra',calc:a=>a.compras?a.spend/a.compras:0,fmt:'money'},
+  leads:{label:'Leads',calc:a=>a.leads,fmt:'int'},
+  cpl:{label:'CPL',calc:a=>a.leads?a.spend/a.leads:0,fmt:'money'},
+  cliques:{label:'Cliques no Link',calc:a=>a.clicks,fmt:'int'},
+  ctr:{label:'CTR',calc:a=>a.impressions?(a.clicks/a.impressions)*100:0,fmt:'pct'},
+  cpc:{label:'CPC',calc:a=>a.clicks?a.spend/a.clicks:0,fmt:'money'},
+  cpm:{label:'CPM',calc:a=>a.impressions?(a.spend/a.impressions)*1000:0,fmt:'money'},
+  impressoes:{label:'Impressões',calc:a=>a.impressions,fmt:'int'},
+  alcance:{label:'Alcance',calc:a=>a.reach,fmt:'int'},
+  frequencia:{label:'Frequência',calc:a=>a.frequencia||0,fmt:'num'},
+  addCarrinho:{label:'Add ao Carrinho',calc:a=>a.addCarrinho,fmt:'int'},
+  checkout:{label:'Checkout Iniciado',calc:a=>a.checkout,fmt:'int'},
+};
+const FUNNEL_CATALOG={impressoes:{label:'Impressões',calc:a=>a.impressions},alcance:{label:'Alcance',calc:a=>a.reach},cliques:{label:'Cliques no Link',calc:a=>a.clicks},addCarrinho:{label:'Add ao Carrinho',calc:a=>a.addCarrinho},checkout:{label:'Checkout',calc:a=>a.checkout},leads:{label:'Leads',calc:a=>a.leads},compras:{label:'Compras/Vendas',calc:a=>a.compras}};
+// Modelos-base TRAVADOS, um por objetivo do Meta
+const BASE_TEMPLATES=[
+  {id:'base_conversao',name:'Vendas / Conversão (base)',objectiveType:'conversao',keyMetric:'compras',metrics:['valorGasto','roas','receita','custoPorCompra','compras','cpc','ctr'],funnel:['impressoes','cliques','checkout','compras'],isBase:true,source:'meta'},
+  {id:'base_leads',name:'Leads (base)',objectiveType:'leads',keyMetric:'leads',metrics:['valorGasto','leads','cpl','ctr','cpc','cliques'],funnel:['impressoes','cliques','leads'],isBase:true,source:'meta'},
+  {id:'base_trafego',name:'Tráfego (base)',objectiveType:'trafego',keyMetric:'cliques',metrics:['valorGasto','cliques','cpc','ctr','cpm','impressoes'],funnel:['impressoes','cliques'],isBase:true,source:'meta'},
+  {id:'base_engajamento',name:'Engajamento (base)',objectiveType:'engajamento',keyMetric:'ctr',metrics:['valorGasto','ctr','cpm','alcance','frequencia','impressoes'],funnel:['impressoes','alcance','cliques'],isBase:true,source:'meta'},
+  {id:'base_alcance',name:'Alcance / Reconhecimento (base)',objectiveType:'alcance',keyMetric:'alcance',metrics:['valorGasto','alcance','cpm','frequencia','impressoes'],funnel:['impressoes','alcance'],isBase:true,source:'meta'},
+];
+function allTemplates(){return BASE_TEMPLATES.concat(DB.reportTemplates||[])}
+function templateById(id){return allTemplates().find(t=>t.id===id)||null}
+function baseTemplateForObjective(tipo){return BASE_TEMPLATES.find(t=>t.objectiveType===tipo)||BASE_TEMPLATES[0]}
+// Resolve o modelo do cliente: escolhido manualmente OU auto pelo objetivo dominante (do Meta)
+function resolveClientTemplate(c,metaAds){
+  if(c.reportTemplateId){const t=templateById(c.reportTemplateId);if(t)return t;}
+  // auto: objetivo dominante por investimento
+  const bySpend={};(metaAds||[]).forEach(a=>{const tp=(a.objetivo&&a.objetivo.tipo)||'conversao';bySpend[tp]=(bySpend[tp]||0)+(a.spend||0)});
+  const dom=Object.entries(bySpend).sort((a,b)=>b[1]-a[1])[0];
+  return baseTemplateForObjective(dom?dom[0]:'conversao');
+}
+function fmtMetric(val,fmt){
+  if(fmt==='money')return fmt$(val);
+  if(fmt==='x')return (val||0).toFixed(2)+'x';
+  if(fmt==='pct')return (val||0).toFixed(2)+'%';
+  if(fmt==='num')return (val||0).toFixed(1);
+  return Math.round(val||0).toLocaleString('pt-BR');
+}
+function fmt$(v){try{return fmt(v)}catch(e){return 'R$ '+(Math.round((v||0)*100)/100).toLocaleString('pt-BR')}}
+const FUNNEL_ORDER=['impressoes','alcance','cliques','addCarrinho','checkout','leads','compras'];
+function fillTemplateSelect(selectedId){
+  const sel=document.getElementById('cReportTemplate');if(!sel)return;
+  const base=BASE_TEMPLATES.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+  const custom=(DB.reportTemplates||[]).map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+  sel.innerHTML='<option value="">⚙ Automático (pelo objetivo do Meta)</option>'+'<optgroup label="Modelos-base">'+base+'</optgroup>'+(custom?'<optgroup label="Personalizados">'+custom+'</optgroup>':'');
+  sel.value=selectedId||'';
+}
+let _tplEditing=null;
+function openTemplatesModal(){_tplEditing=null;renderTemplatesList();openModal('templatesModal')}
+function renderTemplatesList(){
+  const el=document.getElementById('templatesModalBody');if(!el)return;
+  const row=(t,locked)=>{
+    const km=METRIC_CATALOG[t.keyMetric]?METRIC_CATALOG[t.keyMetric].label:t.keyMetric;
+    return`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--surface2)">
+      <div style="flex:1">
+        <div style="font-weight:600;font-size:13px">${locked?'🔒 ':''}${(t.name||'').replace(/</g,'&lt;')}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Métrica-chave: <b>${km}</b> · ${(t.metrics||[]).length} KPIs · funil: ${(t.funnel||[]).map(k=>FUNNEL_CATALOG[k]?FUNNEL_CATALOG[k].label:k).join(' → ')||'—'}</div>
+      </div>
+      ${locked?'<span style="font-size:11px;color:var(--faint)">base</span>':`<button class="btn sm ghost" onclick="editTemplate('${t.id}')">Editar</button><button class="btn sm ghost" style="color:var(--red)" onclick="deleteTemplate('${t.id}')">Excluir</button>`}
+    </div>`;
+  };
+  el.innerHTML=`<div style="max-height:52vh;overflow:auto;padding-right:4px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin:2px 0 8px">Modelos-base (automáticos do Meta)</div>
+    ${BASE_TEMPLATES.map(t=>row(t,true)).join('')}
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin:14px 0 8px">Seus modelos</div>
+    ${(DB.reportTemplates||[]).length?(DB.reportTemplates.map(t=>row(t,false)).join('')):'<div style="font-size:12px;color:var(--faint);padding:4px 2px 10px">Nenhum modelo personalizado ainda.</div>'}
+  </div>
+  <button class="btn primary" style="margin-top:10px" onclick="editTemplate(null)">+ Novo modelo</button>`;
+}
+function editTemplate(id){
+  _tplEditing=id?JSON.parse(JSON.stringify((DB.reportTemplates||[]).find(t=>t.id===id)||{})):{id:'',name:'',keyMetric:'compras',metrics:['valorGasto','roas','compras','custoPorCompra'],funnel:['impressoes','cliques','compras'],source:'meta'};
+  renderTemplateEditor();
+}
+function renderTemplateEditor(){
+  const t=_tplEditing;const el=document.getElementById('templatesModalBody');
+  const metricOpts=Object.entries(METRIC_CATALOG).map(([k,v])=>`<option value="${k}"${t.keyMetric===k?' selected':''}>${v.label}</option>`).join('');
+  const metricChecks=Object.entries(METRIC_CATALOG).map(([k,v])=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:5px 9px;cursor:pointer"><input type="checkbox" class="tplMetric" value="${k}" ${(t.metrics||[]).includes(k)?'checked':''} style="width:auto">${v.label}</label>`).join('');
+  const funnelChecks=FUNNEL_ORDER.map(k=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:5px 9px;cursor:pointer"><input type="checkbox" class="tplFunnel" value="${k}" ${(t.funnel||[]).includes(k)?'checked':''} style="width:auto">${FUNNEL_CATALOG[k].label}</label>`).join('');
+  el.innerHTML=`<div class="form-row"><label>Nome do modelo</label><input id="tplName" value="${(t.name||'').replace(/"/g,'&quot;')}" placeholder="Ex: Vendas com foco em ROAS"></div>
+    <div class="form-row"><label>Métrica-chave (número de destaque)</label><select id="tplKeyMetric">${metricOpts}</select></div>
+    <div class="form-row"><label>Métricas exibidas (KPIs)</label><div style="display:flex;flex-wrap:wrap;gap:6px">${metricChecks}</div></div>
+    <div class="form-row"><label>Etapas do funil (em ordem)</label><div style="display:flex;flex-wrap:wrap;gap:6px">${funnelChecks}</div></div>
+    <div class="modal-actions" style="margin-top:6px">
+      <button class="btn ghost" onclick="renderTemplatesList()">Voltar</button>
+      <button class="btn primary" onclick="saveTemplateForm()">Salvar modelo</button>
+    </div>`;
+}
+async function saveTemplateForm(){
+  const name=document.getElementById('tplName').value.trim();
+  if(!name){document.getElementById('tplName').focus();return}
+  const metrics=[...document.querySelectorAll('.tplMetric:checked')].map(x=>x.value);
+  const funnel=FUNNEL_ORDER.filter(k=>document.querySelector('.tplFunnel[value="'+k+'"]:checked'));
+  const keyMetric=document.getElementById('tplKeyMetric').value;
+  if(!metrics.includes(keyMetric)&&METRIC_CATALOG[keyMetric])metrics.unshift(keyMetric);
+  const o={id:_tplEditing.id||('tpl_'+uid()),name,keyMetric,metrics,funnel,source:'meta',objectiveType:''};
+  await sb.from('report_templates').upsert(dbTemplate(o));
+  const i=(DB.reportTemplates||[]).findIndex(t=>t.id===o.id);
+  if(i>=0)DB.reportTemplates[i]={...o,isBase:false};else{DB.reportTemplates=DB.reportTemplates||[];DB.reportTemplates.push({...o,isBase:false})}
+  if(document.getElementById('cReportTemplate'))fillTemplateSelect(document.getElementById('cReportTemplate').value);
+  renderTemplatesList();
+}
+async function deleteTemplate(id){
+  if(!confirm('Excluir este modelo? Clientes que o usam voltam para "Automático".'))return;
+  await sb.from('report_templates').delete().eq('id',id);
+  DB.reportTemplates=(DB.reportTemplates||[]).filter(t=>t.id!==id);
+  if(document.getElementById('cReportTemplate'))fillTemplateSelect(document.getElementById('cReportTemplate').value);
+  renderTemplatesList();
+}
 // Retorna a próxima ocorrência da data de relatório mensal a partir de hoje
 function nextMonthlyDate(dateStr){
   if(!dateStr)return null;
@@ -1229,8 +1368,8 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean)});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||''});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||'',category:r.category||'',fixedType:r.fixed_type||''});
@@ -1279,7 +1418,7 @@ async function doLogin(){
 }
 async function doLogout(){
   await sb.auth.signOut();
-  DB.clients=[];DB.tasks=[];DB.finance=[];DB.shows=[];DB.team=[];DB.notifications=[];
+  DB.clients=[];DB.tasks=[];DB.finance=[];DB.shows=[];DB.team=[];DB.notifications=[];DB.reportTemplates=[];
   if(realtimeChannel){sb.removeChannel(realtimeChannel);realtimeChannel=null;}
   if(notifChannel){sb.removeChannel(notifChannel);notifChannel=null;}
   showLogin();
@@ -1287,8 +1426,8 @@ async function doLogout(){
 
 /* ---- LOAD ---- */
 async function loadAll(){
-  const [c,t,f,s,tm,cr,w]=await Promise.all([sb.from('clients').select('*'),sb.from('tasks').select('*'),sb.from('finance').select('*'),sb.from('shows').select('*'),sb.from('team').select('*'),sb.from('creditors').select('*').order('name'),sb.from('wallet').select('*').order('date')]);
-  DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask);DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];DB.creditors=cr.data||[];DB.wallet=w.data||[];
+  const [c,t,f,s,tm,cr,w,rt]=await Promise.all([sb.from('clients').select('*'),sb.from('tasks').select('*'),sb.from('finance').select('*'),sb.from('shows').select('*'),sb.from('team').select('*'),sb.from('creditors').select('*').order('name'),sb.from('wallet').select('*').order('date'),sb.from('report_templates').select('*').order('created_at')]);
+  DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask);DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];DB.creditors=cr.data||[];DB.wallet=w.data||[];DB.reportTemplates=(rt.data||[]).map(mapTemplate);
   if(!DB.team.length){const dt=[{id:'eu',name:'Andreia'},{id:'col1',name:'Dionathan'}];await sb.from('team').insert(dt);DB.team=dt;}
   setFinSub(finSub);
   renderWhoAmI();loadNotifications();
@@ -2252,6 +2391,7 @@ function openClientModal(id){
   document.getElementById('cReportOrdersSheetRow').style.display=(c.reportOrdersMode==='local')?'none':'block';
   setMetaSelection(c.metaAccountIds||[]);
   document.getElementById('cMetaAccountHint').textContent='';
+  fillTemplateSelect(c.reportTemplateId||'');
   document.getElementById('cKnowledgeUpload').value='';document.getElementById('cKnowledgeStatus').textContent='';
   if(id){document.getElementById('cKnowledgeHint').textContent='';renderKnowledgeList('cKnowledgeList',id)}
   else{document.getElementById('cKnowledgeHint').textContent='(disponível após salvar o cliente)';document.getElementById('cKnowledgeList').innerHTML=''}
@@ -2308,7 +2448,7 @@ async function saveClient(){
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
   const reportWeekly=document.getElementById('cReportWeekly').checked;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice()};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),reportTemplateId:document.getElementById('cReportTemplate').value||''};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
@@ -3901,6 +4041,20 @@ function classifyAdByObjective(a){
     :('CPM '+(a.impressions?fmt(a.cpm):'—'));
   return {v,metricaChave,rotulo:(a.objetivo&&a.objetivo.rotulo)||'—'};
 }
+function templatePanelHTML(tpl,agg){
+  if(!tpl)return '';
+  const cards=(tpl.metrics||[]).filter(k=>METRIC_CATALOG[k]).map(k=>{
+    const mc=METRIC_CATALOG[k];const val=fmtMetric(mc.calc(agg),mc.fmt);const key=k===tpl.keyMetric;
+    return`<div class="rt-kpi ${key?'gr':'pu'}"${key?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${mc.label}${key?' ★':''}</div><div class="rt-kpi-val sm">${val}</div></div>`;
+  }).join('');
+  const km=METRIC_CATALOG[tpl.keyMetric]?METRIC_CATALOG[tpl.keyMetric].label:tpl.keyMetric;
+  return`<div class="rt-sec">
+      <div class="rt-sec-hdr"><div class="rt-sec-num">◆</div><div class="rt-sec-title">Modelo: ${(tpl.name||'').replace(/</g,'&lt;')}</div><div class="rt-sec-ln"></div></div>
+      <div style="font-size:11.5px;color:var(--rt2);margin-bottom:10px">Métrica-chave: <b>${km}</b> · ${tpl.isBase?'modelo-base (automático pelo objetivo do Meta)':'modelo personalizado'}</div>
+      <div class="rt-kpi-grid">${cards}</div>
+    </div>
+    <div class="rt-div"></div>`;
+}
 function raioXSectionHTML(ads){
   if(!ads||!ads.length)return '';
   const top=ads.filter(a=>a.spend>0).slice(0,12);
@@ -3969,6 +4123,12 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   const channelList=Object.values(chStats).sort((a,b)=>b.revenue-a.revenue);
   const maxRev=channelList[0]?channelList[0].revenue:1;
 
+  // ---- Modelo de relatório (template) ----
+  const chSum=channelList.reduce((s,ch)=>({spend:s.spend+ch.spend,impressions:s.impressions+ch.impressions,clicks:s.clicks+ch.clicks,reach:s.reach+(ch.reach||0),revenue:s.revenue+ch.revenue,sales:s.sales+(ch.sales||0)}),{spend:0,impressions:0,clicks:0,reach:0,revenue:0,sales:0});
+  const metaSum=(metaAds||[]).reduce((s,a)=>({leads:s.leads+(a.leads||0),addCarrinho:s.addCarrinho+(a.addToCart||0),checkout:s.checkout+(a.initiateCheckout||0)}),{leads:0,addCarrinho:0,checkout:0});
+  const tplAgg={spend:chSum.spend,impressions:chSum.impressions,clicks:chSum.clicks,reach:chSum.reach,revenue:chSum.revenue,compras:aprovadosCount||chSum.sales,leads:metaSum.leads,addCarrinho:metaSum.addCarrinho,checkout:(checkoutCount||0)||metaSum.checkout,frequencia:chSum.reach?chSum.impressions/chSum.reach:0};
+  const clientTpl=resolveClientTemplate(c,metaAds);
+
   const weeks=weekBucketsForMonth(month);
   const weekly=weeks.map(w=>{
     const geral=Object.entries(aprovadosByDate).filter(([d])=>d>=w.from&&d<=w.to).reduce((s,[,v])=>s+v,0);
@@ -3979,7 +4139,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
     return{...w,geral,perChannel};
   });
 
-  const funnelStages=computeFunnelStages(channelList,aprovadosCount,checkoutCount||0);
+  const funnelStages=clientTpl.funnel.filter(k=>FUNNEL_CATALOG[k]).map(k=>({label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(tplAgg))}));
   const mesLabel=new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   const analysis=await loadReportAnalysis(c.id,month);
   currentAnalysisChat=(analysis&&Array.isArray(analysis.chat))?analysis.chat:[];
@@ -4003,7 +4163,8 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
       <div class="rt-period">● ${mesLabel}</div>
     </div>
     <div class="rt-wrap">
-      <div class="rt-sec">
+      ${templatePanelHTML(clientTpl,tplAgg)}
+      ${totalPedidos>0?`<div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">01</div><div class="rt-sec-title">Resultados Gerais — Dashboard de Pedidos</div><div class="rt-sec-ln"></div></div>
         <div class="rt-kpi-grid">
           <div class="rt-kpi pu"><div class="rt-kpi-lbl">Todos os Pedidos</div><div class="rt-kpi-val">${totalPedidos.toLocaleString('pt-BR')}</div></div>
@@ -4013,9 +4174,9 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
           <div class="rt-kpi cy"><div class="rt-kpi-lbl">Aguardando Pagamento</div><div class="rt-kpi-val">${aguardando.toLocaleString('pt-BR')}</div></div>
         </div>
         <div class="rt-chips">${Object.entries(byStatusChip).map(([st,ct])=>`<div class="rt-chip"><div class="rt-dot" style="background:${orderStatusColor(st)}"></div> ${st}: ${ct}</div>`).join('')}</div>
-      </div>
+      </div>`:''}
 
-      ${weekly.length?`<div class="rt-div"></div>
+      ${(totalPedidos>0&&weekly.length)?`<div class="rt-div"></div>
       <div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">02</div><div class="rt-sec-title">📅 Evolução Semanal por Canal — Volume de Vendas</div><div class="rt-sec-ln"></div></div>
         <div class="rt-tc" style="overflow-x:auto">
