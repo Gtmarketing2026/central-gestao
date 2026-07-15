@@ -3846,11 +3846,14 @@ function computeFunnelStages(channelList,aprovadosCount,checkoutCount){
 }
 function monthRange(month){const [y,m]=month.split('-').map(Number);const last=new Date(y,m,0).getDate();return{since:`${month}-01`,until:`${month}-${String(last).padStart(2,'0')}`};}
 // Mescla canais: mantém os da planilha que NÃO são Meta/Facebook/Instagram (Google, WhatsApp, etc.) e adiciona os canais Meta ao vivo. Evita contar o Meta duas vezes.
-function isMetaChannelLabel(l){return /\bmeta\b|facebook|instagram|\bfb\b|\big\b|face|insta/i.test(l||'');}
+function isMetaChannelLabel(l){return /\bmeta\b|facebook|\bfb\b/i.test(l||'')&&!/\bbio\b|organico|organic/i.test(l||'');}
 function mergeChannelStats(sheetStats,metaStats){
   const out={};
   let sheetMeta=null;
-  Object.values(sheetStats||{}).forEach(ch=>{if(isMetaChannelLabel(ch.label))sheetMeta=ch;else out[ch.label]=ch});
+  Object.values(sheetStats||{}).forEach(ch=>{
+    if(isMetaChannelLabel(ch.label)){const score=(ch.sales||0)+(ch.revenue||0)+(ch.spend||0);if(!sheetMeta||score>((sheetMeta.sales||0)+(sheetMeta.revenue||0)+(sheetMeta.spend||0)))sheetMeta=ch;}
+    else out[ch.label]=ch;
+  });
   Object.values(metaStats||{}).forEach(ch=>{
     const c={...ch};
     // Se a planilha tem aba de Meta (ex: "META VENDAS"), venda e faturamento do Meta vêm dela (o pixel da API superatribui). Mídia (invest/cliques/CTR) continua da API.
