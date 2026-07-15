@@ -742,8 +742,12 @@
       </div>
       <hr class="budget-divider">
       <div class="form-row" style="margin-bottom:6px">
-        <span style="font-size:13px;font-weight:600;color:var(--text)">🎯 Metas / Benchmark do cliente (opcional)</span>
-        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Defina só as metas que fazem sentido pro objetivo dele. A AndréIA cobra o desempenho contra elas. Deixe em branco o que não usar.</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:13px;font-weight:600;color:var(--text)">🎯 Metas / Benchmark do cliente (opcional)</span>
+          <button type="button" class="btn sm ghost" id="cMetaAvgBtn" onclick="pullAccountAverages()">📊 Puxar média da conta</button>
+        </div>
+        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Defina só as metas que fazem sentido pro objetivo dele. A AndréIA cobra o desempenho contra elas. Deixe em branco o que não usar. "Puxar média da conta" preenche com a média dos últimos 90 dias do Meta.</div>
+        <span id="cMetaAvgMsg" style="font-size:11px;color:var(--muted)"></span>
       </div>
       <div class="form-grid">
         <div class="form-row"><label>CTR alvo (%)</label><input id="cMetaCtr" type="number" step="0.01" placeholder="ex: 1.5"></div>
@@ -2627,6 +2631,24 @@ async function loadMetaAccounts(){
     fillMetaSelect();renderMetaChips();
     hint.style.color='var(--faint)';hint.textContent=`${metaAccountsCache.length} contas carregadas — escolha e clique em "+ Vincular" (pode adicionar várias).`;
   }catch(e){hint.style.color='var(--red)';hint.textContent='Erro: '+(e.message||e)+' (o token do Meta já foi publicado no Supabase?)';}
+  btn.disabled=false;btn.textContent=old;
+}
+async function pullAccountAverages(){
+  const id=cId.value;const c=DB.clients.find(x=>x.id===id);
+  const msg=document.getElementById('cMetaAvgMsg');
+  if(!c||!(c.metaAccountIds&&c.metaAccountIds.length)){msg.textContent='Vincule uma conta do Meta (aba Mídia) e salve antes.';return}
+  const btn=document.getElementById('cMetaAvgBtn');btn.disabled=true;const old=btn.textContent;btn.textContent='Puxando...';msg.textContent='';
+  try{
+    const t=await fetchMetaTotals(c,daysAgoISO(90),today());
+    if(!t||!t.spend){msg.textContent='Sem dados de entrega nos últimos 90 dias.';btn.disabled=false;btn.textContent=old;return}
+    const setV=(elid,v,dec)=>{if(v&&isFinite(v))document.getElementById(elid).value=(+v).toFixed(dec==null?2:dec)};
+    setV('cMetaCtr',t.ctr,2);setV('cMetaCpc',t.cpc,2);setV('cMetaCpm',t.cpm,2);setV('cMetaRoas',t.roas,2);
+    setV('cMetaCpa',t.purchases?t.spend/t.purchases:0,2);
+    setV('cMetaCpl',t.leads?t.spend/t.leads:0,2);
+    setV('cMetaConversa',t.conversas?t.spend/t.conversas:0,2);
+    setV('cMetaView',t.videoViews?t.spend/t.videoViews:0,3);
+    msg.textContent='✓ Preenchido com a média de 90 dias. Ajuste as metas como quiser e salve.';
+  }catch(e){msg.textContent='Erro: '+(e.message||e);}
   btn.disabled=false;btn.textContent=old;
 }
 async function saveClient(){
