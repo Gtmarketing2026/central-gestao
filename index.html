@@ -4782,14 +4782,15 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
           </div>
         </div>
       </div>`:'';
+  const resumoRows=[];
+  if(!noSales&&totalPedidos>0){resumoRows.push(['Faturamento Aprovado',fmt(aprovadosVal)],['Pedidos Aprovados',aprovadosCount.toLocaleString('pt-BR')],['Ticket Médio',fmt(ticketMedio)]);}
+  (clientTpl.metrics||[]).filter(k=>METRIC_CATALOG[k]).forEach(k=>{const mc=METRIC_CATALOG[k];resumoRows.push([mc.label+(k===clientTpl.keyMetric?' ★':''),fmtMetric(mc.calc(tplAgg),mc.fmt)]);});
+  if(!noSales)channelList.filter(ch=>ch.revenue>0).forEach(ch=>resumoRows.push(['Faturamento '+ch.label,fmt(ch.revenue)+(ch.spend?` <span style="color:var(--rtm);font-weight:400">(ROAS ${(ch.revenue/ch.spend).toFixed(2)}x)</span>`:'')]));
   const secResumo=`<div class="rt-tc" style="margin-bottom:0">
         <div class="rt-tc-hdr">📋 Resumo Executivo — Números-Chave · ${mesLabel}</div>
         <table style="width:100%;border-collapse:collapse">
           <tr><th style="text-align:left;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Indicador</th><th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Valor</th></tr>
-          <tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">Faturamento Aprovado</td><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${fmt(aprovadosVal)}</td></tr>
-          <tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">Pedidos Aprovados</td><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${aprovadosCount.toLocaleString('pt-BR')}</td></tr>
-          <tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">Ticket Médio</td><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${fmt(ticketMedio)}</td></tr>
-          ${channelList.map(ch=>`<tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">Faturamento ${ch.label}</td><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${fmt(ch.revenue)}${ch.spend?` <span style="color:var(--rtm);font-weight:400">(ROAS ${(ch.revenue/ch.spend).toFixed(2)}x)</span>`:''}</td></tr>`).join('')}
+          ${resumoRows.map(([k,v])=>`<tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${k}</td><td style="padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${v}</td></tr>`).join('')}
         </table>
       </div>`;
   const secAnalise=`<div class="rt-sec">
