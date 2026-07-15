@@ -296,8 +296,7 @@ async function metaAdsInsights(m: any) {
     if (m.byCampaign) {
       const rows = await fetchInsights(acc.id, "campaign", m.daily ? "&time_increment=1" : "");
       for (const row of rows) {
-        const cname = row.campaign_name || "Meta Ads";
-        const label = multi ? `${acc.name || acc.id} · ${cname}` : cname;
+        const label = row.campaign_name || "Meta Ads";
         const s = shape(row);
         if (!byCamp[label]) byCamp[label] = { campaign: label, account: acc.name || acc.id, objetivo: objByCampId[row.campaign_id] || metaObjetivo(""), spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
         const c = byCamp[label];

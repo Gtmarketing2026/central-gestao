@@ -682,6 +682,14 @@
         </div>
         <div style="font-size:11px;color:var(--faint);margin-top:3px">"Automático" usa o modelo-base do objetivo da campanha no Meta.</div>
       </div>
+      <div class="form-row"><label>Fonte de vendas do funil <span style="font-size:11px;color:var(--faint);font-weight:400">— de onde vem o nº de vendas/conversões</span></label>
+        <select id="cConversionSource">
+          <option value="">Automático (pedidos se houver, senão Meta)</option>
+          <option value="orders">Pedidos (planilha / site)</option>
+          <option value="meta">Meta (gerenciador de anúncios)</option>
+        </select>
+        <div style="font-size:11px;color:var(--faint);margin-top:3px">Ex: Fernanda usa "Pedidos" (site+planilha), pois o gerenciador do Meta tem gap de marcação.</div>
+      </div>
       <div class="form-row"><label>Próximo relatório mensal</label><input id="cReport" type="date"></div>
       <div class="form-row" style="display:flex;align-items:center;gap:10px">
         <input type="checkbox" id="cReportWeekly" class="checkbox" style="width:auto" onchange="document.getElementById('cReportWeeklyDayRow').style.display=this.checked?'block':'none'">
@@ -1368,8 +1376,8 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||''});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||''});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,conversion_source:o.conversionSource||null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||'',category:r.category||'',fixedType:r.fixed_type||''});
@@ -2392,6 +2400,7 @@ function openClientModal(id){
   setMetaSelection(c.metaAccountIds||[]);
   document.getElementById('cMetaAccountHint').textContent='';
   fillTemplateSelect(c.reportTemplateId||'');
+  document.getElementById('cConversionSource').value=c.conversionSource||'';
   document.getElementById('cKnowledgeUpload').value='';document.getElementById('cKnowledgeStatus').textContent='';
   if(id){document.getElementById('cKnowledgeHint').textContent='';renderKnowledgeList('cKnowledgeList',id)}
   else{document.getElementById('cKnowledgeHint').textContent='(disponível após salvar o cliente)';document.getElementById('cKnowledgeList').innerHTML=''}
@@ -2448,7 +2457,7 @@ async function saveClient(){
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
   const reportWeekly=document.getElementById('cReportWeekly').checked;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),reportTemplateId:document.getElementById('cReportTemplate').value||''};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),reportTemplateId:document.getElementById('cReportTemplate').value||'',conversionSource:document.getElementById('cConversionSource').value||''};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
@@ -3298,6 +3307,11 @@ function selectReportClient(clientId){
 }
 async function loadClientReport(clientId){
   const c=DB.clients.find(x=>x.id===clientId);
+  // sempre reseta o estado do dashboard ao trocar de cliente (evita mostrar dados do cliente anterior)
+  currentReport=null;selectedReportChannels=null;
+  document.getElementById('crFilterBar').style.display='none';
+  document.getElementById('clientReportBody').innerHTML='';
+  document.getElementById('crTemplateBody').innerHTML='<div class="empty">Selecione o mês e aguarde o carregamento.</div>';
   // cliente sem dashboard de planilha, mas com Meta/pedidos → abre direto o Template gerencial
   if(c&&!c.reportSheetUrl&&((c.metaAccountIds&&c.metaAccountIds.length)||c.reportOrdersMode==='local'||c.reportOrdersSheetUrl)){
     setReportSub('template');return;
@@ -3536,14 +3550,16 @@ async function fetchMetaChannelStats(c,month){
   if(error)throw new Error('Meta Ads: '+(error.message||error));
   if(data&&data.error)throw new Error('Meta Ads: '+data.error);
   const d=(data&&data.data)||data;if(!d||!d.total)return null;
-  const stats={};
-  const rows=(d.campaigns&&d.campaigns.length)?d.campaigns:[{...d.total,campaign:'Meta Ads'}];
-  rows.forEach(r=>{
-    const key=r.campaign||'Meta Ads';
-    const records=(r.records||[]).map(x=>({date:x.date,sales:Math.round(x.sales||0),spend:x.spend||0,revenue:x.revenue||0,clicks:x.clicks||0,impressions:x.impressions||0}));
-    stats[key]={label:key,spend:r.spend||0,impressions:r.impressions||0,clicks:r.clicks||0,reach:r.reach||0,revenue:r.revenue||0,sales:Math.round(r.purchases||0),records,_meta:true};
-  });
-  return {stats,total:d.total};
+  const t=d.total;
+  // Agrega TODAS as campanhas num único canal META (não uma linha por campanha; sem nome de conta/campanha).
+  const recByDate={};
+  (d.campaigns||[]).forEach(r=>(r.records||[]).forEach(x=>{
+    const k=x.date;if(!k)return;
+    if(!recByDate[k])recByDate[k]={date:k,sales:0,spend:0,revenue:0,clicks:0,impressions:0};
+    recByDate[k].sales+=Math.round(x.sales||0);recByDate[k].spend+=x.spend||0;recByDate[k].revenue+=x.revenue||0;recByDate[k].clicks+=x.clicks||0;recByDate[k].impressions+=x.impressions||0;
+  }));
+  const stats={META:{label:'META',spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:t.revenue||0,sales:Math.round(t.purchases||0),leads:t.leads||0,addToCart:t.addToCart||0,initiateCheckout:t.initiateCheckout||0,records:Object.values(recByDate),_meta:true}};
+  return {stats,total:t};
 }
 // Raio-X: performance por anúncio (criativo) ao vivo. Retorna array de ads ordenado por investimento.
 async function fetchMetaCreatives(c,month){
@@ -4126,7 +4142,11 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   // ---- Modelo de relatório (template) ----
   const chSum=channelList.reduce((s,ch)=>({spend:s.spend+ch.spend,impressions:s.impressions+ch.impressions,clicks:s.clicks+ch.clicks,reach:s.reach+(ch.reach||0),revenue:s.revenue+ch.revenue,sales:s.sales+(ch.sales||0)}),{spend:0,impressions:0,clicks:0,reach:0,revenue:0,sales:0});
   const metaSum=(metaAds||[]).reduce((s,a)=>({leads:s.leads+(a.leads||0),addCarrinho:s.addCarrinho+(a.addToCart||0),checkout:s.checkout+(a.initiateCheckout||0)}),{leads:0,addCarrinho:0,checkout:0});
-  const tplAgg={spend:chSum.spend,impressions:chSum.impressions,clicks:chSum.clicks,reach:chSum.reach,revenue:chSum.revenue,compras:aprovadosCount||chSum.sales,leads:metaSum.leads,addCarrinho:metaSum.addCarrinho,checkout:(checkoutCount||0)||metaSum.checkout,frequencia:chSum.reach?chSum.impressions/chSum.reach:0};
+  // Fonte de vendas/conversões: 'orders' (planilha+site), 'meta' (gerenciador) ou auto (pedidos se houver)
+  const useOrders=c.conversionSource==='orders'||(c.conversionSource!=='meta'&&(aprovadosCount>0||rows.length>0));
+  const comprasFunil=useOrders?aprovadosCount:chSum.sales;
+  const receitaFunil=useOrders?aprovadosVal:chSum.revenue;
+  const tplAgg={spend:chSum.spend,impressions:chSum.impressions,clicks:chSum.clicks,reach:chSum.reach,revenue:receitaFunil,compras:comprasFunil,leads:metaSum.leads,addCarrinho:metaSum.addCarrinho,checkout:(checkoutCount||0)||metaSum.checkout,frequencia:chSum.reach?chSum.impressions/chSum.reach:0};
   const clientTpl=resolveClientTemplate(c,metaAds);
 
   const weeks=weekBucketsForMonth(month);
