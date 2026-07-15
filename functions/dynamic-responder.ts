@@ -123,7 +123,7 @@ async function generateAnalysis(m: any, chat: any[], styleExamples: string[]) {
   const messages: any[] = [{ role: "system", content: system }];
   messages.push({ role: "user", content: `Dados do mes para o cliente "${m.clientName}", referente a ${m.mesLabel}:\n${JSON.stringify(m, null, 2)}\n\nGere a analise gerencial mensal.` });
   if (Array.isArray(chat)) for (const t of chat) messages.push({ role: t.role === "user" ? "user" : "assistant", content: String(t.text || "") });
-  const json = await callOpenAI({ messages });
+  const json = await callOpenAI({ model: "gpt-4o", messages, max_tokens: 1200 });
   return json.choices?.[0]?.message?.content || "";
 }
 
@@ -150,7 +150,7 @@ const AGENT_TOOLS = [
 ];
 
 async function runAgent(a: any) {
-  let system = `Voce e a AndreIA, gestora de trafego pago senior de uma agencia de performance. Domina Meta Ads, Google Ads, funil de vendas, CRO (otimizacao de paginas) e analise de dados, no nivel dos melhores gestores de trafego do Brasil.
+  let system = `Voce e a AndreIA, uma SUPER gestora de trafego (nivel "Jarvis") de uma agencia de performance de elite. Voce pensa e recomenda no nivel dos melhores gestores do Brasil (Pedro Sobral e outros que a agencia treinou em voce via BASE DE CONHECIMENTO abaixo). Voce olha TODOS OS PILARES e conecta eles: (1) TRAFEGO PAGO (estrutura de campanha, publico, leilao, orcamento, escala), (2) CRIATIVO (angulos, hook, formato, fadiga/saturacao, o que testar), (3) SITE/PAGINA e FUNIL/CRO (conversao, checkout, oferta, prova social, velocidade). Uma metrica ruim num pilar quase sempre tem causa em outro — diga qual e por que. Seja uma consultora tecnica de verdade: especifica, com numeros do snapshot, priorizada, e com o "porque" por tras (nao conselho generico de manual).
 
 ⚠️ REGRA #1 (INEGOCIAVEL) — NUNCA JULGUE UMA CAMPANHA/ANUNCIO POR ROAS SE O OBJETIVO DELA NAO FOR VENDA.
 Cada anuncio no snapshot tem 'objetivo' (tipo + metrica de sucesso), 'metricaDoObjetivo' e 'avaliacao' (BOM/RUIM/observar JA calculado pelo objetivo correto). USE a 'avaliacao' e a 'metricaDoObjetivo' — NAO recalcule por ROAS. Exemplos:
@@ -193,15 +193,15 @@ Se o snapshot tiver 'dnaCliente' (identidade, produtos, personas com dores/desej
 Voce tambem pode EXECUTAR acoes quando o gestor pedir explicitamente: criar/concluir tarefas E acoes reais no Meta Ads (pausar_meta, reativar_meta, ajustar_orcamento, duplicar_campanha). Para as acoes do Meta, use SEMPRE o 'id' e o 'nivel' que estao na lista 'metaEntidades' do snapshot (campanhas, conjuntos e anuncios com id, status e orcamento atuais) — nunca invente ids. O sistema mostra um card de confirmacao antes de executar; entao apenas PROPONHA a acao chamando a funcao e explique o porque em texto; nunca afirme que ja executou. So proponha acao no Meta quando o gestor pedir ou quando os dados claramente justificarem (ex: anuncio com gasto alto e 0 compras -> propor pausar). Seu valor principal continua sendo a analise tecnica.`;
 
   if (Array.isArray(a.knowledge) && a.knowledge.length) {
-    system += `\n\nBASE DE CONHECIMENTO (metodos e frameworks de gestores de trafego que a agencia quer que voce siga). Use estes principios como referencia nas suas recomendacoes:\n` +
-      a.knowledge.map((k: any, i: number) => `--- Fonte ${i + 1}: ${k.title || "material"} ---\n${String(k.text || "").slice(0, 6000)}`).join("\n\n");
+    system += `\n\n===== BASE DE CONHECIMENTO (JARVIS) =====\nEstes sao os metodos e frameworks dos gestores que a agencia treinou em voce (Pedro Sobral e outros). Eles sao a SUA forma de pensar: aplique estes principios, benchmarks e mentalidade em TODA analise e recomendacao, citando o raciocinio quando util. Nao os ignore.\n` +
+      a.knowledge.map((k: any, i: number) => `--- Fonte ${i + 1}: ${k.title || "material"} ---\n${String(k.text || "").slice(0, 14000)}`).join("\n\n");
   }
 
   const messages: any[] = [{ role: "system", content: system }];
   messages.push({ role: "user", content: `Snapshot atual (dados reais do sistema):\n${JSON.stringify(a.snapshot, null, 2)}` });
   if (Array.isArray(a.history)) for (const t of a.history) messages.push({ role: t.role === "user" ? "user" : "assistant", content: String(t.text || "") });
 
-  const json = await callOpenAI({ messages, tools: AGENT_TOOLS, tool_choice: "auto" });
+  const json = await callOpenAI({ model: "gpt-4o", messages, tools: AGENT_TOOLS, tool_choice: "auto", max_tokens: 2000, temperature: 0.5 });
   const msg = json.choices?.[0]?.message || {};
   const actions: any[] = [];
   if (Array.isArray(msg.tool_calls)) {
