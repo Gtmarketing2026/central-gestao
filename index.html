@@ -3313,15 +3313,15 @@ async function loadClientReport(clientId){
   document.getElementById('crFilterBar').style.display='none';
   document.getElementById('clientReportBody').innerHTML='';
   document.getElementById('crTemplateBody').innerHTML='<div class="empty">Selecione o mês e aguarde o carregamento.</div>';
-  // cliente sem dashboard de planilha, mas com Meta/pedidos → abre direto o Template gerencial
-  if(c&&!c.reportSheetUrl&&((c.metaAccountIds&&c.metaAccountIds.length)||c.reportOrdersMode==='local'||c.reportOrdersSheetUrl)){
-    setReportSub('template');return;
-  }
+  // MANTÉM a sub-aba atual (Dashboard ou Template) ao trocar de cliente — não força troca
+  const activeSub=((document.querySelector('#crSubSeg [data-sub].active')||{}).dataset||{}).sub||'dashboard';
+  if(activeSub==='template'){setReportSub('template');return;}
   setReportSub('dashboard');
   if(!c||!c.reportSheetUrl){
     currentReport=null;
     document.getElementById('crFilterBar').style.display='none';
-    document.getElementById('clientReportBody').innerHTML='<div class="empty">Selecione um cliente com planilha de relatório configurada.</div>';
+    const temMeta=c&&c.metaAccountIds&&c.metaAccountIds.length;
+    document.getElementById('clientReportBody').innerHTML=`<div class="empty">Este cliente não tem planilha de dashboard configurada.${temMeta?' Ele tem Meta vinculado — use a aba <b>Template</b> pra ver o relatório ao vivo (o Dashboard com Meta está em construção).':''}</div>`;
     return;
   }
   currentReport=null;
