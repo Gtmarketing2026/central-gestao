@@ -4189,7 +4189,10 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
     return{...w,geral,perChannel};
   });
 
-  const funnelStages=clientTpl.funnel.filter(k=>FUNNEL_CATALOG[k]).map(k=>({label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(tplAgg))}));
+  const funnelStages=clientTpl.funnel.filter(k=>FUNNEL_CATALOG[k])
+    .map(k=>({key:k,label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(tplAgg))}))
+    // etapas opcionais de conversão somem quando sem dado (cliente que não trabalha com elas)
+    .filter(s=>!(['checkout','addCarrinho','leads'].includes(s.key)&&s.value===0));
   const mesLabel=new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   const analysis=await loadReportAnalysis(c.id,month);
   currentAnalysisChat=(analysis&&Array.isArray(analysis.chat))?analysis.chat:[];
