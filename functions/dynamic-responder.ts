@@ -138,6 +138,89 @@ Voce tambem pode EXECUTAR acoes quando o gestor pedir explicitamente: criar tare
   return { answer: msg.content || "", actions };
 }
 
+async function metaAdsInsights(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN");
+  if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
+  const acct = String(m.accountId || "").replace(/^act_/, "");
+  if (!acct) throw new Error("accountId obrigatorio");
+  const ver = "v21.0";
+  const base = `https://graph.facebook.com/${ver}`;
+  // periodo: since/until (YYYY-MM-DD) ou date_preset (ex: last_30d)
+  let range = "";
+  if (m.since && m.until) range = `&time_range=${encodeURIComponent(JSON.stringify({ since: m.since, until: m.until }))}`;
+  else range = `&date_preset=${m.datePreset || "last_30d"}`;
+  const fields = "spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,action_values,purchase_roas";
+
+  async function fetchInsights(level: string, extra = "") {
+    const url = `${base}/act_${acct}/insights?level=${level}&fields=${fields}${level !== "account" ? ",campaign_name" : ""}${range}${extra}&limit=200&access_token=${token}`;
+    const r = await fetch(url);
+    const j = await r.json();
+    if (j.error) throw new Error(j.error.message);
+    return j.data || [];
+  }
+  function pickAction(arr: any[], types: string[]) {
+    if (!Array.isArray(arr)) return 0;
+    return arr.filter((x) => types.includes(x.action_type)).reduce((s, x) => s + parseFloat(x.value || "0"), 0);
+  }
+  function shape(row: any) {
+    const purchases = pickAction(row.actions, ["purchase", "omni_purchase", "offsite_conversion.fb_pixel_purchase"]);
+    const revenue = pickAction(row.action_values, ["purchase", "omni_purchase", "offsite_conversion.fb_pixel_purchase"]);
+    const roas = Array.isArray(row.purchase_roas) && row.purchase_roas.length ? parseFloat(row.purchase_roas[0].value || "0") : (parseFloat(row.spend || "0") ? revenue / parseFloat(row.spend) : 0);
+    return {
+      campaign: row.campaign_name || null,
+      spend: parseFloat(row.spend || "0"), impressions: parseInt(row.impressions || "0"), clicks: parseInt(row.clicks || "0"),
+      ctr: parseFloat(row.ctr || "0"), cpc: parseFloat(row.cpc || "0"), cpm: parseFloat(row.cpm || "0"),
+      reach: parseInt(row.reach || "0"), frequency: parseFloat(row.frequency || "0"),
+      purchases, revenue, roas,
+      leads: pickAction(row.actions, ["lead", "offsite_conversion.fb_pixel_lead"]),
+      addToCart: pickAction(row.actions, ["add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"]),
+      initiateCheckout: pickAction(row.actions, ["initiate_checkout", "offsite_conversion.fb_pixel_initiate_checkout"]),
+    };
+  }
+  const accountRows = await fetchInsights("account");
+  const total = accountRows.length ? shape(accountRows[0]) : shape({});
+  let campaigns: any[] = [];
+  if (m.byCampaign && !m.daily) {
+    const rows = await fetchInsights("campaign");
+    campaigns = rows.map(shape).sort((a: any, b: any) => b.spend - a.spend);
+  } else if (m.byCampaign && m.daily) {
+    // detalhe diario por campanha: agrega e guarda records por dia (para a tabela semanal)
+    const rows = await fetchInsights("campaign", "&time_increment=1");
+    const byCamp: Record<string, any> = {};
+    for (const row of rows) {
+      const name = row.campaign_name || "Meta Ads";
+      const s = shape(row);
+      if (!byCamp[name]) byCamp[name] = { campaign: name, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
+      const c = byCamp[name];
+      c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks; c.reach += s.reach;
+      c.revenue += s.revenue; c.purchases += s.purchases; c.leads += s.leads; c.addToCart += s.addToCart; c.initiateCheckout += s.initiateCheckout;
+      c.records.push({ date: row.date_start, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions });
+    }
+    campaigns = Object.values(byCamp).map((c: any) => {
+      c.ctr = c.impressions ? (c.clicks / c.impressions) * 100 : 0;
+      c.cpc = c.clicks ? c.spend / c.clicks : 0;
+      c.cpm = c.impressions ? (c.spend / c.impressions) * 1000 : 0;
+      c.roas = c.spend ? c.revenue / c.spend : 0;
+      return c;
+    }).sort((a: any, b: any) => b.spend - a.spend);
+  }
+  return { total, campaigns, period: m.since && m.until ? { since: m.since, until: m.until } : { datePreset: m.datePreset || "last_30d" } };
+}
+
+async function metaListAccounts() {
+  const token = Deno.env.get("META_USER_TOKEN");
+  if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
+  const out: any[] = [];
+  let url = `https://graph.facebook.com/v21.0/me/adaccounts?fields=name,account_id,account_status,currency&limit=200&access_token=${token}`;
+  for (let i = 0; i < 10 && url; i++) {
+    const r = await fetch(url); const j = await r.json();
+    if (j.error) throw new Error(j.error.message);
+    out.push(...(j.data || []));
+    url = j.paging?.next || "";
+  }
+  return out.map((a) => ({ id: a.account_id, name: a.name, status: a.account_status, currency: a.currency }));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -148,6 +231,14 @@ Deno.serve(async (req) => {
     const analysis = body.analysis;
     const agent = body.agent;
 
+    if (body.metaAds) {
+      const r = await metaAdsInsights(body.metaAds);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.metaAccounts) {
+      const r = await metaListAccounts();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (agent) {
       const r = await runAgent(agent);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
