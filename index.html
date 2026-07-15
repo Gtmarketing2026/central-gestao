@@ -19,15 +19,19 @@
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Inter',-apple-system,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
-  .app{max-width:1180px;margin:0 auto;padding:32px 24px 80px}
+  .app{display:flex;min-height:100vh}
+  .sidebar{width:214px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);padding:20px 14px;display:flex;flex-direction:column;gap:18px;position:sticky;top:0;height:100vh;overflow-y:auto}
+  .main{flex:1;min-width:0;padding:22px 28px 80px;max-width:1220px;margin:0 auto;width:100%}
+  .topbar{display:flex;align-items:center;justify-content:flex-end;padding-bottom:16px;border-bottom:1px solid var(--border);margin-bottom:22px;gap:12px;flex-wrap:wrap}
   header{display:flex;align-items:center;justify-content:space-between;padding-bottom:20px;border-bottom:1px solid var(--border);margin-bottom:24px;flex-wrap:wrap;gap:12px}
+  @media(max-width:820px){.app{flex-direction:column}.sidebar{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px}.sidebar .tabs{flex-direction:row;flex-wrap:wrap}.main{padding:16px}}
   .brand{display:flex;align-items:center;gap:14px}
   .brand .dot{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:#0a0906;font-family:'Space Grotesk'}
   .brand .eyebrow{font-family:'Space Grotesk';font-size:.7rem;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);font-weight:600}
   .brand h1{font-family:'Space Grotesk';font-size:1.5rem;font-weight:700;letter-spacing:-.02em}
   .brand p{font-size:12px;color:var(--muted)}
-  .tabs{display:flex;gap:4px;background:var(--surface);padding:5px;border-radius:14px;border:1px solid var(--border);flex-wrap:wrap}
-  .tab{padding:10px 16px;border:none;background:transparent;color:var(--muted);font-size:.9rem;font-weight:600;border-radius:10px;cursor:pointer;font-family:inherit;transition:.18s;display:flex;align-items:center;gap:7px}
+  .tabs{display:flex;flex-direction:column;gap:3px;background:transparent;padding:0;border:none}
+  .tab{padding:10px 12px;border:none;background:transparent;color:var(--muted);font-size:.88rem;font-weight:600;border-radius:10px;cursor:pointer;font-family:inherit;transition:.18s;display:flex;align-items:center;gap:8px;justify-content:flex-start;width:100%;text-align:left}
   .tab:hover{color:var(--text)}
   .tab.active{background:var(--surface2);color:var(--text)}
   .tab .badge{background:var(--accent);color:#0a0906;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700}
@@ -196,12 +200,12 @@
 <!-- APP -->
 <div id="appWrapper" style="display:none">
 <div class="app">
-  <header>
+  <aside class="sidebar">
     <div class="brand">
-      <div class="dot" style="background:none;padding:0"><img src="logo.ico" alt="logo" style="width:42px;height:42px;border-radius:12px;object-fit:cover"></div>
+      <div class="dot" style="background:none;padding:0"><img src="logo.ico" alt="logo" style="width:38px;height:38px;border-radius:10px;object-fit:cover"></div>
       <div>
-        <h1>Central de Gestão</h1>
-        <p>Tráfego pago · multi-cliente</p>
+        <h1 style="font-size:1.15rem">Central de Gestão</h1>
+        <p>Tráfego · multi-cliente</p>
       </div>
     </div>
     <nav class="tabs">
@@ -215,7 +219,10 @@
       <button class="tab" data-tab="modelos">📋 Modelos</button>
       <button class="tab" data-tab="iagestora">🤖 AndréIA</button>
     </nav>
-    <div style="display:flex;align-items:center;gap:8px">
+  </aside>
+  <main class="main">
+    <header class="topbar">
+    <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
       <span style="font-size:11px;color:var(--faint)">Você é:</span>
       <select id="whoAmI" onchange="setWhoAmI(this.value)" style="width:auto;padding:5px 8px;font-size:12px"></select>
       <div style="position:relative">
@@ -584,6 +591,7 @@
   </section>
 
   <!-- FINANCE -->
+  </main>
 </div>
 </div>
 
