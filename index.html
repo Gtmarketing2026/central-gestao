@@ -4494,29 +4494,37 @@ function templatePanelHTML(tpl,agg){
     </div>
     <div class="rt-div"></div>`;
 }
+// Métricas do card do Raio-X conforme o objetivo do anúncio (lead→CPL/leads, tráfego→cliques/CPC, etc.)
+function raioXMetricRows(a,tipo){
+  const num=v=>Math.round(v||0).toLocaleString('pt-BR');
+  const inv=['Invest.',fmt(a.spend)];
+  const ctr=['CTR',a.impressions?a.ctr.toFixed(2)+'%':'—'];
+  const cpc=['CPC',a.clicks?fmt(a.cpc):'—'];
+  const cpm=['CPM',a.impressions?fmt(a.cpm):'—'];
+  const alc=['Alcance',a.reach?num(a.reach):'—'];
+  if(tipo==='leads')return [inv,['Leads',num(a.leads)],['CPL',a.leads?fmt(a.spend/a.leads):'—'],ctr,cpc,cpm];
+  if(tipo==='trafego')return [inv,['Cliques',num(a.clicks)],cpc,ctr,cpm,alc];
+  if(tipo==='engajamento')return [inv,['Engaj.',num(a.engajamentos)],['Custo/eng',a.engajamentos?fmt(a.spend/a.engajamentos):'—'],ctr,cpm,alc];
+  if(tipo==='mensagens')return [inv,['Conversas',num(a.conversas)],['Custo/conv',a.conversas?fmt(a.spend/a.conversas):'—'],ctr,cpc,cpm];
+  if(tipo==='video')return [inv,['Views',num(a.videoViews)],['Custo/view',a.videoViews?fmt(a.spend/a.videoViews):'—'],cpm,ctr,alc];
+  if(tipo==='alcance')return [inv,alc,cpm,['Freq.',(a.frequency||0).toFixed(1)],['Impr.',a.impressions?num(a.impressions):'—'],ctr];
+  // conversao / app / outro
+  return [inv,['ROAS',a.spend?(a.roas||0).toFixed(2)+'x':'—'],['Compras',num(a.purchases)],['CPA',a.purchases?fmt(a.cpa):'—'],ctr,cpm];
+}
 function raioXCardHTML(a){
   const cl=classifyAdByObjective(a), good=cl.v==='good', bad=cl.v==='bad';
-  const roas=a.roas||0;
+  const tipo=(a.objetivo&&a.objetivo.tipo)||'conversao';
   const bd=good?'#34d399':bad?'#f87171':'rgba(255,255,255,.09)';
   const tag=good?'<span style="color:#34d399">▲ Escalar</span>':bad?'<span style="color:#f87171">▼ Rever</span>':'<span style="color:var(--rtm)">Observar</span>';
   const thumb=a.thumbnail?`<img src="${a.thumbnail}" style="width:100%;height:120px;object-fit:cover;background:#111" referrerpolicy="no-referrer">`:`<div style="width:100%;height:120px;background:linear-gradient(135deg,#1a1a22,#111);display:flex;align-items:center;justify-content:center;color:var(--rtm);font-size:11px">sem prévia</div>`;
-  const roasTxt=a.spend?roas.toFixed(2)+'x':'—';
-  const ctrTxt=a.impressions?a.ctr.toFixed(2)+'%':'—';
+  const rows=raioXMetricRows(a,tipo).map(([l,v])=>`<div><span style="color:var(--rtm)">${l}</span> <b>${v}</b></div>`).join('');
   return`<div style="border:1px solid ${bd};border-radius:12px;overflow:hidden;background:var(--rbg2)">
     ${thumb}
     <div style="padding:10px 12px">
       <div style="font-size:12px;font-weight:700;color:var(--rt1);line-height:1.3;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(a.adName||'').replace(/"/g,'')}">${(a.adName||'(sem nome)').replace(/</g,'&lt;')}</div>
       <div style="font-size:10.5px;color:var(--rtm);margin-bottom:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(a.campaign||'').replace(/</g,'&lt;')}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px 8px;font-size:11px">
-        <div><span style="color:var(--rtm)">Invest.</span> <b>${fmt(a.spend)}</b></div>
-        <div><span style="color:var(--rtm)">ROAS</span> <b>${roasTxt}</b></div>
-        <div><span style="color:var(--rtm)">Compras</span> <b>${Math.round(a.purchases||0)}</b></div>
-        <div><span style="color:var(--rtm)">CPA</span> <b>${a.purchases?fmt(a.cpa):'—'}</b></div>
-        <div><span style="color:var(--rtm)">CTR</span> <b>${ctrTxt}</b></div>
-        <div><span style="color:var(--rtm)">CPM</span> <b>${a.impressions?fmt(a.cpm):'—'}</b></div>
-      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px 8px;font-size:11px">${rows}</div>
       <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);font-size:10.5px;color:var(--rtm)">🎯 ${cl.rotulo}</div>
-      <div style="font-size:11px;color:var(--rt2);margin-top:2px">${cl.metricaChave}</div>
       <div style="margin-top:6px;font-size:11px;font-weight:700">${tag}</div>
     </div>
   </div>`;
