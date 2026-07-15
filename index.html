@@ -760,6 +760,12 @@
     </div>
 
     <div class="cpanel" data-panel="dna" style="display:none">
+      <div style="background:linear-gradient(135deg,rgba(240,192,64,.1),rgba(240,192,64,.03));border:1px solid rgba(240,192,64,.3);border-radius:12px;padding:14px 16px;margin-bottom:14px">
+        <div style="font-size:14px;font-weight:700;color:var(--text)">🧬 DNA do Cliente</div>
+        <div style="font-size:12px;color:var(--muted);margin:4px 0 10px">Identidade, produtos, personas (dores/desejos) e diretrizes de copy. Suba um PDF/site e a IA monta tudo automaticamente. A AndréIA usa esse DNA nas análises e copies.</div>
+        <button type="button" class="btn primary sm" onclick="openDnaModal(cId.value)">Abrir DNA do Cliente →</button>
+        <span id="cDnaStatus" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+      </div>
       <div class="form-row"><label>Notas</label><textarea id="cNotes" rows="2" placeholder="Contato, observações..."></textarea></div>
       <div class="form-row">
         <label>Canais ativos <span style="font-size:11px;color:var(--faint);font-weight:400">(define as tarefas de onboarding geradas)</span></label>
@@ -1041,6 +1047,23 @@
     <div class="card" style="padding:0;overflow:hidden">
       <div class="section-head" style="padding:14px 16px 0"><h2 style="font-size:14px">Últimos lançamentos</h2></div>
       <table id="despTable"></table>
+    </div>
+  </div>
+</div>
+
+<!-- DNA DO CLIENTE -->
+<div class="modal-bg" id="dnaModal">
+  <div class="modal" style="max-width:820px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <h3 style="margin:0">🧬 DNA do Cliente <span id="dnaClientName" style="font-weight:400;color:var(--muted);font-size:14px"></span></h3>
+      <button class="btn sm ghost" onclick="closeModal('dnaModal')">✕</button>
+    </div>
+    <div id="dnaTabs" style="display:flex;gap:4px;flex-wrap:wrap;background:var(--surface2);padding:5px;border-radius:12px;margin:10px 0 16px"></div>
+    <div id="dnaBody" style="max-height:60vh;overflow:auto;padding-right:6px"></div>
+    <div class="modal-actions">
+      <span id="dnaSaveMsg" style="font-size:12px;color:var(--muted);margin-right:auto"></span>
+      <button class="btn ghost" onclick="closeModal('dnaModal')">Cancelar</button>
+      <button class="btn primary" onclick="saveDna()">Salvar DNA</button>
     </div>
   </div>
 </div>
@@ -1431,7 +1454,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||''});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,conversion_source:o.conversionSource||null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -2457,6 +2480,7 @@ function openClientModal(id){
   document.getElementById('cMetaAccountHint').textContent='';
   fillTemplateSelect(c.reportTemplateId||'');
   document.getElementById('cConversionSource').value=c.conversionSource||'';
+  {const st=document.getElementById('cDnaStatus');if(st)st.textContent=c.dna&&c.dna.personas?('✓ DNA salvo · '+(c.dna.personas.length||0)+' personas'):(id?'Ainda sem DNA — clique pra montar':'(disponível após salvar o cliente)');}
   document.getElementById('cKnowledgeUpload').value='';document.getElementById('cKnowledgeStatus').textContent='';
   if(id){document.getElementById('cKnowledgeHint').textContent='';renderKnowledgeList('cKnowledgeList',id)}
   else{document.getElementById('cKnowledgeHint').textContent='(disponível após salvar o cliente)';document.getElementById('cKnowledgeList').innerHTML=''}
@@ -3522,6 +3546,130 @@ function orderStatusColor(st){
   const m={'Pago':'#10b981','Liberado Automaticamente':'#10b981','Cancelado':'#64748b','Aguardando Pagamento':'#f59e0b','Pagamento Pendente':'#f59e0b','Estornado':'#ef4444','Estornado Parcialmente':'#ef4444','Chargeback':'#ef4444','Aguardando Estorno':'#f59e0b','Não Processado':'#64748b','Não Autorizada':'#ef4444'};
   return m[st]||'#94a3b8';
 }
+/* ===== DNA DO CLIENTE ===== */
+let dnaDraft=null,dnaClientId=null,dnaTab='fonte',dnaSourceType='pdf';
+const DNA_TABS=[['fonte','Fonte'],['identidade','Identidade'],['produtos','Produtos'],['personas','Personas'],['diretrizes','Diretrizes'],['refinar','Refinar com IA']];
+function dnaEsc(s){return String(s==null?'':s).replace(/</g,'&lt;')}
+function dnaAttr(s){return String(s==null?'':s).replace(/"/g,'&quot;')}
+function normalizeDna(d){d=d||{};return{
+  identidade:Object.assign({marca:'',promessa:'',posicionamento:'',tom:'',sobre:''},d.identidade||{}),
+  produtos:(d.produtos||[]).map(p=>({nome:p.nome||'',dorQueResolve:p.dorQueResolve||'',desejo:p.desejo||'',personaAlvo:p.personaAlvo||''})),
+  personas:(d.personas||[]).map(p=>({titulo:p.titulo||'',descricao:p.descricao||'',transformacao:p.transformacao||'',estadoAtual:p.estadoAtual||'',dores:Array.isArray(p.dores)?p.dores:[],desejos:Array.isArray(p.desejos)?p.desejos:[],tensoes:p.tensoes||'',crencas:p.crencas||''})),
+  diretrizes:Object.assign({tom:'',palavrasRessoam:[],palavrasProibidas:[],abordagens:[],beneficios:[],sempreFim:[]},d.diretrizes||{})
+};}
+function openDnaModal(clientId){
+  if(!clientId){alert('Salve o cliente primeiro, depois abra o DNA.');return}
+  const c=DB.clients.find(x=>x.id===clientId);if(!c)return;
+  dnaClientId=clientId;dnaDraft=normalizeDna(c.dna);dnaTab='fonte';dnaSourceType='pdf';
+  document.getElementById('dnaClientName').textContent='· '+c.name;
+  document.getElementById('dnaSaveMsg').textContent='';
+  renderDnaTabs();renderDnaBody();openModal('dnaModal');
+}
+function setDnaTab(t){dnaTab=t;renderDnaTabs();renderDnaBody();}
+function renderDnaTabs(){document.getElementById('dnaTabs').innerHTML=DNA_TABS.map(([k,l])=>`<button class="btn sm ${dnaTab===k?'primary':'ghost'}" style="font-size:12px" onclick="setDnaTab('${k}')">${l}</button>`).join('');}
+function renderDnaBody(){
+  const el=document.getElementById('dnaBody');
+  el.innerHTML=dnaTab==='fonte'?dnaFonteHTML():dnaTab==='identidade'?dnaIdentidadeHTML():dnaTab==='produtos'?dnaProdutosHTML():dnaTab==='personas'?dnaPersonasHTML():dnaTab==='diretrizes'?dnaDiretrizesHTML():dnaRefinarHTML();
+}
+function dnaLongList(arr,path,add){return (arr||[]).map((v,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px"><textarea rows="2" style="flex:1;font-size:12.5px" oninput="${path}[${i}]=this.value">${dnaEsc(v)}</textarea><button type="button" class="btn sm ghost" style="color:var(--red)" onclick="${path}.splice(${i},1);renderDnaBody()">✕</button></div>`).join('')+`<button type="button" class="btn sm ghost" onclick="${path}.push('');renderDnaBody()">+ ${add}</button>`;}
+function dnaChips(arr,path){return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">${(arr||[]).map((v,i)=>`<span style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 10px;font-size:12px">${dnaEsc(v)} <span style="cursor:pointer;color:var(--faint)" onclick="${path}.splice(${i},1);renderDnaBody()">×</span></span>`).join('')}</div><input placeholder="Digite e tecle Enter" onkeydown="if(event.key==='Enter'){event.preventDefault();const v=this.value.trim();if(v){${path}.push(v);renderDnaBody()}}">`;}
+function dnaFonteHTML(){
+  const st=dnaSourceType;
+  const src=st==='pdf'?`<div class="form-row"><input type="file" accept="application/pdf" id="dnaPdf"><div style="font-size:11px;color:var(--faint);margin-top:4px">PDF: briefing, questionário ou material institucional (máx 10MB)</div></div>`
+    :st==='site'?`<div class="form-row"><label>URL do site / landing page</label><input id="dnaUrl" placeholder="https://..."></div>`
+    :`<div class="form-row"><label>Cole o texto</label><textarea id="dnaText" rows="7" placeholder="Cole aqui o briefing, questionário ou material do cliente..."></textarea></div>`;
+  return `<div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin-bottom:6px">Fonte</div>
+  <div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">Crie o DNA a partir de um PDF, do site do cliente ou de um texto colado. A IA extrai e estrutura tudo.</div>
+  <div style="display:flex;gap:6px;margin-bottom:12px">${[['pdf','PDF'],['site','Site / LP'],['texto','Texto']].map(([k,l])=>`<button type="button" class="btn sm ${st===k?'primary':'ghost'}" onclick="dnaSourceType='${k}';renderDnaBody()">${l}</button>`).join('')}</div>
+  ${src}
+  <div class="form-row"><label>Direcionamento (opcional)</label><textarea id="dnaDir" rows="2" placeholder="Ex: tom premium; foco na persona gestante; produto principal é o enxoval sob medida"></textarea></div>
+  <button type="button" class="btn primary" onclick="generateDna()">✨ Gerar DNA com IA</button>
+  <span id="dnaGenMsg" style="font-size:12px;color:var(--muted);margin-left:10px"></span>`;
+}
+async function generateDna(){
+  const msg=document.getElementById('dnaGenMsg');
+  const dir=(document.getElementById('dnaDir')||{}).value||'';
+  let text='',url='';
+  try{
+    if(dnaSourceType==='pdf'){const f=(document.getElementById('dnaPdf')||{}).files&&document.getElementById('dnaPdf').files[0];if(!f){msg.textContent='Selecione um PDF.';return}msg.textContent='Lendo PDF...';text=await extractPdfText(f);if(!text||text.length<30){msg.textContent='Não consegui ler o PDF (pode ser imagem/escaneado). Tente colar o texto.';return}}
+    else if(dnaSourceType==='site'){url=((document.getElementById('dnaUrl')||{}).value||'').trim();if(!url){msg.textContent='Informe a URL.';return}}
+    else{text=((document.getElementById('dnaText')||{}).value||'').trim();if(!text){msg.textContent='Cole o texto.';return}}
+    msg.textContent='✨ A IA está montando o DNA (pode levar ~15s)...';
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{dnaExtract:{text,url,direcionamento:dir}}});
+    if(error)throw error;
+    if(data&&data.error)throw new Error(data.error);
+    dnaDraft=normalizeDna((data&&data.data)||data);
+    dnaTab='identidade';renderDnaTabs();renderDnaBody();
+    document.getElementById('dnaSaveMsg').textContent='✓ DNA gerado pela IA — revise as abas e clique em Salvar DNA.';
+  }catch(e){msg.textContent='Erro: '+(e.message||e);}
+}
+function dnaIdentidadeHTML(){const i=dnaDraft.identidade;
+  const f=(lbl,key,rows)=>`<div class="form-row"><label>${lbl}</label>${rows?`<textarea rows="${rows}" oninput="dnaDraft.identidade.${key}=this.value">${dnaEsc(i[key])}</textarea>`:`<input value="${dnaAttr(i[key])}" oninput="dnaDraft.identidade.${key}=this.value">`}</div>`;
+  return `<div style="font-size:11px;text-transform:uppercase;color:var(--accent);margin-bottom:10px">Identidade da marca</div>`+f('Marca','marca')+f('Promessa','promessa',2)+f('Posicionamento','posicionamento',2)+f('Tom de voz','tom',2)+f('Sobre o negócio','sobre',3);
+}
+function dnaProdutosHTML(){
+  const cards=dnaDraft.produtos.map((p,i)=>{
+    const opts='<option value="">— selecione a persona —</option>'+dnaDraft.personas.map(pe=>`<option value="${dnaAttr(pe.titulo)}" ${pe.titulo===p.personaAlvo?'selected':''}>${dnaEsc(pe.titulo||'(sem título)')}</option>`).join('');
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;position:relative">
+      <button type="button" class="btn sm ghost" style="position:absolute;top:8px;right:8px;color:var(--red)" onclick="dnaDraft.produtos.splice(${i},1);renderDnaBody()">✕</button>
+      <div class="form-row"><label>Nome do produto/serviço</label><input value="${dnaAttr(p.nome)}" oninput="dnaDraft.produtos[${i}].nome=this.value"></div>
+      <div class="form-row"><label>Dor que resolve</label><textarea rows="2" oninput="dnaDraft.produtos[${i}].dorQueResolve=this.value">${dnaEsc(p.dorQueResolve)}</textarea></div>
+      <div class="form-row"><label>Desejo que realiza</label><textarea rows="2" oninput="dnaDraft.produtos[${i}].desejo=this.value">${dnaEsc(p.desejo)}</textarea></div>
+      <div class="form-row"><label>Persona-alvo</label><select oninput="dnaDraft.produtos[${i}].personaAlvo=this.value" onchange="dnaDraft.produtos[${i}].personaAlvo=this.value">${opts}</select></div>
+    </div>`;
+  }).join('');
+  return `<div style="font-size:11px;text-transform:uppercase;color:var(--accent);margin-bottom:6px">Produtos & Serviços</div><div style="font-size:12px;color:var(--muted);margin-bottom:10px">Cada produto com a dor que resolve, o desejo que realiza e a persona-alvo.</div>${cards}<button type="button" class="btn ghost" onclick="dnaDraft.produtos.push({nome:'',dorQueResolve:'',desejo:'',personaAlvo:''});renderDnaBody()">+ Adicionar produto</button>`;
+}
+function dnaPersonasHTML(){
+  const cards=dnaDraft.personas.map((p,i)=>{const b=`dnaDraft.personas[${i}]`;
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px;position:relative">
+      <button type="button" class="btn sm ghost" style="position:absolute;top:8px;right:8px;color:var(--red)" onclick="dnaDraft.personas.splice(${i},1);renderDnaBody()">✕</button>
+      <div class="form-row"><label>Título da persona</label><input value="${dnaAttr(p.titulo)}" oninput="${b}.titulo=this.value"></div>
+      <div class="form-row"><label>Descrição</label><textarea rows="2" oninput="${b}.descricao=this.value">${dnaEsc(p.descricao)}</textarea></div>
+      <div class="form-row"><label>Transformação (de X para Y)</label><input value="${dnaAttr(p.transformacao)}" oninput="${b}.transformacao=this.value"></div>
+      <div class="form-row"><label>Estado atual (gatilho)</label><textarea rows="2" oninput="${b}.estadoAtual=this.value">${dnaEsc(p.estadoAtual)}</textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><label style="font-size:11px;color:var(--faint);text-transform:uppercase">Dores</label>${dnaLongList(p.dores,b+'.dores','Adicionar dor')}</div>
+        <div><label style="font-size:11px;color:var(--faint);text-transform:uppercase">Desejos</label>${dnaLongList(p.desejos,b+'.desejos','Adicionar desejo')}</div>
+      </div>
+      <div class="form-row" style="margin-top:10px"><label>Tensões recorrentes</label><input value="${dnaAttr(p.tensoes)}" oninput="${b}.tensoes=this.value"></div>
+      <div class="form-row"><label>Crenças a quebrar</label><input value="${dnaAttr(p.crencas)}" oninput="${b}.crencas=this.value"></div>
+    </div>`;
+  }).join('');
+  return `<div style="font-size:11px;text-transform:uppercase;color:var(--accent);margin-bottom:10px">Personas</div>${cards||'<div style="font-size:13px;color:var(--faint);margin-bottom:10px">Nenhuma persona ainda. Gere pela aba Fonte ou adicione manualmente.</div>'}<button type="button" class="btn ghost" onclick="dnaDraft.personas.push({titulo:'',descricao:'',transformacao:'de [estado atual] para [estado desejado]',estadoAtual:'',dores:[],desejos:[],tensoes:'',crencas:''});renderDnaBody()">+ Adicionar Persona</button>`;
+}
+function dnaDiretrizesHTML(){const d=dnaDraft.diretrizes;
+  return `<div style="font-size:11px;text-transform:uppercase;color:var(--accent);margin-bottom:10px">Diretrizes de copy</div>
+  <div class="form-row"><label>Tom de comunicação</label><textarea rows="2" oninput="dnaDraft.diretrizes.tom=this.value">${dnaEsc(d.tom)}</textarea></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:8px">
+    <div><label style="font-size:11px;color:var(--faint);text-transform:uppercase">Palavras que ressoam</label>${dnaChips(d.palavrasRessoam,'dnaDraft.diretrizes.palavrasRessoam')}</div>
+    <div><label style="font-size:11px;color:var(--faint);text-transform:uppercase">Palavras proibidas</label>${dnaChips(d.palavrasProibidas,'dnaDraft.diretrizes.palavrasProibidas')}</div>
+  </div>
+  <div class="form-row"><label>Abordagens</label>${dnaLongList(d.abordagens,'dnaDraft.diretrizes.abordagens','Adicionar abordagem')}</div>
+  <div class="form-row"><label>Benefícios principais</label>${dnaLongList(d.beneficios,'dnaDraft.diretrizes.beneficios','Adicionar benefício')}</div>
+  <div class="form-row"><label>Sempre no fim da copy</label>${dnaLongList(d.sempreFim,'dnaDraft.diretrizes.sempreFim','Adicionar')}</div>`;
+}
+function dnaRefinarHTML(){
+  return `<div style="font-size:11px;text-transform:uppercase;color:var(--accent);margin-bottom:8px">Refinar com IA</div>
+  <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Descreva o ajuste em texto ou áudio — a IA atualiza o DNA e você revisa antes de salvar. Nada é salvo sem seu aval.</div>
+  <textarea id="dnaRefineInput" rows="3" style="width:100%" placeholder="Ex: crie uma persona de avó que quer presentear; deixe o tom mais direto"></textarea>
+  <div style="display:flex;gap:8px;margin-top:8px;align-items:center"><button type="button" class="btn ghost" id="dnaRefineMic" onclick="toggleVoiceInput('dnaRefineInput','dnaRefineMic')">🎤</button><button type="button" class="btn primary" onclick="refineDnaAI()">✨ Sugerir ajustes</button><span id="dnaRefineMsg" style="font-size:12px;color:var(--muted)"></span></div>`;
+}
+async function refineDnaAI(){
+  const inp=document.getElementById('dnaRefineInput');const instr=(inp.value||'').trim();if(!instr)return;
+  const msg=document.getElementById('dnaRefineMsg');msg.textContent='✨ Ajustando...';
+  try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{dnaRefine:{dna:dnaDraft,instrucao:instr}}});if(error)throw error;if(data&&data.error)throw new Error(data.error);dnaDraft=normalizeDna((data&&data.data)||data);inp.value='';document.getElementById('dnaSaveMsg').textContent='✓ DNA ajustado pela IA — revise e salve.';setDnaTab('personas');}catch(e){msg.textContent='Erro: '+(e.message||e);}
+}
+async function saveDna(){
+  if(!dnaClientId)return;
+  document.getElementById('dnaSaveMsg').textContent='Salvando...';
+  const {error}=await sb.from('clients').update({dna:dnaDraft}).eq('id',dnaClientId);
+  if(error){document.getElementById('dnaSaveMsg').textContent='Erro ao salvar: '+error.message;return}
+  const c=DB.clients.find(x=>x.id===dnaClientId);if(c)c.dna=dnaDraft;
+  const st=document.getElementById('cDnaStatus');if(st)st.textContent='✓ DNA salvo · '+dnaDraft.personas.length+' personas, '+dnaDraft.produtos.length+' produtos';
+  closeModal('dnaModal');
+}
+
 let _tplCache={};
 let _tplLoadToken=0;
 async function loadClientTemplate(){
@@ -3809,6 +3957,7 @@ function currentAgentSnapshot(){
     const c=DB.clients.find(x=>x.id===agentClientId);
     if(c){
       const snap={escopo:'cliente específico',cliente:clientSnapshot(c)};
+      if(c.dna)snap.dnaCliente=c.dna;
       if(agentClientKpis)snap.kpisRelatorio=agentClientKpis;
       else{const hasReport=c.reportSheetUrl||c.reportOrdersMode==='local'||c.reportOrdersSheetUrl;snap.kpisRelatorio=hasReport?'(dados do relatório ainda carregando)':'(cliente sem relatório configurado no sistema)'}
       return snap;
