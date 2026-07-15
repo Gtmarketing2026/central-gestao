@@ -1283,15 +1283,23 @@ const METRIC_CATALOG={
   frequencia:{label:'Frequência',calc:a=>a.frequencia||0,fmt:'num'},
   addCarrinho:{label:'Add ao Carrinho',calc:a=>a.addCarrinho,fmt:'int'},
   checkout:{label:'Checkout Iniciado',calc:a=>a.checkout,fmt:'int'},
+  conversas:{label:'Conversas iniciadas',calc:a=>a.conversas,fmt:'int'},
+  custoPorConversa:{label:'Custo por Conversa',calc:a=>a.conversas?a.spend/a.conversas:0,fmt:'money'},
+  videoViews:{label:'Visualizações de Vídeo',calc:a=>a.videoViews,fmt:'int'},
+  custoPorView:{label:'Custo por Visualização',calc:a=>a.videoViews?a.spend/a.videoViews:0,fmt:'money'},
+  engajamentos:{label:'Engajamentos',calc:a=>a.engajamentos,fmt:'int'},
+  custoPorEngajamento:{label:'Custo por Engajamento',calc:a=>a.engajamentos?a.spend/a.engajamentos:0,fmt:'money'},
 };
-const FUNNEL_CATALOG={impressoes:{label:'Impressões',calc:a=>a.impressions},alcance:{label:'Alcance',calc:a=>a.reach},cliques:{label:'Cliques no Link',calc:a=>a.clicks},addCarrinho:{label:'Add ao Carrinho',calc:a=>a.addCarrinho},checkout:{label:'Checkout',calc:a=>a.checkout},leads:{label:'Leads',calc:a=>a.leads},compras:{label:'Compras/Vendas',calc:a=>a.compras}};
+const FUNNEL_CATALOG={impressoes:{label:'Impressões',calc:a=>a.impressions},alcance:{label:'Alcance',calc:a=>a.reach},videoViews:{label:'Views de Vídeo',calc:a=>a.videoViews},cliques:{label:'Cliques no Link',calc:a=>a.clicks},engajamentos:{label:'Engajamentos',calc:a=>a.engajamentos},conversas:{label:'Conversas',calc:a=>a.conversas},addCarrinho:{label:'Add ao Carrinho',calc:a=>a.addCarrinho},checkout:{label:'Checkout',calc:a=>a.checkout},leads:{label:'Leads',calc:a=>a.leads},compras:{label:'Compras/Vendas',calc:a=>a.compras}};
 // Modelos-base TRAVADOS, um por objetivo do Meta
 const BASE_TEMPLATES=[
   {id:'base_conversao',name:'Vendas / Conversão (base)',objectiveType:'conversao',keyMetric:'compras',metrics:['valorGasto','roas','receita','custoPorCompra','compras','cpc','ctr'],funnel:['impressoes','cliques','checkout','compras'],isBase:true,source:'meta'},
   {id:'base_leads',name:'Leads (base)',objectiveType:'leads',keyMetric:'leads',metrics:['valorGasto','leads','cpl','ctr','cpc','cliques'],funnel:['impressoes','cliques','leads'],isBase:true,source:'meta'},
   {id:'base_trafego',name:'Tráfego (base)',objectiveType:'trafego',keyMetric:'cliques',metrics:['valorGasto','cliques','cpc','ctr','cpm','impressoes'],funnel:['impressoes','cliques'],isBase:true,source:'meta'},
-  {id:'base_engajamento',name:'Engajamento (base)',objectiveType:'engajamento',keyMetric:'ctr',metrics:['valorGasto','ctr','cpm','alcance','frequencia','impressoes'],funnel:['impressoes','alcance','cliques'],isBase:true,source:'meta'},
+  {id:'base_engajamento',name:'Engajamento (base)',objectiveType:'engajamento',keyMetric:'engajamentos',metrics:['valorGasto','engajamentos','custoPorEngajamento','ctr','cpm','alcance'],funnel:['impressoes','alcance','engajamentos'],isBase:true,source:'meta'},
   {id:'base_alcance',name:'Alcance / Reconhecimento (base)',objectiveType:'alcance',keyMetric:'alcance',metrics:['valorGasto','alcance','cpm','frequencia','impressoes'],funnel:['impressoes','alcance'],isBase:true,source:'meta'},
+  {id:'base_mensagens',name:'Mensagens (base)',objectiveType:'mensagens',keyMetric:'conversas',metrics:['valorGasto','conversas','custoPorConversa','ctr','cpc','impressoes'],funnel:['impressoes','cliques','conversas'],isBase:true,source:'meta'},
+  {id:'base_video',name:'Vídeo (base)',objectiveType:'video',keyMetric:'videoViews',metrics:['valorGasto','videoViews','custoPorView','cpm','alcance','impressoes'],funnel:['impressoes','videoViews'],isBase:true,source:'meta'},
 ];
 function allTemplates(){return BASE_TEMPLATES.concat(DB.reportTemplates||[])}
 function templateById(id){return allTemplates().find(t=>t.id===id)||null}
@@ -3613,7 +3621,7 @@ function metaChannelFromData(d){
     d.campaigns.forEach(r=>(r.records||[]).forEach(x=>{const k=x.date;if(!k)return;if(!recByDate[k])recByDate[k]={date:k,sales:0,spend:0,revenue:0,clicks:0,impressions:0};recByDate[k].sales+=Math.round(x.sales||0);recByDate[k].spend+=x.spend||0;recByDate[k].revenue+=x.revenue||0;recByDate[k].clicks+=x.clicks||0;recByDate[k].impressions+=x.impressions||0;}));
     records=Object.values(recByDate);
   }
-  return {META:{label:'META',spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:t.revenue||0,sales:Math.round(t.purchases||0),leads:t.leads||0,addToCart:t.addToCart||0,initiateCheckout:t.initiateCheckout||0,records,_meta:true}};
+  return {META:{label:'META',spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:t.revenue||0,sales:Math.round(t.purchases||0),leads:t.leads||0,addToCart:t.addToCart||0,initiateCheckout:t.initiateCheckout||0,conversas:t.conversas||0,videoViews:t.videoViews||0,engajamentos:t.engajamentos||0,records,_meta:true}};
 }
 // UMA chamada só: traz canal META + anúncios (Raio-X) juntos (mais rápido que 2 chamadas)
 async function fetchMetaReport(c,month){
@@ -4125,11 +4133,14 @@ function classifyAdByObjective(a){
   else if(tipo==='engajamento'){ if(ctr>=1.5)v='good'; else if(spend>=100&&ctr<0.5)v='bad'; }
   else if(tipo==='leads'){ if(a.leads>0)v='good'; else if(spend>=100&&(!a.leads))v='bad'; }
   else if(tipo==='alcance'){ if((a.frequency||0)>4&&spend>=100)v='bad'; }
-  // video/mensagens/outro: observar por padrão
+  else if(tipo==='mensagens'){ if(a.conversas>0)v='good'; else if(spend>=100&&!a.conversas)v='bad'; }
+  else if(tipo==='video'){ if(a.videoViews>0&&spend>0)v='good'; }
   const metricaChave=tipo==='conversao'||tipo==='app'?('ROAS '+(spend?roas.toFixed(2)+'x':'—'))
     :tipo==='trafego'?('CPC '+(a.clicks?fmt(a.cpc):'—')+' · CTR '+(a.impressions?ctr.toFixed(2)+'%':'—'))
-    :tipo==='engajamento'?('CTR '+(a.impressions?ctr.toFixed(2)+'%':'—'))
+    :tipo==='engajamento'?(Math.round(a.engajamentos||0)+' engaj. · '+(a.engajamentos?fmt(spend/a.engajamentos):'—')+'/eng')
     :tipo==='leads'?('CPL '+(a.leads?fmt(cpl):'—')+' · '+Math.round(a.leads||0)+' leads')
+    :tipo==='mensagens'?(Math.round(a.conversas||0)+' conversas · '+(a.conversas?fmt(spend/a.conversas):'—')+'/conversa')
+    :tipo==='video'?(Math.round(a.videoViews||0)+' views · '+(a.videoViews?fmt(spend/a.videoViews):'—')+'/view')
     :tipo==='alcance'?('CPM '+(a.impressions?fmt(a.cpm):'—')+' · freq '+(a.frequency||0).toFixed(1))
     :('CPM '+(a.impressions?fmt(a.cpm):'—'));
   return {v,metricaChave,rotulo:(a.objetivo&&a.objetivo.rotulo)||'—'};
@@ -4218,12 +4229,12 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
 
   // ---- Modelo de relatório (template) ----
   const chSum=channelList.reduce((s,ch)=>({spend:s.spend+ch.spend,impressions:s.impressions+ch.impressions,clicks:s.clicks+ch.clicks,reach:s.reach+(ch.reach||0),revenue:s.revenue+ch.revenue,sales:s.sales+(ch.sales||0)}),{spend:0,impressions:0,clicks:0,reach:0,revenue:0,sales:0});
-  const metaSum=(metaAds||[]).reduce((s,a)=>({leads:s.leads+(a.leads||0),addCarrinho:s.addCarrinho+(a.addToCart||0),checkout:s.checkout+(a.initiateCheckout||0)}),{leads:0,addCarrinho:0,checkout:0});
+  const metaSum=(metaAds||[]).reduce((s,a)=>({leads:s.leads+(a.leads||0),addCarrinho:s.addCarrinho+(a.addToCart||0),checkout:s.checkout+(a.initiateCheckout||0),conversas:s.conversas+(a.conversas||0),videoViews:s.videoViews+(a.videoViews||0),engajamentos:s.engajamentos+(a.engajamentos||0)}),{leads:0,addCarrinho:0,checkout:0,conversas:0,videoViews:0,engajamentos:0});
   // Fonte de vendas/conversões: 'orders' (planilha+site), 'meta' (gerenciador) ou auto (pedidos se houver)
   const useOrders=c.conversionSource==='orders'||(c.conversionSource!=='meta'&&(aprovadosCount>0||rows.length>0));
   const comprasFunil=useOrders?aprovadosCount:chSum.sales;
   const receitaFunil=useOrders?aprovadosVal:chSum.revenue;
-  const tplAgg={spend:chSum.spend,impressions:chSum.impressions,clicks:chSum.clicks,reach:chSum.reach,revenue:receitaFunil,compras:comprasFunil,leads:metaSum.leads,addCarrinho:metaSum.addCarrinho,checkout:(checkoutCount||0)||metaSum.checkout,frequencia:chSum.reach?chSum.impressions/chSum.reach:0};
+  const tplAgg={spend:chSum.spend,impressions:chSum.impressions,clicks:chSum.clicks,reach:chSum.reach,revenue:receitaFunil,compras:comprasFunil,leads:metaSum.leads,addCarrinho:metaSum.addCarrinho,checkout:(checkoutCount||0)||metaSum.checkout,conversas:metaSum.conversas,videoViews:metaSum.videoViews,engajamentos:metaSum.engajamentos,frequencia:chSum.reach?chSum.impressions/chSum.reach:0};
   const clientTpl=resolveClientTemplate(c,metaAds);
 
   const weeks=weekBucketsForMonth(month);
@@ -4239,7 +4250,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   const funnelStages=clientTpl.funnel.filter(k=>FUNNEL_CATALOG[k])
     .map(k=>({key:k,label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(tplAgg))}))
     // etapas opcionais de conversão somem quando sem dado (cliente que não trabalha com elas)
-    .filter(s=>!(['checkout','addCarrinho','leads'].includes(s.key)&&s.value===0));
+    .filter(s=>!(['checkout','addCarrinho','leads','conversas','videoViews','engajamentos'].includes(s.key)&&s.value===0));
   const mesLabel=new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   const analysis=await loadReportAnalysis(c.id,month);
   currentAnalysisChat=(analysis&&Array.isArray(analysis.chat))?analysis.chat:[];

@@ -266,9 +266,12 @@ async function metaAdsInsights(m: any) {
       leads: pickAction(row.actions, ["lead", "offsite_conversion.fb_pixel_lead"]),
       addToCart: pickAction(row.actions, ["add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"]),
       initiateCheckout: pickAction(row.actions, ["initiate_checkout", "offsite_conversion.fb_pixel_initiate_checkout"]),
+      conversas: pickAction(row.actions, ["onsite_conversion.messaging_conversation_started_7d", "messaging_conversation_started_7d", "onsite_conversion.total_messaging_connection"]),
+      videoViews: pickAction(row.actions, ["video_view"]),
+      engajamentos: pickAction(row.actions, ["post_engagement"]),
     };
   }
-  const totAgg: any = { spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0 };
+  const totAgg: any = { spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0 };
   const byCamp: Record<string, any> = {};
   const ads: any[] = [];
   const wantObj = m.byAd || m.byCampaign;
@@ -294,6 +297,7 @@ async function metaAdsInsights(m: any) {
     const at = accountRows.length ? shape(accountRows[0]) : shape({});
     totAgg.spend += at.spend; totAgg.impressions += at.impressions; totAgg.clicks += at.clicks; totAgg.reach += at.reach;
     totAgg.revenue += at.revenue; totAgg.purchases += at.purchases; totAgg.leads += at.leads; totAgg.addToCart += at.addToCart; totAgg.initiateCheckout += at.initiateCheckout;
+    totAgg.conversas += at.conversas; totAgg.videoViews += at.videoViews; totAgg.engajamentos += at.engajamentos;
     for (const row of adRows) {
       const s = shape(row);
       ads.push({
@@ -303,6 +307,7 @@ async function metaAdsInsights(m: any) {
         spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: s.reach, frequency: s.frequency,
         ctr: s.ctr, cpc: s.cpc, cpm: s.cpm, purchases: s.purchases, revenue: s.revenue, roas: s.roas,
         leads: s.leads, addToCart: s.addToCart, initiateCheckout: s.initiateCheckout,
+        conversas: s.conversas, videoViews: s.videoViews, engajamentos: s.engajamentos,
         cpa: s.purchases ? s.spend / s.purchases : 0,
       });
     }
