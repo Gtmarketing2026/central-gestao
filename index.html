@@ -4882,13 +4882,14 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
         ${templatePanelHTML(clientTpl,tplAgg)}
         ${secPedidos?dv+secPedidos:''}
         ${focosHTML?dv+focosHTML:''}
+        ${secFunil?dv+secFunil:''}
         ${secRanking?dv+secRanking:''}
         ${dv}${secResumo}
         ${dv}${secAnalise}
       </div>
       ${secSemanal?`<div class="rtTab rtoff" data-rtab="semanal">${secSemanal}</div>`:''}
       ${focoTabs}
-      <div class="rtTab rtoff" data-rtab="criativos">${secFunil}${secFunil?dv:''}${raioXSectionHTML(raioAds)||'<div class="empty">Sem criativos do Meta neste período.</div>'}</div>
+      <div class="rtTab rtoff" data-rtab="criativos">${raioXSectionHTML(raioAds)||'<div class="empty">Sem criativos do Meta neste período.</div>'}</div>
     </div>
     <div class="rt-ftr">Relatório gerado automaticamente · Central de Gestão · ${mesLabel}</div>
   </div>`;
