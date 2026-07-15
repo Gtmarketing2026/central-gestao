@@ -3607,13 +3607,14 @@ async function fetchClientReportMetrics(c,month){
       const ent=(data&&data.data)||{};
       let ads=[];try{ads=(await fetchMetaCreatives(c,month))||[]}catch(e){}
       const statusById={};(ent.ads||[]).forEach(a=>{statusById[a.id]=a.status});
-      const anuncios=ads.filter(a=>a.spend>0).slice(0,15).map(a=>({id:a.adId,nome:a.adName,campanha:a.campaign,status:statusById[a.adId]||'?',investimento:Math.round(a.spend),roas:+(a.roas||0).toFixed(2),compras:Math.round(a.purchases||0)}));
+      const objMin=o=>o?{tipo:o.tipo,rotulo:o.rotulo,metrica:o.metrica}:null;
+      const anuncios=ads.filter(a=>a.spend>0).slice(0,15).map(a=>({id:a.adId,nome:a.adName,campanha:a.campaign,objetivo:objMin(a.objetivo),status:statusById[a.adId]||'?',investimento:Math.round(a.spend),ctrPct:+(a.ctr||0).toFixed(2),cpc:+(a.cpc||0).toFixed(2),cpm:+(a.cpm||0).toFixed(2),roas:+(a.roas||0).toFixed(2),compras:Math.round(a.purchases||0),leads:Math.round(a.leads||0)}));
       const ativa=x=>x.status==='ACTIVE'||x.entrega==='ACTIVE';
       metaEntidades={
-        campanhas:(ent.campaigns||[]).filter(ativa).slice(0,40).map(x=>({id:x.id,nome:x.nome,status:x.status,orcamentoDiario:x.orcamentoDiario})),
+        campanhas:(ent.campaigns||[]).filter(ativa).slice(0,40).map(x=>({id:x.id,nome:x.nome,status:x.status,objetivo:objMin(x.objetivo),orcamentoDiario:x.orcamentoDiario})),
         conjuntos:(ent.adsets||[]).filter(x=>ativa(x)&&x.orcamentoDiario).slice(0,40).map(x=>({id:x.id,nome:x.nome,status:x.status,orcamentoDiario:x.orcamentoDiario,campanhaId:x.campanhaId})),
         anuncios,
-        obs:'Só campanhas/conjuntos ATIVOS (máx 40) e top 15 anúncios por investimento. Use estes ids nas ações.'
+        obs:'Só campanhas/conjuntos ATIVOS (máx 40) e top 15 anúncios por investimento. Cada um tem objetivo{tipo,metrica} — avalie pela métrica do objetivo, não por ROAS cego. Use os ids nas ações.'
       };
     }catch(e){}
   }
@@ -3881,14 +3882,34 @@ async function sendAgentMessage(){
   }
   btn.disabled=false;inp.disabled=false;renderAgentChat();inp.focus();
 }
+// Classifica o anúncio pela métrica do objetivo dele (não julga tudo por ROAS).
+function classifyAdByObjective(a){
+  const tipo=(a.objetivo&&a.objetivo.tipo)||'conversao';
+  const roas=a.roas||0, ctr=a.ctr||0, spend=a.spend||0, cpl=a.leads?spend/a.leads:Infinity;
+  let v='obs';
+  if(tipo==='conversao'||tipo==='app'){ if(a.purchases>0&&roas>=2)v='good'; else if(spend>=100&&(a.purchases===0||roas<1))v='bad'; }
+  else if(tipo==='trafego'){ if(ctr>=1&&spend>0)v='good'; else if(spend>=100&&ctr<0.6)v='bad'; }
+  else if(tipo==='engajamento'){ if(ctr>=1.5)v='good'; else if(spend>=100&&ctr<0.5)v='bad'; }
+  else if(tipo==='leads'){ if(a.leads>0)v='good'; else if(spend>=100&&(!a.leads))v='bad'; }
+  else if(tipo==='alcance'){ if((a.frequency||0)>4&&spend>=100)v='bad'; }
+  // video/mensagens/outro: observar por padrão
+  const metricaChave=tipo==='conversao'||tipo==='app'?('ROAS '+(spend?roas.toFixed(2)+'x':'—'))
+    :tipo==='trafego'?('CPC '+(a.clicks?fmt(a.cpc):'—')+' · CTR '+(a.impressions?ctr.toFixed(2)+'%':'—'))
+    :tipo==='engajamento'?('CTR '+(a.impressions?ctr.toFixed(2)+'%':'—'))
+    :tipo==='leads'?('CPL '+(a.leads?fmt(cpl):'—')+' · '+Math.round(a.leads||0)+' leads')
+    :tipo==='alcance'?('CPM '+(a.impressions?fmt(a.cpm):'—')+' · freq '+(a.frequency||0).toFixed(1))
+    :('CPM '+(a.impressions?fmt(a.cpm):'—'));
+  return {v,metricaChave,rotulo:(a.objetivo&&a.objetivo.rotulo)||'—'};
+}
 function raioXSectionHTML(ads){
   if(!ads||!ads.length)return '';
   const top=ads.filter(a=>a.spend>0).slice(0,12);
   if(!top.length)return '';
   const card=a=>{
-    const roas=a.roas||0, good=a.purchases>0&&roas>=2, bad=a.spend>=100&&(a.purchases===0||roas<1);
+    const cl=classifyAdByObjective(a), good=cl.v==='good', bad=cl.v==='bad';
+    const roas=a.roas||0;
     const bd=good?'#34d399':bad?'#f87171':'rgba(255,255,255,.09)';
-    const tag=good?'<span style="color:#34d399">▲ Escalar</span>':bad?'<span style="color:#f87171">▼ Drenando</span>':'<span style="color:var(--rtm)">Observar</span>';
+    const tag=good?'<span style="color:#34d399">▲ Escalar</span>':bad?'<span style="color:#f87171">▼ Rever</span>':'<span style="color:var(--rtm)">Observar</span>';
     const thumb=a.thumbnail?`<img src="${a.thumbnail}" style="width:100%;height:120px;object-fit:cover;background:#111" referrerpolicy="no-referrer">`:`<div style="width:100%;height:120px;background:linear-gradient(135deg,#1a1a22,#111);display:flex;align-items:center;justify-content:center;color:var(--rtm);font-size:11px">sem prévia</div>`;
     const roasTxt=a.spend?roas.toFixed(2)+'x':'—';
     const ctrTxt=a.impressions?a.ctr.toFixed(2)+'%':'—';
@@ -3905,14 +3926,16 @@ function raioXSectionHTML(ads){
           <div><span style="color:var(--rtm)">CTR</span> <b>${ctrTxt}</b></div>
           <div><span style="color:var(--rtm)">CPM</span> <b>${a.impressions?fmt(a.cpm):'—'}</b></div>
         </div>
-        <div style="margin-top:8px;font-size:11px;font-weight:700">${tag}</div>
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);font-size:10.5px;color:var(--rtm)">🎯 ${cl.rotulo}</div>
+        <div style="font-size:11px;color:var(--rt2);margin-top:2px">${cl.metricaChave}</div>
+        <div style="margin-top:6px;font-size:11px;font-weight:700">${tag}</div>
       </div>
     </div>`;
   };
   return`<div class="rt-div"></div>
     <div class="rt-sec">
       <div class="rt-sec-hdr"><div class="rt-sec-num">🎯</div><div class="rt-sec-title">Raio-X de Criativos — Top anúncios por investimento</div><div class="rt-sec-ln"></div></div>
-      <div style="font-size:11.5px;color:var(--rt2);margin-bottom:12px">🟢 <b>Escalar</b>: ROAS ≥ 2 com vendas · 🔴 <b>Drenando</b>: gastou ≥ R$100 sem retorno (ROAS &lt; 1 ou 0 compras) · ⚪ Observar.</div>
+      <div style="font-size:11.5px;color:var(--rt2);margin-bottom:12px">Cada anúncio é avaliado pela <b>métrica do objetivo dele</b> (venda→ROAS, tráfego→CPC/CTR, leads→CPL, alcance→CPM). 🟢 <b>Escalar</b> · 🔴 <b>Rever</b> · ⚪ Observar.</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">${top.map(card).join('')}</div>
     </div>`;
 }

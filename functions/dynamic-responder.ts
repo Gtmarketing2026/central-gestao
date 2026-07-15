@@ -128,6 +128,17 @@ Metodo de analise:
 3. Compare os canais entre si e realoque verba para quem tem melhor ROAS/CPA.
 4. Traga recomendacoes priorizadas (o que fazer primeiro), usando os numeros reais do snapshot.
 
+REGRA CRITICA — ANALISE POR OBJETIVO DA CAMPANHA (nunca julgue tudo como venda):
+Cada campanha/anuncio no snapshot tem um campo 'objetivo' (tipo + metrica de sucesso). Avalie SEMPRE pela metrica do objetivo dela, NAO por ROAS/vendas cegamente. Um ROAS 0 numa campanha de trafego/engajamento/alcance NAO significa que ela esta ruim — ela nem tem venda como meta. Playbook:
+- objetivo 'conversao' (Vendas/Conversoes): ai sim julgue por ROAS, CPA e nº de compras. ROAS baixo/0 com gasto alto = ruim; ROAS bom = escalar.
+- objetivo 'trafego' (Trafego/Cliques): julgue por CPC e CTR e volume de cliques. Bom = CPC baixo e CTR saudavel (feed >1%). NAO recomende pausar por falta de venda; se o CPC/CTR estao bons, a campanha esta cumprindo o objetivo.
+- objetivo 'engajamento': julgue por custo por engajamento, CTR e alcance. Venda nao e a meta.
+- objetivo 'leads': julgue por CPL (custo por lead = investimento / nº de leads) e volume de leads. Nao por ROAS de compra.
+- objetivo 'alcance'/awareness: julgue por CPM, alcance e frequencia (frequencia alta = saturacao). Nao por venda.
+- objetivo 'video': julgue por custo por ThruPlay/visualizacao e CPM.
+- objetivo 'mensagens': julgue por custo por conversa iniciada.
+Sempre diga explicitamente o objetivo da campanha e por qual metrica voce a esta avaliando. Se propuser pausar/ajustar, so faca sentido dentro do objetivo (ex: pausar uma campanha de CONVERSAO com gasto alto e 0 compras — nunca uma de trafego so porque nao vendeu).
+
 Voce tambem pode EXECUTAR acoes quando o gestor pedir explicitamente: criar/concluir tarefas E acoes reais no Meta Ads (pausar_meta, reativar_meta, ajustar_orcamento, duplicar_campanha). Para as acoes do Meta, use SEMPRE o 'id' e o 'nivel' que estao na lista 'metaEntidades' do snapshot (campanhas, conjuntos e anuncios com id, status e orcamento atuais) — nunca invente ids. O sistema mostra um card de confirmacao antes de executar; entao apenas PROPONHA a acao chamando a funcao e explique o porque em texto; nunca afirme que ja executou. So proponha acao no Meta quando o gestor pedir ou quando os dados claramente justificarem (ex: anuncio com gasto alto e 0 compras -> propor pausar). Seu valor principal continua sendo a analise tecnica.`;
 
   if (Array.isArray(a.knowledge) && a.knowledge.length) {
@@ -150,6 +161,33 @@ Voce tambem pode EXECUTAR acoes quando o gestor pedir explicitamente: criar/conc
   return { answer: msg.content || "", actions };
 }
 
+// Normaliza o objetivo da campanha do Meta em um tipo + metrica de sucesso, para analise correta.
+function metaObjetivo(obj: string) {
+  const o = String(obj || "").toUpperCase();
+  const map: Record<string, { tipo: string; rotulo: string; metrica: string }> = {
+    OUTCOME_SALES: { tipo: "conversao", rotulo: "Vendas/Conversão", metrica: "ROAS, CPA, nº de compras" },
+    CONVERSIONS: { tipo: "conversao", rotulo: "Conversões", metrica: "ROAS, CPA, nº de compras" },
+    CATALOG_SALES: { tipo: "conversao", rotulo: "Vendas de catálogo", metrica: "ROAS, CPA" },
+    PRODUCT_CATALOG_SALES: { tipo: "conversao", rotulo: "Vendas de catálogo", metrica: "ROAS, CPA" },
+    OUTCOME_LEADS: { tipo: "leads", rotulo: "Cadastros (Leads)", metrica: "CPL (custo por lead), nº de leads" },
+    LEAD_GENERATION: { tipo: "leads", rotulo: "Geração de leads", metrica: "CPL, nº de leads" },
+    OUTCOME_TRAFFIC: { tipo: "trafego", rotulo: "Tráfego", metrica: "CPC, CTR, cliques no link" },
+    LINK_CLICKS: { tipo: "trafego", rotulo: "Cliques no link", metrica: "CPC, CTR" },
+    OUTCOME_ENGAGEMENT: { tipo: "engajamento", rotulo: "Engajamento", metrica: "custo por engajamento, CTR, alcance" },
+    POST_ENGAGEMENT: { tipo: "engajamento", rotulo: "Engajamento", metrica: "custo por engajamento, CTR" },
+    PAGE_LIKES: { tipo: "engajamento", rotulo: "Curtidas de página", metrica: "custo por curtida" },
+    EVENT_RESPONSES: { tipo: "engajamento", rotulo: "Respostas a evento", metrica: "custo por resposta" },
+    VIDEO_VIEWS: { tipo: "video", rotulo: "Visualizações de vídeo", metrica: "custo por ThruPlay/view, CPM" },
+    MESSAGES: { tipo: "mensagens", rotulo: "Mensagens", metrica: "custo por conversa iniciada" },
+    OUTCOME_AWARENESS: { tipo: "alcance", rotulo: "Reconhecimento/Alcance", metrica: "CPM, alcance, frequência" },
+    BRAND_AWARENESS: { tipo: "alcance", rotulo: "Reconhecimento de marca", metrica: "CPM, alcance" },
+    REACH: { tipo: "alcance", rotulo: "Alcance", metrica: "CPM, alcance, frequência" },
+    APP_INSTALLS: { tipo: "app", rotulo: "Instalações de app", metrica: "custo por instalação" },
+    OUTCOME_APP_PROMOTION: { tipo: "app", rotulo: "Promoção de app", metrica: "custo por instalação/evento" },
+  };
+  return { codigo: o || null, ...(map[o] || { tipo: "outro", rotulo: obj || "Não informado", metrica: "métrica do objetivo" }) };
+}
+
 async function metaAdsInsights(m: any) {
   const token = Deno.env.get("META_USER_TOKEN");
   if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
@@ -169,8 +207,8 @@ async function metaAdsInsights(m: any) {
 
   async function fetchInsights(acct: string, level: string, extra = "") {
     let lvlFields = "";
-    if (level === "campaign") lvlFields = ",campaign_name";
-    else if (level === "ad") lvlFields = ",campaign_name,adset_name,ad_name,ad_id";
+    if (level === "campaign") lvlFields = ",campaign_name,campaign_id";
+    else if (level === "ad") lvlFields = ",campaign_name,campaign_id,adset_name,ad_name,ad_id";
     let url: string | null = `${base}/act_${acct}/insights?level=${level}&fields=${fields}${lvlFields}${range}${extra}&limit=200&access_token=${token}`;
     const out: any[] = [];
     for (let i = 0; i < 20 && url; i++) {
@@ -181,6 +219,19 @@ async function metaAdsInsights(m: any) {
       url = j.paging?.next || null;
     }
     return out;
+  }
+  // objetivo por campaign_id (uma chamada por conta)
+  async function fetchObjectives(acct: string) {
+    const map: Record<string, any> = {};
+    let url: string | null = `${base}/act_${acct}/campaigns?fields=id,objective&limit=200&access_token=${token}`;
+    for (let i = 0; i < 20 && url; i++) {
+      const r = await fetch(url);
+      const j = await r.json();
+      if (j.error) break;
+      for (const c of (j.data || [])) map[c.id] = metaObjetivo(c.objective);
+      url = j.paging?.next || null;
+    }
+    return map;
   }
   // miniaturas dos criativos por ad_id (uma chamada por conta)
   async function fetchThumbs(acct: string) {
@@ -207,7 +258,7 @@ async function metaAdsInsights(m: any) {
     const revenue = pickAction(row.action_values, ["purchase", "omni_purchase", "offsite_conversion.fb_pixel_purchase"]);
     const roas = Array.isArray(row.purchase_roas) && row.purchase_roas.length ? parseFloat(row.purchase_roas[0].value || "0") : (parseFloat(row.spend || "0") ? revenue / parseFloat(row.spend) : 0);
     return {
-      campaign: row.campaign_name || null,
+      campaign: row.campaign_name || null, campaignId: row.campaign_id || null,
       spend: parseFloat(row.spend || "0"), impressions: parseInt(row.impressions || "0"), clicks: parseInt(row.clicks || "0"),
       ctr: parseFloat(row.ctr || "0"), cpc: parseFloat(row.cpc || "0"), cpm: parseFloat(row.cpm || "0"),
       reach: parseInt(row.reach || "0"), frequency: parseFloat(row.frequency || "0"),
@@ -225,6 +276,7 @@ async function metaAdsInsights(m: any) {
     const at = accountRows.length ? shape(accountRows[0]) : shape({});
     totAgg.spend += at.spend; totAgg.impressions += at.impressions; totAgg.clicks += at.clicks; totAgg.reach += at.reach;
     totAgg.revenue += at.revenue; totAgg.purchases += at.purchases; totAgg.leads += at.leads; totAgg.addToCart += at.addToCart; totAgg.initiateCheckout += at.initiateCheckout;
+    const objByCampId = (m.byAd || m.byCampaign) ? await fetchObjectives(acc.id) : {};
     if (m.byAd) {
       const rows = await fetchInsights(acc.id, "ad");
       const thumbs = rows.length ? await fetchThumbs(acc.id) : {};
@@ -233,6 +285,7 @@ async function metaAdsInsights(m: any) {
         ads.push({
           adId: row.ad_id, adName: row.ad_name || "(sem nome)", campaign: row.campaign_name || "", adset: row.adset_name || "",
           account: acc.name || acc.id, thumbnail: thumbs[row.ad_id] || null,
+          objetivo: objByCampId[row.campaign_id] || metaObjetivo(""),
           spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: s.reach, frequency: s.frequency,
           ctr: s.ctr, cpc: s.cpc, cpm: s.cpm, purchases: s.purchases, revenue: s.revenue, roas: s.roas,
           leads: s.leads, addToCart: s.addToCart, initiateCheckout: s.initiateCheckout,
@@ -246,7 +299,7 @@ async function metaAdsInsights(m: any) {
         const cname = row.campaign_name || "Meta Ads";
         const label = multi ? `${acc.name || acc.id} · ${cname}` : cname;
         const s = shape(row);
-        if (!byCamp[label]) byCamp[label] = { campaign: label, account: acc.name || acc.id, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
+        if (!byCamp[label]) byCamp[label] = { campaign: label, account: acc.name || acc.id, objetivo: objByCampId[row.campaign_id] || metaObjetivo(""), spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
         const c = byCamp[label];
         c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks; c.reach += s.reach;
         c.revenue += s.revenue; c.purchases += s.purchases; c.leads += s.leads; c.addToCart += s.addToCart; c.initiateCheckout += s.initiateCheckout;
@@ -309,12 +362,13 @@ async function metaEntities(m: any) {
   }
   const campaigns: any[] = [], adsets: any[] = [], ads: any[] = [];
   for (const acc of accounts) {
-    const cs = await pageAll(`act_${acc.id}/campaigns?fields=id,name,status,effective_status,daily_budget,lifetime_budget`);
-    for (const c of cs) campaigns.push({ id: c.id, nome: c.name, status: c.status, entrega: c.effective_status, orcamentoDiario: c.daily_budget ? +c.daily_budget / 100 : null, conta: acc.name || acc.id });
+    const cs = await pageAll(`act_${acc.id}/campaigns?fields=id,name,status,effective_status,daily_budget,lifetime_budget,objective`);
+    const objById: Record<string, any> = {};
+    for (const c of cs) { const ob = metaObjetivo(c.objective); objById[c.id] = ob; campaigns.push({ id: c.id, nome: c.name, status: c.status, entrega: c.effective_status, orcamentoDiario: c.daily_budget ? +c.daily_budget / 100 : null, objetivo: ob, conta: acc.name || acc.id }); }
     const as = await pageAll(`act_${acc.id}/adsets?fields=id,name,status,effective_status,daily_budget,campaign_id`);
     for (const s of as) adsets.push({ id: s.id, nome: s.name, status: s.status, entrega: s.effective_status, orcamentoDiario: s.daily_budget ? +s.daily_budget / 100 : null, campanhaId: s.campaign_id, conta: acc.name || acc.id });
     const ds = await pageAll(`act_${acc.id}/ads?fields=id,name,status,effective_status,campaign_id,adset_id`);
-    for (const d of ds) ads.push({ id: d.id, nome: d.name, status: d.status, entrega: d.effective_status, campanhaId: d.campaign_id, conjuntoId: d.adset_id, conta: acc.name || acc.id });
+    for (const d of ds) ads.push({ id: d.id, nome: d.name, status: d.status, entrega: d.effective_status, campanhaId: d.campaign_id, conjuntoId: d.adset_id, objetivo: objById[d.campaign_id] || metaObjetivo(""), conta: acc.name || acc.id });
   }
   return { campaigns, adsets, ads };
 }
