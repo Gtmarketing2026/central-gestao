@@ -3812,6 +3812,14 @@ async function fetchMetaReportRange(c,since,until){
   const d=(data&&data.data)||data;
   return {channelStats:metaChannelFromData(d),ads:(d&&d.ads)||[],total:d&&d.total};
 }
+// Totais do Meta por período (leve: só nível de conta, sem diário/anúncios)
+async function fetchMetaTotals(c,since,until){
+  const ids=c.metaAccountIds||[];if(!ids.length)return null;
+  const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
+  try{const {data}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until}}});const d=(data&&data.data)||data;return (d&&d.total)||null;}catch(e){return null;}
+}
+function metaTotalResumo(t){if(!t)return null;return{investimento:Math.round(t.spend||0),impressoes:t.impressions||0,cliques:t.clicks||0,ctrPct:+(t.ctr||0).toFixed(2),cpc:+(t.cpc||0).toFixed(2),cpm:+(t.cpm||0).toFixed(2),roas:+(t.roas||0).toFixed(2),compras:Math.round(t.purchases||0),leads:Math.round(t.leads||0),conversas:Math.round(t.conversas||0),videoViews:Math.round(t.videoViews||0)};}
+function pctDelta(cur,prev){if(!prev)return null;return +(((cur-prev)/prev)*100).toFixed(1);}
 let _metaDashChart=null,_metaDashDays=30;
 function metaDashRange(clientId,days){_metaDashDays=days;const c=DB.clients.find(x=>x.id===clientId);if(c)loadMetaDashboard(c,++_tplLoadToken,days);}
 async function loadMetaDashboard(c,myToken,days){
@@ -4077,6 +4085,20 @@ async function fetchClientReportMetrics(c,month){
   }
   const out={mesReferencia:month,pedidos:{total:totalPedidos,aprovados:aprovadosCount,faturamentoAprovado:Math.round(aprovadosVal),ticketMedio:Math.round(ticketMedio),porStatus:statusB},canaisDeAnuncio:canais};
   if(metaEntidades)out.metaEntidades=metaEntidades;
+  // Períodos (7d/30d) + benchmark do próprio cliente (30d vs 30d anteriores) — só Meta
+  if(c.metaAccountIds&&c.metaAccountIds.length){
+    try{
+      const tdy=today();
+      const [t7,t30,tPrev30]=await Promise.all([fetchMetaTotals(c,daysAgoISO(7),tdy),fetchMetaTotals(c,daysAgoISO(30),tdy),fetchMetaTotals(c,daysAgoISO(60),daysAgoISO(31))]);
+      out.periodos={ultimos7dias:metaTotalResumo(t7),ultimos30dias:metaTotalResumo(t30)};
+      if(t30&&tPrev30){
+        out.benchmarkProprioCliente={
+          nota:'Comparação dos últimos 30 dias vs os 30 dias anteriores (histórico do próprio cliente). Valores em % de variação.',
+          investimento:pctDelta(t30.spend,tPrev30.spend),ctr:pctDelta(t30.ctr,tPrev30.ctr),cpc:pctDelta(t30.cpc,tPrev30.cpc),cpm:pctDelta(t30.cpm,tPrev30.cpm),roas:pctDelta(t30.roas,tPrev30.roas),compras:pctDelta(t30.purchases,tPrev30.purchases),leads:pctDelta(t30.leads,tPrev30.leads)
+        };
+      }
+    }catch(e){}
+  }
   return out;
 }
 async function ensureClientKpis(){
@@ -4099,7 +4121,7 @@ function fillAgentClientSelect(){
 function renderAgentSuggestions(){
   const el=document.getElementById('agentSuggestions');if(!el)return;
   const gerais=[['Quais clientes precisam de atenção agora e por quê?','Quem precisa de atenção?'],['Como está a saúde geral da carteira?','Saúde da carteira'],['Quais clientes têm tarefas atrasadas ou relatório vencido?','Pendências operacionais'],['Me dê 3 recomendações de otimização pra semana.','Recomendações da semana']];
-  const doCliente=[['Como está esse cliente? Faça um diagnóstico rápido.','Diagnóstico do cliente'],['O que priorizar nesse cliente essa semana?','O que priorizar?'],['Sugira otimizações de campanha pra esse cliente.','Sugestões de otimização'],['Há algum risco ou ponto de atenção nesse cliente?','Riscos e atenção']];
+  const doCliente=[['Como foi a performance nos últimos 7 dias?','Performance · 7 dias'],['Como foi a performance nos últimos 30 dias?','Performance · 30 dias'],['Como está esse cliente? Faça um diagnóstico rápido.','Diagnóstico do cliente'],['O que priorizar nesse cliente essa semana?','O que priorizar?'],['Sugira otimizações de campanha pra esse cliente.','Sugestões de otimização'],['Há algum risco ou ponto de atenção nesse cliente?','Riscos e atenção']];
   const list=agentClientId?doCliente:gerais;
   el.innerHTML=list.map(([q,l])=>`<button class="btn sm ghost" onclick="askAgent('${q.replace(/'/g,"\\'")}')">${l}</button>`).join('');
 }
