@@ -1298,8 +1298,8 @@ const BASE_TEMPLATES=[
   {id:'base_trafego',name:'Tráfego (base)',objectiveType:'trafego',keyMetric:'cliques',metrics:['valorGasto','cliques','cpc','ctr','cpm','impressoes'],funnel:['impressoes','cliques'],isBase:true,source:'meta'},
   {id:'base_engajamento',name:'Engajamento (base)',objectiveType:'engajamento',keyMetric:'engajamentos',metrics:['valorGasto','engajamentos','custoPorEngajamento','ctr','cpm','alcance'],funnel:['impressoes','alcance','engajamentos'],isBase:true,source:'meta'},
   {id:'base_alcance',name:'Alcance / Reconhecimento (base)',objectiveType:'alcance',keyMetric:'alcance',metrics:['valorGasto','alcance','cpm','frequencia','impressoes'],funnel:['impressoes','alcance'],isBase:true,source:'meta'},
-  {id:'base_mensagens',name:'Mensagens (base)',objectiveType:'mensagens',keyMetric:'conversas',metrics:['valorGasto','conversas','custoPorConversa','ctr','cpc','impressoes'],funnel:['impressoes','cliques','conversas'],isBase:true,source:'meta'},
-  {id:'base_video',name:'Vídeo (base)',objectiveType:'video',keyMetric:'videoViews',metrics:['valorGasto','videoViews','custoPorView','cpm','alcance','impressoes'],funnel:['impressoes','videoViews'],isBase:true,source:'meta'},
+  {id:'base_mensagens',name:'Mensagem — WhatsApp/Instagram (base)',objectiveType:'mensagens',keyMetric:'conversas',metrics:['valorGasto','conversas','custoPorConversa','ctr','cpc','impressoes'],funnel:['impressoes','cliques','conversas'],isBase:true,source:'meta'},
+  {id:'base_video',name:'Distribuição — Vídeo (base)',objectiveType:'video',keyMetric:'videoViews',metrics:['valorGasto','videoViews','custoPorView','cpm','alcance','impressoes'],funnel:['impressoes','videoViews','cliques'],isBase:true,source:'meta'},
 ];
 function allTemplates(){return BASE_TEMPLATES.concat(DB.reportTemplates||[])}
 function templateById(id){return allTemplates().find(t=>t.id===id)||null}
@@ -1320,7 +1320,7 @@ function fmtMetric(val,fmt){
   return Math.round(val||0).toLocaleString('pt-BR');
 }
 function fmt$(v){try{return fmt(v)}catch(e){return 'R$ '+(Math.round((v||0)*100)/100).toLocaleString('pt-BR')}}
-const FUNNEL_ORDER=['impressoes','alcance','cliques','addCarrinho','checkout','leads','compras'];
+const FUNNEL_ORDER=['impressoes','alcance','videoViews','cliques','engajamentos','conversas','addCarrinho','checkout','leads','compras'];
 function fillTemplateSelect(selectedId){
   const sel=document.getElementById('cReportTemplate');if(!sel)return;
   const base=BASE_TEMPLATES.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
