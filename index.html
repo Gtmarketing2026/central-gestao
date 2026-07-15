@@ -3464,6 +3464,7 @@ function orderStatusColor(st){
   const m={'Pago':'#10b981','Liberado Automaticamente':'#10b981','Cancelado':'#64748b','Aguardando Pagamento':'#f59e0b','Pagamento Pendente':'#f59e0b','Estornado':'#ef4444','Estornado Parcialmente':'#ef4444','Chargeback':'#ef4444','Aguardando Estorno':'#f59e0b','Não Processado':'#64748b','Não Autorizada':'#ef4444'};
   return m[st]||'#94a3b8';
 }
+let _tplCache={};
 async function loadClientTemplate(){
   const clientId=document.getElementById('crClientSelect').value;
   const c=DB.clients.find(x=>x.id===clientId);
@@ -3474,7 +3475,10 @@ async function loadClientTemplate(){
   const hasOrdersSource=isLocal||!!(c.reportOrdersSheetUrl&&c.reportOrdersTab);
   if(!hasOrdersSource&&!hasMeta){body.innerHTML='<div class="empty">Este cliente não tem fonte de dados. Vincule uma conta do Meta (aba Mídia) ou configure a planilha de pedidos no cadastro.</div>';return}
   const month=document.getElementById('crtMonth').value||today().slice(0,7);
-  body.innerHTML='<div class="empty">Carregando dados ao vivo (pode levar alguns segundos)...</div>';
+  const cacheKey=c.id+'|'+month;
+  const cached=_tplCache[cacheKey];
+  if(cached){renderClientTemplate({...c,reportOrdersTab:cached.ordersKey},month,cached.dataByTab,cached.adTabs,cached.checkoutCount,cached.metaChStats,cached.metaAds);}
+  else body.innerHTML='<div class="empty">Carregando dados ao vivo (pode levar alguns segundos)...</div>';
   const adM=(c.reportSheetUrl||'').match(/\/d\/([a-zA-Z0-9_-]+)/);
   const adSpreadsheetId=adM?adM[1]:null;
   const adTabs=(c.reportTabs||'').split(',').map(t=>t.trim()).filter(Boolean);
@@ -3506,8 +3510,10 @@ async function loadClientTemplate(){
       sb.from('checkout_events').select('*',{count:'exact',head:true}).eq('client_id',c.id).gte('event_date',month+'-01').lte('event_date',month+'-31').then(r=>r.count||0).catch(()=>0),
       hasMeta?fetchMetaReport(c,month).catch(e=>({_err:e.message})):Promise.resolve({channelStats:null,ads:null})
     ]);
-    if(metaRep&&metaRep._err){body.innerHTML=`<div class="empty">Erro ao buscar Meta Ads ao vivo: ${metaRep._err}</div>`;return}
-    renderClientTemplate({...c,reportOrdersTab:ordersKey},month,dataByTab,adTabs,checkoutCount,(metaRep&&metaRep.channelStats)||null,(metaRep&&metaRep.ads)||null);
+    if(metaRep&&metaRep._err&&!cached){body.innerHTML=`<div class="empty">Erro ao buscar Meta Ads ao vivo: ${metaRep._err}</div>`;return}
+    const metaChStats=(metaRep&&metaRep.channelStats)||null,metaAds=(metaRep&&metaRep.ads)||null;
+    _tplCache[cacheKey]={ordersKey,dataByTab,adTabs,checkoutCount,metaChStats,metaAds,ts:Date.now()};
+    renderClientTemplate({...c,reportOrdersTab:ordersKey},month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds);
   }catch(e){
     body.innerHTML=`<div class="empty">Erro ao buscar dados: ${e.message}</div>`;
   }
@@ -3547,13 +3553,14 @@ function mergeChannelStats(sheetStats,metaStats){
 function metaChannelFromData(d){
   if(!d||!d.total)return null;
   const t=d.total;
-  const recByDate={};
-  (d.campaigns||[]).forEach(r=>(r.records||[]).forEach(x=>{
-    const k=x.date;if(!k)return;
-    if(!recByDate[k])recByDate[k]={date:k,sales:0,spend:0,revenue:0,clicks:0,impressions:0};
-    recByDate[k].sales+=Math.round(x.sales||0);recByDate[k].spend+=x.spend||0;recByDate[k].revenue+=x.revenue||0;recByDate[k].clicks+=x.clicks||0;recByDate[k].impressions+=x.impressions||0;
-  }));
-  return {META:{label:'META',spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:t.revenue||0,sales:Math.round(t.purchases||0),leads:t.leads||0,addToCart:t.addToCart||0,initiateCheckout:t.initiateCheckout||0,records:Object.values(recByDate),_meta:true}};
+  // records vêm do total (diário no nível da conta) ou, se ausente, das campanhas
+  let records=(t.records||[]).map(x=>({date:x.date,sales:Math.round(x.sales||0),spend:x.spend||0,revenue:x.revenue||0,clicks:x.clicks||0,impressions:x.impressions||0}));
+  if(!records.length&&(d.campaigns||[]).length){
+    const recByDate={};
+    d.campaigns.forEach(r=>(r.records||[]).forEach(x=>{const k=x.date;if(!k)return;if(!recByDate[k])recByDate[k]={date:k,sales:0,spend:0,revenue:0,clicks:0,impressions:0};recByDate[k].sales+=Math.round(x.sales||0);recByDate[k].spend+=x.spend||0;recByDate[k].revenue+=x.revenue||0;recByDate[k].clicks+=x.clicks||0;recByDate[k].impressions+=x.impressions||0;}));
+    records=Object.values(recByDate);
+  }
+  return {META:{label:'META',spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:t.revenue||0,sales:Math.round(t.purchases||0),leads:t.leads||0,addToCart:t.addToCart||0,initiateCheckout:t.initiateCheckout||0,records,_meta:true}};
 }
 // UMA chamada só: traz canal META + anúncios (Raio-X) juntos (mais rápido que 2 chamadas)
 async function fetchMetaReport(c,month){
@@ -3561,7 +3568,7 @@ async function fetchMetaReport(c,month){
   if(!ids.length)return {channelStats:null,ads:null};
   const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
   const {since,until}=monthRange(month);
-  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,byCampaign:true,daily:true,byAd:true}}});
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,daily:true,byAd:true}}});
   if(error)throw new Error('Meta Ads: '+(error.message||error));
   if(data&&data.error)throw new Error('Meta Ads: '+data.error);
   const d=(data&&data.data)||data;
@@ -3572,7 +3579,7 @@ async function fetchMetaChannelStats(c,month){
   if(!ids.length)return null;
   const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
   const {since,until}=monthRange(month);
-  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,byCampaign:true,daily:true}}});
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,daily:true}}});
   if(error)throw new Error('Meta Ads: '+(error.message||error));
   if(data&&data.error)throw new Error('Meta Ads: '+data.error);
   const d=(data&&data.data)||data;const stats=metaChannelFromData(d);

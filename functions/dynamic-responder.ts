@@ -233,19 +233,19 @@ async function metaAdsInsights(m: any) {
     }
     return map;
   }
-  // miniaturas dos criativos por ad_id (uma chamada por conta)
-  async function fetchThumbs(acct: string) {
+  // miniaturas SÓ dos ad_ids informados (batch /?ids=, sem paginar a conta inteira)
+  async function fetchThumbsByIds(adIds: string[]) {
     const map: Record<string, string> = {};
-    let url: string | null = `${base}/act_${acct}/ads?fields=id,creative{thumbnail_url,image_url}&limit=200&access_token=${token}`;
-    for (let i = 0; i < 20 && url; i++) {
-      const r = await fetch(url);
+    for (let i = 0; i < adIds.length; i += 50) {
+      const chunk = adIds.slice(i, i + 50);
+      const r = await fetch(`${base}/?ids=${chunk.join(",")}&fields=creative{thumbnail_url,image_url}&access_token=${token}`);
       const j = await r.json();
-      if (j.error) break;
-      for (const ad of (j.data || [])) {
-        const t = ad.creative?.thumbnail_url || ad.creative?.image_url;
-        if (t) map[ad.id] = t;
+      if (j.error) continue;
+      for (const id of chunk) {
+        const cr = j[id]?.creative;
+        const t = cr?.thumbnail_url || cr?.image_url;
+        if (t) map[id] = t;
       }
-      url = j.paging?.next || null;
     }
     return map;
   }
@@ -274,16 +274,23 @@ async function metaAdsInsights(m: any) {
   const wantObj = m.byAd || m.byCampaign;
   // Contas em PARALELO, e dentro de cada conta as chamadas (conta/objetivos/anuncios/campanhas/thumbs) tambem em paralelo.
   const perAccount = await Promise.all(accounts.map(async (acc) => {
-    const [accountRows, objByCampId, adRows, campRows, thumbs] = await Promise.all([
+    const [accountRows, acctDaily, objByCampId, adRows, campRows] = await Promise.all([
       fetchInsights(acc.id, "account"),
+      m.daily ? fetchInsights(acc.id, "account", "&time_increment=1") : Promise.resolve([] as any[]),
       wantObj ? fetchObjectives(acc.id) : Promise.resolve({} as Record<string, any>),
       m.byAd ? fetchInsights(acc.id, "ad") : Promise.resolve([] as any[]),
       m.byCampaign ? fetchInsights(acc.id, "campaign", m.daily ? "&time_increment=1" : "") : Promise.resolve([] as any[]),
-      m.byAd ? fetchThumbs(acc.id) : Promise.resolve({} as Record<string, string>),
     ]);
-    return { acc, accountRows, objByCampId, adRows, campRows, thumbs };
+    return { acc, accountRows, acctDaily, objByCampId, adRows, campRows };
   }));
-  for (const { acc, accountRows, objByCampId, adRows, campRows, thumbs } of perAccount) {
+  const totRecByDate: Record<string, any> = {};
+  for (const { acc, accountRows, acctDaily, objByCampId, adRows, campRows } of perAccount) {
+    for (const row of acctDaily) {
+      const s = shape(row); const k = row.date_start;
+      if (!totRecByDate[k]) totRecByDate[k] = { date: k, sales: 0, spend: 0, revenue: 0, clicks: 0, impressions: 0 };
+      const rec = totRecByDate[k];
+      rec.sales += Math.round(s.purchases); rec.spend += s.spend; rec.revenue += s.revenue; rec.clicks += s.clicks; rec.impressions += s.impressions;
+    }
     const at = accountRows.length ? shape(accountRows[0]) : shape({});
     totAgg.spend += at.spend; totAgg.impressions += at.impressions; totAgg.clicks += at.clicks; totAgg.reach += at.reach;
     totAgg.revenue += at.revenue; totAgg.purchases += at.purchases; totAgg.leads += at.leads; totAgg.addToCart += at.addToCart; totAgg.initiateCheckout += at.initiateCheckout;
@@ -291,7 +298,7 @@ async function metaAdsInsights(m: any) {
       const s = shape(row);
       ads.push({
         adId: row.ad_id, adName: row.ad_name || "(sem nome)", campaign: row.campaign_name || "", adset: row.adset_name || "",
-        account: acc.name || acc.id, thumbnail: thumbs[row.ad_id] || null,
+        account: acc.name || acc.id, thumbnail: null,
         objetivo: objByCampId[row.campaign_id] || metaObjetivo(""),
         spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: s.reach, frequency: s.frequency,
         ctr: s.ctr, cpc: s.cpc, cpm: s.cpm, purchases: s.purchases, revenue: s.revenue, roas: s.roas,
@@ -315,6 +322,7 @@ async function metaAdsInsights(m: any) {
     cpc: totAgg.clicks ? totAgg.spend / totAgg.clicks : 0,
     cpm: totAgg.impressions ? (totAgg.spend / totAgg.impressions) * 1000 : 0,
     roas: totAgg.spend ? totAgg.revenue / totAgg.spend : 0,
+    records: Object.values(totRecByDate).sort((a: any, b: any) => a.date < b.date ? -1 : 1),
   };
   const campaigns = Object.values(byCamp).map((c: any) => {
     c.ctr = c.impressions ? (c.clicks / c.impressions) * 100 : 0;
@@ -324,6 +332,11 @@ async function metaAdsInsights(m: any) {
     return c;
   }).sort((a: any, b: any) => b.spend - a.spend);
   ads.sort((a: any, b: any) => b.spend - a.spend);
+  if (m.byAd && ads.length) {
+    const topIds = ads.slice(0, 20).map((a: any) => a.adId).filter(Boolean);
+    const thumbs = await fetchThumbsByIds(topIds);
+    for (const a of ads) if (thumbs[a.adId]) a.thumbnail = thumbs[a.adId];
+  }
   return { total, campaigns, ads, accounts, period: m.since && m.until ? { since: m.since, until: m.until } : { datePreset: m.datePreset || "last_30d" } };
 }
 
