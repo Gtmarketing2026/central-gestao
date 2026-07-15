@@ -3306,6 +3306,7 @@ function selectReportClient(clientId){
   if(sel){sel.value=clientId;loadClientReport(clientId)}
 }
 async function loadClientReport(clientId){
+  const myToken=++_tplLoadToken;
   const c=DB.clients.find(x=>x.id===clientId);
   // sempre reseta o estado do dashboard ao trocar de cliente (evita mostrar dados do cliente anterior)
   currentReport=null;selectedReportChannels=null;
@@ -3335,6 +3336,7 @@ async function loadClientReport(clientId){
   }
   try{
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{spreadsheetId,tabs}});
+    if(myToken!==_tplLoadToken)return; // trocou de cliente durante o carregamento
     if(error)throw error;
     currentReport={tabs,dataByTab:(data&&data.data)||{}};
     selectedReportChannels=new Set(tabs);
@@ -3465,7 +3467,9 @@ function orderStatusColor(st){
   return m[st]||'#94a3b8';
 }
 let _tplCache={};
+let _tplLoadToken=0;
 async function loadClientTemplate(){
+  const myToken=++_tplLoadToken;
   const clientId=document.getElementById('crClientSelect').value;
   const c=DB.clients.find(x=>x.id===clientId);
   const body=document.getElementById('crTemplateBody');
@@ -3510,11 +3514,13 @@ async function loadClientTemplate(){
       sb.from('checkout_events').select('*',{count:'exact',head:true}).eq('client_id',c.id).gte('event_date',month+'-01').lte('event_date',month+'-31').then(r=>r.count||0).catch(()=>0),
       hasMeta?fetchMetaReport(c,month).catch(e=>({_err:e.message})):Promise.resolve({channelStats:null,ads:null})
     ]);
-    if(metaRep&&metaRep._err&&!cached){body.innerHTML=`<div class="empty">Erro ao buscar Meta Ads ao vivo: ${metaRep._err}</div>`;return}
     const metaChStats=(metaRep&&metaRep.channelStats)||null,metaAds=(metaRep&&metaRep.ads)||null;
     _tplCache[cacheKey]={ordersKey,dataByTab,adTabs,checkoutCount,metaChStats,metaAds,ts:Date.now()};
+    if(myToken!==_tplLoadToken)return; // usuário trocou de cliente/mês: descarta este render
+    if(metaRep&&metaRep._err&&!cached){body.innerHTML=`<div class="empty">Erro ao buscar Meta Ads ao vivo: ${metaRep._err}</div>`;return}
     renderClientTemplate({...c,reportOrdersTab:ordersKey},month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds);
   }catch(e){
+    if(myToken!==_tplLoadToken)return;
     body.innerHTML=`<div class="empty">Erro ao buscar dados: ${e.message}</div>`;
   }
 }
