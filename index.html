@@ -3847,17 +3847,17 @@ function computeFunnelStages(channelList,aprovadosCount,checkoutCount){
 function monthRange(month){const [y,m]=month.split('-').map(Number);const last=new Date(y,m,0).getDate();return{since:`${month}-01`,until:`${month}-${String(last).padStart(2,'0')}`};}
 // Mescla canais: mantém os da planilha que NÃO são Meta/Facebook/Instagram (Google, WhatsApp, etc.) e adiciona os canais Meta ao vivo. Evita contar o Meta duas vezes.
 function isMetaChannelLabel(l){return /\bmeta\b|facebook|instagram|\bfb\b|\big\b|face|insta/i.test(l||'');}
-function mergeChannelStats(sheetStats,metaStats,metaSalesFromSheet){
+function mergeChannelStats(sheetStats,metaStats){
   const out={};
   let sheetMeta=null;
   Object.values(sheetStats||{}).forEach(ch=>{if(isMetaChannelLabel(ch.label))sheetMeta=ch;else out[ch.label]=ch});
   Object.values(metaStats||{}).forEach(ch=>{
     const c={...ch};
-    // Fernanda etc.: venda e faturamento do Meta vêm da PLANILHA, não da API (pixel superatribui). Mídia (invest/cliques/CTR) continua da API.
-    if(metaSalesFromSheet){
-      c.revenue=sheetMeta?sheetMeta.revenue||0:0;
-      c.sales=sheetMeta?sheetMeta.sales||0:0;
-      c.records=(sheetMeta&&sheetMeta.records&&sheetMeta.records.length)?sheetMeta.records:[];
+    // Se a planilha tem aba de Meta (ex: "META VENDAS"), venda e faturamento do Meta vêm dela (o pixel da API superatribui). Mídia (invest/cliques/CTR) continua da API.
+    if(sheetMeta){
+      c.revenue=sheetMeta.revenue||0;
+      c.sales=sheetMeta.sales||0;
+      c.records=(sheetMeta.records&&sheetMeta.records.length)?sheetMeta.records:[];
       c._salesFromSheet=true;
     }
     out[c.label]=c;
@@ -4148,7 +4148,7 @@ async function fetchClientReportMetrics(c,month){
   const ticketMedio=aprovadosCount?aprovadosVal/aprovadosCount:0;
   let chStats;
   const sheetStats0=computeChannelStats(adTabs,dataByTab,month);
-  try{const mr=await fetchMetaChannelStats(c,month);chStats=mr?mergeChannelStats(sheetStats0,mr.stats,c.conversionSource==='orders'):sheetStats0;}
+  try{const mr=await fetchMetaChannelStats(c,month);chStats=mr?mergeChannelStats(sheetStats0,mr.stats):sheetStats0;}
   catch(e){chStats=sheetStats0;}
   const canais=Object.values(chStats).map(ch=>({nome:ch.label,investimento:Math.round(ch.spend),faturamento:Math.round(ch.revenue),vendas:ch.sales,cliques:ch.clicks,impressoes:ch.impressions,cpc:ch.clicks?+(ch.spend/ch.clicks).toFixed(2):null,ctrPct:ch.impressions?+((ch.clicks/ch.impressions)*100).toFixed(2):null,roas:ch.spend?+(ch.revenue/ch.spend).toFixed(2):null}));
   let metaEntidades=null;
@@ -4583,7 +4583,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   const ticketMedio=aprovadosCount?aprovadosVal/aprovadosCount:0;
 
   const sheetStats=computeChannelStats(adTabs,dataByTab,month);
-  const chStats=metaChStats?mergeChannelStats(sheetStats,metaChStats,c.conversionSource==='orders'):sheetStats;
+  const chStats=metaChStats?mergeChannelStats(sheetStats,metaChStats):sheetStats;
   const channelList=Object.values(chStats).sort((a,b)=>b.revenue-a.revenue);
   const maxRev=channelList[0]?channelList[0].revenue:1;
 
