@@ -1702,6 +1702,9 @@ function goToTab(tabId){
   if(panel)panel.classList.add('active');
   if(tabId==='modelos')renderModelosPage();
   if(tabId==='clients')document.querySelectorAll('[data-csub]').forEach(b=>{const on=b.dataset.csub==='clientes';b.classList.toggle('primary',on);b.classList.toggle('ghost',!on)});
+  // cliente ativo (sidebar) segue entre as telas
+  if(tabId==='relatorios'&&activeClientId){const s=document.getElementById('crClientSelect');if(s&&s.value!==activeClientId){s.value=activeClientId;loadClientReport(activeClientId);}}
+  if(tabId==='iagestora'&&activeClientId&&agentClientId!==activeClientId){loadAgentProject(activeClientId);}
 }
 function setClientsSub(v){
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
@@ -1717,8 +1720,10 @@ function fillSidebarClient(){
   s.innerHTML='<option value="">— selecionar cliente —</option>'+[...DB.clients].sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}">${c.name.replace(/</g,'&lt;')}</option>`).join('');
   s.value=cur;
 }
+let activeClientId='';
 function selectSidebarClient(id){
   if(!id)return;
+  activeClientId=id;
   const active=((document.querySelector('.tab.active')||{}).dataset||{}).tab||'';
   if(active==='relatorios'){const s=document.getElementById('crClientSelect');if(s){s.value=id;loadClientReport(id)}}
   else if(active==='iagestora'){loadAgentProject(id);}
@@ -1727,7 +1732,7 @@ function selectSidebarClient(id){
 /* ===== PÁGINA DE CONFIGURAÇÃO DO CLIENTE (cards) ===== */
 let _configClientId=null;
 function openClientConfig(id){
-  _configClientId=id;
+  _configClientId=id;activeClientId=id;
   {const s=document.getElementById('sidebarClient');if(s)s.value=id;}
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -3535,6 +3540,7 @@ function selectReportClient(clientId){
 }
 async function loadClientReport(clientId){
   const myToken=++_tplLoadToken;
+  if(clientId)activeClientId=clientId;
   {const s=document.getElementById('sidebarClient');if(s&&clientId)s.value=clientId;}
   const c=DB.clients.find(x=>x.id===clientId);
   // sempre reseta o estado do dashboard ao trocar de cliente (evita mostrar dados do cliente anterior)
@@ -4432,6 +4438,7 @@ function handleClientKnowledgeUpload(input){
   handleKnowledgeUpload(input,id,'cKnowledgeList','cKnowledgeStatus');
 }
 async function loadAgentProject(clientId){
+  if(clientId)activeClientId=clientId;
   {const s=document.getElementById('sidebarClient');if(s&&clientId)s.value=clientId;}
   agentClientId=clientId;
   agentActiveChat=null;agentClientKpis=null;agentKpisClientId=null;agentKpisPromise=null;
