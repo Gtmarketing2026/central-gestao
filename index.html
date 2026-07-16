@@ -1773,6 +1773,7 @@ async function loadCampanhas(clientId,days){
     (entData.campaigns||[]).forEach(x=>_campStatus.camp[x.id]=x.status);
     (entData.adsets||[]).forEach(x=>_campStatus.adset[x.id]=x.status);
     (entData.ads||[]).forEach(x=>_campStatus.ad[x.id]=x.status);
+    _campCols=focoCols(_campFoco);
     renderCampFocos();renderCampBody();
   }catch(e){body.innerHTML=`<div class="empty">Erro: ${e.message}</div>`;}
 }
@@ -1796,7 +1797,7 @@ async function toggleCampStatus(level,id,btn){
 }
 function renderCampRange(){const el=document.getElementById('campRange');if(el)el.innerHTML=[[7,'7 dias'],[30,'30 dias'],[90,'90 dias']].map(([d,l])=>`<button class="btn sm ${_campDays===d?'primary':'ghost'}" onclick="loadCampanhas(null,${d})">${l}</button>`).join('');}
 function renderCampFocos(){const el=document.getElementById('campFocos');if(!el)return;const tipos=[...new Set(_campAds.filter(a=>a.spend>0).map(a=>(a.objetivo&&a.objetivo.tipo)||'outro'))];el.innerHTML=`<button class="btn sm ${!_campFoco?'primary':'ghost'}" onclick="setCampFoco('')">Todos</button>`+tipos.map(t=>{const info=OBJETIVO_INFO[t]||{rotulo:t};return `<button class="btn sm ${_campFoco===t?'primary':'ghost'}" onclick="setCampFoco('${t}')">${info.rotulo}</button>`}).join('');}
-function setCampFoco(t){_campFoco=t;renderCampFocos();renderCampBody();}
+function setCampFoco(t){_campFoco=t;_campCols=focoCols(t);renderCampFocos();renderCampBody();renderCampColsPanel();}
 function buildCampaignTree(ads){
   const camps={};
   ads.forEach(a=>{
@@ -1848,7 +1849,18 @@ const CAMP_COLS={
   revenue:{label:'Receita',get:x=>fmt(x.revenue||0)},
 };
 const CAMP_COLS_DEFAULT=['invest','impressions','ctr','resultado','custores'];
-let _campCols=(()=>{try{const s=JSON.parse(localStorage.getItem('campCols'));return Array.isArray(s)&&s.length?s.filter(k=>CAMP_COLS[k]):CAMP_COLS_DEFAULT.slice()}catch(e){return CAMP_COLS_DEFAULT.slice()}})();
+// Colunas padrão por objetivo (aparecem ao filtrar por tipo de campanha; ainda editáveis)
+const COLS_BY_OBJETIVO={
+  conversao:['invest','impressions','ctr','compras','cpa','roas'],
+  leads:['invest','impressions','ctr','leads','cpl'],
+  trafego:['invest','impressions','clicks','cpc','ctr','cpm'],
+  engajamento:['invest','impressions','engaj','ctr','cpm','reach'],
+  mensagens:['invest','impressions','ctr','conversas','custoconv','cpc'],
+  video:['invest','impressions','views','custoview','cpm','reach'],
+  alcance:['invest','impressions','reach','cpm','freq'],
+};
+function focoCols(tipo){return (COLS_BY_OBJETIVO[tipo]||CAMP_COLS_DEFAULT).slice();}
+let _campCols=CAMP_COLS_DEFAULT.slice();
 function campGrid(){return `grid-template-columns:minmax(200px,2.2fr) repeat(${_campCols.length},minmax(66px,1fr));`;}
 function _campPresets(){try{return JSON.parse(localStorage.getItem('campColPresets')||'{}')}catch(e){return {}}}
 function toggleCampColsPanel(){const p=document.getElementById('campColsPanel');if(p)p.style.display=p.style.display==='none'?'block':'none';renderCampColsPanel();}
