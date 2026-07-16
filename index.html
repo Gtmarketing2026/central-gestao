@@ -1760,7 +1760,7 @@ function selectSidebarClient(id){
   else{openClientConfig(id);}
 }
 /* ===== CAMPANHAS (drill-down estilo gerenciador) ===== */
-let _campDays=30,_campAds=[],_campClientId='',_campFoco='',_campSince='',_campUntil='',_campSearch='',_campStatusFilter='',_campMinSpend=0;
+let _campDays=30,_campAds=[],_campClientId='',_campFoco='',_campSince='',_campUntil='',_campSearch='',_campStatusFilter='',_campMinSpend=0,_campShowPaused=false;
 const CAMP_AGG_KEYS=['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'];
 function _newAgg(){const o={};CAMP_AGG_KEYS.forEach(k=>o[k]=0);return o;}
 function _addAgg(agg,a){CAMP_AGG_KEYS.forEach(k=>agg[k]+=(a[k]||0));}
@@ -1930,22 +1930,35 @@ function renderCampBody(){
     <div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted)">Campanha / Conjunto / Anúncio</div>
     ${_campCols.map(k=>`<div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted);text-align:right">${CAMP_COLS[k].label}</div>`).join('')}
   </div>`;
-  const rows=tree.map((cp,ci)=>{
-    const cid='cp'+ci;
+  const buildRows=(list,pfx)=>list.map((cp,ci)=>{
+    const cid=pfx+ci;
     const adsetRows=Object.values(cp.adsets).sort((a,b)=>b.agg.spend-a.agg.spend).map((as,ai)=>{
-      const sid='cp'+ci+'as'+ai;
+      const sid=pfx+ci+'as'+ai;
       const adRows=as.ads.sort((a,b)=>b.spend-a.spend).map(ad=>campRowHTML(ad.adName,3,ad,cp.objetivo.tipo,null,null,'ad',ad.adId)).join('');
       return `<div>${campRowHTML(as.nome,2,as.agg,cp.objetivo.tipo,sid,as.ads.length+' anúncio(s)','adset',as.id)}<div id="${sid}" style="display:none">${adRows}</div></div>`;
     }).join('');
     return `<div>${campRowHTML(cp.nome,1,cp.agg,cp.objetivo.tipo,cid,cp.objetivo.rotulo,'camp',cp.id)}<div id="${cid}" style="display:none">${adsetRows}</div></div>`;
   }).join('');
+  // Divide em ativas x pausadas (padrão: só ativas; pausadas carregam sob demanda). Status desconhecido conta como ativa.
+  let active=tree,paused=[];
+  if(!_campStatusFilter){
+    active=tree.filter(cp=>(_campStatus.camp[cp.id]||'ACTIVE')!=='PAUSED');
+    paused=tree.filter(cp=>(_campStatus.camp[cp.id]||'ACTIVE')==='PAUSED');
+  }
+  const rows=buildRows(active,'cp');
+  let pausedBlock='';
+  if(paused.length){
+    const bar=`<div onclick="_campShowPaused=!_campShowPaused;renderCampBody()" style="cursor:pointer;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(255,255,255,.02);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px">
+      <span style="color:var(--accent)">${_campShowPaused?'▾':'▸'}</span> ${_campShowPaused?'Ocultar':'Ver'} ${paused.length} campanha${paused.length!==1?'s':''} pausada${paused.length!==1?'s':''}</div>`;
+    pausedBlock=bar+(_campShowPaused?buildRows(paused,'pp'):'');
+  }
   const totAgg={};tree.forEach(cp=>Object.keys(cp.agg).forEach(k=>{if(typeof cp.agg[k]==='number')totAgg[k]=(totAgg[k]||0)+cp.agg[k];}));
   const tipos=[...new Set(tree.map(cp=>cp.objetivo.tipo))];const totTipo=tipos.length===1?tipos[0]:'outro';
   const totD=deriveMeta({...totAgg});
   const totCells=_campCols.map(k=>`<div style="padding:10px 6px;font-size:12px;text-align:right;font-weight:700">${CAMP_COLS[k]?CAMP_COLS[k].get(totD,totTipo):''}</div>`).join('');
   const totRow=`<div style="display:grid;${campGrid()}align-items:center;border-bottom:2px solid var(--border);background:var(--surface2)">
     <div style="padding:10px 6px;font-size:12px;font-weight:800;color:var(--accent)">Σ Total · ${tree.length} campanha${tree.length!==1?'s':''}</div>${totCells}</div>`;
-  body.innerHTML=`<div class="card" style="padding:0;overflow-x:auto">${header}${totRow}${rows}</div>`;
+  body.innerHTML=`<div class="card" style="padding:0;overflow-x:auto">${header}${totRow}${rows}${pausedBlock}</div>`;
 }
 function toggleCampRow(id){
   if(event&&event.stopPropagation)event.stopPropagation();
