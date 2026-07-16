@@ -221,7 +221,14 @@
       <button class="tab active" data-tab="operacional">Operacional</button>
       <button class="tab" data-tab="financeiro">Financeiro</button>
       <button class="tab" data-tab="churn">⚠ Churn <span class="badge" id="churnBadge" style="background:var(--red)">0</span></button>
-      <button class="tab" data-tab="clients">Clientes <span class="badge" id="cBadge">0</span></button>
+      <button class="tab" data-tab="clients" style="position:relative">Clientes <span class="badge" id="cBadge">0</span><span id="clientsSubArrow" onclick="event.stopPropagation();toggleClientsSubmenu()" title="Configurações do cliente selecionado" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
+      <div id="clientsSubmenu" style="display:none">
+        <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('painel')">⚙ Painel de configuração</button>
+        <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('dados')">✏️ Dados &amp; Verba</button>
+        <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('midia')">📱 Mídia &amp; Meta</button>
+        <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('relatorios')">📊 Relatórios</button>
+        <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('dna')">🧬 DNA &amp; Conhecimento</button>
+      </div>
       <button class="tab" data-tab="tasks">Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="relatorios">📊 Relatórios</button>
       <button class="tab" data-tab="campanhas">📣 Campanhas</button>
@@ -638,8 +645,11 @@
     <div class="card" id="agentChat" style="min-height:280px;max-height:55vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:18px">
       <div class="empty" id="agentEmpty">Selecione um projeto e comece uma conversa.</div>
     </div>
+    <div id="agentAttachChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px"></div>
     <div class="filterbar" style="margin-top:12px;flex-wrap:nowrap">
-      <input id="agentInput" placeholder="Pergunte à AndréIA... (ou clique no 🎤 pra falar)" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();sendAgentMessage()}">
+      <input id="agentInput" placeholder="Pergunte à AndréIA... (cole uma URL pra ela analisar o site)" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();sendAgentMessage()}">
+      <input type="file" id="agentFile" multiple accept="image/*,.pdf,.txt,.csv" style="display:none" onchange="agentAttachFiles(this.files);this.value=''">
+      <button class="btn ghost" onclick="document.getElementById('agentFile').click()" title="Anexar imagem, PDF ou texto" style="min-width:44px">📎</button>
       <button class="btn ghost" id="agentMicBtn" onclick="toggleVoiceInput('agentInput','agentMicBtn')" title="Falar (ditado por voz)" style="min-width:44px">🎤</button>
       <button class="btn primary" id="agentSendBtn" onclick="sendAgentMessage()">Enviar</button>
     </div>
@@ -2058,6 +2068,13 @@ function toggleCfgMenu(e,id){
 }
 function closeCfgMenus(){const m=document.getElementById('cfgMenuGlobal');if(m)m.remove();}
 function cfgMenuOpen(id,tab){openClientModal(id);setClientTab(tab);}
+// Submenu "Clientes" na sidebar — configurações do cliente selecionado no seletor universal
+function toggleClientsSubmenu(){const m=document.getElementById('clientsSubmenu');const a=document.getElementById('clientsSubArrow');if(!m)return;const open=m.style.display==='none';m.style.display=open?'block':'none';if(a)a.textContent=open?'▴':'▾';}
+function sbCfg(what){
+  const id=activeClientId||((document.getElementById('sidebarClient')||{}).value||'');
+  if(!id){alert('Selecione um cliente no seletor "Cliente" acima primeiro.');return;}
+  if(what==='painel')openClientConfig(id);else cfgMenuOpen(id,what);
+}
 document.addEventListener('click',()=>closeCfgMenus());
 function ccRow(k,v){return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:var(--muted)">${k}</span><span style="font-weight:600;text-align:right">${v}</span></div>`;}
 function ccCard(o){
@@ -2093,7 +2110,7 @@ function renderClientConfig(){
       ccCard({icon:'📋',label:'Relatório & Template',title:tplName,desc:'Modelo do relatório e fonte de vendas.',rows:ccRow('Modelo',tplName.slice(0,24))+ccRow('Fonte de vendas',convLbl),btn:'Editar',onclick:"ccOpen('relatorios')"})
      +ccCard({icon:'🧠',label:'Conhecimento',title:'Materiais do cliente',desc:'PDFs específicos (briefing, tom, particularidades) pra AndréIA.',btn:'Gerenciar',onclick:"ccOpen('dna')"}));
 }
-document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>goToTab(t.dataset.tab));
+document.querySelectorAll('.tab').forEach(t=>{if(t.dataset.tab)t.onclick=()=>goToTab(t.dataset.tab)});
 
 let weekTasksOpen=false;
 function toggleWeekTasks(){
@@ -4957,13 +4974,47 @@ function toggleVoiceInput(inputId,btnId){
   try{_voiceRec.start()}catch(e){}
 }
 function askAgent(q){document.getElementById('agentInput').value=q;sendAgentMessage()}
+// ---- Anexos da AndréIA (imagem via vision, PDF/TXT extraídos aqui) ----
+let _agentAnexos=[];
+function renderAgentAttachChips(){
+  const el=document.getElementById('agentAttachChips');if(!el)return;
+  el.innerHTML=_agentAnexos.map((a,i)=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 10px;font-size:12px">${a.tipo==='imagem'?'🖼':'📄'} ${(a.nome||'anexo').replace(/</g,'&lt;')} <span style="cursor:pointer;color:var(--faint);font-weight:700" onclick="_agentAnexos.splice(${i},1);renderAgentAttachChips()">×</span></span>`).join('');
+}
+function _resizeImageToDataUrl(file,maxPx){
+  return new Promise((res,rej)=>{
+    const img=new Image();
+    img.onload=()=>{const sc=Math.min(1,maxPx/Math.max(img.width,img.height));const cv=document.createElement('canvas');cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);res(cv.toDataURL('image/jpeg',.85));URL.revokeObjectURL(img.src);};
+    img.onerror=rej;img.src=URL.createObjectURL(file);
+  });
+}
+async function agentAttachFiles(files){
+  for(const f of [...files].slice(0,4)){
+    try{
+      if(f.type.startsWith('image/')){
+        const dataUrl=await _resizeImageToDataUrl(f,1280);
+        _agentAnexos.push({tipo:'imagem',nome:f.name,dataUrl});
+      }else if(/\.pdf$/i.test(f.name)){
+        const texto=await extractPdfText(f);
+        _agentAnexos.push({tipo:'texto',nome:f.name,texto});
+      }else{
+        const texto=await f.text();
+        _agentAnexos.push({tipo:'texto',nome:f.name,texto});
+      }
+    }catch(e){alert('Não consegui ler "'+f.name+'": '+(e.message||e));}
+  }
+  _agentAnexos=_agentAnexos.slice(0,4);
+  renderAgentAttachChips();
+}
 async function sendAgentMessage(){
   const inp=document.getElementById('agentInput');
   const q=inp.value.trim();
-  if(!q)return;
+  if(!q&&!_agentAnexos.length)return;
   if(!agentActiveChat)newAgentConversation();
   const btn=document.getElementById('agentSendBtn');
-  agentActiveChat.messages.push({role:'user',text:q});
+  const anexos=_agentAnexos.slice();_agentAnexos=[];renderAgentAttachChips();
+  const urls=(q.match(/https?:\/\/[^\s)>"']+/g)||[]).slice(0,3);
+  const qShow=q+(anexos.length?`\n📎 ${anexos.map(a=>a.nome).join(', ')}`:'');
+  agentActiveChat.messages.push({role:'user',text:qShow||'📎 (anexo)'});
   agentActiveChat.messages.push({role:'typing'});
   inp.value='';btn.disabled=true;inp.disabled=true;
   renderAgentChat();
@@ -4972,7 +5023,7 @@ async function sendAgentMessage(){
     const snapshot=currentAgentSnapshot();
     const knowledge=await fetchAgentKnowledge(agentClientId).catch(()=>[]);
     const history=agentActiveChat.messages.filter(m=>m.role==='user'||m.role==='assistant').slice(-12).map(m=>({role:m.role,text:m.text}));
-    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{agent:{question:q,history,snapshot,knowledge}}});
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{agent:{question:q||'Analise o(s) anexo(s).',history,snapshot,knowledge,anexos,urls}}});
     if(error)throw error;
     agentActiveChat.messages=agentActiveChat.messages.filter(m=>m.role!=='typing');
     const resp=(data&&data.data)||{};
