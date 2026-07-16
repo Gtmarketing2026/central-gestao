@@ -589,6 +589,7 @@
         <button class="btn sm primary" onclick="applyCampCustomDate()">Aplicar</button>
       </div>
       <span style="flex:1"></span>
+      <input type="number" placeholder="Gasto mín. R$" oninput="setCampMinSpend(this.value)" style="width:110px;font-size:12px" title="Mostrar só campanhas com gasto acima de">
       <input id="campSearch" placeholder="🔍 Buscar campanha / conjunto / anúncio" oninput="setCampSearch(this.value)" style="width:280px;max-width:55vw;font-size:12px">
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
@@ -1759,7 +1760,7 @@ function selectSidebarClient(id){
   else{openClientConfig(id);}
 }
 /* ===== CAMPANHAS (drill-down estilo gerenciador) ===== */
-let _campDays=30,_campAds=[],_campClientId='',_campFoco='',_campSince='',_campUntil='',_campSearch='',_campStatusFilter='';
+let _campDays=30,_campAds=[],_campClientId='',_campFoco='',_campSince='',_campUntil='',_campSearch='',_campStatusFilter='',_campMinSpend=0;
 const CAMP_AGG_KEYS=['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'];
 function _newAgg(){const o={};CAMP_AGG_KEYS.forEach(k=>o[k]=0);return o;}
 function _addAgg(agg,a){CAMP_AGG_KEYS.forEach(k=>agg[k]+=(a[k]||0));}
@@ -1820,6 +1821,8 @@ function applyCampCustomDate(){const f=document.getElementById('campDateFrom').v
 function renderCampStatusFilter(){const el=document.getElementById('campStatusFilter');if(!el)return;el.innerHTML=[['','Todos'],['ACTIVE','Ativos'],['PAUSED','Pausados']].map(([v,l])=>`<button class="btn sm ${_campStatusFilter===v?'primary':'ghost'}" onclick="setCampStatusFilter('${v}')">${l}</button>`).join('');}
 function setCampStatusFilter(v){_campStatusFilter=v;renderCampStatusFilter();renderCampBody();}
 function setCampSearch(v){_campSearch=(v||'').toLowerCase().trim();renderCampBody();}
+function setCampMinSpend(v){_campMinSpend=+v||0;renderCampBody();}
+function campHL(name){const esc=(name||'—').replace(/</g,'&lt;');if(!_campSearch)return esc;try{const re=new RegExp('('+_campSearch.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig');return esc.replace(re,'<mark style="background:rgba(240,192,64,.4);color:inherit;border-radius:3px;padding:0 1px">$1</mark>');}catch(e){return esc;}}
 function renderCampFocos(){const el=document.getElementById('campFocos');if(!el)return;const tipos=[...new Set(_campAds.filter(a=>a.spend>0).map(a=>(a.objetivo&&a.objetivo.tipo)||'outro'))];el.innerHTML=`<button class="btn sm ${!_campFoco?'primary':'ghost'}" onclick="setCampFoco('')">Todos</button>`+tipos.map(t=>{const info=OBJETIVO_INFO[t]||{rotulo:t};return `<button class="btn sm ${_campFoco===t?'primary':'ghost'}" onclick="setCampFoco('${t}')">${info.rotulo}</button>`}).join('');}
 function setCampFoco(t){_campFoco=t;_campCols=focoCols(t);renderCampFocos();renderCampBody();renderCampColsPanel();}
 function buildCampaignTree(ads){
@@ -1911,7 +1914,7 @@ function campRowHTML(name,level,agg,tipo,toggleId,badge,objLevel,objId){
   const cells=_campCols.map(k=>`<div style="padding:8px 6px;font-size:12px;text-align:right">${CAMP_COLS[k]?CAMP_COLS[k].get(d,tipo):''}</div>`).join('');
   const bg=level===1?'background:var(--surface2);':level===2?'background:rgba(255,255,255,.02);':'';
   return `<div ${toggleId?`onclick="toggleCampRow('${toggleId}')" style="cursor:pointer;`:'style="'}display:grid;${campGrid()}align-items:center;border-bottom:1px solid rgba(255,255,255,.05);${bg}">
-    <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(name||'').replace(/"/g,'')}">${stBtn}${caret} ${(name||'—').replace(/</g,'&lt;')}${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400">${badge}</span>`:''}</div>
+    <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(name||'').replace(/"/g,'')}">${stBtn}${caret} ${campHL(name)}${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400">${badge}</span>`:''}</div>
     ${cells}</div>`;
 }
 function renderCampBody(){
@@ -1921,6 +1924,7 @@ function renderCampBody(){
   if(_campSearch)ads=ads.filter(a=>((a.campaign||'')+' '+(a.adset||'')+' '+(a.adName||'')).toLowerCase().includes(_campSearch));
   let tree=buildCampaignTree(ads);
   if(_campStatusFilter)tree=tree.filter(cp=>(_campStatus.camp[cp.id]||'')===_campStatusFilter);
+  if(_campMinSpend>0)tree=tree.filter(cp=>cp.agg.spend>=_campMinSpend);
   if(!tree.length){body.innerHTML='<div class="empty">Nenhuma campanha para o filtro atual.</div>';return}
   const header=`<div style="display:grid;${campGrid()}align-items:center;border-bottom:2px solid var(--border)">
     <div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted)">Campanha / Conjunto / Anúncio</div>
