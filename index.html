@@ -1752,7 +1752,8 @@ function setClientsSub(v){
 function fillSidebarClient(){
   const s=document.getElementById('sidebarClient');if(!s)return;
   const cur=s.value;
-  s.innerHTML='<option value="">— selecionar cliente —</option>'+[...DB.clients].sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}">${c.name.replace(/</g,'&lt;')}</option>`).join('');
+  const vis=DB.clients.filter(c=>c.status!=='Encerrado'||c.id===cur); // encerrados fora do seletor (mantém se for o selecionado)
+  s.innerHTML='<option value="">— selecionar cliente —</option>'+vis.sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}">${c.name.replace(/</g,'&lt;')}</option>`).join('');
   s.value=cur;
 }
 let activeClientId='';
@@ -2435,9 +2436,14 @@ function renderClients(){
   let list=[...DB.clients];
   if(search)list=list.filter(c=>c.name.toLowerCase().includes(search)||(c.plat||'').toLowerCase().includes(search)||(c.notes||'').toLowerCase().includes(search));
   if(fStatus)list=list.filter(c=>c.status===fStatus);
+  else list=list.filter(c=>c.status!=='Encerrado'); // encerrados ficam no arquivo (rodapé), fora da lista padrão
   if(fType)list=list.filter(c=>(c.category||c.billing||'mensal')===fType);
   list.sort((a,b)=>_clientSortAsc?a.name.localeCompare(b.name,'pt'):b.name.localeCompare(a.name,'pt'));
-  if(!list.length){t.innerHTML='<tr><td><div class="empty">Nenhum cliente com esses filtros.</div></td></tr>';return}
+  const nEnc=DB.clients.filter(c=>c.status==='Encerrado').length;
+  const archFoot=fStatus==='Encerrado'
+    ?`<tfoot><tr><td colspan="10" style="padding:10px"><button class="btn sm ghost" onclick="document.getElementById('cFilterStatus').value='';renderClients()">← Voltar pra lista de clientes</button></td></tr></tfoot>`
+    :(nEnc&&!fStatus?`<tfoot><tr><td colspan="10" style="padding:10px"><button class="btn sm ghost" style="color:var(--muted)" onclick="document.getElementById('cFilterStatus').value='Encerrado';renderClients()">🗄 Arquivo: ver ${nEnc} cliente(s) encerrado(s)</button></td></tr></tfoot>`:'');
+  if(!list.length){t.innerHTML='<tr><td><div class="empty">Nenhum cliente com esses filtros.</div></td></tr>'+archFoot;return}
   t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Verba mídia</th><th>Saldo</th><th>Próx. relatório</th><th></th></tr></thead><tbody>`+list.map(c=>{
     const sp={'Ativo':'green','Onboarding':'blue','Pausado':'amber','Encerrado':'gray'}[c.status]||'gray';
     const d=daysUntil(c.report);let rep=c.report?dateBR(c.report):'—';
@@ -2452,7 +2458,7 @@ function renderClients(){
     const balanceTxt=saldo!==null?`<div style="font-weight:700;color:${saldo>=0?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div><button class="btn sm ghost" style="margin-top:4px;font-size:11px" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:'—';
     const reportBtn=c.reportSheetUrl?`<button class="btn sm ghost" onclick="selectReportClient('${c.id}')" title="Ver relatório de anúncios">📊 Relatório</button>`:'';
     return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td>${rep}</td><td class="row-actions">${reportBtn}${cfgMenuBtn(c.id)}<button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
-  }).join('')+'</tbody>';
+  }).join('')+'</tbody>'+archFoot;
 }
 function showPays(s){if(s.payments&&s.payments.length)return s.payments;return [{id:s.id+'_p',date:s.date,val:s.val,status:s.status||'pendente',_virtual:1}]}
 function showTotal(s){return showPays(s).reduce((a,p)=>a+(+p.val||0),0)}
