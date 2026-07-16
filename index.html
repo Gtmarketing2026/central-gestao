@@ -1629,7 +1629,7 @@ function setupRealtime(){
 }
 
 /* ---- CRUD ---- */
-async function _upsertClient(o){await sb.from('clients').upsert(dbClient(o));const i=DB.clients.findIndex(x=>x.id===o.id);i>=0?DB.clients[i]=o:DB.clients.push(o);renderAll();}
+async function _upsertClient(o){await sb.from('clients').upsert(dbClient(o));const i=DB.clients.findIndex(x=>x.id===o.id);i>=0?DB.clients[i]={...DB.clients[i],...o}:DB.clients.push(o);renderAll();} // merge: preserva campos fora do form (dna etc.)
 async function _upsertTask(o){await sb.from('tasks').upsert(dbTask(o));const i=DB.tasks.findIndex(x=>x.id===o.id);i>=0?DB.tasks[i]=o:DB.tasks.push(o);}
 async function _upsertFinance(o){await sb.from('finance').upsert(dbFinance(o));const i=DB.finance.findIndex(x=>x.id===o.id);i>=0?DB.finance[i]=o:DB.finance.push(o);}
 async function _upsertShow(o){await sb.from('shows').upsert(dbShow(o));const i=DB.shows.findIndex(x=>x.id===o.id);i>=0?DB.shows[i]=o:DB.shows.push(o);}
