@@ -5057,6 +5057,17 @@ function focusKpiHTML(agg,tipo){
   const rows=raioXMetricRows(agg,tipo);
   return `<div class="rt-kpi-grid">${rows.map(([l,v],i)=>`<div class="rt-kpi ${i===1?'gr':'pu'}"${i===1?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${l}${i===1?' ★':''}</div><div class="rt-kpi-val sm">${v}</div></div>`).join('')}</div>`;
 }
+// Tabela por campanha só com mídia (sem venda/ROAS) — usada no foco de conversão quando a venda vem da planilha (total, não por campanha)
+function focusCampTableMediaHTML(camps){
+  const list=Object.values(camps).map(deriveMeta).sort((a,b)=>b.spend-a.spend);
+  if(!list.length)return '';
+  const th=s=>`<th style="text-align:${s==='Campanha'?'left':'right'};padding:9px 12px;font-size:10px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">${s}</th>`;
+  const td=(s,b,l)=>`<td style="padding:8px 12px;font-size:12px;text-align:${l?'left':'right'};${b?'font-weight:700;':''}border-bottom:1px solid rgba(255,255,255,.035)">${s}</td>`;
+  return `<div class="rt-tc" style="overflow-x:auto;margin-top:12px"><table style="width:100%;border-collapse:collapse">
+    <tr>${th('Campanha')}${th('Invest.')}${th('Impr.')}${th('Cliques')}${th('CTR')}${th('CPC')}${th('CPM')}</tr>
+    ${list.map(cm=>`<tr>${td((cm.campanha||'—').replace(/</g,'&lt;'),true,true)}${td(fmt(cm.spend))}${td(Math.round(cm.impressions||0).toLocaleString('pt-BR'))}${td(Math.round(cm.clicks||0).toLocaleString('pt-BR'))}${td(cm.impressions?cm.ctr.toFixed(2)+'%':'—')}${td(cm.clicks?fmt(cm.cpc):'—')}${td(cm.impressions?fmt(cm.cpm):'—')}</tr>`).join('')}
+  </table></div>`;
+}
 function focusCampTableHTML(camps,tipo){
   const list=Object.values(camps).map(deriveMeta).sort((a,b)=>b.spend-a.spend);
   if(!list.length)return '';
@@ -5174,6 +5185,13 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   };
 
   const objGroups=groupAdsByObjective(metaAds); // todos os objetivos com gasto, detectados automaticamente (abas)
+  // Venda do Meta = aba META VENDA da planilha (não a API). Sobrescreve o total do foco de conversão com a venda real.
+  const metaChReal=channelList.find(ch=>ch._salesFromSheet);
+  if(metaChReal&&!noSales){
+    objGroups.filter(g=>g.tipo==='conversao'||g.tipo==='app').forEach(g=>{
+      g.agg.revenue=metaChReal.revenue||0;g.agg.purchases=metaChReal.sales||0;deriveMeta(g.agg);g._salesReal=true;
+    });
+  }
   const raioAds=metaAds;
   const secPedidos=totalPedidos>0?`<div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">01</div><div class="rt-sec-title">Resultados Gerais — Dashboard de Pedidos</div><div class="rt-sec-ln"></div></div>
@@ -5255,7 +5273,12 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
       ${objGroups.map(g=>`<button class="btn sm ${vis&&vis.includes(g.tipo)?'primary':'ghost'} focoVisChip" data-foco="${g.tipo}" onclick="toggleReportFoco('${c.id}','${g.tipo}')">${g.rotulo}</button>`).join('')}
     </div>`:'';
   const focosHTML=osFocosHTML(objGroups,c.id);
-  const focoTabs=objGroups.map(g=>`<div class="rtTab rtoff" data-rtab="foco_${g.tipo}"><div class="rt-sec"><div class="rt-sec-hdr"><div class="rt-sec-num">🎯</div><div class="rt-sec-title">${g.rotulo} — foco em ${((g.objetivo&&g.objetivo.metrica)||'').replace(/</g,'&lt;')}</div><div class="rt-sec-ln"></div></div>${focusKpiHTML(g.agg,g.tipo)}${focusCampTableHTML(g.camps,g.tipo)}</div></div>`).join('');
+  const focoTabs=objGroups.map(g=>{
+    const tabela=g._salesReal
+      ? focusCampTableMediaHTML(g.camps)+`<div style="font-size:11px;color:var(--rtm);margin-top:8px">💡 Receita e ROAS do total vêm da aba <b>META VENDA</b> da planilha (venda real). Por campanha mostramos só mídia — a planilha não fornece venda por campanha.</div>`
+      : focusCampTableHTML(g.camps,g.tipo);
+    return `<div class="rtTab rtoff" data-rtab="foco_${g.tipo}"><div class="rt-sec"><div class="rt-sec-hdr"><div class="rt-sec-num">🎯</div><div class="rt-sec-title">${g.rotulo} — foco em ${((g.objetivo&&g.objetivo.metrica)||'').replace(/</g,'&lt;')}</div><div class="rt-sec-ln"></div></div>${focusKpiHTML(g.agg,g.tipo)}${tabela}</div></div>`;
+  }).join('');
   const dv='<div class="rt-div"></div>';
   const _tabs=[['geral','Visão Geral']];
   if(secSemanal)_tabs.push(['semanal','Comparativo Semanal']);
