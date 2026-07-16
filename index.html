@@ -755,8 +755,9 @@
         </div>
         <div style="font-size:11px;color:var(--faint);margin-top:3px">"Automático" usa o modelo-base do objetivo da campanha no Meta.</div>
       </div>
-      <div class="form-row" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
-        <div style="font-size:12px;color:var(--faint)">💡 <b>Foco(s) do relatório</b> saíram daqui — agora você escolhe quais objetivos ver <b>dentro do próprio relatório</b> (as abas são detectadas automaticamente pelas campanhas com dado). A escolha fica salva por cliente.</div>
+      <div class="form-row"><label>🎯 Objetivos do cliente <span style="font-size:11px;color:var(--faint);font-weight:400">— personalizam o relatório E o dashboard inteiros</span></label>
+        <div id="cReportFocos" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        <div style="font-size:11px;color:var(--faint);margin-top:3px">Vazio = detecta automático pelas campanhas (objetivo + local de conversão do Meta). Marcando, o relatório, o semanal e o dashboard mostram só esses objetivos. Também dá pra ajustar pelos chips dentro do relatório.</div>
       </div>
       <div class="form-row"><label>Fonte de vendas do funil <span style="font-size:11px;color:var(--faint);font-weight:400">— de onde vem o nº de vendas/conversões</span></label>
         <select id="cConversionSource">
@@ -1917,14 +1918,9 @@ const COLS_BY_OBJETIVO={
   distribuicao:['invest','impressions','reach','cpm','views','custoview'],
   alcance:['invest','impressions','reach','cpm','freq'],
 };
-// ODAX colapsou objetivos: WhatsApp/mensagem entram como Engajamento no Meta. Refina pelo padrão de nome da agência.
-function campRefinedTipo(a){
-  const n=((a.campaign||'')+' '+(a.adset||'')+' '+(a.adName||'')).toLowerCase();
-  if(/\bmensag|\[mensagem\]|convers[ãa]|inbox|direct\b/.test(n)&&!/convers[ãa]o\b/.test(n))return 'mensagens';
-  if(/distribu/.test(n))return 'distribuicao';
-  return (a.objetivo&&a.objetivo.tipo)||'outro';
-}
-function refineCampAds(list){list.forEach(a=>{const rt=campRefinedTipo(a);if(rt&&(!a.objetivo||a.objetivo.tipo!==rt)){const info=OBJETIVO_INFO[rt]||{rotulo:rt};a.objetivo={...(a.objetivo||{}),tipo:rt,rotulo:info.rotulo};}});return list;}
+// Classificação de foco vem do BACKEND (objetivo + local de conversão dos conjuntos: destination_type/optimization_goal).
+// Regra por nome foi removida — nomenclatura engana (ex: "venda" no nome, mas campanha de mensagem).
+function refineCampAds(list){return list;}
 function focoCols(tipo){return (COLS_BY_OBJETIVO[tipo]||CAMP_COLS_DEFAULT).slice();}
 let _campCols=CAMP_COLS_DEFAULT.slice();
 function campGrid(){return `grid-template-columns:minmax(200px,2.2fr) repeat(${_campCols.length},minmax(66px,1fr));`;}
@@ -2043,17 +2039,24 @@ function openClientConfig(id){
   renderClientConfig();
 }
 function ccOpen(tab){openClientModal(_configClientId);if(tab)setClientTab(tab);}
-// Menu suspenso do botão "Configurar" na lista de clientes — atalho direto pra cada seção
-function cfgMenuBtn(id){
+// Menu do botão ⚙ na lista de clientes — flutua por cima da tabela (fixed, não é cortado pelo overflow)
+function cfgMenuBtn(id){return `<button class="btn sm ghost" type="button" title="Configurar" onclick="toggleCfgMenu(event,'${id}')">⚙</button>`;}
+function toggleCfgMenu(e,id){
+  e.stopPropagation();
+  const existing=document.getElementById('cfgMenuGlobal');
+  if(existing&&existing.dataset.for===id){existing.remove();return;}
+  closeCfgMenus();
   const items=[['⚙ Painel de configuração',`openClientConfig('${id}')`],['✏️ Dados & Verba',`cfgMenuOpen('${id}','dados')`],['📱 Mídia & Meta',`cfgMenuOpen('${id}','midia')`],['📊 Relatórios',`cfgMenuOpen('${id}','relatorios')`],['🧬 DNA & Conhecimento',`cfgMenuOpen('${id}','dna')`]];
-  return `<span style="position:relative;display:inline-block">
-    <button class="btn sm ghost" type="button" onclick="toggleCfgMenu(event,'${id}')">⚙ Configurar ▾</button>
-    <div id="cfgMenu_${id}" style="display:none;position:absolute;right:0;top:calc(100% + 4px);z-index:60;min-width:210px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.45)">
-      ${items.map(([l,fn])=>`<button type="button" onclick="closeCfgMenus();${fn}" style="display:block;width:100%;text-align:left;background:none;border:0;color:var(--text);font-size:12.5px;padding:7px 9px;border-radius:7px;cursor:pointer" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">${l}</button>`).join('')}
-    </div></span>`;
+  const btn=e.currentTarget||e.target;
+  const r=btn.getBoundingClientRect();
+  const m=document.createElement('div');
+  m.id='cfgMenuGlobal';m.dataset.for=id;
+  m.style.cssText=`position:fixed;z-index:1000;top:${Math.min(r.bottom+4,window.innerHeight-230)}px;left:${Math.max(8,r.right-215)}px;min-width:215px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.5)`;
+  m.innerHTML=items.map(([l,fn])=>`<button type="button" onclick="closeCfgMenus();${fn}" style="display:block;width:100%;text-align:left;background:none;border:0;color:var(--text);font-size:12.5px;padding:7px 9px;border-radius:7px;cursor:pointer;font-family:inherit" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">${l}</button>`).join('');
+  m.addEventListener('click',ev=>ev.stopPropagation());
+  document.body.appendChild(m);
 }
-function toggleCfgMenu(e,id){e.stopPropagation();const m=document.getElementById('cfgMenu_'+id);if(!m)return;const open=m.style.display==='none';closeCfgMenus();m.style.display=open?'block':'none';}
-function closeCfgMenus(){document.querySelectorAll('[id^=cfgMenu_]').forEach(x=>x.style.display='none');}
+function closeCfgMenus(){const m=document.getElementById('cfgMenuGlobal');if(m)m.remove();}
 function cfgMenuOpen(id,tab){openClientModal(id);setClientTab(tab);}
 document.addEventListener('click',()=>closeCfgMenus());
 function ccRow(k,v){return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:var(--muted)">${k}</span><span style="font-weight:600;text-align:right">${v}</span></div>`;}
@@ -3014,7 +3017,7 @@ async function saveClient(){
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
   const reportWeekly=document.getElementById('cReportWeekly').checked;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),reportTemplateId:document.getElementById('cReportTemplate').value||'',conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:((DB.clients.find(x=>x.id===cId.value)||{}).reportFocos||[]),benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),reportTemplateId:document.getElementById('cReportTemplate').value||'',conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:(document.getElementById('cReportFocos')?[...document.querySelectorAll('.cFoco:checked')].map(x=>x.value):((DB.clients.find(x=>x.id===cId.value)||{}).reportFocos||[])),benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
@@ -4368,9 +4371,22 @@ function renderDashFilterBar(){
   const adsets=[...new Set(_dashAdsCamp().map(a=>(a.campaign||'')+' · '+(a.adset||'')))].sort();
   el.innerHTML=(accs.length>1?dashMulti('acc','Contas',accs,_dashFAcc):'')+dashMulti('camp','Campanhas',camps,_dashFCamp)+dashMulti('adset','Conjuntos',adsets,_dashFAdset)+(dashFilterActive()?`<button class="btn sm ghost" type="button" onclick="dashClearAll()">✕ limpar tudo</button><span style="font-size:11px;color:var(--faint);align-self:center">${dashFilteredAds().length} anúncio(s)</span>`:'');
 }
+let _dashClientId='';
+// KPIs por objetivo do cliente no dashboard (respeita reportFocos e os filtros de conta/campanha/conjunto)
+function dashFocosHTML(){
+  const c=DB.clients.find(x=>x.id===_dashClientId);
+  const groups=groupAdsByObjective(dashFilteredAds());
+  const vis=(c&&c.reportFocos&&c.reportFocos.length)?c.reportFocos:null;
+  const show=vis?groups.filter(g=>vis.includes(g.tipo)):groups;
+  return show.map(g=>{const rows=raioXMetricRows(g.agg,g.tipo);return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px 14px;flex:1;min-width:230px;background:var(--surface2)">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);margin-bottom:8px">🎯 ${g.rotulo} <span style="color:var(--muted);font-weight:400">· ${Object.keys(g.camps).length} campanha(s)</span></div>
+    <div style="display:flex;flex-wrap:wrap;gap:14px">${rows.slice(0,4).map(([l,v],i)=>`<div><div style="font-size:10px;color:var(--muted);text-transform:uppercase">${l}</div><div style="font-size:15px;font-weight:${i===1?800:700};color:${i===1?'#34d399':'var(--text)'}">${v}</div></div>`).join('')}</div>
+  </div>`;}).join('');
+}
 function applyDashFilters(){
   const grid=document.getElementById('dashKpiGrid');
   if(grid&&_dashTpl){const agg=dashAggFiltered();grid.innerHTML=(_dashTpl.metrics||[]).filter(k=>METRIC_CATALOG[k]).map(k=>{const mc=METRIC_CATALOG[k];const key=k===_dashTpl.keyMetric;return`<div class="rt-kpi ${key?'gr':'pu'}"${key?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${mc.label}${key?' ★':''}</div><div class="rt-kpi-val sm">${fmtMetric(mc.calc(agg),mc.fmt)}</div></div>`}).join('');}
+  const fr=document.getElementById('dashFocosRow');if(fr)fr.innerHTML=dashFocosHTML();
   drawDashLine();drawDashLevel();
 }
 function dashMetOpts(sel){return Object.entries(DASH_METRICS).map(([k,v])=>`<option value="${k}" ${k===sel?'selected':''}>${v.label}</option>`).join('');}
@@ -4409,7 +4425,7 @@ function renderMetaDashboard(c,rep,since,until){
   const tpl=resolveClientTemplate(c,rep.ads);
   const agg={spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:noSales?0:(t.revenue||0),compras:noSales?0:Math.round(t.purchases||0),leads:t.leads||0,addCarrinho:t.addToCart||0,checkout:t.initiateCheckout||0,conversas:t.conversas||0,videoViews:t.videoViews||0,engajamentos:t.engajamentos||0,frequencia:t.reach?t.impressions/t.reach:0};
   _dashRecs=((t.records||[]).slice().sort((a,b)=>a.date<b.date?-1:1)).map(r=>({...r,purchases:r.sales}));
-  _dashAds=rep.ads||[];_dashCampRecs=rep.campaigns||[];_dashTpl=tpl;_dashNoSales=noSales;
+  _dashAds=rep.ads||[];_dashCampRecs=rep.campaigns||[];_dashTpl=tpl;_dashNoSales=noSales;_dashClientId=c.id;
   _dashAgg={spend:agg.spend,impressions:agg.impressions,clicks:agg.clicks,reach:agg.reach,revenue:agg.revenue,compras:agg.compras,leads:agg.leads,addCarrinho:agg.addCarrinho,checkout:agg.checkout,conversas:agg.conversas,videoViews:agg.videoViews,engajamentos:agg.engajamentos,frequencia:agg.frequencia};
   _dashFAcc=[];_dashFCamp=[];_dashFAdset=[];
   const rb=(key,lbl,fn)=>`<button class="btn sm ${_metaDashPreset===key?'primary':'ghost'}" onclick="${fn}">${lbl}</button>`;
@@ -4426,6 +4442,7 @@ function renderMetaDashboard(c,rep,since,until){
       </div>
       <div id="dashFilterBar" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
       <div id="dashKpiGrid" class="rt-kpi-grid">${cards}</div>
+      <div id="dashFocosRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px"></div>
     </div>
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
@@ -4452,19 +4469,21 @@ function renderMetaDashboard(c,rep,since,until){
       </div>
     </div>`;
   renderDashFilterBar();
-  drawDashLine();drawDashLevel();setDashLevel(_dashLevel);
+  applyDashFilters();setDashLevel(_dashLevel);
 }
 async function fetchMetaChannelStats(c,month){
   const ids=c.metaAccountIds||[];
   if(!ids.length)return null;
   const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
   const {since,until}=monthRange(month);
-  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,daily:true}}});
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,daily:true,byCampaign:true}}});
   if(error)throw new Error('Meta Ads: '+(error.message||error));
   if(data&&data.error)throw new Error('Meta Ads: '+data.error);
   const d=(data&&data.data)||data;const stats=metaChannelFromData(d);
+  _tplMetaCampaigns=(d&&d.campaigns)||[]; // campanhas com diário — alimenta o Comparativo Semanal por objetivo
   return stats?{stats,total:d.total}:null;
 }
+let _tplMetaCampaigns=[];
 // Raio-X: performance por anúncio (criativo) ao vivo. Retorna array de ads ordenado por investimento.
 async function fetchMetaCreatives(c,month){
   const ids=c.metaAccountIds||[];
@@ -5147,7 +5166,7 @@ function focusCampTableHTML(camps,tipo){
 }
 function osFocosHTML(objGroups,clientId){
   if(!objGroups.length)return '';
-  const cards=objGroups.map(g=>{const m=raioXMetricRows(g.agg,g.tipo);return `<div class="rt-tc" style="padding:14px 16px;cursor:pointer" onclick="goToCampanhasFoco('${clientId}','${g.tipo}')" title="Ver as campanhas deste foco">
+  const cards=objGroups.map(g=>{const m=raioXMetricRows(g.agg,g.tipo);return `<div class="rt-tc focoCard" data-foco="${g.tipo}" style="padding:14px 16px;cursor:pointer" onclick="goToCampanhasFoco('${clientId}','${g.tipo}')" title="Ver as campanhas deste foco">
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--accent)">🎯 ${g.rotulo} <span style="color:var(--rtm);font-weight:400">↗</span></div>
     <div style="font-size:12px;color:var(--rtm);margin:2px 0 8px">${g.ads.length} anúncio(s) · ${Object.keys(g.camps).length} campanha(s)</div>
     <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0"><span style="color:var(--rtm)">Investimento</span><b>${fmt(g.agg.spend)}</b></div>
@@ -5260,6 +5279,29 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
     });
   }
   const raioAds=metaAds;
+  // Comparativo Semanal POR OBJETIVO: cada foco tem sua tabela com a métrica dele (conversas, cliques, leads...)
+  const METRIC_BY_TIPO={conversao:['sales','Vendas'],leads:['leads','Leads'],trafego:['clicks','Cliques'],engajamento:['engajamentos','Engajamentos'],mensagens:['conversas','Conversas'],video:['videoViews','Views'],distribuicao:['reach','Alcance'],alcance:['reach','Alcance']};
+  const _thW=s=>`<th style="padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">${s}</th>`;
+  const _tdW=(s,b)=>`<td style="padding:8px 14px;font-size:12.5px;${b?'font-weight:700;':''}border-bottom:1px solid rgba(255,255,255,.035)">${s}</td>`;
+  const secSemanaisFoco=objGroups.map(g=>{
+    const mm=METRIC_BY_TIPO[g.tipo];if(!mm)return '';
+    const camps=(_tplMetaCampaigns||[]).filter(cp=>cp.objetivo&&cp.objetivo.tipo===g.tipo&&cp.records&&cp.records.length);
+    if(!camps.length)return '';
+    const [mk,ml]=mm;
+    const rowFor=(label,recs,bold)=>{
+      const tds=weeks.map(w=>{const v=recs.filter(r=>r.date>=w.from&&r.date<=w.to).reduce((s,r)=>s+(r[mk]||0),0);return _tdW(Math.round(v).toLocaleString('pt-BR'),false);}).join('');
+      const tot=recs.reduce((s,r)=>s+(r[mk]||0),0);
+      return `<tr>${_tdW(label,bold)}${tds}${_tdW(Math.round(tot).toLocaleString('pt-BR'),true)}</tr>`;
+    };
+    const allRecs=camps.flatMap(cp=>cp.records||[]);
+    return `<div class="rt-sec focoSec" data-foco="${g.tipo}">
+      <div class="rt-sec-hdr"><div class="rt-sec-num">◷</div><div class="rt-sec-title">📅 Evolução Semanal — ${g.rotulo} (${ml})</div><div class="rt-sec-ln"></div></div>
+      <div class="rt-tc" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <tr><th style="text-align:left;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Campanha</th>${weeks.map(w=>_thW(w.label+'<br><span style="font-weight:400">'+w.dates+'</span>')).join('')}${_thW('Total')}</tr>
+        ${rowFor('🟣 Total '+g.rotulo,allRecs,true)}
+        ${camps.map(cp=>rowFor((cp.campaign||'—').replace(/</g,'&lt;'),cp.records,false)).join('')}
+      </table></div></div>`;
+  }).filter(Boolean).join('<div class="rt-div"></div>');
   const secPedidos=totalPedidos>0?`<div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">01</div><div class="rt-sec-title">Resultados Gerais — Dashboard de Pedidos</div><div class="rt-sec-ln"></div></div>
         <div class="rt-kpi-grid">
@@ -5271,7 +5313,8 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
         </div>
         <div class="rt-chips">${Object.entries(byStatusChip).map(([st,ct])=>`<div class="rt-chip"><div class="rt-dot" style="background:${orderStatusColor(st)}"></div> ${st}: ${ct}</div>`).join('')}</div>
       </div>`:'';
-  const secSemanal=weekly.length?`<div class="rt-sec">
+  const hasWeeklySales=weekly.some(w=>w.geral>0)||channelList.some(ch=>(ch.sales||0)>0);
+  const secSemanal=(weekly.length&&hasWeeklySales)?`<div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">◷</div><div class="rt-sec-title">📅 Evolução Semanal por Canal — Volume de Vendas</div><div class="rt-sec-ln"></div></div>
         <div class="rt-tc" style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse">
@@ -5348,7 +5391,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   }).join('');
   const dv='<div class="rt-div"></div>';
   const _tabs=[['geral','Visão Geral']];
-  if(secSemanal)_tabs.push(['semanal','Comparativo Semanal']);
+  if(secSemanal||secSemanaisFoco)_tabs.push(['semanal','Comparativo Semanal']);
   objGroups.forEach(g=>_tabs.push(['foco_'+g.tipo,g.rotulo]));
   _tabs.push(['criativos','Criativos']);
   const tabBtns=_tabs.map((t,i)=>`<button class="rtTabBtn ${i===0?'on':''}" data-rtab="${t[0]}" onclick="setReportTab('${t[0]}')">${t[1]}</button>`).join('');
@@ -5373,7 +5416,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
         ${dv}${secResumo}
         ${dv}${secAnalise}
       </div>
-      ${secSemanal?`<div class="rtTab rtoff" data-rtab="semanal">${secSemanal}</div>`:''}
+      ${(secSemanal||secSemanaisFoco)?`<div class="rtTab rtoff" data-rtab="semanal">${secSemanal}${secSemanal&&secSemanaisFoco?dv:''}${secSemanaisFoco}</div>`:''}
       ${focoTabs}
       <div class="rtTab rtoff" data-rtab="criativos">${raioXSectionHTML(raioAds)||'<div class="empty">Sem criativos do Meta neste período.</div>'}</div>
     </div>
@@ -5392,6 +5435,10 @@ function applyReportFocoVis(clientId){
     const show=!vis||vis.includes(tipo);
     btn.style.display=show?'':'none';
     if(!show&&btn.classList.contains('on'))activeHidden=true;
+  });
+  // seções semanais e cards de foco acompanham os objetivos do cliente
+  document.querySelectorAll('.focoSec[data-foco],.focoCard[data-foco]').forEach(el=>{
+    el.style.display=(!vis||vis.includes(el.dataset.foco))?'':'none';
   });
   if(activeHidden)setReportTab('geral');
 }
