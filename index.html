@@ -224,6 +224,7 @@
       <button class="tab" data-tab="clients">Clientes <span class="badge" id="cBadge">0</span></button>
       <button class="tab" data-tab="tasks">Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="relatorios">📊 Relatórios</button>
+      <button class="tab" data-tab="campanhas">📣 Campanhas</button>
       <button class="tab" data-tab="modelos">📋 Modelos</button>
       <button class="tab" data-tab="iagestora">🤖 AndréIA</button>
     </nav>
@@ -574,6 +575,17 @@
     </div>
     <div style="font-size:13px;color:var(--muted);margin:-6px 0 16px">Modelos-base (travados 🔒) saem automáticos do objetivo da campanha no Meta. Crie modelos personalizados com as métricas, métrica-chave e funil que quiser — e escolha o modelo de cada cliente no cadastro.</div>
     <div id="modelosGrid"></div>
+  </section>
+
+  <!-- CAMPANHAS (drill-down estilo gerenciador) -->
+  <section class="panel" id="campanhas">
+    <div class="section-head" style="margin-top:0"><h2>📣 Campanhas <span id="campClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+      <div id="campRange" style="display:flex;gap:5px"></div>
+      <span style="flex:1"></span>
+      <div id="campFocos" style="display:flex;gap:5px;flex-wrap:wrap"></div>
+    </div>
+    <div id="campBody"></div>
   </section>
 
   <!-- CONFIG DO CLIENTE (página de cards) -->
@@ -1705,6 +1717,7 @@ function goToTab(tabId){
   // cliente ativo (sidebar) segue entre as telas
   if(tabId==='relatorios'&&activeClientId){const s=document.getElementById('crClientSelect');if(s&&s.value!==activeClientId){s.value=activeClientId;loadClientReport(activeClientId);}}
   if(tabId==='iagestora'&&activeClientId&&agentClientId!==activeClientId){loadAgentProject(activeClientId);}
+  if(tabId==='campanhas')loadCampanhas(activeClientId);
 }
 function setClientsSub(v){
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
@@ -1727,7 +1740,98 @@ function selectSidebarClient(id){
   const active=((document.querySelector('.tab.active')||{}).dataset||{}).tab||'';
   if(active==='relatorios'){const s=document.getElementById('crClientSelect');if(s){s.value=id;loadClientReport(id)}}
   else if(active==='iagestora'){loadAgentProject(id);}
+  else if(active==='campanhas'){loadCampanhas(id);}
   else{openClientConfig(id);}
+}
+/* ===== CAMPANHAS (drill-down estilo gerenciador) ===== */
+let _campDays=30,_campAds=[],_campClientId='',_campFoco='';
+const CAMP_AGG_KEYS=['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'];
+function _newAgg(){const o={};CAMP_AGG_KEYS.forEach(k=>o[k]=0);return o;}
+function _addAgg(agg,a){CAMP_AGG_KEYS.forEach(k=>agg[k]+=(a[k]||0));}
+function goToCampanhasFoco(clientId,tipo){activeClientId=clientId;const s=document.getElementById('sidebarClient');if(s)s.value=clientId;_campFoco=tipo||'';goToTab('campanhas');}
+async function loadCampanhas(clientId,days){
+  const c=DB.clients.find(x=>x.id===(clientId||activeClientId||_campClientId));
+  const body=document.getElementById('campBody');if(!body)return;
+  document.getElementById('campClientName').textContent=c?('· '+c.name):'';
+  if(!c){body.innerHTML='<div class="empty">Selecione um cliente na sidebar.</div>';document.getElementById('campRange').innerHTML='';document.getElementById('campFocos').innerHTML='';return}
+  if(!(c.metaAccountIds&&c.metaAccountIds.length)){body.innerHTML='<div class="empty">Este cliente não tem conta do Meta vinculada.</div>';return}
+  _campClientId=c.id;if(days)_campDays=days;
+  renderCampRange();
+  body.innerHTML='<div class="empty">Carregando campanhas ao vivo...</div>';
+  try{
+    const rep=await fetchMetaReportRange(c,daysAgoISO(_campDays),today());
+    _campAds=rep.ads||[];
+    renderCampFocos();renderCampBody();
+  }catch(e){body.innerHTML=`<div class="empty">Erro: ${e.message}</div>`;}
+}
+function renderCampRange(){const el=document.getElementById('campRange');if(el)el.innerHTML=[[7,'7 dias'],[30,'30 dias'],[90,'90 dias']].map(([d,l])=>`<button class="btn sm ${_campDays===d?'primary':'ghost'}" onclick="loadCampanhas(null,${d})">${l}</button>`).join('');}
+function renderCampFocos(){const el=document.getElementById('campFocos');if(!el)return;const tipos=[...new Set(_campAds.filter(a=>a.spend>0).map(a=>(a.objetivo&&a.objetivo.tipo)||'outro'))];el.innerHTML=`<button class="btn sm ${!_campFoco?'primary':'ghost'}" onclick="setCampFoco('')">Todos</button>`+tipos.map(t=>{const info=OBJETIVO_INFO[t]||{rotulo:t};return `<button class="btn sm ${_campFoco===t?'primary':'ghost'}" onclick="setCampFoco('${t}')">${info.rotulo}</button>`}).join('');}
+function setCampFoco(t){_campFoco=t;renderCampFocos();renderCampBody();}
+function buildCampaignTree(ads){
+  const camps={};
+  ads.forEach(a=>{
+    const cn=a.campaign||'—';
+    if(!camps[cn])camps[cn]={nome:cn,objetivo:a.objetivo||{tipo:'outro',rotulo:'Outro'},agg:_newAgg(),adsets:{}};
+    _addAgg(camps[cn].agg,a);
+    const sn=a.adset||'—';
+    if(!camps[cn].adsets[sn])camps[cn].adsets[sn]={nome:sn,agg:_newAgg(),ads:[]};
+    _addAgg(camps[cn].adsets[sn].agg,a);camps[cn].adsets[sn].ads.push(a);
+  });
+  return Object.values(camps).sort((a,b)=>b.agg.spend-a.agg.spend);
+}
+function campResultado(x,tipo){
+  const d=deriveMeta({...x});
+  const M={
+    conversao:['Compras',Math.round(d.purchases||0),d.purchases?fmt(d.spend/d.purchases):'—'],
+    app:['Compras',Math.round(d.purchases||0),d.purchases?fmt(d.spend/d.purchases):'—'],
+    leads:['Leads',Math.round(d.leads||0),d.leads?fmt(d.spend/d.leads):'—'],
+    trafego:['Cliques',Math.round(d.clicks||0),d.clicks?fmt(d.cpc):'—'],
+    engajamento:['Engaj.',Math.round(d.engajamentos||0),d.engajamentos?fmt(d.spend/d.engajamentos):'—'],
+    mensagens:['Conversas',Math.round(d.conversas||0),d.conversas?fmt(d.spend/d.conversas):'—'],
+    video:['Views',Math.round(d.videoViews||0),d.videoViews?fmt(d.spend/d.videoViews):'—'],
+    alcance:['Alcance',Math.round(d.reach||0),d.impressions?fmt(d.cpm):'—'],
+  };
+  const r=M[tipo]||['—',0,'—'];
+  return {resVal:typeof r[1]==='number'?r[1].toLocaleString('pt-BR'):r[1],custoVal:r[2],roas:d.spend?d.roas.toFixed(2)+'x':'—'};
+}
+const CAMP_GRID='grid-template-columns:minmax(200px,2.2fr) repeat(6,minmax(66px,1fr));';
+function campRowHTML(name,level,agg,tipo,toggleId,badge){
+  const d=deriveMeta({...agg});const R=campResultado(agg,tipo);
+  const pad=8+level*16;
+  const caret=toggleId?`<span id="${toggleId}_c" style="display:inline-block;width:14px;color:var(--muted)">▸</span>`:'<span style="display:inline-block;width:14px"></span>';
+  const cell=v=>`<div style="padding:8px 6px;font-size:12px;text-align:right">${v}</div>`;
+  const bg=level===1?'background:var(--surface2);':level===2?'background:rgba(255,255,255,.02);':'';
+  return `<div ${toggleId?`onclick="toggleCampRow('${toggleId}')" style="cursor:pointer;`:'style="'}display:grid;${CAMP_GRID}align-items:center;border-bottom:1px solid rgba(255,255,255,.05);${bg}">
+    <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(name||'').replace(/"/g,'')}">${caret} ${(name||'—').replace(/</g,'&lt;')}${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400">${badge}</span>`:''}</div>
+    ${cell(fmt(d.spend))}${cell(Math.round(d.impressions).toLocaleString('pt-BR'))}${cell(d.impressions?d.ctr.toFixed(2)+'%':'—')}${cell('<b>'+R.resVal+'</b>')}${cell(R.custoVal)}${cell(R.roas)}</div>`;
+}
+function renderCampBody(){
+  const body=document.getElementById('campBody');if(!body)return;
+  let ads=_campAds.filter(a=>a.spend>0);
+  if(_campFoco)ads=ads.filter(a=>((a.objetivo&&a.objetivo.tipo)||'outro')===_campFoco);
+  const tree=buildCampaignTree(ads);
+  if(!tree.length){body.innerHTML='<div class="empty">Nenhuma campanha com entrega no período/filtro.</div>';return}
+  const header=`<div style="display:grid;${CAMP_GRID}align-items:center;border-bottom:2px solid var(--border)">
+    <div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted)">Campanha / Conjunto / Anúncio</div>
+    ${['Invest.','Impr.','CTR','Resultado','Custo/res','ROAS'].map(h=>`<div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted);text-align:right">${h}</div>`).join('')}
+  </div>`;
+  const rows=tree.map((cp,ci)=>{
+    const cid='cp'+ci;
+    const adsetRows=Object.values(cp.adsets).sort((a,b)=>b.agg.spend-a.agg.spend).map((as,ai)=>{
+      const sid='cp'+ci+'as'+ai;
+      const adRows=as.ads.sort((a,b)=>b.spend-a.spend).map(ad=>campRowHTML(ad.adName,3,ad,cp.objetivo.tipo,null)).join('');
+      return `<div>${campRowHTML(as.nome,2,as.agg,cp.objetivo.tipo,sid,as.ads.length+' anúncio(s)')}<div id="${sid}" style="display:none">${adRows}</div></div>`;
+    }).join('');
+    return `<div>${campRowHTML(cp.nome,1,cp.agg,cp.objetivo.tipo,cid,cp.objetivo.rotulo)}<div id="${cid}" style="display:none">${adsetRows}</div></div>`;
+  }).join('');
+  body.innerHTML=`<div class="card" style="padding:0;overflow-x:auto">${header}${rows}</div>`;
+}
+function toggleCampRow(id){
+  if(event&&event.stopPropagation)event.stopPropagation();
+  const el=document.getElementById(id);if(!el)return;
+  const open=el.style.display==='none';
+  el.style.display=open?'block':'none';
+  const c=document.getElementById(id+'_c');if(c)c.textContent=open?'▾':'▸';
 }
 /* ===== PÁGINA DE CONFIGURAÇÃO DO CLIENTE (cards) ===== */
 let _configClientId=null;
@@ -4690,10 +4794,10 @@ function focusCampTableHTML(camps,tipo){
       return `<tr>${td((cm.campanha||'—').replace(/</g,'&lt;'),true)}${td(fmt(cm.spend))}${td(m[0]+': <b>'+m[1]+'</b>')}${td(av)}</tr>`;}).join('')}
   </table></div>`;
 }
-function osFocosHTML(objGroups){
+function osFocosHTML(objGroups,clientId){
   if(!objGroups.length)return '';
-  const cards=objGroups.map(g=>{const m=raioXMetricRows(g.agg,g.tipo);return `<div class="rt-tc" style="padding:14px 16px">
-    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--accent)">🎯 ${g.rotulo}</div>
+  const cards=objGroups.map(g=>{const m=raioXMetricRows(g.agg,g.tipo);return `<div class="rt-tc" style="padding:14px 16px;cursor:pointer" onclick="goToCampanhasFoco('${clientId}','${g.tipo}')" title="Ver as campanhas deste foco">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--accent)">🎯 ${g.rotulo} <span style="color:var(--rtm);font-weight:400">↗</span></div>
     <div style="font-size:12px;color:var(--rtm);margin:2px 0 8px">${g.ads.length} anúncio(s) · ${Object.keys(g.camps).length} campanha(s)</div>
     <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0"><span style="color:var(--rtm)">Investimento</span><b>${fmt(g.agg.spend)}</b></div>
     <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0"><span style="color:var(--rtm)">${m[1][0]}</span><b>${m[1][1]}</b></div>
@@ -4859,7 +4963,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
           </div>
         </div>
       </div>`;
-  const focosHTML=osFocosHTML(objGroups);
+  const focosHTML=osFocosHTML(objGroups,c.id);
   const focoTabs=objGroups.map(g=>`<div class="rtTab rtoff" data-rtab="foco_${g.tipo}"><div class="rt-sec"><div class="rt-sec-hdr"><div class="rt-sec-num">🎯</div><div class="rt-sec-title">${g.rotulo} — foco em ${((g.objetivo&&g.objetivo.metrica)||'').replace(/</g,'&lt;')}</div><div class="rt-sec-ln"></div></div>${focusKpiHTML(g.agg,g.tipo)}${focusCampTableHTML(g.camps,g.tipo)}</div></div>`).join('');
   const dv='<div class="rt-div"></div>';
   const _tabs=[['geral','Visão Geral']];
