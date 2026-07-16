@@ -1983,9 +1983,9 @@ function renderCampBody(){
     else v=CAMP_COLS[k]?CAMP_COLS[k].get(totD,totTipo):'';
     return `<div style="padding:10px 6px;font-size:12px;text-align:right;font-weight:700">${v}</div>`;
   }).join('');
-  const totRow=`<div style="display:grid;${campGrid()}align-items:center;border-bottom:2px solid var(--border);background:var(--surface2)">
+  const totRow=`<div style="display:grid;${campGrid()}align-items:center;border-top:2px solid var(--border);background:var(--surface2)">
     <div style="padding:10px 6px;font-size:12px;font-weight:800;color:var(--accent)">Σ Total · ${tree.length} campanha${tree.length!==1?'s':''}</div>${totCells}</div>`;
-  body.innerHTML=`<div class="card" style="padding:0;overflow-x:auto">${header}${totRow}${rows}${pausedBlock}</div>`;
+  body.innerHTML=`<div class="card" style="padding:0;overflow-x:auto">${header}${rows}${pausedBlock}${totRow}</div>`;
 }
 function toggleCampRow(id){
   if(event&&event.stopPropagation)event.stopPropagation();
