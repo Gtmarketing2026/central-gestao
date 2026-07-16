@@ -266,7 +266,7 @@ async function metaAdsInsights(m: any) {
     let lvlFields = "";
     if (level === "campaign") lvlFields = ",campaign_name,campaign_id";
     else if (level === "ad") lvlFields = ",campaign_name,campaign_id,adset_name,adset_id,ad_name,ad_id";
-    let url: string | null = `${base}/act_${acct}/insights?level=${level}&fields=${fields}${lvlFields}${range}${extra}&limit=200&access_token=${token}`;
+    let url: string | null = `${base}/act_${acct}/insights?level=${level}&fields=${fields}${lvlFields}${range}${extra}&use_unified_attribution_setting=true&limit=200&access_token=${token}`;
     const out: any[] = [];
     for (let i = 0; i < 20 && url; i++) {
       const r = await fetch(url);
@@ -306,13 +306,15 @@ async function metaAdsInsights(m: any) {
     }
     return map;
   }
-  function pickAction(arr: any[], types: string[]) {
+  // Pega UM tipo canonico (o primeiro presente na ordem de prioridade), evitando somar tipos sobrepostos (que contam em dobro, como o Meta faz).
+  function pickOne(arr: any[], types: string[]) {
     if (!Array.isArray(arr)) return 0;
-    return arr.filter((x) => types.includes(x.action_type)).reduce((s, x) => s + parseFloat(x.value || "0"), 0);
+    for (const ty of types) { const hit = arr.find((x) => x.action_type === ty); if (hit) return parseFloat(hit.value || "0"); }
+    return 0;
   }
   function shape(row: any) {
-    const purchases = pickAction(row.actions, ["purchase", "omni_purchase", "offsite_conversion.fb_pixel_purchase"]);
-    const revenue = pickAction(row.action_values, ["purchase", "omni_purchase", "offsite_conversion.fb_pixel_purchase"]);
+    const purchases = pickOne(row.actions, ["omni_purchase", "offsite_conversion.fb_pixel_purchase", "purchase"]);
+    const revenue = pickOne(row.action_values, ["omni_purchase", "offsite_conversion.fb_pixel_purchase", "purchase"]);
     const roas = Array.isArray(row.purchase_roas) && row.purchase_roas.length ? parseFloat(row.purchase_roas[0].value || "0") : (parseFloat(row.spend || "0") ? revenue / parseFloat(row.spend) : 0);
     return {
       campaign: row.campaign_name || null, campaignId: row.campaign_id || null,
@@ -320,12 +322,12 @@ async function metaAdsInsights(m: any) {
       ctr: parseFloat(row.ctr || "0"), cpc: parseFloat(row.cpc || "0"), cpm: parseFloat(row.cpm || "0"),
       reach: parseInt(row.reach || "0"), frequency: parseFloat(row.frequency || "0"),
       purchases, revenue, roas,
-      leads: pickAction(row.actions, ["lead", "offsite_conversion.fb_pixel_lead"]),
-      addToCart: pickAction(row.actions, ["add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"]),
-      initiateCheckout: pickAction(row.actions, ["initiate_checkout", "offsite_conversion.fb_pixel_initiate_checkout"]),
-      conversas: pickAction(row.actions, ["onsite_conversion.messaging_conversation_started_7d", "messaging_conversation_started_7d", "onsite_conversion.total_messaging_connection"]),
-      videoViews: pickAction(row.actions, ["video_view"]),
-      engajamentos: pickAction(row.actions, ["post_engagement"]),
+      leads: pickOne(row.actions, ["offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped", "leadgen_grouped", "lead"]),
+      addToCart: pickOne(row.actions, ["omni_add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "add_to_cart"]),
+      initiateCheckout: pickOne(row.actions, ["omni_initiated_checkout", "offsite_conversion.fb_pixel_initiate_checkout", "initiate_checkout"]),
+      conversas: pickOne(row.actions, ["onsite_conversion.messaging_conversation_started_7d", "messaging_conversation_started_7d", "onsite_conversion.total_messaging_connection"]),
+      videoViews: pickOne(row.actions, ["video_view"]),
+      engajamentos: pickOne(row.actions, ["post_engagement"]),
     };
   }
   const totAgg: any = { spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0 };
