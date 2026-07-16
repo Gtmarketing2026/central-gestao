@@ -1764,23 +1764,30 @@ async function loadCampanhas(clientId,days){
   body.innerHTML='<div class="empty">Carregando campanhas ao vivo...</div>';
   try{
     const accounts=c.metaAccountIds.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
-    const [rep,entData]=await Promise.all([
-      fetchMetaReportRange(c,daysAgoISO(_campDays),today()),
-      sb.functions.invoke('dynamic-responder',{body:{metaEntities:{accounts}}}).then(r=>(r.data&&r.data.data)||r.data||{}).catch(()=>({}))
-    ]);
+    const rep=await fetchMetaReportRange(c,daysAgoISO(_campDays),today());
     _campAds=rep.ads||[];
-    _campStatus={camp:{},adset:{},ad:{}};
-    (entData.campaigns||[]).forEach(x=>_campStatus.camp[x.id]=x.status);
-    (entData.adsets||[]).forEach(x=>_campStatus.adset[x.id]=x.status);
-    (entData.ads||[]).forEach(x=>_campStatus.ad[x.id]=x.status);
     _campCols=focoCols(_campFoco);
-    renderCampFocos();renderCampBody();
+    _campStatus={camp:{},adset:{},ad:{}};
+    renderCampFocos();renderCampBody(); // mostra a tabela já (status carrega em seguida)
+    // status leve: só os anúncios da tela (evita puxar todos os anúncios da conta e estourar rate limit)
+    const adIds=[...new Set(_campAds.map(a=>a.adId).filter(Boolean))].slice(0,300);
+    sb.functions.invoke('dynamic-responder',{body:{metaEntities:{accounts,adIds}}}).then(r=>{
+      const ent=(r.data&&r.data.data)||r.data||{};
+      (ent.campaigns||[]).forEach(x=>_campStatus.camp[x.id]=x.status);
+      (ent.adsets||[]).forEach(x=>_campStatus.adset[x.id]=x.status);
+      (ent.ads||[]).forEach(x=>_campStatus.ad[x.id]=x.status);
+      if(document.querySelector('.panel#campanhas.active')&&_campClientId===c.id)renderCampBody();
+    }).catch(()=>{});
   }catch(e){body.innerHTML=`<div class="empty">Erro: ${e.message}</div>`;}
 }
 let _campStatus={camp:{},adset:{},ad:{}};
 function campSwitchHTML(objLevel,objId,st){
+  const known=st==='ACTIVE'||st==='PAUSED';
+  if(!known){ // status indisponível (ex: rate limit) — cinza neutro, nunca "pausado" por engano
+    return `<span title="Status indisponível — recarregue" style="display:inline-block;width:28px;height:15px;border-radius:9px;background:#3a3a44;margin-right:7px;vertical-align:middle;position:relative"><span style="position:absolute;top:2px;left:9px;width:11px;height:11px;border-radius:50%;background:#6b7280"></span></span>`;
+  }
   const on=st==='ACTIVE';const track=on?'#34d399':'#f87171';
-  return `<button onclick="event.stopPropagation();toggleCampStatus('${objLevel}','${objId}',this)" data-st="${st||''}" title="${on?'Pausar no Meta':'Ativar no Meta'}" style="position:relative;display:inline-block;width:28px;height:15px;border-radius:9px;border:none;background:${track};cursor:pointer;padding:0;margin-right:7px;vertical-align:middle;flex:none;transition:background .15s">
+  return `<button onclick="event.stopPropagation();toggleCampStatus('${objLevel}','${objId}',this)" data-st="${st}" title="${on?'Pausar no Meta':'Ativar no Meta'}" style="position:relative;display:inline-block;width:28px;height:15px;border-radius:9px;border:none;background:${track};cursor:pointer;padding:0;margin-right:7px;vertical-align:middle;flex:none;transition:background .15s">
     <span style="position:absolute;top:2px;${on?'right:2px':'left:2px'};width:11px;height:11px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:all .15s"></span>
   </button>`;
 }

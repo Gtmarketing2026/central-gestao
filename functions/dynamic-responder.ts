@@ -440,6 +440,7 @@ async function metaEntities(m: any) {
     }
     return out;
   }
+  const lightStatus = Array.isArray(m.adIds) && m.adIds.length; // modo leve: só status dos anúncios da tela
   const campaigns: any[] = [], adsets: any[] = [], ads: any[] = [];
   for (const acc of accounts) {
     const cs = await pageAll(`act_${acc.id}/campaigns?fields=id,name,status,effective_status,daily_budget,lifetime_budget,objective`);
@@ -447,8 +448,20 @@ async function metaEntities(m: any) {
     for (const c of cs) { const ob = metaObjetivo(c.objective); objById[c.id] = ob; campaigns.push({ id: c.id, nome: c.name, status: c.status, entrega: c.effective_status, orcamentoDiario: c.daily_budget ? +c.daily_budget / 100 : null, objetivo: ob, conta: acc.name || acc.id }); }
     const as = await pageAll(`act_${acc.id}/adsets?fields=id,name,status,effective_status,daily_budget,campaign_id`);
     for (const s of as) adsets.push({ id: s.id, nome: s.name, status: s.status, entrega: s.effective_status, orcamentoDiario: s.daily_budget ? +s.daily_budget / 100 : null, campanhaId: s.campaign_id, conta: acc.name || acc.id });
-    const ds = await pageAll(`act_${acc.id}/ads?fields=id,name,status,effective_status,campaign_id,adset_id`);
-    for (const d of ds) ads.push({ id: d.id, nome: d.name, status: d.status, entrega: d.effective_status, campanhaId: d.campaign_id, conjuntoId: d.adset_id, objetivo: objById[d.campaign_id] || metaObjetivo(""), conta: acc.name || acc.id });
+    if (!lightStatus) {
+      const ds = await pageAll(`act_${acc.id}/ads?fields=id,name,status,effective_status,campaign_id,adset_id`);
+      for (const d of ds) ads.push({ id: d.id, nome: d.name, status: d.status, entrega: d.effective_status, campanhaId: d.campaign_id, conjuntoId: d.adset_id, objetivo: objById[d.campaign_id] || metaObjetivo(""), conta: acc.name || acc.id });
+    }
+  }
+  if (lightStatus) {
+    const ids: string[] = m.adIds.filter(Boolean);
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50);
+      const r = await fetch(`${base}/?ids=${chunk.join(",")}&fields=id,status,effective_status&access_token=${token}`);
+      const j = await r.json();
+      if (j.error) continue;
+      for (const id of chunk) if (j[id]) ads.push({ id, status: j[id].status, entrega: j[id].effective_status });
+    }
   }
   return { campaigns, adsets, ads };
 }
