@@ -1643,7 +1643,17 @@ async function loadNotifications(){
   if(!currentTeamId)return;
   const {data}=await sb.from('notifications').select('*').eq('to_team',currentTeamId).order('created_at',{ascending:false}).limit(30);
   DB.notifications=data||[];
+  await pruneNotifications();
   renderNotifBadge();
+}
+// Mantém a lista leve: apaga notificações já lidas além das 3 mais recentes (as não lidas ficam até serem vistas).
+async function pruneNotifications(){
+  if(!currentTeamId)return;
+  const ordered=DB.notifications.slice().sort((a,b)=>a.created_at<b.created_at?1:-1);
+  const del=ordered.slice(3).filter(n=>n.read).map(n=>n.id);
+  if(!del.length)return;
+  await sb.from('notifications').delete().in('id',del);
+  DB.notifications=DB.notifications.filter(n=>!del.includes(n.id));
 }
 function renderNotifBadge(){
   const n=DB.notifications.filter(x=>!x.read).length;
@@ -1675,7 +1685,7 @@ function renderNotifList(){
 function teamName(id){const m=DB.team.find(x=>x.id===id);return m?m.name:'—'}
 async function openNotif(id,taskId){
   const n=DB.notifications.find(x=>x.id===id);
-  if(n&&!n.read){n.read=true;await sb.from('notifications').update({read:true}).eq('id',id);renderNotifBadge();renderNotifList()}
+  if(n&&!n.read){n.read=true;await sb.from('notifications').update({read:true}).eq('id',id);await pruneNotifications();renderNotifBadge();renderNotifList()}
   if(n&&n.type==='system')return;
   document.getElementById('notifPanel').style.display='none';
   if(taskId&&DB.tasks.some(t=>t.id===taskId))openTaskModal(taskId);
@@ -1698,6 +1708,7 @@ async function markAllNotifsRead(){
   if(!unread.length)return;
   await sb.from('notifications').update({read:true}).eq('to_team',currentTeamId).eq('read',false);
   DB.notifications.forEach(n=>n.read=true);
+  await pruneNotifications();
   renderNotifBadge();renderNotifList();
 }
 document.addEventListener('click',e=>{
