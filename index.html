@@ -2894,7 +2894,7 @@ function addMetaAccount(){
   fillMetaSelect();renderMetaChips();
 }
 function removeMetaAccount(id){metaSelectedIds=metaSelectedIds.filter(x=>x!==id);fillMetaSelect();renderMetaChips();}
-function setMetaSelection(ids){metaSelectedIds=(ids||[]).slice();fillMetaSelect();renderMetaChips();}
+function setMetaSelection(ids){metaSelectedIds=(ids||[]).slice();metaSelectSearch='';const s=document.getElementById('cMetaSearch');if(s)s.value='';fillMetaSelect();renderMetaChips();}
 async function loadMetaAccounts(){
   const btn=document.getElementById('cMetaLoadBtn'),hint=document.getElementById('cMetaAccountHint');
   btn.disabled=true;const old=btn.textContent;btn.textContent='Carregando…';
