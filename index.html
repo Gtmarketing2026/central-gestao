@@ -2003,6 +2003,19 @@ function openClientConfig(id){
   renderClientConfig();
 }
 function ccOpen(tab){openClientModal(_configClientId);if(tab)setClientTab(tab);}
+// Menu suspenso do botão "Configurar" na lista de clientes — atalho direto pra cada seção
+function cfgMenuBtn(id){
+  const items=[['⚙ Painel de configuração',`openClientConfig('${id}')`],['✏️ Dados & Verba',`cfgMenuOpen('${id}','dados')`],['📱 Mídia & Meta',`cfgMenuOpen('${id}','midia')`],['📊 Relatórios',`cfgMenuOpen('${id}','relatorios')`],['🧬 DNA & Conhecimento',`cfgMenuOpen('${id}','dna')`]];
+  return `<span style="position:relative;display:inline-block">
+    <button class="btn sm ghost" type="button" onclick="toggleCfgMenu(event,'${id}')">⚙ Configurar ▾</button>
+    <div id="cfgMenu_${id}" style="display:none;position:absolute;right:0;top:calc(100% + 4px);z-index:60;min-width:210px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.45)">
+      ${items.map(([l,fn])=>`<button type="button" onclick="closeCfgMenus();${fn}" style="display:block;width:100%;text-align:left;background:none;border:0;color:var(--text);font-size:12.5px;padding:7px 9px;border-radius:7px;cursor:pointer" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">${l}</button>`).join('')}
+    </div></span>`;
+}
+function toggleCfgMenu(e,id){e.stopPropagation();const m=document.getElementById('cfgMenu_'+id);if(!m)return;const open=m.style.display==='none';closeCfgMenus();m.style.display=open?'block':'none';}
+function closeCfgMenus(){document.querySelectorAll('[id^=cfgMenu_]').forEach(x=>x.style.display='none');}
+function cfgMenuOpen(id,tab){openClientModal(id);setClientTab(tab);}
+document.addEventListener('click',()=>closeCfgMenus());
 function ccRow(k,v){return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:var(--muted)">${k}</span><span style="font-weight:600;text-align:right">${v}</span></div>`;}
 function ccCard(o){
   return `<div class="card" style="display:flex;flex-direction:column;gap:6px">
@@ -2176,7 +2189,7 @@ function renderChurn(){
               <td class="money-pos">${c.fee?fmt(c.fee):'—'}</td>
               <td class="money-neg" style="font-weight:600">${c.fee?fmt(c.fee):'—'}</td>
               <td style="color:var(--faint);font-size:12px">${c.tempSince?c.tempSince.split('-').reverse().join('/'):'—'}</td>
-              <td class="row-actions"><button class="btn sm ghost" onclick="openClientConfig('${c.id}')">⚙ Configurar</button></td>
+              <td class="row-actions">${cfgMenuBtn(c.id)}</td>
             </tr>`;
           }).join('')}</tbody>
         </table>
@@ -2399,7 +2412,7 @@ function renderClients(){
     const saldo=c.usesBalance?calcBalance(c.id):null;
     const balanceTxt=saldo!==null?`<div style="font-weight:700;color:${saldo>=0?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div><button class="btn sm ghost" style="margin-top:4px;font-size:11px" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:'—';
     const reportBtn=c.reportSheetUrl?`<button class="btn sm ghost" onclick="selectReportClient('${c.id}')" title="Ver relatório de anúncios">📊 Relatório</button>`:'';
-    return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td>${rep}</td><td class="row-actions">${reportBtn}<button class="btn sm ghost" onclick="openClientConfig('${c.id}')">⚙ Configurar</button><button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
+    return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td>${rep}</td><td class="row-actions">${reportBtn}${cfgMenuBtn(c.id)}<button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
   }).join('')+'</tbody>';
 }
 function showPays(s){if(s.payments&&s.payments.length)return s.payments;return [{id:s.id+'_p',date:s.date,val:s.val,status:s.status||'pendente',_virtual:1}]}
