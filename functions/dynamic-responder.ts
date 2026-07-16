@@ -347,9 +347,10 @@ async function metaAdsInsights(m: any) {
   for (const { acc, accountRows, acctDaily, objByCampId, adRows, campRows } of perAccount) {
     for (const row of acctDaily) {
       const s = shape(row); const k = row.date_start;
-      if (!totRecByDate[k]) totRecByDate[k] = { date: k, sales: 0, spend: 0, revenue: 0, clicks: 0, impressions: 0 };
+      if (!totRecByDate[k]) totRecByDate[k] = { date: k, sales: 0, spend: 0, revenue: 0, clicks: 0, impressions: 0, reach: 0, leads: 0, conversas: 0, videoViews: 0, engajamentos: 0, addToCart: 0, checkout: 0 };
       const rec = totRecByDate[k];
       rec.sales += Math.round(s.purchases); rec.spend += s.spend; rec.revenue += s.revenue; rec.clicks += s.clicks; rec.impressions += s.impressions;
+      rec.reach += s.reach; rec.leads += s.leads; rec.conversas += s.conversas; rec.videoViews += s.videoViews; rec.engajamentos += s.engajamentos; rec.addToCart += s.addToCart; rec.checkout += s.initiateCheckout;
     }
     const at = accountRows.length ? shape(accountRows[0]) : shape({});
     totAgg.spend += at.spend; totAgg.impressions += at.impressions; totAgg.clicks += at.clicks; totAgg.reach += at.reach;
