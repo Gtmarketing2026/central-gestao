@@ -1851,7 +1851,7 @@ function campResultado(x,tipo){
     alcance:['Alcance',Math.round(d.reach||0),d.impressions?fmt(d.cpm):'—'],
   };
   const r=M[tipo]||['Resultado',0,'—'];
-  return {resVal:typeof r[1]==='number'?r[1].toLocaleString('pt-BR'):r[1],resLabel:r[0],custoVal:r[2],roas:d.spend?d.roas.toFixed(2)+'x':'—'};
+  return {resVal:typeof r[1]==='number'?r[1].toLocaleString('pt-BR'):r[1],resLabel:r[0],resNum:typeof r[1]==='number'?r[1]:0,custoVal:r[2],roas:d.spend?d.roas.toFixed(2)+'x':'—'};
 }
 const CAMP_COLS={
   invest:{label:'Invest.',get:x=>fmt(x.spend)},
@@ -1965,7 +1965,16 @@ function renderCampBody(){
   const totAgg={};tree.forEach(cp=>Object.keys(cp.agg).forEach(k=>{if(typeof cp.agg[k]==='number')totAgg[k]=(totAgg[k]||0)+cp.agg[k];}));
   const tipos=[...new Set(tree.map(cp=>cp.objetivo.tipo))];const totTipo=tipos.length===1?tipos[0]:'outro';
   const totD=deriveMeta({...totAgg});
-  const totCells=_campCols.map(k=>`<div style="padding:10px 6px;font-size:12px;text-align:right;font-weight:700">${CAMP_COLS[k]?CAMP_COLS[k].get(totD,totTipo):''}</div>`).join('');
+  // Resultado do total: objetivo único soma direto; misto soma o resultado de cada campanha pela métrica dela
+  const mixed=totTipo==='outro';
+  const totResSum=tree.reduce((s,cp)=>s+campResultado(cp.agg,cp.objetivo.tipo).resNum,0);
+  const totCells=_campCols.map(k=>{
+    let v;
+    if(k==='resultado')v=mixed?`<b>${totResSum.toLocaleString('pt-BR')}</b><div style="font-size:10px;color:var(--muted);font-weight:400;line-height:1.1;margin-top:1px">resultados (misto)</div>`:CAMP_COLS.resultado.get(totD,totTipo);
+    else if(k==='custores')v=mixed?(totResSum?fmt(totD.spend/totResSum):'—'):CAMP_COLS.custores.get(totD,totTipo);
+    else v=CAMP_COLS[k]?CAMP_COLS[k].get(totD,totTipo):'';
+    return `<div style="padding:10px 6px;font-size:12px;text-align:right;font-weight:700">${v}</div>`;
+  }).join('');
   const totRow=`<div style="display:grid;${campGrid()}align-items:center;border-bottom:2px solid var(--border);background:var(--surface2)">
     <div style="padding:10px 6px;font-size:12px;font-weight:800;color:var(--accent)">Σ Total · ${tree.length} campanha${tree.length!==1?'s':''}</div>${totCells}</div>`;
   body.innerHTML=`<div class="card" style="padding:0;overflow-x:auto">${header}${totRow}${rows}${pausedBlock}</div>`;
