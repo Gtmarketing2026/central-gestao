@@ -738,9 +738,10 @@
         <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Vincule a conta do Meta deste cliente pra puxar investimento, CTR, CPM, ROAS e conversões em tempo real — sem planilha.</div>
       </div>
       <div style="font-size:11px;color:var(--faint);font-weight:400;margin-bottom:6px">Pode vincular <strong>mais de uma conta</strong> (ex: Fernanda 01, 02 e 03) — o relatório soma todas.</div>
+      <div class="form-row" style="margin-bottom:6px"><input id="cMetaSearch" type="text" placeholder="🔎 Buscar conta por nome ou ID…" autocomplete="off" oninput="metaSelectSearch=this.value;fillMetaSelect()" style="width:100%"></div>
       <div class="form-grid">
         <div class="form-row"><label>Conta de anúncios</label>
-          <select id="cMetaAccountId" autocomplete="off"><option value="">— carregue as contas e escolha —</option></select>
+          <select id="cMetaAccountId" autocomplete="off" size="8"><option value="">— carregue as contas e escolha —</option></select>
         </div>
         <div class="form-row" style="display:flex;align-items:flex-end;gap:8px">
           <button class="btn sm" style="flex:1;justify-content:center" type="button" onclick="addMetaAccount()">+ Vincular</button>
@@ -2871,11 +2872,15 @@ function openClientModal(id){
 let metaAccountsCache=JSON.parse(localStorage.getItem('metaAccountsCache')||'[]');
 let metaSelectedIds=[];
 function metaAccName(id){const a=metaAccountsCache.find(x=>x.id===id);return a?a.name:id;}
+let metaSelectSearch='';
 function fillMetaSelect(){
   const sel=document.getElementById('cMetaAccountId');if(!sel)return;
-  let opts='<option value="">— '+(metaAccountsCache.length?'selecione e clique em Vincular':'carregue as contas e escolha')+' —</option>';
-  const list=metaAccountsCache.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-  opts+=list.filter(a=>!metaSelectedIds.includes(a.id)).map(a=>`<option value="${a.id}">${(a.name||a.id).replace(/</g,'')} (${a.id})</option>`).join('');
+  const q=metaSelectSearch.trim().toLowerCase();
+  let list=metaAccountsCache.slice().filter(a=>!metaSelectedIds.includes(a.id)).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  if(q)list=list.filter(a=>((a.name||'')+' '+a.id).toLowerCase().includes(q));
+  const head=metaAccountsCache.length?(q?(list.length+' conta(s) encontrada(s)'):'selecione e clique em Vincular'):'carregue as contas e escolha';
+  let opts='<option value="">— '+head+' —</option>';
+  opts+=list.map(a=>`<option value="${a.id}">${(a.name||a.id).replace(/</g,'')} (${a.id})</option>`).join('');
   sel.innerHTML=opts;
 }
 function renderMetaChips(){
