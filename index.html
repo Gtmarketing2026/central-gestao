@@ -3720,6 +3720,8 @@ function applyReportDateFilter(){
   if(currentReport)renderClientReportBody(visibleReportTabs(),currentReport.dataByTab,from,to);
 }
 function reportChannelLabel(tab){return tab.replace(/^GERAL\s+/i,'').replace(/\s+VENDAS?$/i,'').trim()}
+// Unifica o canal pela PLATAFORMA (1º token): "GOOGLE VENDAS" e "GOOGLE DISTRIBUICAO" -> "GOOGLE". Objetivos separam depois, mas gasto/impressão/venda do canal são somados.
+function channelPlatform(tab){const t=String(tab||'').replace(/^GERAL\s+/i,'').trim().toUpperCase();const m=t.match(/^[A-ZÀ-Ú0-9]+(?:-[A-ZÀ-Ú0-9]+)?/);return m?m[0]:t;}
 function renderClientReportBody(tabs,dataByTab,dateFrom,dateTo){
   const el=document.getElementById('clientReportBody');
   el.innerHTML=`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px" id="crGrid"></div>`;
@@ -4144,7 +4146,7 @@ function computeChannelStats(adTabs,dataByTab,month){
     const raw=dataByTab[tab];
     if(!raw||raw.error||!Array.isArray(raw)||raw.length<2)return;
     const parsed=parseReportTab(raw);
-    const key=reportChannelLabel(tab);
+    const key=channelPlatform(tab);
     if(!stats[key])stats[key]={label:key,spend:0,impressions:0,clicks:0,reach:0,revenue:0,sales:0,records:[]};
     const inMonth=parsed.records.filter(r=>r.date&&r.date.slice(0,7)===month);
     inMonth.forEach(r=>{
