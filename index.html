@@ -1759,10 +1759,30 @@ async function loadCampanhas(clientId,days){
   renderCampRange();
   body.innerHTML='<div class="empty">Carregando campanhas ao vivo...</div>';
   try{
-    const rep=await fetchMetaReportRange(c,daysAgoISO(_campDays),today());
+    const accounts=c.metaAccountIds.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
+    const [rep,entData]=await Promise.all([
+      fetchMetaReportRange(c,daysAgoISO(_campDays),today()),
+      sb.functions.invoke('dynamic-responder',{body:{metaEntities:{accounts}}}).then(r=>(r.data&&r.data.data)||r.data||{}).catch(()=>({}))
+    ]);
     _campAds=rep.ads||[];
+    _campStatus={camp:{},adset:{},ad:{}};
+    (entData.campaigns||[]).forEach(x=>_campStatus.camp[x.id]=x.status);
+    (entData.adsets||[]).forEach(x=>_campStatus.adset[x.id]=x.status);
+    (entData.ads||[]).forEach(x=>_campStatus.ad[x.id]=x.status);
     renderCampFocos();renderCampBody();
   }catch(e){body.innerHTML=`<div class="empty">Erro: ${e.message}</div>`;}
+}
+let _campStatus={camp:{},adset:{},ad:{}};
+async function toggleCampStatus(level,id,btn){
+  const cur=btn.dataset.st;const action=cur==='ACTIVE'?'pause':'activate';
+  if(!confirm((action==='pause'?'Pausar':'Ativar')+' no Meta agora? Isso muda de verdade no gerenciador de anúncios.'))return;
+  const old=btn.textContent;btn.textContent='⏳';btn.disabled=true;
+  try{
+    await metaExecute({action,id,nome:''});
+    const ns=action==='pause'?'PAUSED':'ACTIVE';btn.dataset.st=ns;_campStatus[level][id]=ns;
+    btn.textContent=ns==='ACTIVE'?'●':'⏸';btn.style.color=ns==='ACTIVE'?'#34d399':'#f87171';btn.title=ns==='ACTIVE'?'Pausar no Meta':'Ativar no Meta';
+  }catch(e){alert('Erro: '+(e.message||e));btn.textContent=old;}
+  btn.disabled=false;
 }
 function renderCampRange(){const el=document.getElementById('campRange');if(el)el.innerHTML=[[7,'7 dias'],[30,'30 dias'],[90,'90 dias']].map(([d,l])=>`<button class="btn sm ${_campDays===d?'primary':'ghost'}" onclick="loadCampanhas(null,${d})">${l}</button>`).join('');}
 function renderCampFocos(){const el=document.getElementById('campFocos');if(!el)return;const tipos=[...new Set(_campAds.filter(a=>a.spend>0).map(a=>(a.objetivo&&a.objetivo.tipo)||'outro'))];el.innerHTML=`<button class="btn sm ${!_campFoco?'primary':'ghost'}" onclick="setCampFoco('')">Todos</button>`+tipos.map(t=>{const info=OBJETIVO_INFO[t]||{rotulo:t};return `<button class="btn sm ${_campFoco===t?'primary':'ghost'}" onclick="setCampFoco('${t}')">${info.rotulo}</button>`}).join('');}
@@ -1771,10 +1791,10 @@ function buildCampaignTree(ads){
   const camps={};
   ads.forEach(a=>{
     const cn=a.campaign||'—';
-    if(!camps[cn])camps[cn]={nome:cn,objetivo:a.objetivo||{tipo:'outro',rotulo:'Outro'},agg:_newAgg(),adsets:{}};
+    if(!camps[cn])camps[cn]={nome:cn,id:a.campaignId,objetivo:a.objetivo||{tipo:'outro',rotulo:'Outro'},agg:_newAgg(),adsets:{}};
     _addAgg(camps[cn].agg,a);
     const sn=a.adset||'—';
-    if(!camps[cn].adsets[sn])camps[cn].adsets[sn]={nome:sn,agg:_newAgg(),ads:[]};
+    if(!camps[cn].adsets[sn])camps[cn].adsets[sn]={nome:sn,id:a.adsetId,agg:_newAgg(),ads:[]};
     _addAgg(camps[cn].adsets[sn].agg,a);camps[cn].adsets[sn].ads.push(a);
   });
   return Object.values(camps).sort((a,b)=>b.agg.spend-a.agg.spend);
@@ -1795,14 +1815,16 @@ function campResultado(x,tipo){
   return {resVal:typeof r[1]==='number'?r[1].toLocaleString('pt-BR'):r[1],custoVal:r[2],roas:d.spend?d.roas.toFixed(2)+'x':'—'};
 }
 const CAMP_GRID='grid-template-columns:minmax(200px,2.2fr) repeat(6,minmax(66px,1fr));';
-function campRowHTML(name,level,agg,tipo,toggleId,badge){
+function campRowHTML(name,level,agg,tipo,toggleId,badge,objLevel,objId){
   const d=deriveMeta({...agg});const R=campResultado(agg,tipo);
   const pad=8+level*16;
   const caret=toggleId?`<span id="${toggleId}_c" style="display:inline-block;width:14px;color:var(--muted)">▸</span>`:'<span style="display:inline-block;width:14px"></span>';
+  const st=objId?_campStatus[objLevel][objId]:null;
+  const stBtn=objId?`<button onclick="event.stopPropagation();toggleCampStatus('${objLevel}','${objId}',this)" data-st="${st||''}" title="${st==='ACTIVE'?'Pausar no Meta':'Ativar no Meta'}" style="border:none;background:none;cursor:pointer;font-size:13px;padding:0 5px 0 0;color:${st==='ACTIVE'?'#34d399':'#f87171'}">${st==='ACTIVE'?'●':'⏸'}</button>`:'';
   const cell=v=>`<div style="padding:8px 6px;font-size:12px;text-align:right">${v}</div>`;
   const bg=level===1?'background:var(--surface2);':level===2?'background:rgba(255,255,255,.02);':'';
   return `<div ${toggleId?`onclick="toggleCampRow('${toggleId}')" style="cursor:pointer;`:'style="'}display:grid;${CAMP_GRID}align-items:center;border-bottom:1px solid rgba(255,255,255,.05);${bg}">
-    <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(name||'').replace(/"/g,'')}">${caret} ${(name||'—').replace(/</g,'&lt;')}${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400">${badge}</span>`:''}</div>
+    <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(name||'').replace(/"/g,'')}">${stBtn}${caret} ${(name||'—').replace(/</g,'&lt;')}${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400">${badge}</span>`:''}</div>
     ${cell(fmt(d.spend))}${cell(Math.round(d.impressions).toLocaleString('pt-BR'))}${cell(d.impressions?d.ctr.toFixed(2)+'%':'—')}${cell('<b>'+R.resVal+'</b>')}${cell(R.custoVal)}${cell(R.roas)}</div>`;
 }
 function renderCampBody(){
@@ -1819,10 +1841,10 @@ function renderCampBody(){
     const cid='cp'+ci;
     const adsetRows=Object.values(cp.adsets).sort((a,b)=>b.agg.spend-a.agg.spend).map((as,ai)=>{
       const sid='cp'+ci+'as'+ai;
-      const adRows=as.ads.sort((a,b)=>b.spend-a.spend).map(ad=>campRowHTML(ad.adName,3,ad,cp.objetivo.tipo,null)).join('');
-      return `<div>${campRowHTML(as.nome,2,as.agg,cp.objetivo.tipo,sid,as.ads.length+' anúncio(s)')}<div id="${sid}" style="display:none">${adRows}</div></div>`;
+      const adRows=as.ads.sort((a,b)=>b.spend-a.spend).map(ad=>campRowHTML(ad.adName,3,ad,cp.objetivo.tipo,null,null,'ad',ad.adId)).join('');
+      return `<div>${campRowHTML(as.nome,2,as.agg,cp.objetivo.tipo,sid,as.ads.length+' anúncio(s)','adset',as.id)}<div id="${sid}" style="display:none">${adRows}</div></div>`;
     }).join('');
-    return `<div>${campRowHTML(cp.nome,1,cp.agg,cp.objetivo.tipo,cid,cp.objetivo.rotulo)}<div id="${cid}" style="display:none">${adsetRows}</div></div>`;
+    return `<div>${campRowHTML(cp.nome,1,cp.agg,cp.objetivo.tipo,cid,cp.objetivo.rotulo,'camp',cp.id)}<div id="${cid}" style="display:none">${adsetRows}</div></div>`;
   }).join('');
   body.innerHTML=`<div class="card" style="padding:0;overflow-x:auto">${header}${rows}</div>`;
 }

@@ -265,7 +265,7 @@ async function metaAdsInsights(m: any) {
   async function fetchInsights(acct: string, level: string, extra = "") {
     let lvlFields = "";
     if (level === "campaign") lvlFields = ",campaign_name,campaign_id";
-    else if (level === "ad") lvlFields = ",campaign_name,campaign_id,adset_name,ad_name,ad_id";
+    else if (level === "ad") lvlFields = ",campaign_name,campaign_id,adset_name,adset_id,ad_name,ad_id";
     let url: string | null = `${base}/act_${acct}/insights?level=${level}&fields=${fields}${lvlFields}${range}${extra}&limit=200&access_token=${token}`;
     const out: any[] = [];
     for (let i = 0; i < 20 && url; i++) {
@@ -359,7 +359,7 @@ async function metaAdsInsights(m: any) {
     for (const row of adRows) {
       const s = shape(row);
       ads.push({
-        adId: row.ad_id, adName: row.ad_name || "(sem nome)", campaign: row.campaign_name || "", adset: row.adset_name || "",
+        adId: row.ad_id, adName: row.ad_name || "(sem nome)", campaign: row.campaign_name || "", campaignId: row.campaign_id || null, adset: row.adset_name || "", adsetId: row.adset_id || null,
         account: acc.name || acc.id, thumbnail: null,
         objetivo: objByCampId[row.campaign_id] || metaObjetivo(""),
         spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: s.reach, frequency: s.frequency,
