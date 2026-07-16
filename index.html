@@ -736,14 +736,12 @@
       </div>
       <div style="font-size:11px;color:var(--faint);font-weight:400;margin-bottom:6px">Pode vincular <strong>mais de uma conta</strong> (ex: Fernanda 01, 02 e 03) — o relatório soma todas.</div>
       <div class="form-row" style="margin-bottom:6px"><input id="cMetaSearch" type="text" placeholder="🔎 Buscar conta por nome ou ID…" autocomplete="off" oninput="metaSelectSearch=this.value;fillMetaSelect()" style="width:100%"></div>
-      <div class="form-grid">
-        <div class="form-row"><label>Conta de anúncios</label>
-          <select id="cMetaAccountId" autocomplete="off" size="8"><option value="">— carregue as contas e escolha —</option></select>
-        </div>
-        <div class="form-row" style="display:flex;align-items:flex-end;gap:8px">
-          <button class="btn sm" style="flex:1;justify-content:center" type="button" onclick="addMetaAccount()">+ Vincular</button>
-          <button class="btn sm ghost" style="flex:1;justify-content:center" type="button" id="cMetaLoadBtn" onclick="loadMetaAccounts()">Carregar contas</button>
-        </div>
+      <div class="form-row"><label>Conta de anúncios</label>
+        <select id="cMetaAccountId" autocomplete="off" size="14" style="width:100%"><option value="">— carregue as contas e escolha —</option></select>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:6px">
+        <button class="btn sm" style="flex:1;justify-content:center" type="button" onclick="addMetaAccount()">+ Vincular</button>
+        <button class="btn sm ghost" style="flex:1;justify-content:center" type="button" id="cMetaLoadBtn" onclick="loadMetaAccounts()">Carregar contas</button>
       </div>
       <div id="cMetaAccountChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
       <div id="cMetaAccountHint" style="font-size:11px;color:var(--faint)"></div>
