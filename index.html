@@ -760,9 +760,8 @@
         </div>
         <div style="font-size:11px;color:var(--faint);margin-top:3px">"Automático" usa o modelo-base do objetivo da campanha no Meta.</div>
       </div>
-      <div class="form-row"><label>Foco(s) do relatório <span style="font-size:11px;color:var(--faint);font-weight:400">— o relatório inteiro é avaliado por esse(s) objetivo(s)</span></label>
-        <div id="cReportFocos" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-        <div style="font-size:11px;color:var(--faint);margin-top:3px">Deixe tudo desmarcado pra usar o objetivo do modelo (ou detectar automático das campanhas). Marque 1 (ex: só Mensagem) ou vários se o cliente trabalha com mais de um foco.</div>
+      <div class="form-row" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+        <div style="font-size:12px;color:var(--faint)">💡 <b>Foco(s) do relatório</b> saíram daqui — agora você escolhe quais objetivos ver <b>dentro do próprio relatório</b> (as abas são detectadas automaticamente pelas campanhas com dado). A escolha fica salva por cliente.</div>
       </div>
       <div class="form-row"><label>Fonte de vendas do funil <span style="font-size:11px;color:var(--faint);font-weight:400">— de onde vem o nº de vendas/conversões</span></label>
         <select id="cConversionSource">
@@ -2941,7 +2940,7 @@ async function saveClient(){
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
   const reportWeekly=document.getElementById('cReportWeekly').checked;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),reportTemplateId:document.getElementById('cReportTemplate').value||'',conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:[...document.querySelectorAll('.cFoco:checked')].map(x=>x.value),benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),reportTemplateId:document.getElementById('cReportTemplate').value||'',conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:((DB.clients.find(x=>x.id===cId.value)||{}).reportFocos||[]),benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
@@ -5153,9 +5152,8 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
     funil:funnelStages.map(s=>({etapa:s.label,valor:s.value})),
   };
 
-  const focos=resolveReportFocos(c);
-  const objGroups=reportFocusGroups(metaAds,focos);
-  const raioAds=(focos&&focos.length===1)?remapAdsToFoco(metaAds,focos[0]):metaAds;
+  const objGroups=groupAdsByObjective(metaAds); // todos os objetivos com gasto, detectados automaticamente (abas)
+  const raioAds=metaAds;
   const secPedidos=totalPedidos>0?`<div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">01</div><div class="rt-sec-title">Resultados Gerais — Dashboard de Pedidos</div><div class="rt-sec-ln"></div></div>
         <div class="rt-kpi-grid">
@@ -5229,6 +5227,12 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
           </div>
         </div>
       </div>`;
+  const vis=(c.reportFocos&&c.reportFocos.length)?c.reportFocos:null;
+  const focoVisBar=objGroups.length>1?`<div class="rt-no-print" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:14px;padding:10px 12px;background:var(--rbg2);border:1px solid var(--rbr);border-radius:12px">
+      <span style="font-size:11px;color:var(--rtm);text-transform:uppercase;letter-spacing:.05em">🎯 Focos visíveis:</span>
+      <button class="btn sm ${!vis?'primary':'ghost'} focoVisChip" data-foco="" onclick="toggleReportFoco('${c.id}','')">Todos</button>
+      ${objGroups.map(g=>`<button class="btn sm ${vis&&vis.includes(g.tipo)?'primary':'ghost'} focoVisChip" data-foco="${g.tipo}" onclick="toggleReportFoco('${c.id}','${g.tipo}')">${g.rotulo}</button>`).join('')}
+    </div>`:'';
   const focosHTML=osFocosHTML(objGroups,c.id);
   const focoTabs=objGroups.map(g=>`<div class="rtTab rtoff" data-rtab="foco_${g.tipo}"><div class="rt-sec"><div class="rt-sec-hdr"><div class="rt-sec-num">🎯</div><div class="rt-sec-title">${g.rotulo} — foco em ${((g.objetivo&&g.objetivo.metrica)||'').replace(/</g,'&lt;')}</div><div class="rt-sec-ln"></div></div>${focusKpiHTML(g.agg,g.tipo)}${focusCampTableHTML(g.camps,g.tipo)}</div></div>`).join('');
   const dv='<div class="rt-div"></div>';
@@ -5249,6 +5253,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
     <div class="rt-wrap">
       <div class="rtTabBar rt-no-print">${tabBtns}</div>
       <div class="rtTab" data-rtab="geral">
+        ${focoVisBar}
         ${templatePanelHTML(clientTpl,tplAgg)}
         ${secPedidos?dv+secPedidos:''}
         ${focosHTML?dv+focosHTML:''}
@@ -5264,6 +5269,31 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
     <div class="rt-ftr">Relatório gerado automaticamente · Central de Gestão · ${mesLabel}</div>
   </div>`;
   renderAnalysisChat();
+  applyReportFocoVis(c.id);
+}
+// Visibilidade das abas de foco (escolha feita no relatório, salva por cliente em report_focos)
+function applyReportFocoVis(clientId){
+  const c=DB.clients.find(x=>x.id===clientId);if(!c)return;
+  const vis=(c.reportFocos&&c.reportFocos.length)?c.reportFocos:null; // null = todas
+  let activeHidden=false;
+  document.querySelectorAll('.rtTabBtn[data-rtab^="foco_"]').forEach(btn=>{
+    const tipo=btn.dataset.rtab.replace('foco_','');
+    const show=!vis||vis.includes(tipo);
+    btn.style.display=show?'':'none';
+    if(!show&&btn.classList.contains('on'))activeHidden=true;
+  });
+  if(activeHidden)setReportTab('geral');
+}
+function toggleReportFoco(clientId,tipo){
+  const c=DB.clients.find(x=>x.id===clientId);if(!c)return;
+  let f=(c.reportFocos||[]).slice();
+  if(tipo===''){f=[];}
+  else{const i=f.indexOf(tipo);if(i>=0)f.splice(i,1);else f.push(tipo);}
+  c.reportFocos=f;
+  // reflete nos botões-chip sem re-render
+  document.querySelectorAll('.focoVisChip').forEach(b=>{const t=b.dataset.foco;const on=t===''?!f.length:f.includes(t);b.classList.toggle('primary',on);b.classList.toggle('ghost',!on);});
+  applyReportFocoVis(clientId);
+  sb.from('clients').update({report_focos:f.length?f:null}).eq('id',clientId).then(()=>{},()=>{});
 }
 
 function renderCharts(){
