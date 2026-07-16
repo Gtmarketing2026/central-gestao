@@ -1778,7 +1778,7 @@ async function loadCampanhas(clientId,days){
     const accounts=c.metaAccountIds.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
     const since=_campSince||daysAgoISO(_campDays),until=_campUntil||today();
     const rep=await fetchMetaReportRange(c,since,until);
-    _campAds=rep.ads||[];
+    _campAds=refineCampAds(rep.ads||[]);
     _campCols=focoCols(_campFoco);
     _campStatus={camp:{},adset:{},ad:{}};
     renderCampFocos();renderCampBody(); // mostra a tabela já (status carrega em seguida)
@@ -1884,8 +1884,17 @@ const COLS_BY_OBJETIVO={
   engajamento:['invest','impressions','engaj','ctr','cpm','reach'],
   mensagens:['invest','impressions','ctr','conversas','custoconv','cpc'],
   video:['invest','impressions','views','custoview','cpm','reach'],
+  distribuicao:['invest','impressions','reach','cpm','views','custoview'],
   alcance:['invest','impressions','reach','cpm','freq'],
 };
+// ODAX colapsou objetivos: WhatsApp/mensagem entram como Engajamento no Meta. Refina pelo padrão de nome da agência.
+function campRefinedTipo(a){
+  const n=((a.campaign||'')+' '+(a.adset||'')+' '+(a.adName||'')).toLowerCase();
+  if(/\bmensag|\[mensagem\]|convers[ãa]|inbox|direct\b/.test(n)&&!/convers[ãa]o\b/.test(n))return 'mensagens';
+  if(/distribu/.test(n))return 'distribuicao';
+  return (a.objetivo&&a.objetivo.tipo)||'outro';
+}
+function refineCampAds(list){list.forEach(a=>{const rt=campRefinedTipo(a);if(rt&&(!a.objetivo||a.objetivo.tipo!==rt)){const info=OBJETIVO_INFO[rt]||{rotulo:rt};a.objetivo={...(a.objetivo||{}),tipo:rt,rotulo:info.rotulo};}});return list;}
 function focoCols(tipo){return (COLS_BY_OBJETIVO[tipo]||CAMP_COLS_DEFAULT).slice();}
 let _campCols=CAMP_COLS_DEFAULT.slice();
 function campGrid(){return `grid-template-columns:minmax(200px,2.2fr) repeat(${_campCols.length},minmax(66px,1fr));`;}
@@ -4939,7 +4948,8 @@ const OBJETIVO_INFO={
   engajamento:{rotulo:'Engajamento',metrica:'custo por engajamento, CTR'},
   alcance:{rotulo:'Alcance / Reconhecimento',metrica:'CPM, alcance, frequência'},
   mensagens:{rotulo:'Mensagem',metrica:'conversas, custo por conversa'},
-  video:{rotulo:'Vídeo / Distribuição',metrica:'views, custo por view'},
+  video:{rotulo:'Vídeo',metrica:'views, custo por view'},
+  distribuicao:{rotulo:'Distribuição',metrica:'CPM, alcance, views'},
 };
 // Focos do relatório: escolha manual (reportFocos) → senão o objetivo do modelo → senão null (auto pelas campanhas)
 function resolveReportFocos(c){
