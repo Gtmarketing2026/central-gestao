@@ -1766,7 +1766,7 @@ function selectSidebarClient(id){
   else{openClientConfig(id);}
 }
 /* ===== CAMPANHAS (drill-down estilo gerenciador) ===== */
-let _campDays=30,_campAds=[],_campClientId='',_campFoco='',_campSince='',_campUntil='',_campSearch='',_campStatusFilter='',_campMinSpend=0,_campShowPaused=false;
+let _campDays=30,_campAds=[],_campClientId='',_campFoco='',_campSince='',_campUntil='',_campSearch='',_campStatusFilter='',_campMinSpend=0,_campShowPaused=false,_campPreset='30',_campCompare=false,_campPrev=null;
 const CAMP_AGG_KEYS=['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'];
 function _newAgg(){const o={};CAMP_AGG_KEYS.forEach(k=>o[k]=0);return o;}
 function _addAgg(agg,a){CAMP_AGG_KEYS.forEach(k=>agg[k]+=(a[k]||0));}
@@ -1821,9 +1821,31 @@ async function toggleCampStatus(level,id,btn){
   }catch(e){alert('Erro: '+(e.message||e));}
   btn.disabled=false;btn.style.opacity='1';
 }
-function renderCampRange(){const el=document.getElementById('campRange');if(!el)return;el.innerHTML=[[7,'7 dias'],[30,'30 dias'],[90,'90 dias']].map(([d,l])=>`<button class="btn sm ${(!_campSince&&_campDays===d)?'primary':'ghost'}" onclick="loadCampanhas(null,${d})">${l}</button>`).join('')+`<button class="btn sm ${_campSince?'primary':'ghost'}" onclick="toggleCampDate()">📅 Personalizado</button>`;}
-function toggleCampDate(){const w=document.getElementById('campDateWrap');if(!w)return;w.style.display=w.style.display==='none'?'flex':'none';const f=document.getElementById('campDateFrom');if(f&&!f.value){f.value=_campSince||daysAgoISO(30);document.getElementById('campDateTo').value=_campUntil||today();}}
-function applyCampCustomDate(){const f=document.getElementById('campDateFrom').value,t=document.getElementById('campDateTo').value;if(!f||!t)return;_campSince=f;_campUntil=t;loadCampanhas(null);}
+function monthBounds(offset){const d=new Date();const first=new Date(d.getFullYear(),d.getMonth()+offset,1);const last=new Date(d.getFullYear(),d.getMonth()+offset+1,0);const iso=x=>`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;return{since:iso(first),until:iso(last)};}
+function renderCampRange(){const el=document.getElementById('campRange');if(!el)return;
+  const b=(key,lbl,fn)=>`<button class="btn sm ${_campPreset===key?'primary':'ghost'}" onclick="${fn}">${lbl}</button>`;
+  el.innerHTML=b('7','7 dias','campQuick(7)')+b('30','30 dias','campQuick(30)')+b('90','90 dias','campQuick(90)')+b('mes','Este mês',"campMonth('atual')")+b('mesant','Mês passado',"campMonth('anterior')")+b('custom','📅 Personalizado','toggleCampDate()')
+    +`<span style="width:8px"></span><button class="btn sm ${_campCompare?'primary':'ghost'}" onclick="toggleCampCompare()" title="Comparar com o período imediatamente anterior de mesma duração">⇄ Comparar anterior</button>`;
+}
+function campQuick(d){_campPreset=String(d);_campCompare&&(_campPrev=null);loadCampanhas(null,d);if(_campCompare)loadCampPrev();}
+function campMonth(w){const b=monthBounds(w==='atual'?0:-1);_campSince=b.since;_campUntil=w==='atual'?today():b.until;_campPreset=w==='atual'?'mes':'mesant';loadCampanhas(null);if(_campCompare)loadCampPrev();}
+function toggleCampDate(){_campPreset='custom';const w=document.getElementById('campDateWrap');if(!w)return;w.style.display=w.style.display==='none'?'flex':'none';const f=document.getElementById('campDateFrom');if(f&&!f.value){f.value=_campSince||daysAgoISO(30);document.getElementById('campDateTo').value=_campUntil||today();}}
+function applyCampCustomDate(){const f=document.getElementById('campDateFrom').value,t=document.getElementById('campDateTo').value;if(!f||!t)return;_campSince=f;_campUntil=t;_campPreset='custom';loadCampanhas(null);if(_campCompare)loadCampPrev();}
+function currentCampRange(){return{since:_campSince||daysAgoISO(_campDays),until:_campUntil||today()};}
+function prevCampRange(){const {since,until}=currentCampRange();const s=new Date(since+'T12:00:00'),u=new Date(until+'T12:00:00');const days=Math.round((u-s)/86400000)+1;const pu=new Date(s);pu.setDate(pu.getDate()-1);const ps=new Date(pu);ps.setDate(ps.getDate()-(days-1));const iso=x=>x.toISOString().slice(0,10);return{since:iso(ps),until:iso(pu)};}
+function toggleCampCompare(){_campCompare=!_campCompare;renderCampRange();if(_campCompare){_campPrev=null;renderCampBody();loadCampPrev();}else{_campPrev=null;renderCampBody();}}
+async function loadCampPrev(){
+  const c=DB.clients.find(x=>x.id===_campClientId);if(!c||!(c.metaAccountIds&&c.metaAccountIds.length))return;
+  const pr=prevCampRange();
+  try{
+    const rep=await fetchMetaReportRange(c,pr.since,pr.until);
+    const ads=refineCampAds(rep.ads||[]).filter(a=>a.spend>0);
+    const agg=_newAgg();ads.forEach(a=>_addAgg(agg,a));deriveMeta(agg);
+    const tree=buildCampaignTree(ads);const resSum=tree.reduce((s,cp)=>s+campResultado(cp.agg,cp.objetivo.tipo).resNum,0);
+    _campPrev={agg,resSum,range:pr};
+  }catch(e){_campPrev=null;}
+  if(document.querySelector('.panel#campanhas.active'))renderCampBody();
+}
 function renderCampStatusFilter(){const el=document.getElementById('campStatusFilter');if(!el)return;el.innerHTML=[['','Todos'],['ACTIVE','Ativos'],['PAUSED','Pausados']].map(([v,l])=>`<button class="btn sm ${_campStatusFilter===v?'primary':'ghost'}" onclick="setCampStatusFilter('${v}')">${l}</button>`).join('');}
 function setCampStatusFilter(v){_campStatusFilter=v;renderCampStatusFilter();renderCampBody();}
 function setCampSearch(v){_campSearch=(v||'').toLowerCase().trim();renderCampBody();}
@@ -1983,7 +2005,24 @@ function renderCampBody(){
   }).join('');
   const totRow=`<div style="display:grid;${campGrid()}align-items:center;border-top:2px solid var(--border);background:var(--surface2)">
     <div style="padding:10px 6px;font-size:12px;font-weight:800;color:var(--accent)">Σ Total · ${tree.length} campanha${tree.length!==1?'s':''}</div>${totCells}</div>`;
-  body.innerHTML=`<div class="card" style="padding:0;overflow-x:auto">${header}${rows}${pausedBlock}${totRow}</div>`;
+  let cmpStrip='';
+  if(_campCompare){
+    if(!_campPrev)cmpStrip=`<div style="padding:9px 12px;font-size:12px;color:var(--muted);border-top:1px solid rgba(255,255,255,.05)">⇄ Carregando período anterior…</div>`;
+    else{
+      const p=deriveMeta({..._campPrev.agg}),pr=_campPrev.range,pRes=_campPrev.resSum;
+      const dlt=(cur,prev,good)=>{if(!prev)return '<span style="color:var(--faint)">—</span>';const v=((cur-prev)/prev)*100;const up=v>=0;const col=good===null?'var(--text)':(good==='up'?up:!up)?'#34d399':'#f87171';return `<span style="color:${col};font-weight:700">${up?'▲':'▼'} ${Math.abs(v).toFixed(0)}%</span>`;};
+      const item=(lbl,cur,prev,prevTxt,good)=>`<div style="min-width:126px"><div style="font-size:10px;text-transform:uppercase;color:var(--faint)">${lbl}</div><div style="font-size:12px">${dlt(cur,prev,good)} <span style="color:var(--muted);font-size:11px">ant.: ${prevTxt}</span></div></div>`;
+      cmpStrip=`<div style="display:flex;flex-wrap:wrap;gap:14px;padding:10px 12px;border-top:1px solid rgba(255,255,255,.05);background:rgba(255,255,255,.02);align-items:center">
+        <div style="font-size:11px;color:var(--accent);font-weight:700">⇄ vs período anterior<br><span style="font-weight:400;color:var(--muted)">${dateBR(pr.since)}–${dateBR(pr.until)}</span></div>
+        ${item('Investimento',totD.spend,p.spend,fmt(p.spend),null)}
+        ${item('Impressões',totD.impressions,p.impressions,Math.round(p.impressions).toLocaleString('pt-BR'),'up')}
+        ${item('CTR',totD.ctr,p.ctr,p.ctr.toFixed(2)+'%','up')}
+        ${item('Resultados',totResSum,pRes,pRes.toLocaleString('pt-BR'),'up')}
+        ${item('Custo/res',totResSum?totD.spend/totResSum:0,pRes?p.spend/pRes:0,pRes?fmt(p.spend/pRes):'—','down')}
+      </div>`;
+    }
+  }
+  body.innerHTML=`<div class="card" style="padding:0;overflow-x:auto">${header}${rows}${pausedBlock}${totRow}${cmpStrip}</div>`;
 }
 function toggleCampRow(id){
   if(event&&event.stopPropagation)event.stopPropagation();
@@ -4262,14 +4301,17 @@ async function fetchMetaTotals(c,since,until){
 }
 function metaTotalResumo(t){if(!t)return null;return{investimento:Math.round(t.spend||0),impressoes:t.impressions||0,cliques:t.clicks||0,ctrPct:+(t.ctr||0).toFixed(2),cpc:+(t.cpc||0).toFixed(2),cpm:+(t.cpm||0).toFixed(2),roas:+(t.roas||0).toFixed(2),compras:Math.round(t.purchases||0),leads:Math.round(t.leads||0),conversas:Math.round(t.conversas||0),videoViews:Math.round(t.videoViews||0)};}
 function pctDelta(cur,prev){if(!prev)return null;return +(((cur-prev)/prev)*100).toFixed(1);}
-let _metaDashChart=null,_metaDashDays=30;
-function metaDashRange(clientId,days){_metaDashDays=days;const c=DB.clients.find(x=>x.id===clientId);if(c)loadMetaDashboard(c,++_tplLoadToken,days);}
+let _metaDashChart=null,_metaDashDays=30,_metaDashSince='',_metaDashUntil='',_metaDashPreset='30';
+function metaDashRange(clientId,days){_metaDashDays=days;_metaDashSince='';_metaDashUntil='';_metaDashPreset=String(days);const c=DB.clients.find(x=>x.id===clientId);if(c)loadMetaDashboard(c,++_tplLoadToken,days);}
+function metaDashMonth(clientId){const b=monthBounds(0);_metaDashSince=b.since;_metaDashUntil=today();_metaDashPreset='mes';const c=DB.clients.find(x=>x.id===clientId);if(c)loadMetaDashboard(c,++_tplLoadToken);}
+function toggleDashDate(){const w=document.getElementById('dashDateWrap');if(!w)return;w.style.display=w.style.display==='none'?'inline-flex':'none';const f=document.getElementById('dashDateFrom');if(f&&!f.value){f.value=_metaDashSince||daysAgoISO(30);document.getElementById('dashDateTo').value=_metaDashUntil||today();}}
+function metaDashCustom(clientId){const f=document.getElementById('dashDateFrom'),t=document.getElementById('dashDateTo');if(!f||!f.value||!t||!t.value)return;_metaDashSince=f.value;_metaDashUntil=t.value;_metaDashPreset='custom';const c=DB.clients.find(x=>x.id===clientId);if(c)loadMetaDashboard(c,++_tplLoadToken);}
 async function loadMetaDashboard(c,myToken,days){
-  _metaDashDays=days||30;
+  if(days)_metaDashDays=days;
   document.getElementById('crFilterBar').style.display='none';
   const body=document.getElementById('clientReportBody');
   body.innerHTML='<div class="empty">Carregando Meta ao vivo...</div>';
-  const until=today(),since=daysAgoISO(_metaDashDays);
+  const until=_metaDashUntil||today(),since=_metaDashSince||daysAgoISO(_metaDashDays);
   try{
     const rep=await fetchMetaReportRange(c,since,until);
     if(myToken!==_tplLoadToken)return;
@@ -4364,7 +4406,11 @@ function renderMetaDashboard(c,rep,since,until){
   _dashAds=rep.ads||[];_dashCampRecs=rep.campaigns||[];_dashTpl=tpl;_dashNoSales=noSales;
   _dashAgg={spend:agg.spend,impressions:agg.impressions,clicks:agg.clicks,reach:agg.reach,revenue:agg.revenue,compras:agg.compras,leads:agg.leads,addCarrinho:agg.addCarrinho,checkout:agg.checkout,conversas:agg.conversas,videoViews:agg.videoViews,engajamentos:agg.engajamentos,frequencia:agg.frequencia};
   _dashFAcc=[];_dashFCamp=[];_dashFAdset=[];
-  const rangeBtns=[[7,'7 dias'],[30,'30 dias'],[90,'90 dias']].map(([d,l])=>`<button class="btn sm ${_metaDashDays===d?'primary':'ghost'}" onclick="metaDashRange('${c.id}',${d})">${l}</button>`).join('');
+  const rb=(key,lbl,fn)=>`<button class="btn sm ${_metaDashPreset===key?'primary':'ghost'}" onclick="${fn}">${lbl}</button>`;
+  const rangeBtns=rb('7','7 dias',`metaDashRange('${c.id}',7)`)+rb('30','30 dias',`metaDashRange('${c.id}',30)`)+rb('90','90 dias',`metaDashRange('${c.id}',90)`)+rb('mes','Este mês',`metaDashMonth('${c.id}')`)+rb('custom','📅 Personalizado','toggleDashDate()')
+    +`<span id="dashDateWrap" style="display:none;gap:6px;align-items:center">
+      <input type="date" id="dashDateFrom" value="${_metaDashSince||''}" style="width:auto;font-size:12px"><span style="color:var(--faint)">–</span><input type="date" id="dashDateTo" value="${_metaDashUntil||''}" style="width:auto;font-size:12px">
+      <button class="btn sm primary" onclick="metaDashCustom('${c.id}')">Aplicar</button></span>`;
   const cards=(tpl.metrics||[]).filter(k=>METRIC_CATALOG[k]).map(k=>{const mc=METRIC_CATALOG[k];const key=k===tpl.keyMetric;return`<div class="rt-kpi ${key?'gr':'pu'}"${key?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${mc.label}${key?' ★':''}</div><div class="rt-kpi-val sm">${fmtMetric(mc.calc(agg),mc.fmt)}</div></div>`}).join('');
   const lvlBtns=[['campanha','Campanha'],['conjunto','Conjunto'],['anuncio','Anúncio']].map(([k,l])=>`<button class="btn sm ${_dashLevel===k?'primary':'ghost'}" data-dlvl="${k}" onclick="setDashLevel('${k}')">${l}</button>`).join('');
   body.innerHTML=`<div class="card" style="margin-bottom:16px">
@@ -5131,6 +5177,7 @@ function renderFunnel(key){
 function funnelChannelAgg(ch){return {spend:ch.spend||0,impressions:ch.impressions||0,clicks:ch.clicks||0,reach:ch.reach||0,revenue:ch.revenue||0,compras:Math.round(ch.sales||0),leads:ch.leads||0,addCarrinho:ch.addToCart||0,checkout:ch.initiateCheckout||0,conversas:ch.conversas||0,videoViews:ch.videoViews||0,engajamentos:ch.engajamentos||0,frequencia:ch.reach?ch.impressions/ch.reach:0};}
 async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds){
   const body=document.getElementById('crTemplateBody');
+  metaAds=refineCampAds((metaAds||[]).slice()); // mesmos focos do menu Campanhas (Mensagem/Distribuição pelo nome)
   const hasMetaData=!!(metaChStats&&Object.keys(metaChStats).length)||!!(metaAds&&metaAds.length);
   const ordersResult=dataByTab[c.reportOrdersTab]||{aggregated:true,rows:[]};
   if(ordersResult.error&&!hasMetaData){
@@ -5351,6 +5398,9 @@ function toggleReportFoco(clientId,tipo){
   // reflete nos botões-chip sem re-render
   document.querySelectorAll('.focoVisChip').forEach(b=>{const t=b.dataset.foco;const on=t===''?!f.length:f.includes(t);b.classList.toggle('primary',on);b.classList.toggle('ghost',!on);});
   applyReportFocoVis(clientId);
+  // clicou num foco (marcando) → já navega pra aba dele, pros dados acompanharem
+  if(tipo&&f.includes(tipo))setReportTab('foco_'+tipo);
+  else if(tipo==='')setReportTab('geral');
   sb.from('clients').update({report_focos:f.length?f:null}).eq('id',clientId).then(()=>{},()=>{});
 }
 
