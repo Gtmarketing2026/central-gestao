@@ -4809,6 +4809,27 @@ function setReportTab(id){
   document.querySelectorAll('#rtPrintArea .rtTab').forEach(el=>el.classList.toggle('rtoff',el.dataset.rtab!==id));
   document.querySelectorAll('.rtTabBtn').forEach(b=>b.classList.toggle('on',b.dataset.rtab===id));
 }
+// ---- Funil filtrável por canal ----
+let _funnelAggs={},_funnelTpl=null,_funnelNoSales=false;
+function funnelStagesFor(agg,tpl,noSales){
+  return (tpl&&tpl.funnel||[]).filter(k=>FUNNEL_CATALOG[k])
+    .map(k=>({key:k,label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(agg||{}))}))
+    .filter(s=>!(['checkout','addCarrinho','leads','conversas','videoViews','engajamentos'].includes(s.key)&&s.value===0))
+    .filter(s=>!(noSales&&(s.key==='compras'||s.key==='checkout'||s.key==='addCarrinho')));
+}
+function funnelBarsHTML(stages){
+  if(!stages.length||!stages[0].value)return '<div class="empty" style="padding:20px">Sem dados de funil para este canal.</div>';
+  return `<div class="rt-tc"><div style="padding:18px">${stages.map((s,i)=>{
+    const pct=stages[0].value?(s.value/stages[0].value*100):0;
+    const stepPct=i>0&&stages[i-1].value?(s.value/stages[i-1].value*100):100;
+    return `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--rt2);margin-bottom:4px"><span>${s.label}</span><span>${s.value.toLocaleString('pt-BR')}${i>0?` <span style="color:var(--rtm)">(${stepPct.toFixed(1)}% da etapa anterior)</span>`:''}</span></div><div style="height:28px;background:rgba(255,255,255,.05);border-radius:8px;overflow:hidden"><div style="height:100%;width:${Math.max(pct,3).toFixed(1)}%;background:linear-gradient(90deg,#1d4ed8,#60a5fa);border-radius:8px"></div></div></div>`;
+  }).join('')}</div></div>`;
+}
+function renderFunnel(key){
+  document.querySelectorAll('[data-funch]').forEach(b=>{const on=b.dataset.funch===key;b.classList.toggle('primary',on);b.classList.toggle('ghost',!on)});
+  const wrap=document.getElementById('funnelWrap');if(wrap)wrap.innerHTML=funnelBarsHTML(funnelStagesFor(_funnelAggs[key]||{},_funnelTpl,_funnelNoSales));
+}
+function funnelChannelAgg(ch){return {spend:ch.spend||0,impressions:ch.impressions||0,clicks:ch.clicks||0,reach:ch.reach||0,revenue:ch.revenue||0,compras:Math.round(ch.sales||0),leads:ch.leads||0,addCarrinho:ch.addToCart||0,checkout:ch.initiateCheckout||0,conversas:ch.conversas||0,videoViews:ch.videoViews||0,engajamentos:ch.engajamentos||0,frequencia:ch.reach?ch.impressions/ch.reach:0};}
 async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds){
   const body=document.getElementById('crTemplateBody');
   const hasMetaData=!!(metaChStats&&Object.keys(metaChStats).length)||!!(metaAds&&metaAds.length);
@@ -4860,11 +4881,11 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
     return{...w,geral,perChannel};
   });
 
-  const funnelStages=clientTpl.funnel.filter(k=>FUNNEL_CATALOG[k])
-    .map(k=>({key:k,label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(tplAgg))}))
-    // etapas opcionais de conversão somem quando sem dado (cliente que não trabalha com elas)
-    .filter(s=>!(['checkout','addCarrinho','leads','conversas','videoViews','engajamentos'].includes(s.key)&&s.value===0))
-    .filter(s=>!(noSales&&(s.key==='compras'||s.key==='checkout'||s.key==='addCarrinho')));
+  // Funil por canal: 'Geral' usa tplAgg (tudo somado); cada canal usa só os dados dele (impressões, cliques, checkout E venda daquele canal)
+  _funnelAggs={'':tplAgg};channelList.forEach(ch=>{_funnelAggs[ch.label]=funnelChannelAgg(ch)});
+  _funnelTpl=clientTpl;_funnelNoSales=noSales;
+  const funnelStages=funnelStagesFor(tplAgg,clientTpl,noSales);
+  const funnelChips=`<button data-funch="" class="btn sm primary" onclick="renderFunnel('')">Geral</button>`+channelList.map(ch=>`<button data-funch="${ch.label.replace(/'/g,'')}" class="btn sm ghost" onclick="renderFunnel('${ch.label.replace(/'/g,'')}')">${ch.label}</button>`).join('');
   const mesLabel=new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   const analysis=await loadReportAnalysis(c.id,month);
   currentAnalysisChat=(analysis&&Array.isArray(analysis.chat))?analysis.chat:[];
@@ -4923,18 +4944,9 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
       </div>`:'';
   const secFunil=(funnelStages[0]&&funnelStages[0].value)?`<div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">🔻</div><div class="rt-sec-title">Funil de Conversão</div><div class="rt-sec-ln"></div></div>
-        <div class="rt-tc">
-          <div style="padding:18px">
-            ${funnelStages.map((s,i)=>{
-              const pct=funnelStages[0].value?(s.value/funnelStages[0].value*100):0;
-              const stepPct=i>0&&funnelStages[i-1].value?(s.value/funnelStages[i-1].value*100):100;
-              return`<div style="margin-bottom:12px">
-                <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--rt2);margin-bottom:4px"><span>${s.label}</span><span>${s.value.toLocaleString('pt-BR')}${i>0?` <span style="color:var(--rtm)">(${stepPct.toFixed(1)}% da etapa anterior)</span>`:''}</span></div>
-                <div style="height:28px;background:rgba(255,255,255,.05);border-radius:8px;overflow:hidden"><div style="height:100%;width:${Math.max(pct,3).toFixed(1)}%;background:linear-gradient(90deg,#1d4ed8,#60a5fa);border-radius:8px"></div></div>
-              </div>`;
-            }).join('')}
-          </div>
-        </div>
+        <div style="font-size:11.5px;color:var(--rt2);margin-bottom:8px">Padrão <b>Geral</b> (todos os canais). Filtre por canal pra ver as etapas E a venda só daquele canal — tudo coerente.</div>
+        <div class="rt-no-print" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">${funnelChips}</div>
+        <div id="funnelWrap">${funnelBarsHTML(funnelStages)}</div>
       </div>`:'';
   const resumoRows=[];
   if(!noSales&&totalPedidos>0){resumoRows.push(['Faturamento Aprovado',fmt(aprovadosVal)],['Pedidos Aprovados',aprovadosCount.toLocaleString('pt-BR')],['Ticket Médio',fmt(ticketMedio)]);}
