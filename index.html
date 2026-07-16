@@ -584,6 +584,10 @@
       <div id="campRange" style="display:flex;gap:5px"></div>
       <span style="flex:1"></span>
       <div id="campFocos" style="display:flex;gap:5px;flex-wrap:wrap"></div>
+      <div style="position:relative">
+        <button class="btn sm ghost" onclick="toggleCampColsPanel()">⚙ Colunas</button>
+        <div id="campColsPanel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);width:420px;max-width:90vw;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.4);z-index:50;padding:14px"></div>
+      </div>
     </div>
     <div id="campBody"></div>
   </section>
@@ -1814,18 +1818,59 @@ function campResultado(x,tipo){
   const r=M[tipo]||['—',0,'—'];
   return {resVal:typeof r[1]==='number'?r[1].toLocaleString('pt-BR'):r[1],custoVal:r[2],roas:d.spend?d.roas.toFixed(2)+'x':'—'};
 }
+const CAMP_COLS={
+  invest:{label:'Invest.',get:x=>fmt(x.spend)},
+  impressions:{label:'Impr.',get:x=>Math.round(x.impressions||0).toLocaleString('pt-BR')},
+  reach:{label:'Alcance',get:x=>Math.round(x.reach||0).toLocaleString('pt-BR')},
+  clicks:{label:'Cliques',get:x=>Math.round(x.clicks||0).toLocaleString('pt-BR')},
+  ctr:{label:'CTR',get:x=>x.impressions?x.ctr.toFixed(2)+'%':'—'},
+  cpc:{label:'CPC',get:x=>x.clicks?fmt(x.cpc):'—'},
+  cpm:{label:'CPM',get:x=>x.impressions?fmt(x.cpm):'—'},
+  freq:{label:'Freq.',get:x=>(x.frequency||0).toFixed(1)},
+  resultado:{label:'Resultado',get:(x,t)=>'<b>'+campResultado(x,t).resVal+'</b>'},
+  custores:{label:'Custo/res',get:(x,t)=>campResultado(x,t).custoVal},
+  roas:{label:'ROAS',get:x=>x.spend?x.roas.toFixed(2)+'x':'—'},
+  compras:{label:'Compras',get:x=>Math.round(x.purchases||0).toLocaleString('pt-BR')},
+  cpa:{label:'CPA',get:x=>x.purchases?fmt(x.spend/x.purchases):'—'},
+  leads:{label:'Leads',get:x=>Math.round(x.leads||0).toLocaleString('pt-BR')},
+  cpl:{label:'CPL',get:x=>x.leads?fmt(x.spend/x.leads):'—'},
+  conversas:{label:'Conversas',get:x=>Math.round(x.conversas||0).toLocaleString('pt-BR')},
+  custoconv:{label:'Custo/conv',get:x=>x.conversas?fmt(x.spend/x.conversas):'—'},
+  views:{label:'Views',get:x=>Math.round(x.videoViews||0).toLocaleString('pt-BR')},
+  custoview:{label:'Custo/view',get:x=>x.videoViews?fmt(x.spend/x.videoViews):'—'},
+  engaj:{label:'Engaj.',get:x=>Math.round(x.engajamentos||0).toLocaleString('pt-BR')},
+  revenue:{label:'Receita',get:x=>fmt(x.revenue||0)},
+};
+const CAMP_COLS_DEFAULT=['invest','impressions','ctr','resultado','custores'];
+let _campCols=(()=>{try{const s=JSON.parse(localStorage.getItem('campCols'));return Array.isArray(s)&&s.length?s.filter(k=>CAMP_COLS[k]):CAMP_COLS_DEFAULT.slice()}catch(e){return CAMP_COLS_DEFAULT.slice()}})();
+function campGrid(){return `grid-template-columns:minmax(200px,2.2fr) repeat(${_campCols.length},minmax(66px,1fr));`;}
+function _campPresets(){try{return JSON.parse(localStorage.getItem('campColPresets')||'{}')}catch(e){return {}}}
+function toggleCampColsPanel(){const p=document.getElementById('campColsPanel');if(p)p.style.display=p.style.display==='none'?'block':'none';renderCampColsPanel();}
+function renderCampColsPanel(){
+  const p=document.getElementById('campColsPanel');if(!p||p.style.display==='none')return;
+  const checks=Object.entries(CAMP_COLS).map(([k,v])=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 8px;cursor:pointer;margin:0 4px 4px 0"><input type="checkbox" ${_campCols.includes(k)?'checked':''} onchange="setCampCol('${k}',this.checked)" style="width:auto">${v.label}</label>`).join('');
+  const presets=_campPresets();
+  const presetList=Object.keys(presets).length?Object.keys(presets).map(n=>`<span style="display:inline-flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:3px 8px;font-size:11px;margin:0 4px 4px 0"><span style="cursor:pointer" onclick="loadCampPreset('${n.replace(/'/g,'')}')">${n.replace(/</g,'&lt;')}</span> <span style="cursor:pointer;color:var(--red)" onclick="deleteCampPreset('${n.replace(/'/g,'')}')">×</span></span>`).join(''):'<span style="font-size:11px;color:var(--faint)">Nenhum preset salvo</span>';
+  p.innerHTML=`<div style="font-size:11px;text-transform:uppercase;color:var(--faint);margin-bottom:6px">Colunas visíveis</div><div style="display:flex;flex-wrap:wrap">${checks}</div>
+    <div style="font-size:11px;text-transform:uppercase;color:var(--faint);margin:10px 0 6px">Presets salvos</div><div>${presetList}</div>
+    <div style="display:flex;gap:6px;margin-top:8px"><input id="campPresetName" placeholder="Nome do preset" style="flex:1;font-size:12px"><button class="btn sm primary" onclick="saveCampPreset()">Salvar preset</button></div>`;
+}
+function setCampCol(k,on){if(on){if(!_campCols.includes(k))_campCols.push(k)}else{_campCols=_campCols.filter(x=>x!==k)}if(!_campCols.length)_campCols=['invest'];localStorage.setItem('campCols',JSON.stringify(_campCols));renderCampBody();}
+function saveCampPreset(){const n=(document.getElementById('campPresetName').value||'').trim();if(!n)return;const p=_campPresets();p[n]=_campCols.slice();localStorage.setItem('campColPresets',JSON.stringify(p));document.getElementById('campPresetName').value='';renderCampColsPanel();}
+function loadCampPreset(n){const p=_campPresets();if(p[n]){_campCols=p[n].filter(k=>CAMP_COLS[k]);localStorage.setItem('campCols',JSON.stringify(_campCols));renderCampBody();renderCampColsPanel();}}
+function deleteCampPreset(n){const p=_campPresets();delete p[n];localStorage.setItem('campColPresets',JSON.stringify(p));renderCampColsPanel();}
 const CAMP_GRID='grid-template-columns:minmax(200px,2.2fr) repeat(6,minmax(66px,1fr));';
 function campRowHTML(name,level,agg,tipo,toggleId,badge,objLevel,objId){
-  const d=deriveMeta({...agg});const R=campResultado(agg,tipo);
+  const d=deriveMeta({...agg});
   const pad=8+level*16;
   const caret=toggleId?`<span id="${toggleId}_c" style="display:inline-block;width:14px;color:var(--muted)">▸</span>`:'<span style="display:inline-block;width:14px"></span>';
   const st=objId?_campStatus[objLevel][objId]:null;
   const stBtn=objId?`<button onclick="event.stopPropagation();toggleCampStatus('${objLevel}','${objId}',this)" data-st="${st||''}" title="${st==='ACTIVE'?'Pausar no Meta':'Ativar no Meta'}" style="border:none;background:none;cursor:pointer;font-size:13px;padding:0 5px 0 0;color:${st==='ACTIVE'?'#34d399':'#f87171'}">${st==='ACTIVE'?'●':'⏸'}</button>`:'';
-  const cell=v=>`<div style="padding:8px 6px;font-size:12px;text-align:right">${v}</div>`;
+  const cells=_campCols.map(k=>`<div style="padding:8px 6px;font-size:12px;text-align:right">${CAMP_COLS[k]?CAMP_COLS[k].get(d,tipo):''}</div>`).join('');
   const bg=level===1?'background:var(--surface2);':level===2?'background:rgba(255,255,255,.02);':'';
-  return `<div ${toggleId?`onclick="toggleCampRow('${toggleId}')" style="cursor:pointer;`:'style="'}display:grid;${CAMP_GRID}align-items:center;border-bottom:1px solid rgba(255,255,255,.05);${bg}">
+  return `<div ${toggleId?`onclick="toggleCampRow('${toggleId}')" style="cursor:pointer;`:'style="'}display:grid;${campGrid()}align-items:center;border-bottom:1px solid rgba(255,255,255,.05);${bg}">
     <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(name||'').replace(/"/g,'')}">${stBtn}${caret} ${(name||'—').replace(/</g,'&lt;')}${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400">${badge}</span>`:''}</div>
-    ${cell(fmt(d.spend))}${cell(Math.round(d.impressions).toLocaleString('pt-BR'))}${cell(d.impressions?d.ctr.toFixed(2)+'%':'—')}${cell('<b>'+R.resVal+'</b>')}${cell(R.custoVal)}${cell(R.roas)}</div>`;
+    ${cells}</div>`;
 }
 function renderCampBody(){
   const body=document.getElementById('campBody');if(!body)return;
@@ -1833,9 +1878,9 @@ function renderCampBody(){
   if(_campFoco)ads=ads.filter(a=>((a.objetivo&&a.objetivo.tipo)||'outro')===_campFoco);
   const tree=buildCampaignTree(ads);
   if(!tree.length){body.innerHTML='<div class="empty">Nenhuma campanha com entrega no período/filtro.</div>';return}
-  const header=`<div style="display:grid;${CAMP_GRID}align-items:center;border-bottom:2px solid var(--border)">
+  const header=`<div style="display:grid;${campGrid()}align-items:center;border-bottom:2px solid var(--border)">
     <div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted)">Campanha / Conjunto / Anúncio</div>
-    ${['Invest.','Impr.','CTR','Resultado','Custo/res','ROAS'].map(h=>`<div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted);text-align:right">${h}</div>`).join('')}
+    ${_campCols.map(k=>`<div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted);text-align:right">${CAMP_COLS[k].label}</div>`).join('')}
   </div>`;
   const rows=tree.map((cp,ci)=>{
     const cid='cp'+ci;
