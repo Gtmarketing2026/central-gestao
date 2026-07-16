@@ -529,12 +529,9 @@
     <div class="section-head" style="margin-top:0">
       <h2>📊 Relatórios de anúncios</h2>
     </div>
-    <div class="filterbar" style="margin-bottom:14px">
-      <label style="margin:0">Cliente:</label>
-      <select id="crClientSelect" style="width:auto;min-width:220px" onchange="loadClientReport(this.value)">
-        <option value="">— selecione um cliente —</option>
-      </select>
-    </div>
+    <select id="crClientSelect" style="display:none" onchange="loadClientReport(this.value)">
+      <option value="">— selecione um cliente —</option>
+    </select>
     <div class="seg" id="crSubSeg" style="margin-bottom:16px">
       <button class="active" data-sub="dashboard" onclick="setReportSub('dashboard')">📊 Dashboard</button>
       <button data-sub="template" onclick="setReportSub('template')">📋 Template</button>
@@ -3812,6 +3809,12 @@ function selectReportClient(clientId){
 }
 async function loadClientReport(clientId){
   const myToken=++_tplLoadToken;
+  if(!clientId){
+    document.getElementById('crFilterBar').style.display='none';
+    document.getElementById('clientReportBody').innerHTML='<div class="empty">👈 Selecione um cliente no seletor da barra lateral pra ver o relatório.</div>';
+    document.getElementById('crTemplateBody').innerHTML='<div class="empty">👈 Selecione um cliente no seletor da barra lateral.</div>';
+    return;
+  }
   if(clientId)activeClientId=clientId;
   {const s=document.getElementById('sidebarClient');if(s&&clientId)s.value=clientId;}
   const c=DB.clients.find(x=>x.id===clientId);
