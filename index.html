@@ -580,10 +580,21 @@
   <!-- CAMPANHAS (drill-down estilo gerenciador) -->
   <section class="panel" id="campanhas">
     <div class="section-head" style="margin-top:0"><h2>📣 Campanhas <span id="campClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <div id="campRange" style="display:flex;gap:5px"></div>
+      <div id="campDateWrap" style="display:none;gap:6px;align-items:center">
+        <input type="date" id="campDateFrom" style="width:auto;font-size:12px">
+        <span style="color:var(--faint)">–</span>
+        <input type="date" id="campDateTo" style="width:auto;font-size:12px">
+        <button class="btn sm primary" onclick="applyCampCustomDate()">Aplicar</button>
+      </div>
       <span style="flex:1"></span>
+      <input id="campSearch" placeholder="🔍 Buscar campanha / conjunto / anúncio" oninput="setCampSearch(this.value)" style="width:280px;max-width:55vw;font-size:12px">
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
       <div id="campFocos" style="display:flex;gap:5px;flex-wrap:wrap"></div>
+      <span style="flex:1"></span>
+      <div id="campStatusFilter" style="display:flex;gap:4px"></div>
       <div style="position:relative">
         <button class="btn sm ghost" onclick="toggleCampColsPanel()">⚙ Colunas</button>
         <div id="campColsPanel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);width:420px;max-width:90vw;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.4);z-index:50;padding:14px"></div>
@@ -1748,7 +1759,7 @@ function selectSidebarClient(id){
   else{openClientConfig(id);}
 }
 /* ===== CAMPANHAS (drill-down estilo gerenciador) ===== */
-let _campDays=30,_campAds=[],_campClientId='',_campFoco='';
+let _campDays=30,_campAds=[],_campClientId='',_campFoco='',_campSince='',_campUntil='',_campSearch='',_campStatusFilter='';
 const CAMP_AGG_KEYS=['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'];
 function _newAgg(){const o={};CAMP_AGG_KEYS.forEach(k=>o[k]=0);return o;}
 function _addAgg(agg,a){CAMP_AGG_KEYS.forEach(k=>agg[k]+=(a[k]||0));}
@@ -1759,12 +1770,13 @@ async function loadCampanhas(clientId,days){
   document.getElementById('campClientName').textContent=c?('· '+c.name):'';
   if(!c){body.innerHTML='<div class="empty">Selecione um cliente na sidebar.</div>';document.getElementById('campRange').innerHTML='';document.getElementById('campFocos').innerHTML='';return}
   if(!(c.metaAccountIds&&c.metaAccountIds.length)){body.innerHTML='<div class="empty">Este cliente não tem conta do Meta vinculada.</div>';return}
-  _campClientId=c.id;if(days)_campDays=days;
-  renderCampRange();
+  _campClientId=c.id;if(days){_campDays=days;_campSince='';_campUntil='';}
+  renderCampRange();renderCampStatusFilter();
   body.innerHTML='<div class="empty">Carregando campanhas ao vivo...</div>';
   try{
     const accounts=c.metaAccountIds.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
-    const rep=await fetchMetaReportRange(c,daysAgoISO(_campDays),today());
+    const since=_campSince||daysAgoISO(_campDays),until=_campUntil||today();
+    const rep=await fetchMetaReportRange(c,since,until);
     _campAds=rep.ads||[];
     _campCols=focoCols(_campFoco);
     _campStatus={camp:{},adset:{},ad:{}};
@@ -1802,7 +1814,12 @@ async function toggleCampStatus(level,id,btn){
   }catch(e){alert('Erro: '+(e.message||e));}
   btn.disabled=false;btn.style.opacity='1';
 }
-function renderCampRange(){const el=document.getElementById('campRange');if(el)el.innerHTML=[[7,'7 dias'],[30,'30 dias'],[90,'90 dias']].map(([d,l])=>`<button class="btn sm ${_campDays===d?'primary':'ghost'}" onclick="loadCampanhas(null,${d})">${l}</button>`).join('');}
+function renderCampRange(){const el=document.getElementById('campRange');if(!el)return;el.innerHTML=[[7,'7 dias'],[30,'30 dias'],[90,'90 dias']].map(([d,l])=>`<button class="btn sm ${(!_campSince&&_campDays===d)?'primary':'ghost'}" onclick="loadCampanhas(null,${d})">${l}</button>`).join('')+`<button class="btn sm ${_campSince?'primary':'ghost'}" onclick="toggleCampDate()">📅 Personalizado</button>`;}
+function toggleCampDate(){const w=document.getElementById('campDateWrap');if(!w)return;w.style.display=w.style.display==='none'?'flex':'none';const f=document.getElementById('campDateFrom');if(f&&!f.value){f.value=_campSince||daysAgoISO(30);document.getElementById('campDateTo').value=_campUntil||today();}}
+function applyCampCustomDate(){const f=document.getElementById('campDateFrom').value,t=document.getElementById('campDateTo').value;if(!f||!t)return;_campSince=f;_campUntil=t;loadCampanhas(null);}
+function renderCampStatusFilter(){const el=document.getElementById('campStatusFilter');if(!el)return;el.innerHTML=[['','Todos'],['ACTIVE','Ativos'],['PAUSED','Pausados']].map(([v,l])=>`<button class="btn sm ${_campStatusFilter===v?'primary':'ghost'}" onclick="setCampStatusFilter('${v}')">${l}</button>`).join('');}
+function setCampStatusFilter(v){_campStatusFilter=v;renderCampStatusFilter();renderCampBody();}
+function setCampSearch(v){_campSearch=(v||'').toLowerCase().trim();renderCampBody();}
 function renderCampFocos(){const el=document.getElementById('campFocos');if(!el)return;const tipos=[...new Set(_campAds.filter(a=>a.spend>0).map(a=>(a.objetivo&&a.objetivo.tipo)||'outro'))];el.innerHTML=`<button class="btn sm ${!_campFoco?'primary':'ghost'}" onclick="setCampFoco('')">Todos</button>`+tipos.map(t=>{const info=OBJETIVO_INFO[t]||{rotulo:t};return `<button class="btn sm ${_campFoco===t?'primary':'ghost'}" onclick="setCampFoco('${t}')">${info.rotulo}</button>`}).join('');}
 function setCampFoco(t){_campFoco=t;_campCols=focoCols(t);renderCampFocos();renderCampBody();renderCampColsPanel();}
 function buildCampaignTree(ads){
@@ -1901,8 +1918,10 @@ function renderCampBody(){
   const body=document.getElementById('campBody');if(!body)return;
   let ads=_campAds.filter(a=>a.spend>0);
   if(_campFoco)ads=ads.filter(a=>((a.objetivo&&a.objetivo.tipo)||'outro')===_campFoco);
-  const tree=buildCampaignTree(ads);
-  if(!tree.length){body.innerHTML='<div class="empty">Nenhuma campanha com entrega no período/filtro.</div>';return}
+  if(_campSearch)ads=ads.filter(a=>((a.campaign||'')+' '+(a.adset||'')+' '+(a.adName||'')).toLowerCase().includes(_campSearch));
+  let tree=buildCampaignTree(ads);
+  if(_campStatusFilter)tree=tree.filter(cp=>(_campStatus.camp[cp.id]||'')===_campStatusFilter);
+  if(!tree.length){body.innerHTML='<div class="empty">Nenhuma campanha para o filtro atual.</div>';return}
   const header=`<div style="display:grid;${campGrid()}align-items:center;border-bottom:2px solid var(--border)">
     <div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted)">Campanha / Conjunto / Anúncio</div>
     ${_campCols.map(k=>`<div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted);text-align:right">${CAMP_COLS[k].label}</div>`).join('')}
