@@ -1777,16 +1777,22 @@ async function loadCampanhas(clientId,days){
   }catch(e){body.innerHTML=`<div class="empty">Erro: ${e.message}</div>`;}
 }
 let _campStatus={camp:{},adset:{},ad:{}};
+function campSwitchHTML(objLevel,objId,st){
+  const on=st==='ACTIVE';const track=on?'#34d399':'#f87171';
+  return `<button onclick="event.stopPropagation();toggleCampStatus('${objLevel}','${objId}',this)" data-st="${st||''}" title="${on?'Pausar no Meta':'Ativar no Meta'}" style="position:relative;display:inline-block;width:28px;height:15px;border-radius:9px;border:none;background:${track};cursor:pointer;padding:0;margin-right:7px;vertical-align:middle;flex:none;transition:background .15s">
+    <span style="position:absolute;top:2px;${on?'right:2px':'left:2px'};width:11px;height:11px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:all .15s"></span>
+  </button>`;
+}
+function _paintSwitch(btn,st){const on=st==='ACTIVE';btn.style.background=on?'#34d399':'#f87171';btn.title=on?'Pausar no Meta':'Ativar no Meta';btn.dataset.st=st;const k=btn.querySelector('span');if(k){k.style.left=on?'auto':'2px';k.style.right=on?'2px':'auto';}}
 async function toggleCampStatus(level,id,btn){
   const cur=btn.dataset.st;const action=cur==='ACTIVE'?'pause':'activate';
   if(!confirm((action==='pause'?'Pausar':'Ativar')+' no Meta agora? Isso muda de verdade no gerenciador de anúncios.'))return;
-  const old=btn.textContent;btn.textContent='⏳';btn.disabled=true;
+  btn.disabled=true;btn.style.opacity='.5';
   try{
     await metaExecute({action,id,nome:''});
-    const ns=action==='pause'?'PAUSED':'ACTIVE';btn.dataset.st=ns;_campStatus[level][id]=ns;
-    btn.textContent=ns==='ACTIVE'?'●':'⏸';btn.style.color=ns==='ACTIVE'?'#34d399':'#f87171';btn.title=ns==='ACTIVE'?'Pausar no Meta':'Ativar no Meta';
-  }catch(e){alert('Erro: '+(e.message||e));btn.textContent=old;}
-  btn.disabled=false;
+    const ns=action==='pause'?'PAUSED':'ACTIVE';_campStatus[level][id]=ns;_paintSwitch(btn,ns);
+  }catch(e){alert('Erro: '+(e.message||e));}
+  btn.disabled=false;btn.style.opacity='1';
 }
 function renderCampRange(){const el=document.getElementById('campRange');if(el)el.innerHTML=[[7,'7 dias'],[30,'30 dias'],[90,'90 dias']].map(([d,l])=>`<button class="btn sm ${_campDays===d?'primary':'ghost'}" onclick="loadCampanhas(null,${d})">${l}</button>`).join('');}
 function renderCampFocos(){const el=document.getElementById('campFocos');if(!el)return;const tipos=[...new Set(_campAds.filter(a=>a.spend>0).map(a=>(a.objetivo&&a.objetivo.tipo)||'outro'))];el.innerHTML=`<button class="btn sm ${!_campFoco?'primary':'ghost'}" onclick="setCampFoco('')">Todos</button>`+tipos.map(t=>{const info=OBJETIVO_INFO[t]||{rotulo:t};return `<button class="btn sm ${_campFoco===t?'primary':'ghost'}" onclick="setCampFoco('${t}')">${info.rotulo}</button>`}).join('');}
@@ -1865,7 +1871,7 @@ function campRowHTML(name,level,agg,tipo,toggleId,badge,objLevel,objId){
   const pad=8+level*16;
   const caret=toggleId?`<span id="${toggleId}_c" style="display:inline-block;width:14px;color:var(--muted)">▸</span>`:'<span style="display:inline-block;width:14px"></span>';
   const st=objId?_campStatus[objLevel][objId]:null;
-  const stBtn=objId?`<button onclick="event.stopPropagation();toggleCampStatus('${objLevel}','${objId}',this)" data-st="${st||''}" title="${st==='ACTIVE'?'Pausar no Meta':'Ativar no Meta'}" style="border:none;background:none;cursor:pointer;font-size:13px;padding:0 5px 0 0;color:${st==='ACTIVE'?'#34d399':'#f87171'}">${st==='ACTIVE'?'●':'⏸'}</button>`:'';
+  const stBtn=objId?campSwitchHTML(objLevel,objId,st):'';
   const cells=_campCols.map(k=>`<div style="padding:8px 6px;font-size:12px;text-align:right">${CAMP_COLS[k]?CAMP_COLS[k].get(d,tipo):''}</div>`).join('');
   const bg=level===1?'background:var(--surface2);':level===2?'background:rgba(255,255,255,.02);':'';
   return `<div ${toggleId?`onclick="toggleCampRow('${toggleId}')" style="cursor:pointer;`:'style="'}display:grid;${campGrid()}align-items:center;border-bottom:1px solid rgba(255,255,255,.05);${bg}">
