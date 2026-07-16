@@ -1939,7 +1939,13 @@ function renderCampBody(){
     }).join('');
     return `<div>${campRowHTML(cp.nome,1,cp.agg,cp.objetivo.tipo,cid,cp.objetivo.rotulo,'camp',cp.id)}<div id="${cid}" style="display:none">${adsetRows}</div></div>`;
   }).join('');
-  body.innerHTML=`<div class="card" style="padding:0;overflow-x:auto">${header}${rows}</div>`;
+  const totAgg={};tree.forEach(cp=>Object.keys(cp.agg).forEach(k=>{if(typeof cp.agg[k]==='number')totAgg[k]=(totAgg[k]||0)+cp.agg[k];}));
+  const tipos=[...new Set(tree.map(cp=>cp.objetivo.tipo))];const totTipo=tipos.length===1?tipos[0]:'outro';
+  const totD=deriveMeta({...totAgg});
+  const totCells=_campCols.map(k=>`<div style="padding:10px 6px;font-size:12px;text-align:right;font-weight:700">${CAMP_COLS[k]?CAMP_COLS[k].get(totD,totTipo):''}</div>`).join('');
+  const totRow=`<div style="display:grid;${campGrid()}align-items:center;border-bottom:2px solid var(--border);background:var(--surface2)">
+    <div style="padding:10px 6px;font-size:12px;font-weight:800;color:var(--accent)">Σ Total · ${tree.length} campanha${tree.length!==1?'s':''}</div>${totCells}</div>`;
+  body.innerHTML=`<div class="card" style="padding:0;overflow-x:auto">${header}${totRow}${rows}</div>`;
 }
 function toggleCampRow(id){
   if(event&&event.stopPropagation)event.stopPropagation();
