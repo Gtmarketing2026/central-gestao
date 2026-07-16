@@ -1842,15 +1842,16 @@ function campResultado(x,tipo){
   const M={
     conversao:['Compras',Math.round(d.purchases||0),d.purchases?fmt(d.spend/d.purchases):'—'],
     app:['Compras',Math.round(d.purchases||0),d.purchases?fmt(d.spend/d.purchases):'—'],
-    leads:['Leads',Math.round(d.leads||0),d.leads?fmt(d.spend/d.leads):'—'],
-    trafego:['Cliques',Math.round(d.clicks||0),d.clicks?fmt(d.cpc):'—'],
-    engajamento:['Engaj.',Math.round(d.engajamentos||0),d.engajamentos?fmt(d.spend/d.engajamentos):'—'],
-    mensagens:['Conversas',Math.round(d.conversas||0),d.conversas?fmt(d.spend/d.conversas):'—'],
-    video:['Views',Math.round(d.videoViews||0),d.videoViews?fmt(d.spend/d.videoViews):'—'],
+    leads:['Leads no site',Math.round(d.leads||0),d.leads?fmt(d.spend/d.leads):'—'],
+    trafego:['Cliques no link',Math.round(d.clicks||0),d.clicks?fmt(d.cpc):'—'],
+    engajamento:['Engajamentos',Math.round(d.engajamentos||0),d.engajamentos?fmt(d.spend/d.engajamentos):'—'],
+    mensagens:['Conversas iniciadas',Math.round(d.conversas||0),d.conversas?fmt(d.spend/d.conversas):'—'],
+    distribuicao:['Alcance',Math.round(d.reach||0),d.impressions?fmt(d.cpm):'—'],
+    video:['ThruPlays',Math.round(d.videoViews||0),d.videoViews?fmt(d.spend/d.videoViews):'—'],
     alcance:['Alcance',Math.round(d.reach||0),d.impressions?fmt(d.cpm):'—'],
   };
-  const r=M[tipo]||['—',0,'—'];
-  return {resVal:typeof r[1]==='number'?r[1].toLocaleString('pt-BR'):r[1],custoVal:r[2],roas:d.spend?d.roas.toFixed(2)+'x':'—'};
+  const r=M[tipo]||['Resultado',0,'—'];
+  return {resVal:typeof r[1]==='number'?r[1].toLocaleString('pt-BR'):r[1],resLabel:r[0],custoVal:r[2],roas:d.spend?d.roas.toFixed(2)+'x':'—'};
 }
 const CAMP_COLS={
   invest:{label:'Invest.',get:x=>fmt(x.spend)},
@@ -1861,7 +1862,7 @@ const CAMP_COLS={
   cpc:{label:'CPC',get:x=>x.clicks?fmt(x.cpc):'—'},
   cpm:{label:'CPM',get:x=>x.impressions?fmt(x.cpm):'—'},
   freq:{label:'Freq.',get:x=>(x.frequency||0).toFixed(1)},
-  resultado:{label:'Resultado',get:(x,t)=>'<b>'+campResultado(x,t).resVal+'</b>'},
+  resultado:{label:'Resultado',get:(x,t)=>{const r=campResultado(x,t);return '<b>'+r.resVal+'</b><div style="font-size:10px;color:var(--muted);font-weight:400;line-height:1.1;margin-top:1px">'+r.resLabel+'</div>';}},
   custores:{label:'Custo/res',get:(x,t)=>campResultado(x,t).custoVal},
   roas:{label:'ROAS',get:x=>x.spend?x.roas.toFixed(2)+'x':'—'},
   compras:{label:'Compras',get:x=>Math.round(x.purchases||0).toLocaleString('pt-BR')},
