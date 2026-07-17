@@ -4855,9 +4855,23 @@ function renderDashSeg(){
   const th=(s,l)=>`<th style="text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">${s}</th>`;
   const td=(s,b,l)=>`<td style="padding:7px 10px;font-size:12px;text-align:${l?'left':'right'};${b?'font-weight:700;':''}border-bottom:1px solid rgba(255,255,255,.04)">${s}</td>`;
   const segLbl=k=>{const s=String(k||'—');return (SEG_LABELS[s]||s.replace(/_/g,' ')).replace(/</g,'&lt;');};
+  // colunas de resultado acompanham o objetivo principal do cliente (foco setado > modelo)
+  const c=DB.clients.find(x=>x.id===_dashClientId);
+  const tipo=(c&&c.reportFocos&&c.reportFocos.length)?c.reportFocos[0]:((_dashTpl&&_dashTpl.objectiveType)||'conversao');
+  const num=v=>Math.round(v||0).toLocaleString('pt-BR');
+  const RES={
+    conversao:[['Compras',r=>num(r.purchases)],['CPA',r=>r.purchases?fmt(r.spend/r.purchases):'—'],['Receita',r=>r.revenue?fmt(r.revenue):'—']],
+    leads:[['Leads',r=>num(r.leads)],['CPL',r=>r.leads?fmt(r.spend/r.leads):'—']],
+    mensagens:[['Conversas',r=>num(r.conversas)],['Custo/conv',r=>r.conversas?fmt(r.spend/r.conversas):'—']],
+    trafego:[['CPM',r=>r.impressions?fmt(r.spend/r.impressions*1000):'—']],
+    alcance:[['CPM',r=>r.impressions?fmt(r.spend/r.impressions*1000):'—']],
+    engajamento:[['CPM',r=>r.impressions?fmt(r.spend/r.impressions*1000):'—']],
+    video:[['CPM',r=>r.impressions?fmt(r.spend/r.impressions*1000):'—']],
+  };
+  const resCols=RES[tipo]||RES.conversao;
   const table=list.length?`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
-    <tr>${th('Segmento',1)}${th('Invest.')}${th('Impr.')}${th('Cliques')}${th('CTR')}${th('CPC')}${th('Compras')}${th('Leads')}${th('Conversas')}</tr>
-    ${list.map(r=>`<tr>${td(segLbl(r.key),1,1)}${td(fmt(r.spend))}${td(Math.round(r.impressions).toLocaleString('pt-BR'))}${td(Math.round(r.clicks).toLocaleString('pt-BR'))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${td(Math.round(r.purchases).toLocaleString('pt-BR'))}${td(Math.round(r.leads).toLocaleString('pt-BR'))}${td(Math.round(r.conversas).toLocaleString('pt-BR'))}</tr>`).join('')}
+    <tr>${th('Segmento',1)}${th('Invest.')}${th('Impr.')}${th('Cliques')}${th('CTR')}${th('CPC')}${resCols.map(([l])=>th(l)).join('')}</tr>
+    ${list.map(r=>`<tr>${td(segLbl(r.key),1,1)}${td(fmt(r.spend))}${td(num(r.impressions))}${td(num(r.clicks))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${resCols.map(([,g])=>td(g(r),1)).join('')}</tr>`).join('')}
   </table></div>`:'<div class="empty" style="padding:14px">Sem dados de segmentação no período.</div>';
   el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
     <h3 style="margin:0">👥 Performance por Segmentação</h3>
