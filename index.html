@@ -231,8 +231,8 @@
       </div>
       <button class="tab" data-tab="tasks">Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="relatorios">📊 Relatórios</button>
-      <button class="tab" data-tab="campanhas">📣 Campanhas</button>
-      <div id="campSubmenu">
+      <button class="tab" data-tab="campanhas" style="position:relative">📣 Campanhas<span id="campSubArrow" onclick="event.stopPropagation();toggleCampSubmenu()" title="Canais (Meta / Google)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
+      <div id="campSubmenu" style="display:none">
         <button class="tab" id="campSubMeta" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('meta')">Ⓜ️ Meta Ads</button>
         <button class="tab" id="campSubGoogle" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('google')">🔎 Google Ads</button>
       </div>
@@ -1808,6 +1808,7 @@ function renderCampSource(hasMeta,hasGoogle){
   if(bm){bm.style.display=hasMeta?'':'none';bm.classList.toggle('active',_campSource==='meta');}
   if(bg){bg.style.display=hasGoogle?'':'none';bg.classList.toggle('active',_campSource==='google');}
 }
+function toggleCampSubmenu(){const m=document.getElementById('campSubmenu');const a=document.getElementById('campSubArrow');if(!m)return;const open=m.style.display==='none';m.style.display=open?'block':'none';if(a)a.textContent=open?'▴':'▾';}
 function sbCampSource(s){
   const changed=s!==_campSource;
   _campSource=s;
