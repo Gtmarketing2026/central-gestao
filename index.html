@@ -236,6 +236,7 @@
         <button class="tab" id="campSubMeta" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('meta')">Ⓜ️ Meta Ads</button>
         <button class="tab" id="campSubGoogle" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('google')">🔎 Google Ads</button>
       </div>
+      <button class="tab" data-tab="rastreamento">📡 Rastreamento</button>
       <button class="tab" data-tab="modelos">📋 Modelos</button>
       <button class="tab" data-tab="iagestora">🤖 AndréIA</button>
     </nav>
@@ -611,6 +612,13 @@
     </div>
     <div id="campBudgetWarn"></div>
     <div id="campBody"></div>
+  </section>
+
+  <!-- RASTREAMENTO (pixel + links + jornada do lead) -->
+  <section class="panel" id="rastreamento">
+    <div class="section-head" style="margin-top:0"><h2>📡 Rastreamento <span id="rastClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
+    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Bridge site → WhatsApp com atribuição por anúncio — sessões, cliques e links rastreáveis. A base da jornada do lead.</div>
+    <div id="rastBody"></div>
   </section>
 
   <!-- CONFIG DO CLIENTE (página de cards) -->
@@ -1380,7 +1388,7 @@
 </div>
 
 <script>
-const APP_VERSION = '1.3';
+const APP_VERSION = '1.4';
 const APP_URL = 'https://gtmarketing2026.github.io/central-gestao/';
 
 const SUPA_URL = 'https://mocrfqmdjwvyhqvdpimm.supabase.co';
@@ -1774,6 +1782,7 @@ function goToTab(tabId){
   if(tabId==='relatorios'&&activeClientId){const s=document.getElementById('crClientSelect');if(s&&s.value!==activeClientId){s.value=activeClientId;loadClientReport(activeClientId);}}
   if(tabId==='iagestora'&&activeClientId&&agentClientId!==activeClientId){loadAgentProject(activeClientId);}
   if(tabId==='campanhas')loadCampanhas(activeClientId);
+  if(tabId==='rastreamento')loadRastreamento(activeClientId);
 }
 function setClientsSub(v){
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
@@ -1791,6 +1800,132 @@ function fillSidebarClient(){
   s.value=cur;
 }
 let activeClientId='';
+/* ================= RASTREAMENTO (pixel + links + jornada do lead) ================= */
+const TRACK_BASE=SUPA_URL+'/functions/v1/tracking';
+let _rastClientId='';
+function _rastEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+async function loadRastreamento(clientId){
+  const c=DB.clients.find(x=>x.id===(clientId||activeClientId||_rastClientId));
+  const body=document.getElementById('rastBody');if(!body)return;
+  document.getElementById('rastClientName').textContent=c?('· '+c.name):'';
+  if(!c){body.innerHTML='<div class="empty">Selecione um cliente na sidebar.</div>';return}
+  _rastClientId=c.id;
+  body.innerHTML='<div class="empty">Carregando rastreamento…</div>';
+  try{
+    // config (token) — cria se não existir
+    let cfg=(await sb.from('tracking_config').select('token,wa_phone').eq('client_id',c.id).maybeSingle()).data;
+    if(!cfg){
+      const token='tk_'+Math.random().toString(36).slice(2,12)+Math.random().toString(36).slice(2,10);
+      const {error}=await sb.from('tracking_config').insert({client_id:c.id,token});
+      if(error)throw error;
+      cfg={token,wa_phone:null};
+    }
+    _rastToken=cfg.token;
+    // métricas + links em paralelo
+    const cnt=async type=>{const{count}=await sb.from('track_events').select('*',{count:'exact',head:true}).eq('client_id',c.id).eq('type',type);return count||0;};
+    const [pv,wpp,lc,lastRes,linksRes,lcEvRes]=await Promise.all([
+      cnt('pageview'),cnt('wpp_click'),cnt('link_click'),
+      sb.from('track_events').select('created_at').eq('client_id',c.id).order('created_at',{ascending:false}).limit(1),
+      sb.from('track_links').select('*').eq('client_id',c.id).order('created_at'),
+      sb.from('track_events').select('link_slug').eq('client_id',c.id).eq('type','link_click')
+    ]);
+    const last=lastRes.data,links=linksRes.data||[],lcEv=lcEvRes.data||[];
+    const lastTxt=last&&last[0]?new Date(last[0].created_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+    const clicksBySlug={};lcEv.forEach(e=>{if(e.link_slug)clicksBySlug[e.link_slug]=(clicksBySlug[e.link_slug]||0)+1});
+    const active=pv>0;
+    const snippet='<script src="'+TRACK_BASE+'/pixel/script/'+cfg.token+'.js" async></'+'script>';
+
+    const tile=(icon,val,lbl,col)=>`<div style="flex:1;min-width:120px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 14px">
+      <div style="font-size:11px;color:var(--muted)">${icon} ${lbl}</div>
+      <div style="font-size:22px;font-weight:800;margin-top:3px;${col?'color:'+col:''}">${val}</div></div>`;
+    const flowStep=(t,on)=>`<span style="color:${on?'var(--accent)':'var(--faint)'};font-weight:600;font-size:12.5px">${t}</span>`;
+
+    // ---- Card 1: Status do Pixel ----
+    const statusCard=`<div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+        <h3 style="margin:0">📡 Status do Pixel</h3>
+        <span style="font-size:11px;font-weight:800;letter-spacing:.04em;padding:3px 10px;border-radius:999px;${active?'color:#34d399;background:rgba(52,211,153,.13);border:1px solid rgba(52,211,153,.4)':'color:var(--faint);background:var(--surface2);border:1px solid var(--border)'}">${active?'● ATIVO':'○ AGUARDANDO INSTALAÇÃO'}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px">
+        ${flowStep('🌐 Anúncio / Origem',true)}<span style="color:var(--faint)">→</span>${flowStep('📡 Site + Pixel',active)}<span style="color:var(--faint)">→</span>${flowStep('💬 WhatsApp',wpp>0)}<span style="color:var(--faint)">→</span>${flowStep('🔗 Match',false)}
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+        ${tile('👁','<span style="font-variant-numeric:tabular-nums">'+pv.toLocaleString('pt-BR')+'</span>','PageViews')}
+        ${tile('💬',wpp.toLocaleString('pt-BR'),'Cliques WhatsApp')}
+        ${tile('🔗',lc.toLocaleString('pt-BR'),'Cliques em Links')}
+        ${tile('🕐',lastTxt,'Última visita')}
+      </div>
+      <div style="font-size:12.5px;font-weight:600;margin-bottom:6px">Script de instalação</div>
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">Cole antes do <code style="background:var(--surface2);padding:1px 5px;border-radius:5px">&lt;/head&gt;</code> no HTML do site do cliente.</div>
+      <div style="display:flex;gap:8px;align-items:stretch">
+        <code id="rastSnippet" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:12px;word-break:break-all;line-height:1.5">${_rastEsc(snippet)}</code>
+        <button class="btn sm ghost" style="flex:none" onclick="rastCopy(document.getElementById('rastSnippet').textContent,this)">Copiar</button>
+      </div>
+      <div style="font-size:11px;color:var(--faint);margin-top:8px">Depois de instalar, o pixel captura origem (UTM, fbclid, gclid), páginas visitadas e cliques de WhatsApp. Recarregue esta aba pra ver os números subirem.</div>
+    </div>`;
+
+    // ---- Card 2: Links de Tracking ----
+    const linkRows=links.length?links.map(l=>{
+      const url=TRACK_BASE+'/l/'+c.id+'/'+l.slug;
+      const kindIcon=l.kind==='wpp'?'💬':l.kind==='bio'?'📸':l.kind==='site'?'🌐':'🔗';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+        <span style="font-size:16px">${kindIcon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:13px">/${_rastEsc(l.slug)}</div>
+          <div style="font-size:11.5px;color:var(--muted);word-break:break-all">${_rastEsc(url)} <span style="color:var(--faint)">→ ${_rastEsc(l.destination)}</span></div>
+        </div>
+        <div style="text-align:right;flex:none"><div style="font-weight:800;font-size:14px">${(clicksBySlug[l.slug]||0).toLocaleString('pt-BR')}</div><div style="font-size:10px;color:var(--faint)">cliques</div></div>
+        <button class="btn sm ghost" style="flex:none" onclick="rastCopy('${_rastEsc(url).replace(/'/g,"\\'")}',this)">Copiar</button>
+        <button class="btn sm ghost" style="flex:none;color:var(--red)" onclick="rastDelLink('${l.id}')" title="Remover">✕</button>
+      </div>`;
+    }).join(''):'<div style="font-size:12.5px;color:var(--faint);padding:10px 0">Nenhum link ainda. Crie um pra bio do Instagram ou pro WhatsApp — o clique registra a origem antes de redirecionar.</div>';
+    const linksCard=`<div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px">
+        <h3 style="margin:0">🔗 Links de Tracking</h3>
+        <span style="font-size:11.5px;color:var(--faint)">${links.length} link(s) · redirecionam registrando a origem (server-side)</span>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Ideal para a bio do Instagram e links de WhatsApp — cada clique grava de onde veio e repassa a origem adiante.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px">
+        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">APELIDO (na URL)</label><input id="rastLinkSlug" placeholder="bio" style="width:130px;font-size:12px"></div>
+        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">TIPO</label><select id="rastLinkKind" style="width:auto;font-size:12px"><option value="bio">📸 Bio / Instagram</option><option value="site">🌐 Site</option><option value="wpp">💬 WhatsApp</option><option value="other">🔗 Outro</option></select></div>
+        <div style="flex:1;min-width:200px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">DESTINO (pra onde redireciona)</label><input id="rastLinkDest" placeholder="https://… ou https://wa.me/55…" style="width:100%;font-size:12px"></div>
+        <button class="btn sm primary" style="flex:none" onclick="rastAddLink()">+ Criar link</button>
+      </div>
+      <div>${linkRows}</div>
+    </div>`;
+
+    // ---- Card 3: WhatsApp & CRM (próxima fase) ----
+    const waCard=`<div class="card" style="border:1px dashed var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <h3 style="margin:0">💬 WhatsApp &amp; CRM de conversas</h3>
+        <span style="font-size:11px;font-weight:700;color:var(--accent);background:rgba(240,192,64,.12);border:1px solid rgba(240,192,64,.35);border-radius:999px;padding:3px 10px">EM CONSTRUÇÃO</span>
+      </div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.6">Próxima fase: o cliente escaneia um <b>QR code</b> pra conectar o WhatsApp dele (Cloud API da Meta). A partir daí, cada conversa aparece aqui num CRM, marcada com a origem — <b>de anúncio</b> (com campanha › conjunto › anúncio no Meta, ou campanha › conjunto › palavra-chave no Google) <b>ou de UTM/tráfego</b>. É o casamento entre o clique rastreado e a conversa que chega.</div>
+    </div>`;
+
+    body.innerHTML=statusCard+linksCard+waCard;
+  }catch(e){body.innerHTML=`<div class="empty">Erro ao carregar rastreamento: ${e.message||e}</div>`;}
+}
+let _rastToken='';
+function rastCopy(text,btn){navigator.clipboard.writeText(text).then(()=>{const o=btn.textContent;btn.textContent='Copiado ✓';setTimeout(()=>btn.textContent=o,1400);}).catch(()=>{});}
+async function rastAddLink(){
+  const c=DB.clients.find(x=>x.id===_rastClientId);if(!c)return;
+  let slug=(document.getElementById('rastLinkSlug').value||'').toLowerCase().trim().replace(/[^a-z0-9-]+/g,'-').replace(/^-+|-+$/g,'');
+  const kind=document.getElementById('rastLinkKind').value;
+  let dest=(document.getElementById('rastLinkDest').value||'').trim();
+  if(!slug){alert('Dê um apelido pro link (ex: bio).');return}
+  if(!dest){alert('Informe o destino (URL pra onde o link redireciona).');return}
+  if(!/^https?:\/\//i.test(dest)&&!/^https?:\/\//i.test('https://'+dest))dest='https://'+dest;
+  const {error}=await sb.from('track_links').insert({id:'lk_'+Math.random().toString(36).slice(2,12),client_id:c.id,slug,kind,destination:dest});
+  if(error){alert(error.message.includes('duplicate')?'Já existe um link com esse apelido.':'Erro: '+error.message);return}
+  document.getElementById('rastLinkSlug').value='';document.getElementById('rastLinkDest').value='';
+  loadRastreamento(c.id);
+}
+async function rastDelLink(id){
+  if(!confirm('Remover este link de tracking? Os cliques já registrados continuam no histórico.'))return;
+  await sb.from('track_links').delete().eq('id',id);
+  loadRastreamento(_rastClientId);
+}
 function selectSidebarClient(id){
   if(!id)return;
   activeClientId=id;
