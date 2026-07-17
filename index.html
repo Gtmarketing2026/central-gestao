@@ -4641,6 +4641,35 @@ async function fetchGoogleReportRange(c,since,until){
   const d=(data&&data.data)||data;
   return {channelStats:googleChannelFromData(d),ads:(d&&d.ads)||[],campaigns:(d&&d.campaigns)||[],total:d&&d.total,accountErrors:(d&&d.accountErrors)||[]};
 }
+// Venda/faturamento do canal vindos da PLANILHA (aba META VENDAS / GOOGLE VENDAS) — o pixel da API superatribui.
+// Retorna {sales,revenue,byDate} somando as abas de venda do canal no período, ou null se o cliente não usa planilha de venda.
+async function fetchDashSheetSales(c,since,until,source){
+  if(!c.reportSheetUrl)return null;
+  if(c.conversionSource==='meta'||c.conversionSource==='none')return null; // 'meta' = usa o pixel; 'none' = sem venda
+  const m=c.reportSheetUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);const sid=m?m[1]:null;
+  const tabs=(c.reportTabs||'').split(',').map(t=>t.trim()).filter(Boolean);
+  if(!sid||!tabs.length)return null;
+  const wanted=source==='geral'?['META','GOOGLE']:[source==='google'?'GOOGLE':'META'];
+  const matchTabs=tabs.filter(t=>wanted.includes(channelPlatform(t)));
+  if(!matchTabs.length)return null;
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{spreadsheetId:sid,tabs:matchTabs}});
+  if(error)return null;
+  const dataByTab=(data&&data.data)||{};
+  let sales=0,revenue=0,any=false;const byDate={};
+  matchTabs.forEach(tab=>{
+    const raw=dataByTab[tab];if(!raw||raw.error||!Array.isArray(raw)||raw.length<2)return;
+    const parsed=parseReportTab(raw);
+    if(!parsed.has.sales&&!parsed.has.revenue)return; // aba sem coluna de venda: ignora
+    any=true;
+    parsed.records.forEach(r=>{
+      if(!r.date||r.date<since||r.date>until)return;
+      sales+=r.sales||0;revenue+=r.revenue||0;
+      const d=byDate[r.date]||(byDate[r.date]={date:r.date,sales:0,revenue:0});
+      d.sales+=r.sales||0;d.revenue+=r.revenue||0;
+    });
+  });
+  return any?{sales,revenue,byDate}:null;
+}
 // Traduz erros comuns da Graph API pra um motivo legível
 function metaErrHuman(msg){
   const m=String(msg||'');
@@ -4665,24 +4694,63 @@ function metaDashMonth(clientId){const b=monthBounds(0);_metaDashSince=b.since;_
 function toggleDashDate(){const w=document.getElementById('dashDateWrap');if(!w)return;w.style.display=w.style.display==='none'?'inline-flex':'none';const f=document.getElementById('dashDateFrom');if(f&&!f.value){f.value=_metaDashSince||daysAgoISO(30);document.getElementById('dashDateTo').value=_metaDashUntil||today();}}
 function metaDashCustom(clientId){const f=document.getElementById('dashDateFrom'),t=document.getElementById('dashDateTo');if(!f||!f.value||!t||!t.value)return;_metaDashSince=f.value;_metaDashUntil=t.value;_metaDashPreset='custom';const c=DB.clients.find(x=>x.id===clientId);if(c)loadMetaDashboard(c,++_tplLoadToken);}
 let _dashSource='meta';
+function dashSourceLabel(){return _dashSource==='google'?'Google Ads':_dashSource==='geral'?'Visão Geral':'Meta Ads';}
 function setDashSource(s){
   if(s===_dashSource)return;
   _dashSource=s;
   const c=DB.clients.find(x=>x.id===_dashClientId);if(c)loadMetaDashboard(c,++_tplLoadToken);
+}
+// Junta Meta + Google numa visão unificada (soma totais, concatena anúncios/campanhas, mescla o diário por data)
+function mergeDashReps(m,g){
+  m=m||{ads:[],campaigns:[],total:null,accountErrors:[]};g=g||{ads:[],campaigns:[],total:null,accountErrors:[]};
+  const tm=m.total||{},tg=g.total||{};
+  const keys=['spend','impressions','clicks','reach','revenue','purchases','leads','addToCart','initiateCheckout','conversas','videoViews','engajamentos'];
+  const total={};keys.forEach(k=>total[k]=(tm[k]||0)+(tg[k]||0));
+  total.ctr=total.impressions?(total.clicks/total.impressions)*100:0;
+  total.cpc=total.clicks?total.spend/total.clicks:0;
+  total.cpm=total.impressions?(total.spend/total.impressions)*1000:0;
+  total.roas=total.spend?total.revenue/total.spend:0;
+  const byDate={};
+  [...(tm.records||[]),...(tg.records||[])].forEach(r=>{
+    const d=byDate[r.date]||(byDate[r.date]={date:r.date});
+    ['sales','spend','revenue','clicks','impressions','reach','leads','conversas','videoViews','engajamentos','addToCart','checkout'].forEach(k=>d[k]=(d[k]||0)+(r[k]||0));
+  });
+  total.records=Object.values(byDate).sort((a,b)=>a.date<b.date?-1:1);
+  return {total,ads:[...(m.ads||[]),...(g.ads||[])],campaigns:[...(m.campaigns||[]),...(g.campaigns||[])],accountErrors:[...(m.accountErrors||[]),...(g.accountErrors||[])]};
 }
 async function loadMetaDashboard(c,myToken,days){
   if(days)_metaDashDays=days;
   document.getElementById('crFilterBar').style.display='none';
   const body=document.getElementById('clientReportBody');
   const hasM=!!(c.metaAccountIds&&c.metaAccountIds.length),hasG=!!(c.googleAccountIds&&c.googleAccountIds.length);
+  if(_dashSource==='geral'&&!(hasM&&hasG))_dashSource=hasG?'google':'meta';
   if(_dashSource==='google'&&!hasG)_dashSource='meta';
   if(_dashSource==='meta'&&!hasM&&hasG)_dashSource='google';
-  const srcLbl=_dashSource==='google'?'Google Ads':'Meta Ads';
+  const srcLbl=dashSourceLabel();
   body.innerHTML='<div class="empty">Carregando '+srcLbl+'...</div>';
   const until=_metaDashUntil||today(),since=_metaDashSince||daysAgoISO(_metaDashDays);
   try{
-    const rep=_dashSource==='google'?await fetchGoogleReportRange(c,since,until):await fetchMetaReportRange(c,since,until);
+    let rep;
+    if(_dashSource==='google')rep=await fetchGoogleReportRange(c,since,until);
+    else if(_dashSource==='geral'){
+      const [m,g]=await Promise.all([
+        fetchMetaReportRange(c,since,until).catch(()=>null),
+        fetchGoogleReportRange(c,since,until).catch(()=>null)
+      ]);
+      if(!m&&!g)throw new Error('Meta e Google falharam ao carregar.');
+      rep=mergeDashReps(m,g);
+    }
+    else rep=await fetchMetaReportRange(c,since,until);
+    // venda vem da planilha (META VENDAS / GOOGLE VENDAS): sobrepõe compras/receita/ROAS da API (que superatribui)
+    const sheetSales=await fetchDashSheetSales(c,since,until,_dashSource).catch(()=>null);
     if(myToken!==_tplLoadToken)return;
+    if(sheetSales&&rep.total){
+      rep.total.purchases=sheetSales.sales;
+      rep.total.revenue=sheetSales.revenue;
+      rep.total.roas=rep.total.spend?sheetSales.revenue/rep.total.spend:0;
+      (rep.total.records||[]).forEach(r=>{const d=sheetSales.byDate[r.date];r.sales=d?d.sales:0;r.revenue=d?d.revenue:0;});
+      rep._salesFromSheet=true;rep._sheetSales=sheetSales;
+    }
     renderMetaDashboard(c,rep,since,until);
   }catch(e){if(myToken!==_tplLoadToken)return;body.innerHTML=`<div class="empty">Erro ao carregar ${srcLbl}: ${e.message}</div>`;}
 }
@@ -4692,7 +4760,7 @@ const DASH_METRICS={
   purchases:{label:'Compras',fmt:'int'},revenue:{label:'Receita',fmt:'money'},leads:{label:'Leads',fmt:'int'},conversas:{label:'Conversas',fmt:'int'},videoViews:{label:'Views de Vídeo',fmt:'int'},engajamentos:{label:'Engajamentos',fmt:'int'},
 };
 const DASH_PAL=['#f0c040','#60a5fa','#34d399','#f472b6','#a78bfa','#fb923c','#22d3ee','#f87171','#94a3b8','#facc15'];
-let _dashRecs=[],_dashAds=[],_dashCharts={},_dashLineA='spend',_dashLineB='impressions',_dashLevel='campanha',_dashLevelMetric='spend';
+let _dashRecs=[],_dashAds=[],_dashCharts={},_dashLineA='spend',_dashLineB='impressions',_dashLevel='campanha',_dashLevelMetric='spend',_dashSalesFromSheet=false,_dashSheetSales=null;
 let _dashCampRecs=[],_dashFAcc=[],_dashFCamp=[],_dashFAdset=[],_dashAgg=null,_dashTpl=null,_dashNoSales=false;
 function _dashAdsAcc(){return _dashAds.filter(a=>a.spend>0&&(!_dashFAcc.length||_dashFAcc.includes(a.account)));}
 function _dashAdsCamp(){return _dashAdsAcc().filter(a=>!_dashFCamp.length||_dashFCamp.includes(a.campaign));}
@@ -4702,7 +4770,10 @@ function _dashAggFromAds(list){
   const filtered=list.filter(a=>a.spend>0&&(!_dashFAcc.length||_dashFAcc.includes(a.account))).filter(a=>!_dashFCamp.length||_dashFCamp.includes(a.campaign)).filter(a=>!_dashFAdset.length||_dashFAdset.includes((a.campaign||'')+' · '+(a.adset||'')));
   const g={spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,addToCart:0,initiateCheckout:0,conversas:0,videoViews:0,engajamentos:0};
   filtered.forEach(a=>Object.keys(g).forEach(k=>g[k]+=(a[k]||0)));
-  return {spend:g.spend,impressions:g.impressions,clicks:g.clicks,reach:g.reach,revenue:_dashNoSales?0:g.revenue,compras:_dashNoSales?0:Math.round(g.purchases),leads:g.leads,addCarrinho:g.addToCart,checkout:g.initiateCheckout,conversas:g.conversas,videoViews:g.videoViews,engajamentos:g.engajamentos,frequencia:g.reach?g.impressions/g.reach:0};
+  const out={spend:g.spend,impressions:g.impressions,clicks:g.clicks,reach:g.reach,revenue:_dashNoSales?0:g.revenue,compras:_dashNoSales?0:Math.round(g.purchases),leads:g.leads,addCarrinho:g.addToCart,checkout:g.initiateCheckout,conversas:g.conversas,videoViews:g.videoViews,engajamentos:g.engajamentos,frequencia:g.reach?g.impressions/g.reach:0};
+  // venda da planilha: total do canal (não se divide por campanha) — mídia acima já é filtrada
+  if(_dashSalesFromSheet&&_dashSheetSales){out.revenue=_dashSheetSales.revenue;out.compras=Math.round(_dashSheetSales.sales);}
+  return out;
 }
 function dashAggFiltered(){
   if(!dashFilterActive())return _dashAgg;
@@ -4722,8 +4793,13 @@ async function toggleDashCompare(clientId){
   const iso=x=>x.toISOString().slice(0,10);
   _dashPrevRange={since:iso(ps),until:iso(pu)};
   if(btn)btn.disabled=true;
-  try{const rep=_dashSource==='google'?await fetchGoogleReportRange(c,_dashPrevRange.since,_dashPrevRange.until):await fetchMetaReportRange(c,_dashPrevRange.since,_dashPrevRange.until);_dashPrevAds=rep.ads||[];}
-  catch(e){_dashPrevAds=null;}
+  try{
+    let rep;
+    if(_dashSource==='google')rep=await fetchGoogleReportRange(c,_dashPrevRange.since,_dashPrevRange.until);
+    else if(_dashSource==='geral'){const [m,g]=await Promise.all([fetchMetaReportRange(c,_dashPrevRange.since,_dashPrevRange.until).catch(()=>null),fetchGoogleReportRange(c,_dashPrevRange.since,_dashPrevRange.until).catch(()=>null)]);rep=mergeDashReps(m,g);}
+    else rep=await fetchMetaReportRange(c,_dashPrevRange.since,_dashPrevRange.until);
+    _dashPrevAds=rep.ads||[];
+  }catch(e){_dashPrevAds=null;}
   if(btn)btn.disabled=false;
   applyDashFilters();
 }
@@ -4967,7 +5043,11 @@ function dashFocosHTML(){
   const groups=groupAdsByObjective(dashFilteredAds());
   const vis=(c&&c.reportFocos&&c.reportFocos.length)?c.reportFocos:null;
   const show=vis?groups.filter(g=>vis.includes(g.tipo)):groups;
-  return show.map(g=>{const rows=raioXMetricRows(g.agg,g.tipo);return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px 14px;flex:1;min-width:230px;background:var(--surface2)">
+  return show.map(g=>{
+    // quando a venda vem da planilha, o grupo de conversão usa o total do canal (a planilha não divide por campanha)
+    let gAgg=g.agg;
+    if(_dashSalesFromSheet&&_dashSheetSales&&(g.tipo==='conversao'||g.tipo==='app'))gAgg=deriveMeta({...g.agg,revenue:_dashSheetSales.revenue,purchases:_dashSheetSales.sales});
+    const rows=raioXMetricRows(gAgg,g.tipo);return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px 14px;flex:1;min-width:230px;background:var(--surface2)">
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);margin-bottom:8px">🎯 ${g.rotulo} <span style="color:var(--muted);font-weight:400">· ${Object.keys(g.camps).length} campanha(s)</span></div>
     <div style="display:flex;flex-wrap:wrap;gap:14px">${rows.slice(0,4).map(([l,v],i)=>`<div><div style="font-size:10px;color:var(--muted);text-transform:uppercase">${l}</div><div style="font-size:15px;font-weight:${i===1?800:700};color:${i===1?'#34d399':'var(--text)'}">${v}</div></div>`).join('')}</div>
   </div>`;}).join('');
@@ -5129,6 +5209,7 @@ function renderMetaDashboard(c,rep,since,until){
   const agg={spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:noSales?0:(t.revenue||0),compras:noSales?0:Math.round(t.purchases||0),leads:t.leads||0,addCarrinho:t.addToCart||0,checkout:t.initiateCheckout||0,conversas:t.conversas||0,videoViews:t.videoViews||0,engajamentos:t.engajamentos||0,frequencia:t.reach?t.impressions/t.reach:0};
   _dashRecs=((t.records||[]).slice().sort((a,b)=>a.date<b.date?-1:1)).map(r=>({...r,purchases:r.sales}));
   _dashAds=rep.ads||[];_dashCampRecs=rep.campaigns||[];_dashTpl=tpl;_dashNoSales=noSales;_dashClientId=c.id;_dashSince=since;_dashUntil=until;_dashCompare=false;_dashPrevAds=null;_dashPrevRange=null;
+  _dashSalesFromSheet=!!rep._salesFromSheet;_dashSheetSales=rep._sheetSales||null;
   _dashAgg={spend:agg.spend,impressions:agg.impressions,clicks:agg.clicks,reach:agg.reach,revenue:agg.revenue,compras:agg.compras,leads:agg.leads,addCarrinho:agg.addCarrinho,checkout:agg.checkout,conversas:agg.conversas,videoViews:agg.videoViews,engajamentos:agg.engajamentos,frequencia:agg.frequencia};
   _dashFAcc=[];_dashFCamp=[];_dashFAdset=[];_dashFunCamp='';_dashFunAdset='';_dashFunAd='';
   const rb=(key,lbl,fn)=>`<button class="btn sm ${_metaDashPreset===key?'primary':'ghost'}" onclick="${fn}">${lbl}</button>`;
@@ -5141,9 +5222,9 @@ function renderMetaDashboard(c,rep,since,until){
   const cards=kpiKeys0.map(k=>{const mc=METRIC_CATALOG[k];const key=k===tpl.keyMetric;return`<div class="rt-kpi ${key?'gr':'pu'}"${key?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${mc.label}${key?' ★':''}</div><div class="rt-kpi-val sm">${fmtMetric(mc.calc(agg),mc.fmt)}</div></div>`}).join('');
   const lvlBtns=[['campanha','Campanha'],['conjunto','Conjunto'],['anuncio','Anúncio']].map(([k,l])=>`<button class="btn sm ${_dashLevel===k?'primary':'ghost'}" data-dlvl="${k}" onclick="setDashLevel('${k}')">${l}</button>`).join('');
   const hasM=!!(c.metaAccountIds&&c.metaAccountIds.length),hasG=!!(c.googleAccountIds&&c.googleAccountIds.length);
-  const srcName=_dashSource==='google'?'Google Ads':'Meta Ads';
+  const srcName=dashSourceLabel();
   const srcBtn=(k,l)=>`<button class="btn sm ${_dashSource===k?'primary':'ghost'}" onclick="setDashSource('${k}')">${l}</button>`;
-  const srcBar=((hasM?srcBtn('meta','Ⓜ️ Meta Ads'):'')+(hasG?srcBtn('google','🔎 Google Ads'):''));
+  const srcBar=((hasM?srcBtn('meta','Ⓜ️ Meta Ads'):'')+(hasG?srcBtn('google','🔎 Google Ads'):'')+((hasM&&hasG)?srcBtn('geral','🌐 Geral'):''));
   body.innerHTML=`<div id="dashBudgetWarn"></div>
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
@@ -5158,11 +5239,12 @@ function renderMetaDashboard(c,rep,since,until){
       </div>
       <div id="dashKpiEditor" style="display:none"></div>
       <div id="dashKpiGrid" class="rt-kpi-grid">${cards}</div>
+      ${rep._salesFromSheet?`<div style="font-size:11px;color:var(--faint);margin-top:8px">💡 Venda, faturamento e ROAS vêm da <b>planilha</b> (aba de vendas do canal) — o pixel da API superatribui. Mídia (investimento, cliques, CTR, CPC) é da API. Ao filtrar por campanha/conjunto, a venda mostrada é o total do canal (a planilha não divide por campanha).</div>`:''}
       <div id="dashFocosRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px"></div>
     </div>
     <div class="card" id="dashBenchCard" style="margin-bottom:16px;display:none"></div>
-    ${_dashSource==='meta'?`<div class="card" id="dashSegCard" style="margin-bottom:16px"></div>`:''}
-    ${_dashSource==='google'?`<div class="card" id="dashGoogleCard" style="margin-bottom:16px"></div>`:''}
+    ${(_dashSource!=='google'&&hasM)?`<div class="card" id="dashSegCard" style="margin-bottom:16px"></div>`:''}
+    ${(_dashSource!=='meta'&&hasG)?`<div class="card" id="dashGoogleCard" style="margin-bottom:16px"></div>`:''}
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
         <h3 style="margin:0">📈 Evolução Diária</h3>
@@ -5201,8 +5283,8 @@ function renderMetaDashboard(c,rep,since,until){
   renderDashFilterBar();
   _dashSeg=null;_dashGoogleDet=null; // segmentação/detalhes recarregam pro novo período
   applyDashFilters();setDashLevel(_dashLevel);
-  if(_dashSource==='meta'){loadDashSeg();dashLoadStatuses(c);} // status 🟢/🔴 chega async e re-renderiza os seletores do funil
-  if(_dashSource==='google')loadDashGoogleDet();
+  if(_dashSource!=='google'&&hasM){loadDashSeg();dashLoadStatuses(c);} // status 🟢/🔴 chega async e re-renderiza os seletores do funil
+  if(_dashSource!=='meta'&&hasG)loadDashGoogleDet();
   renderBudgetBanner(c,'dashBudgetWarn'); // teto de investimento (async)
 }
 async function fetchMetaChannelStats(c,month){
