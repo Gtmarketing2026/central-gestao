@@ -617,6 +617,49 @@ async function metaAction(m: any) {
   throw new Error("action invalida");
 }
 
+// Performance por segmentação (sexo / plataforma / posicionamento) — nível de conta, agregada entre contas
+async function metaBreakdowns(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN");
+  if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
+  const accounts = (Array.isArray(m.accounts) ? m.accounts : []).map((a: any) => String(a.id).replace(/^act_/, ""));
+  if (!accounts.length) throw new Error("accounts obrigatorio");
+  const base = "https://graph.facebook.com/v21.0";
+  let range = "";
+  if (m.since && m.until) range = `&time_range=${encodeURIComponent(JSON.stringify({ since: m.since, until: m.until }))}`;
+  else range = `&date_preset=${m.datePreset || "last_30d"}`;
+  const fields = "spend,impressions,clicks,actions,action_values";
+  const pick = (arr: any[], types: string[]) => { if (!Array.isArray(arr)) return 0; for (const ty of types) { const hit = arr.find((x) => x.action_type === ty); if (hit) return parseFloat(hit.value || "0"); } return 0; };
+  // posicionamento precisa vir pareado com publisher_platform (senão o Meta devolve vazio)
+  const DIMS: Record<string, { bk: string; key: (row: any) => string }> = {
+    sexo: { bk: "gender", key: (r) => String(r.gender || "desconhecido") },
+    plataforma: { bk: "publisher_platform", key: (r) => String(r.publisher_platform || "desconhecido") },
+    posicionamento: { bk: "publisher_platform,platform_position", key: (r) => `${r.publisher_platform || ""} · ${String(r.platform_position || "desconhecido").replace(/_/g, " ")}`.replace(/^ · /, "") },
+  };
+  const out: Record<string, Record<string, any>> = { sexo: {}, plataforma: {}, posicionamento: {} };
+  await Promise.all(accounts.flatMap((acct: string) => Object.entries(DIMS).map(async ([dim, cfg]) => {
+    try {
+      let url: string | null = `${base}/act_${acct}/insights?level=account&fields=${fields}&breakdowns=${cfg.bk}${range}&limit=200&access_token=${token}`;
+      for (let i = 0; i < 5 && url; i++) {
+        const r = await fetch(url); const j = await r.json();
+        if (j.error) break;
+        for (const row of (j.data || [])) {
+          const key = cfg.key(row);
+          if (!out[dim][key]) out[dim][key] = { key, spend: 0, impressions: 0, clicks: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0 };
+          const o = out[dim][key];
+          o.spend += parseFloat(row.spend || "0"); o.impressions += parseInt(row.impressions || "0"); o.clicks += parseInt(row.clicks || "0");
+          o.purchases += pick(row.actions, ["omni_purchase", "offsite_conversion.fb_pixel_purchase", "purchase"]);
+          o.revenue += pick(row.action_values, ["omni_purchase", "offsite_conversion.fb_pixel_purchase", "purchase"]);
+          o.leads += pick(row.actions, ["offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped", "leadgen_grouped", "lead"]);
+          o.conversas += pick(row.actions, ["onsite_conversion.messaging_conversation_started_7d", "messaging_conversation_started_7d"]);
+        }
+        url = j.paging?.next || null;
+      }
+    } catch (_e) { /* dim indisponível: segue com as outras */ }
+  })));
+  const sorted = (o: Record<string, any>) => Object.values(o).sort((a: any, b: any) => b.spend - a.spend);
+  return { sexo: sorted(out.sexo), plataforma: sorted(out.plataforma), posicionamento: sorted(out.posicionamento) };
+}
+
 /* ================= GOOGLE ADS ================= */
 const GADS_VER = "v23";
 
@@ -799,6 +842,39 @@ async function googleAdsInsights(g: any) {
   return { total, campaigns, ads, accounts, accountErrors, period: { since, until } };
 }
 
+// Detalhes específicos do Google: conversões por ação, palavras-chave e termos de busca (agregados entre contas)
+async function googleBreakdowns(g: any) {
+  let accounts: string[] = [];
+  if (Array.isArray(g.accounts) && g.accounts.length) accounts = g.accounts.map((a: any) => String(a.id).replace(/-/g, ""));
+  if (!accounts.length) throw new Error("accounts obrigatorio");
+  const since = String(g.since || "").slice(0, 10), until = String(g.until || "").slice(0, 10);
+  if (!since || !until) throw new Error("since e until obrigatorios");
+  const range = `segments.date BETWEEN '${since}' AND '${until}'`;
+  const token = await googleAdsAccessToken();
+  const M = "metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value";
+  const conv: Record<string, any> = {}, kw: Record<string, any> = {}, st: Record<string, any> = {};
+  const addRow = (map: Record<string, any>, key: string, m: any) => {
+    if (!map[key]) map[key] = { key, spend: 0, impressions: 0, clicks: 0, conversions: 0, value: 0 };
+    const o = map[key];
+    o.spend += (Number(m?.costMicros) || 0) / 1e6; o.impressions += Number(m?.impressions) || 0; o.clicks += Number(m?.clicks) || 0;
+    o.conversions += Number(m?.conversions) || 0; o.value += Number(m?.conversionsValue) || 0;
+  };
+  const errors: string[] = [];
+  await Promise.all(accounts.flatMap((cid) => [
+    gadsSearch(cid, `SELECT segments.conversion_action_name, metrics.conversions, metrics.conversions_value FROM campaign WHERE ${range} AND metrics.conversions > 0`, token)
+      .then((rows) => rows.forEach((r: any) => addRow(conv, r.segments?.conversionActionName || "—", r.metrics)))
+      .catch((e) => errors.push("conversões: " + e.message)),
+    gadsSearch(cid, `SELECT ad_group_criterion.keyword.text, ${M} FROM keyword_view WHERE ${range} AND metrics.impressions > 0 ORDER BY metrics.cost_micros DESC LIMIT 200`, token)
+      .then((rows) => rows.forEach((r: any) => addRow(kw, r.adGroupCriterion?.keyword?.text || "—", r.metrics)))
+      .catch((e) => errors.push("keywords: " + e.message)),
+    gadsSearch(cid, `SELECT search_term_view.search_term, ${M} FROM search_term_view WHERE ${range} ORDER BY metrics.cost_micros DESC LIMIT 200`, token)
+      .then((rows) => rows.forEach((r: any) => addRow(st, r.searchTermView?.searchTerm || "—", r.metrics)))
+      .catch((e) => errors.push("termos: " + e.message)),
+  ]));
+  const sorted = (o: Record<string, any>, by = "spend") => Object.values(o).sort((a: any, b: any) => b[by] - a[by]).slice(0, 100);
+  return { conversoes: sorted(conv, "conversions"), keywords: sorted(kw), termos: sorted(st), errors: errors.length ? errors : undefined };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -809,6 +885,14 @@ Deno.serve(async (req) => {
     const analysis = body.analysis;
     const agent = body.agent;
 
+    if (body.metaBreakdowns) {
+      const r = await metaBreakdowns(body.metaBreakdowns);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleBreakdowns) {
+      const r = await googleBreakdowns(body.googleBreakdowns);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (body.googleAds) {
       const r = await googleAdsInsights(body.googleAds);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

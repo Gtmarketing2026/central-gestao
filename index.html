@@ -232,6 +232,10 @@
       <button class="tab" data-tab="tasks">Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="relatorios">📊 Relatórios</button>
       <button class="tab" data-tab="campanhas">📣 Campanhas</button>
+      <div id="campSubmenu">
+        <button class="tab" id="campSubMeta" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('meta')">Ⓜ️ Meta Ads</button>
+        <button class="tab" id="campSubGoogle" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('google')">🔎 Google Ads</button>
+      </div>
       <button class="tab" data-tab="modelos">📋 Modelos</button>
       <button class="tab" data-tab="iagestora">🤖 AndréIA</button>
     </nav>
@@ -584,7 +588,6 @@
   <!-- CAMPANHAS (drill-down estilo gerenciador) -->
   <section class="panel" id="campanhas">
     <div class="section-head" style="margin-top:0"><h2>📣 Campanhas <span id="campClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
-    <div id="campSource" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <div id="campRange" style="display:flex;gap:5px"></div>
       <div id="campDateWrap" style="display:none;gap:6px;align-items:center">
@@ -1565,7 +1568,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,minBalance:+r.min_balance||0});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,minBalance:+r.min_balance||0});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -1799,19 +1802,18 @@ function selectSidebarClient(id){
 }
 /* ===== CAMPANHAS (drill-down estilo gerenciador) ===== */
 let _campDays=30,_campAds=[],_campClientId='',_campFoco='',_campSince='',_campUntil='',_campSearch='',_campStatusFilter='',_campMinSpend=0,_campShowPaused=false,_campPreset='30',_campCompare=false,_campPrev=null,_campAccErrors=[],_campSource='meta';
-// Submenu de canal: cada fonte carrega separada (colunas e filtros diferentes)
+// Submenu de canal no menu lateral (abaixo de Campanhas): cada fonte carrega separada (colunas e filtros diferentes)
 function renderCampSource(hasMeta,hasGoogle){
-  const el=document.getElementById('campSource');if(!el)return;
-  const b=(key,lbl)=>`<button class="btn sm ${_campSource===key?'primary':'ghost'}" onclick="setCampSource('${key}')">${lbl}</button>`;
-  let html='';
-  if(hasMeta)html+=b('meta','Ⓜ️ Meta Ads');
-  if(hasGoogle)html+=b('google','🔎 Google Ads');
-  el.innerHTML=html;
+  const bm=document.getElementById('campSubMeta'),bg=document.getElementById('campSubGoogle');
+  if(bm){bm.style.display=hasMeta?'':'none';bm.classList.toggle('active',_campSource==='meta');}
+  if(bg){bg.style.display=hasGoogle?'':'none';bg.classList.toggle('active',_campSource==='google');}
 }
-function setCampSource(s){
-  if(s===_campSource)return;
-  _campSource=s;_campFoco='';_campStatusFilter='';_campCols=focoCols('');_campPrev=null;
-  loadCampanhas(null);if(_campCompare)loadCampPrev();
+function sbCampSource(s){
+  const changed=s!==_campSource;
+  _campSource=s;
+  if(changed){_campFoco='';_campStatusFilter='';_campCols=focoCols('');_campPrev=null;}
+  goToTab('campanhas'); // goToTab já chama loadCampanhas
+  if(changed&&_campCompare)loadCampPrev();
 }
 const CAMP_AGG_KEYS=['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'];
 function _newAgg(){const o={};CAMP_AGG_KEYS.forEach(k=>o[k]=0);return o;}
@@ -1990,13 +1992,19 @@ function focoCols(tipo){
   if(_campSource==='google')return (GOOGLE_COLS_BY_OBJETIVO[tipo]||GOOGLE_COLS_DEFAULT).slice();
   return (COLS_BY_OBJETIVO[tipo]||CAMP_COLS_DEFAULT).slice();
 }
+// Colunas que existem no canal atual (Google não tem alcance/frequência/leads/conversas/engajamento na API)
+const GOOGLE_COL_KEYS=['invest','impressions','clicks','ctr','cpc','cpm','resultado','custores','roas','compras','cpa','revenue','views','custoview'];
+function campColsAvailable(){
+  if(_campSource!=='google')return CAMP_COLS;
+  const o={};GOOGLE_COL_KEYS.forEach(k=>{if(CAMP_COLS[k])o[k]=CAMP_COLS[k]});return o;
+}
 let _campCols=CAMP_COLS_DEFAULT.slice();
 function campGrid(){return `grid-template-columns:minmax(200px,2.2fr) repeat(${_campCols.length},minmax(66px,1fr));`;}
 function _campPresets(){try{return JSON.parse(localStorage.getItem('campColPresets')||'{}')}catch(e){return {}}}
 function toggleCampColsPanel(){const p=document.getElementById('campColsPanel');if(p)p.style.display=p.style.display==='none'?'block':'none';renderCampColsPanel();}
 function renderCampColsPanel(){
   const p=document.getElementById('campColsPanel');if(!p||p.style.display==='none')return;
-  const checks=Object.entries(CAMP_COLS).map(([k,v])=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 8px;cursor:pointer;margin:0 4px 4px 0"><input type="checkbox" ${_campCols.includes(k)?'checked':''} onchange="setCampCol('${k}',this.checked)" style="width:auto">${v.label}</label>`).join('');
+  const checks=Object.entries(campColsAvailable()).map(([k,v])=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 8px;cursor:pointer;margin:0 4px 4px 0"><input type="checkbox" ${_campCols.includes(k)?'checked':''} onchange="setCampCol('${k}',this.checked)" style="width:auto">${v.label}</label>`).join('');
   const presets=_campPresets();
   const presetList=Object.keys(presets).length?Object.keys(presets).map(n=>`<span style="display:inline-flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:3px 8px;font-size:11px;margin:0 4px 4px 0"><span style="cursor:pointer" onclick="loadCampPreset('${n.replace(/'/g,'')}')">${n.replace(/</g,'&lt;')}</span> <span style="cursor:pointer;color:var(--red)" onclick="deleteCampPreset('${n.replace(/'/g,'')}')">×</span></span>`).join(''):'<span style="font-size:11px;color:var(--faint)">Nenhum preset salvo</span>';
   p.innerHTML=`<div style="font-size:11px;text-transform:uppercase;color:var(--faint);margin-bottom:6px">Colunas visíveis</div><div style="display:flex;flex-wrap:wrap">${checks}</div>
@@ -2029,6 +2037,10 @@ function campAccErrBar(){
 }
 function renderCampBody(){
   const body=document.getElementById('campBody');if(!body)return;
+  // sanitiza colunas pro canal atual (presets/ajustes do Meta podem ter colunas que o Google não tem)
+  const avail=campColsAvailable();
+  _campCols=_campCols.filter(k=>avail[k]);
+  if(!_campCols.length)_campCols=focoCols(_campFoco);
   let ads=_campAds.filter(a=>a.spend>0);
   if(_campFoco)ads=ads.filter(a=>((a.objetivo&&a.objetivo.tipo)||'outro')===_campFoco);
   if(_campSearch)ads=ads.filter(a=>((a.campaign||'')+' '+(a.adset||'')+' '+(a.adName||'')).toLowerCase().includes(_campSearch));
@@ -4648,17 +4660,27 @@ function metaDashRange(clientId,days){_metaDashDays=days;_metaDashSince='';_meta
 function metaDashMonth(clientId){const b=monthBounds(0);_metaDashSince=b.since;_metaDashUntil=today();_metaDashPreset='mes';const c=DB.clients.find(x=>x.id===clientId);if(c)loadMetaDashboard(c,++_tplLoadToken);}
 function toggleDashDate(){const w=document.getElementById('dashDateWrap');if(!w)return;w.style.display=w.style.display==='none'?'inline-flex':'none';const f=document.getElementById('dashDateFrom');if(f&&!f.value){f.value=_metaDashSince||daysAgoISO(30);document.getElementById('dashDateTo').value=_metaDashUntil||today();}}
 function metaDashCustom(clientId){const f=document.getElementById('dashDateFrom'),t=document.getElementById('dashDateTo');if(!f||!f.value||!t||!t.value)return;_metaDashSince=f.value;_metaDashUntil=t.value;_metaDashPreset='custom';const c=DB.clients.find(x=>x.id===clientId);if(c)loadMetaDashboard(c,++_tplLoadToken);}
+let _dashSource='meta';
+function setDashSource(s){
+  if(s===_dashSource)return;
+  _dashSource=s;
+  const c=DB.clients.find(x=>x.id===_dashClientId);if(c)loadMetaDashboard(c,++_tplLoadToken);
+}
 async function loadMetaDashboard(c,myToken,days){
   if(days)_metaDashDays=days;
   document.getElementById('crFilterBar').style.display='none';
   const body=document.getElementById('clientReportBody');
-  body.innerHTML='<div class="empty">Carregando Meta ao vivo...</div>';
+  const hasM=!!(c.metaAccountIds&&c.metaAccountIds.length),hasG=!!(c.googleAccountIds&&c.googleAccountIds.length);
+  if(_dashSource==='google'&&!hasG)_dashSource='meta';
+  if(_dashSource==='meta'&&!hasM&&hasG)_dashSource='google';
+  const srcLbl=_dashSource==='google'?'Google Ads':'Meta Ads';
+  body.innerHTML='<div class="empty">Carregando '+srcLbl+'...</div>';
   const until=_metaDashUntil||today(),since=_metaDashSince||daysAgoISO(_metaDashDays);
   try{
-    const rep=await fetchMetaReportRange(c,since,until);
+    const rep=_dashSource==='google'?await fetchGoogleReportRange(c,since,until):await fetchMetaReportRange(c,since,until);
     if(myToken!==_tplLoadToken)return;
     renderMetaDashboard(c,rep,since,until);
-  }catch(e){if(myToken!==_tplLoadToken)return;body.innerHTML=`<div class="empty">Erro ao carregar Meta: ${e.message}</div>`;}
+  }catch(e){if(myToken!==_tplLoadToken)return;body.innerHTML=`<div class="empty">Erro ao carregar ${srcLbl}: ${e.message}</div>`;}
 }
 const DASH_METRICS={
   spend:{label:'Valor Gasto',fmt:'money'},impressions:{label:'Impressões',fmt:'int'},reach:{label:'Alcance',fmt:'int'},clicks:{label:'Cliques',fmt:'int'},
@@ -4696,7 +4718,7 @@ async function toggleDashCompare(clientId){
   const iso=x=>x.toISOString().slice(0,10);
   _dashPrevRange={since:iso(ps),until:iso(pu)};
   if(btn)btn.disabled=true;
-  try{const rep=await fetchMetaReportRange(c,_dashPrevRange.since,_dashPrevRange.until);_dashPrevAds=rep.ads||[];}
+  try{const rep=_dashSource==='google'?await fetchGoogleReportRange(c,_dashPrevRange.since,_dashPrevRange.until):await fetchMetaReportRange(c,_dashPrevRange.since,_dashPrevRange.until);_dashPrevAds=rep.ads||[];}
   catch(e){_dashPrevAds=null;}
   if(btn)btn.disabled=false;
   applyDashFilters();
@@ -4737,6 +4759,190 @@ function renderDashFilterBar(){
   el.innerHTML=(accs.length>1?dashMulti('acc','Contas',accs,_dashFAcc):'')+dashMulti('camp','Campanhas',camps,_dashFCamp)+dashMulti('adset','Conjuntos',adsets,_dashFAdset)+(dashFilterActive()?`<button class="btn sm ghost" type="button" onclick="dashClearAll()">✕ limpar tudo</button><span style="font-size:11px;color:var(--faint);align-self:center">${dashFilteredAds().length} anúncio(s)</span>`:'');
 }
 let _dashClientId='';
+/* ---- KPIs Principais editáveis (padrão pra todos os clientes; segue objetivo/canal/filtros) ---- */
+function dashKpiKeys(){
+  try{const s=JSON.parse(localStorage.getItem('dashKpis_'+_dashClientId)||'null');if(Array.isArray(s)&&s.length)return s.filter(k=>METRIC_CATALOG[k]);}catch(e){}
+  const c=DB.clients.find(x=>x.id===_dashClientId);
+  if(c&&Array.isArray(c.dashKpis)&&c.dashKpis.length)return c.dashKpis.filter(k=>METRIC_CATALOG[k]);
+  const foco=(c&&c.reportFocos&&c.reportFocos.length)?c.reportFocos[0]:null;
+  if(foco){const bt=BASE_TEMPLATES.find(t=>t.objectiveType===foco);if(bt)return bt.metrics.filter(k=>METRIC_CATALOG[k]);}
+  return ((_dashTpl&&_dashTpl.metrics)||[]).filter(k=>METRIC_CATALOG[k]);
+}
+function _dashKpiApply(keys){localStorage.setItem('dashKpis_'+_dashClientId,JSON.stringify(keys));applyDashFilters();renderDashKpiEditor();}
+function dashKpiMove(i,d){const s=dashKpiKeys();const j=i+d;if(j<0||j>=s.length)return;[s[i],s[j]]=[s[j],s[i]];_dashKpiApply(s);}
+function dashKpiRemove(i){const s=dashKpiKeys();s.splice(i,1);_dashKpiApply(s);}
+function dashKpiAdd(k){if(!k||!METRIC_CATALOG[k])return;const s=dashKpiKeys();if(!s.includes(k)){s.push(k);_dashKpiApply(s);}}
+function dashKpiReset(){localStorage.removeItem('dashKpis_'+_dashClientId);applyDashFilters();renderDashKpiEditor();}
+async function dashKpiSaveDefault(){
+  const s=dashKpiKeys();const c=DB.clients.find(x=>x.id===_dashClientId);if(!c||!s.length)return;
+  const {error}=await sb.from('clients').update({dash_kpis:s}).eq('id',c.id);
+  if(error){alert('Erro ao salvar: '+error.message);return;}
+  c.dashKpis=s.slice();localStorage.removeItem('dashKpis_'+c.id);
+  renderDashKpiEditor();
+  const p=document.getElementById('dashKpiEditor');if(p){const ok=document.createElement('div');ok.style.cssText='font-size:12px;color:#34d399;margin-top:4px';ok.textContent='✓ Salvo como padrão deste cliente (vale pra equipe toda)';p.appendChild(ok);setTimeout(()=>ok.remove(),3500);}
+}
+function toggleDashKpiEditor(){const p=document.getElementById('dashKpiEditor');if(!p)return;p.style.display=p.style.display==='none'?'block':'none';renderDashKpiEditor();}
+function renderDashKpiEditor(){
+  const p=document.getElementById('dashKpiEditor');if(!p||p.style.display==='none')return;
+  const s=dashKpiKeys();
+  const rows=s.map((k,i)=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 9px;font-size:12px"><b>${i+1}.</b> ${METRIC_CATALOG[k].label}
+    <a onclick="dashKpiMove(${i},-1)" style="cursor:pointer;color:var(--muted)">◀</a><a onclick="dashKpiMove(${i},1)" style="cursor:pointer;color:var(--muted)">▶</a><a onclick="dashKpiRemove(${i})" style="cursor:pointer;color:#f87171;font-weight:700">×</a></span>`).join('');
+  const opts=Object.entries(METRIC_CATALOG).filter(([k])=>!s.includes(k)).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
+  p.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">${rows}
+    <select onchange="dashKpiAdd(this.value);this.value=''" style="width:auto;font-size:12px"><option value="">+ adicionar métrica…</option>${opts}</select>
+    <button class="btn sm primary" type="button" onclick="dashKpiSaveDefault()">💾 Salvar padrão do cliente</button>
+    <button class="btn sm ghost" type="button" onclick="dashKpiReset()">↺ restaurar padrão</button></div>
+    <div style="font-size:11px;color:var(--faint);margin-bottom:10px">◀ ▶ mudam a ordem · × remove · 💾 grava como padrão do cliente (equipe toda) · ↺ volta pro padrão do objetivo setado/modelo. Os valores respeitam canal, filtros de conta/campanha/conjunto e o período.</div>`;
+}
+/* ---- Card de Benchmark (atual vs metas do cliente) ---- */
+function renderDashBench(){
+  const el=document.getElementById('dashBenchCard');if(!el)return;
+  const c=DB.clients.find(x=>x.id===_dashClientId);
+  const bm=(c&&c.benchmarkMetas)||null;
+  if(!bm){el.style.display='none';return}
+  const agg=dashAggFiltered();
+  const map=[['ctr','ctr','CTR',1],['cpc','cpc','CPC',-1],['cpm','cpm','CPM',-1],['roas','roas','ROAS',1],['cpa','custoPorCompra','Custo por Compra',-1],['cpl','cpl','CPL',-1],['custoConversa','custoPorConversa','Custo por Conversa',-1],['custoView','custoPorView','Custo por View',-1]];
+  const rows=map.filter(([bk])=>bm[bk]!=null&&+bm[bk]!==0).map(([bk,mk,lbl,dir])=>{
+    const mc=METRIC_CATALOG[mk];const cur=mc.calc(agg);const bench=+bm[bk];
+    const delta=bench?((cur-bench)/bench)*100:0;
+    const good=dir>0?delta>=0:delta<=0;
+    const col=good?'#34d399':'#f87171';
+    // barra: benchmark = marca do meio; encher proporcional ao desempenho relativo
+    const ratio=bench?(dir>0?cur/bench:(cur?bench/cur:2)):1;
+    const pct=Math.max(4,Math.min(100,ratio*50));
+    return `<div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:12.5px;font-weight:600">${lbl}</span>
+        <span style="font-size:11px;font-weight:800;color:${col};background:${good?'rgba(52,211,153,.12)':'rgba(248,113,113,.12)'};border:1px solid ${col}55;border-radius:8px;padding:2px 8px">${delta>=0?'▲':'▼'} ${Math.abs(delta).toFixed(1)}%</span>
+      </div>
+      <div style="position:relative;height:12px;background:rgba(255,255,255,.06);border-radius:8px;overflow:hidden">
+        <div style="height:100%;width:${pct.toFixed(1)}%;background:linear-gradient(90deg,${col}88,${col});border-radius:8px"></div>
+        <div style="position:absolute;left:50%;top:0;bottom:0;width:2px;background:rgba(255,255,255,.25)" title="meta"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:3px"><span>Atual: <b style="color:var(--text)">${fmtMetric(cur,mc.fmt)}</b></span><span>Meta: ${fmtMetric(bench,mc.fmt)}</span></div>
+    </div>`;
+  });
+  if(!rows.length){el.style.display='none';return}
+  el.style.display='block';
+  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="margin:0">🎯 Benchmark do cliente</h3><span style="font-size:11px;color:var(--faint)">metas do cadastro (aba Relatórios) · respeita canal, filtros e período</span></div>
+    <div style="columns:2;column-gap:24px">${rows.map(r=>`<div style="break-inside:avoid">${r}</div>`).join('')}</div>`;
+}
+/* ---- Performance por Segmentação (Meta: sexo / plataforma / posicionamento) ---- */
+let _dashSeg=null,_dashSegDim='sexo',_dashGoogleDet=null,_dashGDim='conversoes';
+const SEG_LABELS={male:'Masculino',female:'Feminino',unknown:'Desconhecido',facebook:'Facebook',instagram:'Instagram',audience_network:'Audience Network',messenger:'Messenger'};
+async function loadDashSeg(){
+  const el=document.getElementById('dashSegCard');if(!el)return;
+  const c=DB.clients.find(x=>x.id===_dashClientId);if(!c||!(c.metaAccountIds&&c.metaAccountIds.length))return;
+  el.innerHTML='<h3 style="margin:0 0 10px">👥 Performance por Segmentação</h3><div class="empty" style="padding:14px">Carregando segmentações…</div>';
+  try{
+    const accounts=c.metaAccountIds.map(id=>({id,name:''}));
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaBreakdowns:{accounts,since:_dashSince,until:_dashUntil}}});
+    if(error)throw error;if(data&&data.error)throw new Error(data.error);
+    _dashSeg=(data&&data.data)||null;
+    renderDashSeg();
+  }catch(e){el.innerHTML='<h3 style="margin:0 0 10px">👥 Performance por Segmentação</h3><div class="empty" style="padding:14px">Erro: '+(e.message||e)+'</div>';}
+}
+function setDashSegDim(d){_dashSegDim=d;renderDashSeg();}
+function renderDashSeg(){
+  const el=document.getElementById('dashSegCard');if(!el||!_dashSeg)return;
+  const dims=[['sexo','Sexo'],['plataforma','Plataforma'],['posicionamento','Posicionamento']];
+  const btns=dims.map(([k,l])=>`<button class="btn sm ${_dashSegDim===k?'primary':'ghost'}" onclick="setDashSegDim('${k}')">${l}</button>`).join('');
+  const list=(_dashSeg[_dashSegDim]||[]).filter(r=>r.spend>0);
+  const th=(s,l)=>`<th style="text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">${s}</th>`;
+  const td=(s,b,l)=>`<td style="padding:7px 10px;font-size:12px;text-align:${l?'left':'right'};${b?'font-weight:700;':''}border-bottom:1px solid rgba(255,255,255,.04)">${s}</td>`;
+  const segLbl=k=>{const s=String(k||'—');return (SEG_LABELS[s]||s.replace(/_/g,' ')).replace(/</g,'&lt;');};
+  const table=list.length?`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+    <tr>${th('Segmento',1)}${th('Invest.')}${th('Impr.')}${th('Cliques')}${th('CTR')}${th('CPC')}${th('Compras')}${th('Leads')}${th('Conversas')}</tr>
+    ${list.map(r=>`<tr>${td(segLbl(r.key),1,1)}${td(fmt(r.spend))}${td(Math.round(r.impressions).toLocaleString('pt-BR'))}${td(Math.round(r.clicks).toLocaleString('pt-BR'))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${td(Math.round(r.purchases).toLocaleString('pt-BR'))}${td(Math.round(r.leads).toLocaleString('pt-BR'))}${td(Math.round(r.conversas).toLocaleString('pt-BR'))}</tr>`).join('')}
+  </table></div>`:'<div class="empty" style="padding:14px">Sem dados de segmentação no período.</div>';
+  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+    <h3 style="margin:0">👥 Performance por Segmentação</h3>
+    <div style="display:flex;gap:5px;align-items:center"><span style="font-size:11px;color:var(--faint)">Ver por:</span>${btns}</div>
+  </div><div style="font-size:11px;color:var(--faint);margin-bottom:8px">Nível de conta (não segue os filtros de campanha/conjunto).</div>${table}`;
+}
+/* ---- Detalhes do Google: conversões por ação, palavras-chave e termos de busca ---- */
+async function loadDashGoogleDet(){
+  const el=document.getElementById('dashGoogleCard');if(!el)return;
+  const c=DB.clients.find(x=>x.id===_dashClientId);if(!c||!(c.googleAccountIds&&c.googleAccountIds.length))return;
+  el.innerHTML='<h3 style="margin:0 0 10px">🔎 Google — Detalhes</h3><div class="empty" style="padding:14px">Carregando conversões, palavras-chave e termos de busca…</div>';
+  try{
+    const accounts=c.googleAccountIds.map(id=>({id}));
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleBreakdowns:{accounts,since:_dashSince,until:_dashUntil}}});
+    if(error)throw error;if(data&&data.error)throw new Error(data.error);
+    _dashGoogleDet=(data&&data.data)||null;
+    renderDashGoogleDet();
+  }catch(e){el.innerHTML='<h3 style="margin:0 0 10px">🔎 Google — Detalhes</h3><div class="empty" style="padding:14px">Erro: '+(e.message||e)+'</div>';}
+}
+function setDashGDim(d){_dashGDim=d;renderDashGoogleDet();}
+function renderDashGoogleDet(){
+  const el=document.getElementById('dashGoogleCard');if(!el||!_dashGoogleDet)return;
+  const dims=[['conversoes','Conversões por Ação'],['keywords','Palavras-chave'],['termos','Termos de Busca']];
+  const btns=dims.map(([k,l])=>`<button class="btn sm ${_dashGDim===k?'primary':'ghost'}" onclick="setDashGDim('${k}')">${l}</button>`).join('');
+  const list=(_dashGoogleDet[_dashGDim]||[]).slice(0,40);
+  const th=(s,l)=>`<th style="text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">${s}</th>`;
+  const td=(s,b,l)=>`<td style="padding:7px 10px;font-size:12px;text-align:${l?'left':'right'};${b?'font-weight:700;':''}border-bottom:1px solid rgba(255,255,255,.04)">${s}</td>`;
+  let table;
+  if(_dashGDim==='conversoes'){
+    table=list.length?`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <tr>${th('Ação de conversão',1)}${th('Conversões')}${th('Valor')}</tr>
+      ${list.map(r=>`<tr>${td(String(r.key).replace(/</g,'&lt;'),1,1)}${td(r.conversions.toFixed(1),1)}${td(r.value?fmt(r.value):'—')}</tr>`).join('')}
+    </table></div>`:'<div class="empty" style="padding:14px">Sem conversões no período.</div>';
+  }else{
+    const nameLbl=_dashGDim==='keywords'?'Palavra-chave':'Termo de busca';
+    table=list.length?`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <tr>${th(nameLbl,1)}${th('Invest.')}${th('Impr.')}${th('Cliques')}${th('CTR')}${th('CPC')}${th('Conv.')}${th('Valor')}</tr>
+      ${list.map(r=>`<tr>${td(String(r.key).replace(/</g,'&lt;'),1,1)}${td(fmt(r.spend))}${td(Math.round(r.impressions).toLocaleString('pt-BR'))}${td(Math.round(r.clicks).toLocaleString('pt-BR'))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${td(r.conversions.toFixed(1))}${td(r.value?fmt(r.value):'—')}</tr>`).join('')}
+    </table></div>`:'<div class="empty" style="padding:14px">Sem dados no período.</div>';
+  }
+  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+    <h3 style="margin:0">🔎 Google — Detalhes</h3>
+    <div style="display:flex;gap:5px;flex-wrap:wrap">${btns}</div>
+  </div>${(_dashGoogleDet.errors&&_dashGoogleDet.errors.length)?`<div style="font-size:11px;color:var(--faint);margin-bottom:8px">⚠ ${_dashGoogleDet.errors.join(' · ').replace(/</g,'&lt;')}</div>`:''}${table}`;
+}
+/* ---- Compartilhar: gera HTML standalone do dashboard pra enviar ao cliente ---- */
+function dashShareHTML(){
+  const c=DB.clients.find(x=>x.id===_dashClientId);if(!c)return;
+  const agg=dashAggFiltered();
+  const srcName=_dashSource==='google'?'Google Ads':'Meta Ads';
+  const period=dateBR(_dashSince)+' – '+dateBR(_dashUntil);
+  const kpis=dashKpiKeys().map(k=>{const mc=METRIC_CATALOG[k];const key=_dashTpl&&k===_dashTpl.keyMetric;return `<div class="kpi${key?' star':''}"><div class="l">${mc.label}${key?' ★':''}</div><div class="v">${fmtMetric(mc.calc(agg),mc.fmt)}</div></div>`}).join('');
+  const img=id=>{const cv=document.getElementById(id);try{return cv?`<img src="${cv.toDataURL('image/png')}" alt="">`:''}catch(e){return ''}};
+  const fun=dashFunnelAgg()||{};
+  const stages=dashFunnelStages().map(k=>({label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(fun)||0)})).filter(s=>s.value>0);
+  const funBars=stages.length?stages.map((s,i)=>{const pct=stages[0].value?(s.value/stages[0].value*100):0;const step=i>0&&stages[i-1].value?(s.value/stages[i-1].value*100):100;
+    return `<div class="fs"><div class="fl"><span>${s.label}</span><span>${s.value.toLocaleString('pt-BR')}${i>0?` <em>(${step.toFixed(1)}%)</em>`:''}</span></div><div class="fb"><div style="width:${Math.max(pct,3).toFixed(1)}%"></div></div></div>`;}).join(''):'';
+  const benchEl=document.getElementById('dashBenchCard');
+  const bench=(benchEl&&benchEl.style.display!=='none')?`<div class="sec"><h2>🎯 Benchmark</h2>${benchEl.innerHTML.replace(/<h3[\s\S]*?<\/div>/,'')}</div>`:'';
+  const segEl=document.getElementById('dashSegCard'),gEl=document.getElementById('dashGoogleCard');
+  const extra=(segEl&&_dashSeg)?`<div class="sec">${segEl.innerHTML.replace(/<button[^>]*>|<\/button>/g,'')}</div>`:(gEl&&_dashGoogleDet)?`<div class="sec">${gEl.innerHTML.replace(/<button[^>]*>|<\/button>/g,'')}</div>`:'';
+  const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${c.name.replace(/</g,'')} — Dashboard</title><style>
+  :root{color-scheme:dark}body{margin:0;background:#0f0f13;color:#e8eaf0;font-family:'Segoe UI',system-ui,sans-serif;padding:28px 4vw}
+  .hd{margin-bottom:22px}.hd h1{margin:0;font-size:22px}.hd .p{color:#9aa0aa;font-size:13px;margin-top:4px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:22px}
+  .kpi{background:#191922;border:1px solid #2a2a35;border-radius:12px;padding:12px 14px;border-top:2px solid #7c5cff}
+  .kpi.star{outline:2px solid #34d399;outline-offset:-1px;border-top-color:#34d399}
+  .kpi .l{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#9aa0aa}.kpi .v{font-size:19px;font-weight:800;margin-top:4px}
+  .sec{background:#15151c;border:1px solid #2a2a35;border-radius:14px;padding:18px;margin-bottom:18px}
+  .sec h2,.sec h3{margin:0 0 12px;font-size:15px}img{max-width:100%;border-radius:10px}
+  table{width:100%;border-collapse:collapse}th{font-size:10px;text-transform:uppercase;color:#9aa0aa;text-align:right;padding:7px 10px;border-bottom:1px solid #2a2a35}th:first-child{text-align:left}
+  td{font-size:12.5px;text-align:right;padding:7px 10px;border-bottom:1px solid #22222c}td:first-child{text-align:left;font-weight:600}
+  .fs{margin-bottom:11px}.fl{display:flex;justify-content:space-between;font-size:12.5px;color:#c7ccd4;margin-bottom:4px}.fl em{color:#9aa0aa;font-style:normal;font-size:11px}
+  .fb{height:24px;background:#22222c;border-radius:7px;overflow:hidden}.fb div{height:100%;background:linear-gradient(90deg,#1d4ed8,#60a5fa);border-radius:7px}
+  .ft{color:#6b7280;font-size:11px;text-align:center;margin-top:26px}</style></head><body>
+  <div class="hd"><h1>${c.name.replace(/</g,'')}</h1><div class="p">Dashboard de Performance · ${srcName} · ${period}${dashFilterActive()?' · com filtros aplicados':''}</div></div>
+  <div class="kpis">${kpis}</div>
+  ${img('cDashLine')?`<div class="sec"><h2>📈 Evolução Diária</h2>${img('cDashLine')}</div>`:''}
+  ${funBars?`<div class="sec"><h2>🔻 Funil</h2>${funBars}</div>`:''}
+  ${bench}
+  ${(img('cDashBar')||img('cDashDonut'))?`<div class="sec"><h2>🏆 Top & Distribuição</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">${img('cDashBar')}${img('cDashDonut')}</div></div>`:''}
+  ${extra}
+  <div class="ft">Gerado em ${new Date().toLocaleDateString('pt-BR')} · GT Marketing</div>
+  </body></html>`;
+  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`dashboard-${c.name.toLowerCase().replace(/[^a-z0-9]+/g,'-')}-${_dashSince}-a-${_dashUntil}.html`;
+  document.body.appendChild(a);a.click();a.remove();
+}
 // KPIs por objetivo do cliente no dashboard (respeita reportFocos e os filtros de conta/campanha/conjunto)
 function dashFocosHTML(){
   const c=DB.clients.find(x=>x.id===_dashClientId);
@@ -4859,11 +5065,12 @@ function applyDashFilters(){
   if(grid&&_dashTpl){
     const agg=dashAggFiltered();
     const prevAgg=(_dashCompare&&_dashPrevAds)?_dashAggFromAds(_dashPrevAds):null;
-    grid.innerHTML=(_dashTpl.metrics||[]).filter(k=>METRIC_CATALOG[k]).map(k=>{const mc=METRIC_CATALOG[k];const key=k===_dashTpl.keyMetric;return`<div class="rt-kpi ${key?'gr':'pu'}"${key?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${mc.label}${key?' ★':''}</div><div class="rt-kpi-val sm">${fmtMetric(mc.calc(agg),mc.fmt)}</div>${prevAgg?dashDeltaHTML(k,agg,prevAgg):''}</div>`}).join('')
+    grid.innerHTML=dashKpiKeys().map(k=>{const mc=METRIC_CATALOG[k];const key=k===_dashTpl.keyMetric;return`<div class="rt-kpi ${key?'gr':'pu'}"${key?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${mc.label}${key?' ★':''}</div><div class="rt-kpi-val sm">${fmtMetric(mc.calc(agg),mc.fmt)}</div>${prevAgg?dashDeltaHTML(k,agg,prevAgg):''}</div>`}).join('')
       +(prevAgg&&_dashPrevRange?`<div style="grid-column:1/-1;font-size:11px;color:var(--faint)">⇄ comparando com ${dateBR(_dashPrevRange.since)}–${dateBR(_dashPrevRange.until)} (mesma duração, mesmos filtros)</div>`:'')
       +((_dashCompare&&!_dashPrevAds)?`<div style="grid-column:1/-1;font-size:11px;color:var(--muted)">⇄ carregando período anterior…</div>`:'');
   }
   const fr=document.getElementById('dashFocosRow');if(fr)fr.innerHTML=dashFocosHTML();
+  renderDashBench();
   renderDashFunnel();
   drawDashLine();drawDashLevel();
 }
@@ -4912,18 +5119,32 @@ function renderMetaDashboard(c,rep,since,until){
       <input type="date" id="dashDateFrom" value="${_metaDashSince||''}" style="width:auto;font-size:12px"><span style="color:var(--faint)">–</span><input type="date" id="dashDateTo" value="${_metaDashUntil||''}" style="width:auto;font-size:12px">
       <button class="btn sm primary" onclick="metaDashCustom('${c.id}')">Aplicar</button></span>
     <button class="btn sm ghost" id="dashCmpBtn" type="button" onclick="toggleDashCompare('${c.id}')" title="Compara todas as métricas com o período imediatamente anterior de mesma duração">⇄ Comparar</button>`;
-  const cards=(tpl.metrics||[]).filter(k=>METRIC_CATALOG[k]).map(k=>{const mc=METRIC_CATALOG[k];const key=k===tpl.keyMetric;return`<div class="rt-kpi ${key?'gr':'pu'}"${key?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${mc.label}${key?' ★':''}</div><div class="rt-kpi-val sm">${fmtMetric(mc.calc(agg),mc.fmt)}</div></div>`}).join('');
+  const kpiKeys0=dashKpiKeys();
+  const cards=kpiKeys0.map(k=>{const mc=METRIC_CATALOG[k];const key=k===tpl.keyMetric;return`<div class="rt-kpi ${key?'gr':'pu'}"${key?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${mc.label}${key?' ★':''}</div><div class="rt-kpi-val sm">${fmtMetric(mc.calc(agg),mc.fmt)}</div></div>`}).join('');
   const lvlBtns=[['campanha','Campanha'],['conjunto','Conjunto'],['anuncio','Anúncio']].map(([k,l])=>`<button class="btn sm ${_dashLevel===k?'primary':'ghost'}" data-dlvl="${k}" onclick="setDashLevel('${k}')">${l}</button>`).join('');
+  const hasM=!!(c.metaAccountIds&&c.metaAccountIds.length),hasG=!!(c.googleAccountIds&&c.googleAccountIds.length);
+  const srcName=_dashSource==='google'?'Google Ads':'Meta Ads';
+  const srcBtn=(k,l)=>`<button class="btn sm ${_dashSource===k?'primary':'ghost'}" onclick="setDashSource('${k}')">${l}</button>`;
+  const srcBar=((hasM?srcBtn('meta','Ⓜ️ Meta Ads'):'')+(hasG?srcBtn('google','🔎 Google Ads'):''));
   body.innerHTML=`<div id="dashBudgetWarn"></div>
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
-        <div><h3 style="margin:0">📡 META — ao vivo</h3><div class="hint">${dateBR(since)}–${dateBR(until)} · modelo: ${(tpl.name||'').replace(/</g,'&lt;')}</div></div>
-        <div style="display:flex;gap:5px">${rangeBtns}</div>
+        <div><h3 style="margin:0">📡 ${srcName}</h3><div class="hint">${dateBR(since)}–${dateBR(until)} · modelo: ${(tpl.name||'').replace(/</g,'&lt;')}</div></div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">${rangeBtns}<button class="btn sm ghost" type="button" onclick="dashShareHTML()" title="Gera um arquivo HTML do dashboard pra enviar ao cliente">📤 Compartilhar</button></div>
       </div>
+      ${(hasM&&hasG)?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${srcBar}</div>`:''}
       <div id="dashFilterBar" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700">⭐ KPIs Principais</div>
+        <button class="btn sm ghost" type="button" onclick="toggleDashKpiEditor()" title="Escolher quais métricas aparecem aqui">✎ Editar métricas</button>
+      </div>
+      <div id="dashKpiEditor" style="display:none"></div>
       <div id="dashKpiGrid" class="rt-kpi-grid">${cards}</div>
       <div id="dashFocosRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px"></div>
     </div>
+    <div class="card" id="dashBenchCard" style="margin-bottom:16px;display:none"></div>
+    ${_dashSource==='meta'?`<div class="card" id="dashSegCard" style="margin-bottom:16px"></div>`:''}
+    ${_dashSource==='google'?`<div class="card" id="dashGoogleCard" style="margin-bottom:16px"></div>`:''}
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
         <h3 style="margin:0">📈 Evolução Diária</h3>
@@ -4960,8 +5181,10 @@ function renderMetaDashboard(c,rep,since,until){
       </div>
     </div>`;
   renderDashFilterBar();
+  _dashSeg=null;_dashGoogleDet=null; // segmentação/detalhes recarregam pro novo período
   applyDashFilters();setDashLevel(_dashLevel);
-  dashLoadStatuses(c); // status 🟢/🔴 chega async e re-renderiza os seletores do funil
+  if(_dashSource==='meta'){loadDashSeg();dashLoadStatuses(c);} // status 🟢/🔴 chega async e re-renderiza os seletores do funil
+  if(_dashSource==='google')loadDashGoogleDet();
   renderBudgetBanner(c,'dashBudgetWarn'); // teto de investimento (async)
 }
 async function fetchMetaChannelStats(c,month){
