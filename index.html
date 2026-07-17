@@ -1564,7 +1564,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,minBalance:+r.min_balance||0});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,minBalance:+r.min_balance||0});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -5694,14 +5694,56 @@ function setReportTab(id){
   document.querySelectorAll('#rtPrintArea .rtTab').forEach(el=>el.classList.toggle('rtoff',el.dataset.rtab!==id));
   document.querySelectorAll('.rtTabBtn').forEach(b=>b.classList.toggle('on',b.dataset.rtab===id));
 }
-// ---- Funil filtrável por canal ----
-let _funnelAggs={},_funnelTpl=null,_funnelNoSales=false;
-function funnelStagesFor(agg,tpl,noSales){
-  return (tpl&&tpl.funnel||[]).filter(k=>FUNNEL_CATALOG[k])
+// ---- Funil filtrável por canal (etapas editáveis, seguem o objetivo setado) ----
+let _funnelAggs={},_funnelKeys=[],_funnelNoSales=false,_funnelClientId='',_funnelChannel='';
+// Etapas do funil do relatório: 1) ajuste local → 2) padrão salvo do cliente (banco) → 3) funil do objetivo setado (🎯 Objetivos do cliente) → 4) funil do modelo
+function reportFunnelKeys(c,tpl){
+  try{const s=JSON.parse(localStorage.getItem('rtFunnel_'+c.id)||'null');if(Array.isArray(s)&&s.length)return s.filter(k=>FUNNEL_CATALOG[k]);}catch(e){}
+  if(Array.isArray(c.reportFunnel)&&c.reportFunnel.length)return c.reportFunnel.filter(k=>FUNNEL_CATALOG[k]);
+  const foco=(c.reportFocos&&c.reportFocos.length)?c.reportFocos[0]:null;
+  if(foco){const bt=BASE_TEMPLATES.find(t=>t.objectiveType===foco);if(bt)return bt.funnel.filter(k=>FUNNEL_CATALOG[k]);}
+  return ((tpl&&tpl.funnel)||[]).filter(k=>FUNNEL_CATALOG[k]);
+}
+function funnelStagesFor(agg,keys,noSales){
+  return (keys||[]).filter(k=>FUNNEL_CATALOG[k])
     .map(k=>({key:k,label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(agg||{}))}))
     .filter(s=>!(['checkout','addCarrinho','leads','conversas','videoViews','engajamentos'].includes(s.key)&&s.value===0))
     .filter(s=>!(noSales&&(s.key==='compras'||s.key==='checkout'||s.key==='addCarrinho')));
 }
+function _rtFunnelApply(keys){
+  localStorage.setItem('rtFunnel_'+_funnelClientId,JSON.stringify(keys));
+  _funnelKeys=keys;renderFunnel(_funnelChannel);renderRtFunnelEditor();
+}
+function rtFunnelMove(i,d){const s=_funnelKeys.slice();const j=i+d;if(j<0||j>=s.length)return;[s[i],s[j]]=[s[j],s[i]];_rtFunnelApply(s);}
+function rtFunnelRemove(i){const s=_funnelKeys.slice();s.splice(i,1);_rtFunnelApply(s);}
+function rtFunnelAdd(k){if(!k||!FUNNEL_CATALOG[k])return;if(!_funnelKeys.includes(k))_rtFunnelApply(_funnelKeys.concat(k));}
+function rtFunnelReset(){
+  localStorage.removeItem('rtFunnel_'+_funnelClientId);
+  const c=DB.clients.find(x=>x.id===_funnelClientId)||{};
+  _funnelKeys=reportFunnelKeys(c,_funnelTplRef);renderFunnel(_funnelChannel);renderRtFunnelEditor();
+}
+async function rtFunnelSaveDefault(){
+  const c=DB.clients.find(x=>x.id===_funnelClientId);if(!c||!_funnelKeys.length)return;
+  const {error}=await sb.from('clients').update({report_funnel:_funnelKeys}).eq('id',c.id);
+  if(error){alert('Erro ao salvar: '+error.message);return;}
+  c.reportFunnel=_funnelKeys.slice();localStorage.removeItem('rtFunnel_'+c.id);
+  renderRtFunnelEditor();
+  const p=document.getElementById('rtFunnelEditor');if(p){const ok=document.createElement('div');ok.style.cssText='font-size:12px;color:#34d399;margin-top:4px';ok.textContent='✓ Salvo como padrão deste cliente (vale pra equipe toda)';p.appendChild(ok);setTimeout(()=>ok.remove(),3500);}
+}
+function toggleRtFunnelEditor(){const p=document.getElementById('rtFunnelEditor');if(!p)return;p.style.display=p.style.display==='none'?'block':'none';renderRtFunnelEditor();}
+function renderRtFunnelEditor(){
+  const p=document.getElementById('rtFunnelEditor');if(!p||p.style.display==='none')return;
+  const s=_funnelKeys;
+  const rows=s.map((k,i)=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--rbg2);border:1px solid var(--rbr);border-radius:8px;padding:4px 9px;font-size:12px"><b>${i+1}.</b> ${FUNNEL_CATALOG[k].label}
+    <a onclick="rtFunnelMove(${i},-1)" title="mover antes" style="cursor:pointer;color:var(--rtm)">◀</a><a onclick="rtFunnelMove(${i},1)" title="mover depois" style="cursor:pointer;color:var(--rtm)">▶</a><a onclick="rtFunnelRemove(${i})" title="remover" style="cursor:pointer;color:#f87171;font-weight:700">×</a></span>`).join('');
+  const opts=Object.entries(FUNNEL_CATALOG).filter(([k])=>!s.includes(k)).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
+  p.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">${rows}
+    <select onchange="rtFunnelAdd(this.value);this.value=''" style="width:auto;font-size:12px"><option value="">+ adicionar etapa…</option>${opts}</select>
+    <button class="btn sm primary" type="button" onclick="rtFunnelSaveDefault()">💾 Salvar padrão do cliente</button>
+    <button class="btn sm ghost" type="button" onclick="rtFunnelReset()">↺ restaurar padrão</button></div>
+    <div style="font-size:11px;color:var(--rtm);margin-bottom:10px">◀ ▶ mudam a ordem · × remove · 💾 grava como padrão do cliente (equipe toda) · ↺ volta pro funil do objetivo setado. Etapas sem dado no mês (ex: leads = 0) ficam ocultas automaticamente.</div>`;
+}
+let _funnelTplRef=null;
 function funnelBarsHTML(stages){
   if(!stages.length||!stages[0].value)return '<div class="empty" style="padding:20px">Sem dados de funil para este canal.</div>';
   return `<div class="rt-tc"><div style="padding:18px">${stages.map((s,i)=>{
@@ -5711,8 +5753,9 @@ function funnelBarsHTML(stages){
   }).join('')}</div></div>`;
 }
 function renderFunnel(key){
+  _funnelChannel=key||'';
   document.querySelectorAll('[data-funch]').forEach(b=>{const on=b.dataset.funch===key;b.classList.toggle('primary',on);b.classList.toggle('ghost',!on)});
-  const wrap=document.getElementById('funnelWrap');if(wrap)wrap.innerHTML=funnelBarsHTML(funnelStagesFor(_funnelAggs[key]||{},_funnelTpl,_funnelNoSales));
+  const wrap=document.getElementById('funnelWrap');if(wrap)wrap.innerHTML=funnelBarsHTML(funnelStagesFor(_funnelAggs[key]||{},_funnelKeys,_funnelNoSales));
 }
 function funnelChannelAgg(ch){return {spend:ch.spend||0,impressions:ch.impressions||0,clicks:ch.clicks||0,reach:ch.reach||0,revenue:ch.revenue||0,compras:Math.round(ch.sales||0),leads:ch.leads||0,addCarrinho:ch.addToCart||0,checkout:ch.initiateCheckout||0,conversas:ch.conversas||0,videoViews:ch.videoViews||0,engajamentos:ch.engajamentos||0,frequencia:ch.reach?ch.impressions/ch.reach:0};}
 async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds){
@@ -5769,8 +5812,9 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
 
   // Funil por canal: 'Geral' usa tplAgg (tudo somado); cada canal usa só os dados dele (impressões, cliques, checkout E venda daquele canal)
   _funnelAggs={'':tplAgg};channelList.forEach(ch=>{_funnelAggs[ch.label]=funnelChannelAgg(ch)});
-  _funnelTpl=clientTpl;_funnelNoSales=noSales;
-  const funnelStages=funnelStagesFor(tplAgg,clientTpl,noSales);
+  _funnelTplRef=clientTpl;_funnelNoSales=noSales;_funnelClientId=c.id;_funnelChannel='';
+  _funnelKeys=reportFunnelKeys(c,clientTpl);
+  const funnelStages=funnelStagesFor(tplAgg,_funnelKeys,noSales);
   const funnelChips=`<button data-funch="" class="btn sm primary" onclick="renderFunnel('')">Geral</button>`+channelList.map(ch=>`<button data-funch="${ch.label.replace(/'/g,'')}" class="btn sm ghost" onclick="renderFunnel('${ch.label.replace(/'/g,'')}')">${ch.label}</button>`).join('');
   const mesLabel=new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   const analysis=await loadReportAnalysis(c.id,month);
@@ -5859,9 +5903,10 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
         </div>
       </div>`:'';
   const secFunil=(funnelStages[0]&&funnelStages[0].value)?`<div class="rt-sec">
-        <div class="rt-sec-hdr"><div class="rt-sec-num">🔻</div><div class="rt-sec-title">Funil de Conversão</div><div class="rt-sec-ln"></div></div>
+        <div class="rt-sec-hdr"><div class="rt-sec-num">🔻</div><div class="rt-sec-title">Funil de Conversão</div><div class="rt-sec-ln"></div><button class="btn sm ghost rt-no-print" type="button" onclick="toggleRtFunnelEditor()" title="Editar as etapas do funil">✎ Editar etapas</button></div>
         <div style="font-size:11.5px;color:var(--rt2);margin-bottom:8px">Padrão <b>Geral</b> (todos os canais). Filtre por canal pra ver as etapas E a venda só daquele canal — tudo coerente.</div>
         <div class="rt-no-print" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">${funnelChips}</div>
+        <div id="rtFunnelEditor" class="rt-no-print" style="display:none"></div>
         <div id="funnelWrap">${funnelBarsHTML(funnelStages)}</div>
       </div>`:'';
   const resumoRows=[];
