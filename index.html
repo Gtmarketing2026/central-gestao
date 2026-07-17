@@ -1778,7 +1778,7 @@ function selectSidebarClient(id){
   else{openClientConfig(id);}
 }
 /* ===== CAMPANHAS (drill-down estilo gerenciador) ===== */
-let _campDays=30,_campAds=[],_campClientId='',_campFoco='',_campSince='',_campUntil='',_campSearch='',_campStatusFilter='',_campMinSpend=0,_campShowPaused=false,_campPreset='30',_campCompare=false,_campPrev=null;
+let _campDays=30,_campAds=[],_campClientId='',_campFoco='',_campSince='',_campUntil='',_campSearch='',_campStatusFilter='',_campMinSpend=0,_campShowPaused=false,_campPreset='30',_campCompare=false,_campPrev=null,_campAccErrors=[];
 const CAMP_AGG_KEYS=['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'];
 function _newAgg(){const o={};CAMP_AGG_KEYS.forEach(k=>o[k]=0);return o;}
 function _addAgg(agg,a){CAMP_AGG_KEYS.forEach(k=>agg[k]+=(a[k]||0));}
@@ -1797,6 +1797,7 @@ async function loadCampanhas(clientId,days){
     const since=_campSince||daysAgoISO(_campDays),until=_campUntil||today();
     const rep=await fetchMetaReportRange(c,since,until);
     _campAds=refineCampAds(rep.ads||[]);
+    _campAccErrors=rep.accountErrors||[];
     _campCols=focoCols(_campFoco);
     _campStatus={camp:{},adset:{},ad:{}};
     renderCampFocos();renderCampBody(); // mostra a tabela já (status carrega em seguida)
@@ -1962,6 +1963,13 @@ function campRowHTML(name,level,agg,tipo,toggleId,badge,objLevel,objId){
     <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(name||'').replace(/"/g,'')}">${stBtn}${caret} ${campHL(name)}${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400">${badge}</span>`:''}</div>
     ${cells}</div>`;
 }
+function campAccErrBar(){
+  if(!_campAccErrors.length)return '';
+  return `<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.5);border-radius:10px;padding:10px 14px;margin-bottom:10px">
+    <div style="font-size:12.5px;font-weight:800;color:#f87171">⚠ ${_campAccErrors.length} conta(s) com erro de vinculação — os números abaixo NÃO incluem essas contas</div>
+    ${_campAccErrors.map(e=>`<div style="font-size:12px;margin-top:5px"><b>${String(e.name||e.id).replace(/</g,'&lt;')}</b> <span style="color:var(--faint)">(${e.id})</span><br><span style="color:var(--muted)">Motivo: ${metaErrHuman(e.error).replace(/</g,'&lt;')}</span></div>`).join('')}
+  </div>`;
+}
 function renderCampBody(){
   const body=document.getElementById('campBody');if(!body)return;
   let ads=_campAds.filter(a=>a.spend>0);
@@ -1970,7 +1978,7 @@ function renderCampBody(){
   let tree=buildCampaignTree(ads);
   if(_campStatusFilter)tree=tree.filter(cp=>(_campStatus.camp[cp.id]||'')===_campStatusFilter);
   if(_campMinSpend>0)tree=tree.filter(cp=>cp.agg.spend>=_campMinSpend);
-  if(!tree.length){body.innerHTML='<div class="empty">Nenhuma campanha para o filtro atual.</div>';return}
+  if(!tree.length){body.innerHTML=campAccErrBar()+'<div class="empty">Nenhuma campanha para o filtro atual.</div>';return}
   const header=`<div style="display:grid;${campGrid()}align-items:center;border-bottom:2px solid var(--border)">
     <div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted)">Campanha / Conjunto / Anúncio</div>
     ${_campCols.map(k=>`<div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted);text-align:right">${CAMP_COLS[k].label}</div>`).join('')}
@@ -2029,7 +2037,7 @@ function renderCampBody(){
       </div>`;
     }
   }
-  body.innerHTML=`<div class="card" style="padding:0;overflow-x:auto">${header}${rows}${pausedBlock}${totRow}${cmpStrip}</div>`;
+  body.innerHTML=campAccErrBar()+`<div class="card" style="padding:0;overflow-x:auto">${header}${rows}${pausedBlock}${totRow}${cmpStrip}</div>`;
 }
 function toggleCampRow(id){
   if(event&&event.stopPropagation)event.stopPropagation();
@@ -4317,7 +4325,17 @@ async function fetchMetaReportRange(c,since,until){
   if(error)throw new Error('Meta Ads: '+(error.message||error));
   if(data&&data.error)throw new Error('Meta Ads: '+data.error);
   const d=(data&&data.data)||data;
-  return {channelStats:metaChannelFromData(d),ads:(d&&d.ads)||[],campaigns:(d&&d.campaigns)||[],total:d&&d.total};
+  return {channelStats:metaChannelFromData(d),ads:(d&&d.ads)||[],campaigns:(d&&d.campaigns)||[],total:d&&d.total,accountErrors:(d&&d.accountErrors)||[]};
+}
+// Traduz erros comuns da Graph API pra um motivo legível
+function metaErrHuman(msg){
+  const m=String(msg||'');
+  if(/expired|Session has expired|invalid.*token|access token/i.test(m))return 'Token do Meta expirado ou inválido — precisa renovar o token (validade ~60 dias).';
+  if(/permission|not have|#200|#10\b/i.test(m))return 'Sem permissão de acesso à conta — verifique o acesso no Business Manager.';
+  if(/request limit|#17\b|#80004|#4\b/i.test(m))return 'Limite de requisições do Meta atingido — aguarde alguns minutos e recarregue.';
+  if(/does not exist|Unsupported get|#100\b/i.test(m))return 'Conta não encontrada — o ID vinculado pode estar errado ou a conta foi desativada.';
+  if(/disabled/i.test(m))return 'Conta de anúncios desativada no Meta.';
+  return m;
 }
 // Totais do Meta por período (leve: só nível de conta, sem diário/anúncios)
 async function fetchMetaTotals(c,since,until){
