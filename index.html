@@ -1546,7 +1546,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,minBalance:+r.min_balance||0});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -2110,7 +2110,22 @@ function renderClientConfig(){
   document.getElementById('ccCards').innerHTML=
     grp('Perfil',
       ccCard({icon:'👤',label:'Informações',badge:c.status,title:c.name,desc:'Dados básicos, plataforma e cobrança.',rows:ccRow('Segmento',c.seg||'—')+ccRow('Plataforma',c.plat||'—')+ccRow('Cobrança',c.billing||'—'),btn:'Editar',onclick:"ccOpen('dados')"})
-     +ccCard({icon:'📡',label:'Mídia & Verba',badge:metaCount?metaCount+' conta(s) Meta':'sem Meta',title:metaCount?metaNames:'Nenhuma conta vinculada',desc:'Contas de anúncio e verba por canal.',rows:ccRow('Contas Meta',metaCount||'—')+ccRow('Verba',c.budget?fmt(c.budget):'—'),btn:'Editar',onclick:"ccOpen('midia')"}))
+     +ccCard({icon:'📡',label:'Mídia & Verba',badge:metaCount?metaCount+' conta(s) Meta':'sem Meta',title:metaCount?metaNames:'Nenhuma conta vinculada',desc:'Contas de anúncio e verba por canal.',rows:ccRow('Contas Meta',metaCount||'—')+ccRow('Verba',c.budget?fmt(c.budget):'—'),btn:'Editar',onclick:"ccOpen('midia')"})
+     +(()=>{const saldo=c.usesBalance?calcBalance(c.id):null;const min=+c.minBalance||0;
+        const st=saldo==null?'':saldo<=0?'<span style="color:#f87171;font-weight:800">🔴 SEM SALDO</span>':(min&&saldo<=min)?'<span style="color:#f59e0b;font-weight:800">🟠 abaixo do mínimo</span>':'<span style="color:#34d399;font-weight:700">🟢 ok</span>';
+        return `<div class="card" style="display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;align-items:start">
+          <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">💰 Saldo & Alerta</div>
+          ${min?`<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);white-space:nowrap">mín ${fmt(min)}</span>`:''}
+        </div>
+        <div style="font-size:14px;font-weight:700">${saldo!=null?fmt(saldo)+' ':'Cliente não usa saldo'}${st}</div>
+        <div style="font-size:12px;color:var(--muted);flex:1">${saldo!=null?'Quando o saldo bater no mínimo, o sistema avisa na abertura e marca na lista de clientes.':'Ative "usa saldo" no cadastro (Mídia & Verba) pra controlar a carteira deste cliente.'}</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+          <input id="ccMinBal" type="number" placeholder="Saldo mínimo R$" value="${min||''}" style="width:150px;font-size:12px">
+          <button class="btn sm primary" type="button" onclick="saveMinBalance()">Salvar</button>
+          ${saldo!=null?`<button class="btn sm ghost" type="button" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:''}
+        </div>
+      </div>`})())
    +grp('Inteligência',
       ccCard({icon:'🧬',label:'DNA do Cliente',badge:personas?personas+' personas':'sem DNA',title:personas?'DNA configurado':'Montar DNA com IA',desc:'Identidade, personas e diretrizes de copy que a AndréIA usa.',rows:dna&&dna.diretrizes&&dna.diretrizes.tom?ccRow('Tom',(dna.diretrizes.tom||'').slice(0,26)):'',btn:personas?'Abrir DNA':'Montar DNA',primary:!personas,onclick:"openDnaModal(_configClientId)"})
      +ccCard({icon:'🎯',label:'Benchmark / Metas',badge:metasSet?metasSet+' metas':'sem metas',title:metasSet?'Metas definidas':'Definir metas',desc:'Metas de CTR, CPC, CPA, ROAS... a AndréIA cobra contra elas.',rows:(bm.roas!=null?ccRow('ROAS alvo',bm.roas+'x'):'')+(bm.cpa!=null?ccRow('CPA alvo',fmt(bm.cpa)):'')+(bm.ctr!=null?ccRow('CTR alvo',bm.ctr+'%'):''),btn:'Editar metas',onclick:"ccOpen('relatorios')"}))
@@ -2133,6 +2148,14 @@ function goToTasksForClient(clientId){
 }
 
 /* ---- ALERTS POPUP ---- */
+async function saveMinBalance(){
+  const v=parseFloat(document.getElementById('ccMinBal').value);
+  const val=isNaN(v)||v<=0?null:v;
+  const {error}=await sb.from('clients').update({min_balance:val}).eq('id',_configClientId);
+  if(error){alert('Erro ao salvar: '+error.message);return;}
+  const c=DB.clients.find(x=>x.id===_configClientId);if(c)c.minBalance=val||0;
+  renderClientConfig();
+}
 function showAlertsPopup(){
   const STORAGE_KEY='alerts_snooze';
   const snooze=localStorage.getItem(STORAGE_KEY);
@@ -2140,6 +2163,19 @@ function showAlertsPopup(){
   localStorage.removeItem(STORAGE_KEY);
 
   const items=[];
+
+  // Saldo baixo / sem saldo (clientes com saldo mínimo configurado)
+  const lowBal=DB.clients.filter(c=>c.status==='Ativo'&&c.usesBalance&&(+c.minBalance||0)>0)
+    .map(c=>({c,saldo:calcBalance(c.id)})).filter(x=>x.saldo<=(+x.c.minBalance||0));
+  if(lowBal.length){
+    items.push({icon:'💰',cor:'#f87171',bg:'rgba(248,113,113,.08)',border:'rgba(248,113,113,.25)',
+      title:`${lowBal.length} cliente${lowBal.length!==1?'s':''} com saldo baixo ou acabando`,
+      linhas:lowBal.sort((a,b)=>a.saldo-b.saldo).map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)">
+        <span><strong>${x.c.name}</strong>${x.saldo<=0?' · <span style="color:#f87171;font-weight:700">SEM SALDO</span>':''}</span>
+        <span style="color:${x.saldo<=0?'#f87171':'#f59e0b'};white-space:nowrap;margin-left:12px">${fmt(x.saldo)} · mín ${fmt(+x.c.minBalance)}</span>
+      </div>`).join(''),
+      btn:{label:'Ver clientes',action:"goToTab('clients')"}});
+  }
 
   // Tarefas vencidas há mais de 3 dias
   const tAtrasadas=DB.tasks.filter(t=>t.status!=='done'&&t.due&&daysUntil(t.due)<=-3);
@@ -2483,7 +2519,9 @@ function renderClients(){
     const valTxt=(c.billing==='parceria'||c.billing==='permuta')?'—':fmt(c.fee);
     const budgetTxt=c.budget?`<div style="font-weight:600">${fmt(c.budget)}</div>${(c.budgetChannels||[]).map(ch=>`<div style="font-size:11px;color:var(--muted)">${ch.name}: ${fmt(ch.val)}</div>`).join('')}`:'—';
     const saldo=c.usesBalance?calcBalance(c.id):null;
-    const balanceTxt=saldo!==null?`<div style="font-weight:700;color:${saldo>=0?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div><button class="btn sm ghost" style="margin-top:4px;font-size:11px" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:'—';
+    const minB=+c.minBalance||0;
+    const balWarn=(saldo!==null&&minB&&saldo<=minB)?`<div style="font-size:10px;color:${saldo<=0?'#f87171':'#f59e0b'};font-weight:800">⚠ ${saldo<=0?'SEM SALDO':'abaixo do mínimo ('+fmt(minB)+')'}</div>`:'';
+    const balanceTxt=saldo!==null?`<div style="font-weight:700;color:${saldo>=0?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div>${balWarn}<button class="btn sm ghost" style="margin-top:4px;font-size:11px" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:'—';
     const reportBtn=c.reportSheetUrl?`<button class="btn sm ghost" onclick="selectReportClient('${c.id}')" title="Ver relatório de anúncios">📊 Relatório</button>`:'';
     return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td>${rep}</td><td class="row-actions">${reportBtn}${cfgMenuBtn(c.id)}<button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
   }).join('')+'</tbody>'+archFoot;
