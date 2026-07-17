@@ -2506,14 +2506,14 @@ function renderOperacional(){
     const tarefas=abertas.filter(t=>t.owner===m.id);
     const atrasadasM=tarefas.filter(t=>t.due&&daysUntil(t.due)<0);
     const proximas=tarefas.filter(t=>t.due&&daysUntil(t.due)>=0&&daysUntil(t.due)<=3);
-    return{name:m.name,total:tarefas.length,atrasadas:atrasadasM.length,proximas:proximas.length,tasks:tarefas};
-  }),(semResponsavel.length?{name:'Sem responsável',total:semResponsavel.length,atrasadas:semResponsavel.filter(t=>t.due&&daysUntil(t.due)<0).length,proximas:semResponsavel.filter(t=>t.due&&daysUntil(t.due)>=0&&daysUntil(t.due)<=3).length,tasks:semResponsavel,isSem:true}:null)].filter(Boolean);
+    return{id:m.id,name:m.name,total:tarefas.length,atrasadas:atrasadasM.length,proximas:proximas.length,tasks:tarefas};
+  }),(semResponsavel.length?{id:'none',name:'Sem responsável',total:semResponsavel.length,atrasadas:semResponsavel.filter(t=>t.due&&daysUntil(t.due)<0).length,proximas:semResponsavel.filter(t=>t.due&&daysUntil(t.due)>=0&&daysUntil(t.due)<=3).length,tasks:semResponsavel,isSem:true}:null)].filter(Boolean);
 
   document.getElementById('teamWorkload').innerHTML=workloadCards.length?workloadCards.map(m=>{
     const temAtraso=m.atrasadas>0;
     const cor=temAtraso?'rgba(248,113,113,.12)':m.total===0?'var(--surface2)':'rgba(52,211,153,.06)';
     const borda=temAtraso?'rgba(248,113,113,.4)':m.total===0?'var(--border)':'rgba(52,211,153,.25)';
-    return`<div style="flex:1;min-width:160px;max-width:220px;background:${cor};border:1px solid ${borda};border-radius:var(--radius);padding:14px 16px;display:flex;flex-direction:column;gap:6px">
+    return`<div onclick="goToTab('tasks');setOwnerFilter('${m.id}')" title="Ver as tarefas de ${m.name}" style="flex:1;min-width:160px;max-width:220px;background:${cor};border:1px solid ${borda};border-radius:var(--radius);padding:14px 16px;display:flex;flex-direction:column;gap:6px;cursor:pointer">
       <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px">${m.isSem?'<span style="color:var(--faint)">'+m.name+'</span>':m.name}</div>
       <div style="font-size:28px;font-weight:800;line-height:1;color:${temAtraso?'#f87171':'var(--text)'}">${m.total}</div>
       <div style="font-size:11px;color:var(--muted)">tarefa${m.total!==1?'s':''} em aberto</div>
@@ -2676,7 +2676,7 @@ const _ownerPalette=['#d4a520','#60a5fa','#f472b6','#34d399','#a78bfa','#f0904a'
 function ownerColor(id){if(!id)return'#8a8070';let h=0;for(let i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))>>>0;return _ownerPalette[h%_ownerPalette.length]}
 function setTaskView(v){taskView=v;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));document.getElementById('taskListView').style.display=v==='list'?'block':'none';document.getElementById('taskKanbanView').style.display=v==='kanban'?'block':'none';renderTasks()}
 function setOwnerFilter(v){ownerFilterVal=v;renderOwnerFilter();renderTasks()}
-function renderOwnerFilter(){const opts=[['all','Todos'],...[...DB.team].sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(m=>[m.id,m.name])];document.getElementById('ownerFilter').innerHTML=opts.map(([v,l])=>`<button class="${ownerFilterVal===v?'active':''}" onclick="setOwnerFilter('${v}')">${l}</button>`).join('')}
+function renderOwnerFilter(){const opts=[['all','Todos'],...[...DB.team].sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(m=>[m.id,m.name]),['none','Sem responsável']];document.getElementById('ownerFilter').innerHTML=opts.map(([v,l])=>`<button class="${ownerFilterVal===v?'active':''}" onclick="setOwnerFilter('${v}')">${l}</button>`).join('')}
 function applyTaskFilters(){taskFilters={...taskFilters,client:document.getElementById('tfClient').value,status:document.getElementById('tfStatus').value,prio:document.getElementById('tfPrio').value,dateFrom:document.getElementById('tfDateFrom').value,dateTo:document.getElementById('tfDateTo').value};renderTasks()}
 function clearTaskFilters(){taskFilters={client:'',status:'',prio:'',channel:'',dateFrom:'',dateTo:''};['tfClient','tfStatus','tfPrio'].forEach(id=>document.getElementById(id).value='');['tfDateFrom','tfDateTo'].forEach(id=>document.getElementById(id).value='');const lbl=document.getElementById('tfChannelBtnLabel');if(lbl)lbl.innerHTML='Todos os canais';renderTasks()}
 function fillTaskClientFilter(){const sel=document.getElementById('tfClient');if(!sel)return;const cur=sel.value;sel.innerHTML='<option value="">Todos os clientes</option>'+[...DB.clients].sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}">${c.name}</option>`).join('');sel.value=cur}
@@ -2703,7 +2703,7 @@ function repeatLabel(r){if(!r)return'';const d=repeatCustomDays(r);if(d!==null)r
 function repeatModeUpdate(){const v=document.getElementById('tRepeat').value;document.getElementById('tRepeatCustomRow').style.display=v==='custom'?'block':'none'}
 function renderTasks(){
   renderOwnerFilter();fillTaskClientFilter();renderTfChannelMenu();
-  let base=ownerFilterVal==='all'?DB.tasks:DB.tasks.filter(t=>t.owner===ownerFilterVal||(t.reviewRequested&&t.reviewer===ownerFilterVal));
+  let base=ownerFilterVal==='all'?DB.tasks:ownerFilterVal==='none'?DB.tasks.filter(t=>!t.owner):DB.tasks.filter(t=>t.owner===ownerFilterVal||(t.reviewRequested&&t.reviewer===ownerFilterVal));
   if(hideDone)base=base.filter(t=>t.status!=='done');
   if(taskFilters.client)base=base.filter(t=>t.client===taskFilters.client);
   if(taskFilters.status)base=base.filter(t=>t.status===taskFilters.status);
