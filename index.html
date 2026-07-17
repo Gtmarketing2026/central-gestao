@@ -4418,10 +4418,50 @@ function dashFocosHTML(){
     <div style="display:flex;flex-wrap:wrap;gap:14px">${rows.slice(0,4).map(([l,v],i)=>`<div><div style="font-size:10px;color:var(--muted);text-transform:uppercase">${l}</div><div style="font-size:15px;font-weight:${i===1?800:700};color:${i===1?'#34d399':'var(--text)'}">${v}</div></div>`).join('')}</div>
   </div>`;}).join('');
 }
+// ---- Funil configurável do Dashboard: gestor escolhe etapas, métricas e ordem (salvo por cliente) ----
+function dashFunnelStages(){
+  try{const s=JSON.parse(localStorage.getItem('dashFunnel_'+_dashClientId)||'null');if(Array.isArray(s)&&s.length)return s.filter(k=>FUNNEL_CATALOG[k]);}catch(e){}
+  return (((_dashTpl&&_dashTpl.funnel)||['impressoes','cliques']).filter(k=>FUNNEL_CATALOG[k]));
+}
+function _saveDashFunnel(arr){localStorage.setItem('dashFunnel_'+_dashClientId,JSON.stringify(arr));renderDashFunnel();renderDashFunnelEditor();}
+function dashFunnelMove(i,d){const s=dashFunnelStages();const j=i+d;if(j<0||j>=s.length)return;[s[i],s[j]]=[s[j],s[i]];_saveDashFunnel(s);}
+function dashFunnelRemove(i){const s=dashFunnelStages();s.splice(i,1);_saveDashFunnel(s);}
+function dashFunnelAdd(k){if(!k||!FUNNEL_CATALOG[k])return;const s=dashFunnelStages();if(!s.includes(k)){s.push(k);_saveDashFunnel(s);}}
+function dashFunnelReset(){localStorage.removeItem('dashFunnel_'+_dashClientId);renderDashFunnel();renderDashFunnelEditor();}
+function toggleDashFunnelEditor(){const p=document.getElementById('dashFunnelEditor');if(!p)return;p.style.display=p.style.display==='none'?'block':'none';renderDashFunnelEditor();}
+function renderDashFunnelEditor(){
+  const p=document.getElementById('dashFunnelEditor');if(!p||p.style.display==='none')return;
+  const s=dashFunnelStages();
+  const rows=s.map((k,i)=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 9px;font-size:12px"><b>${i+1}.</b> ${FUNNEL_CATALOG[k].label}
+    <a onclick="dashFunnelMove(${i},-1)" title="mover antes" style="cursor:pointer;color:var(--muted)">◀</a><a onclick="dashFunnelMove(${i},1)" title="mover depois" style="cursor:pointer;color:var(--muted)">▶</a><a onclick="dashFunnelRemove(${i})" title="remover" style="cursor:pointer;color:#f87171;font-weight:700">×</a></span>`).join('');
+  const opts=Object.entries(FUNNEL_CATALOG).filter(([k])=>!s.includes(k)).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
+  p.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">${rows}
+    <select onchange="dashFunnelAdd(this.value);this.value=''" style="width:auto;font-size:12px"><option value="">+ adicionar etapa…</option>${opts}</select>
+    <button class="btn sm ghost" type="button" onclick="dashFunnelReset()">↺ restaurar padrão</button></div>
+    <div style="font-size:11px;color:var(--faint);margin-bottom:10px">◀ ▶ mudam a ordem · × remove · a escolha fica salva pra este cliente e respeita os filtros de conta/campanha/conjunto.</div>`;
+}
+function renderDashFunnel(){
+  const box=document.getElementById('dashFunnelBox');if(!box)return;
+  const agg=dashAggFiltered()||{};
+  const stages=dashFunnelStages().map(k=>({label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(agg)||0)}));
+  if(!stages.length||!stages[0].value){box.innerHTML='<div class="empty">Sem dados pras etapas escolhidas — clique em ⚙ Etapas pra ajustar.</div>';return;}
+  box.innerHTML='<div style="padding:4px 2px">'+stages.map((s,i)=>{
+    const pct=stages[0].value?(s.value/stages[0].value*100):0;
+    const step=i>0?(stages[i-1].value?(s.value/stages[i-1].value*100):0):null;
+    return `<div style="display:flex;align-items:center;gap:10px;margin:7px 0">
+      <div style="width:140px;font-size:12px;color:var(--muted);text-align:right;flex:none">${s.label}</div>
+      <div style="flex:1;background:rgba(255,255,255,.05);border-radius:7px;height:26px;overflow:hidden">
+        <div style="width:${Math.max(pct,2).toFixed(1)}%;height:100%;background:linear-gradient(90deg,var(--accent),#f59e0b);border-radius:7px"></div>
+      </div>
+      <div style="width:190px;font-size:12.5px;flex:none"><b>${s.value.toLocaleString('pt-BR')}</b>${step!=null?` <span style="color:var(--faint)">(${step.toFixed(1)}% da anterior)</span>`:''}</div>
+    </div>`;
+  }).join('')+'</div>';
+}
 function applyDashFilters(){
   const grid=document.getElementById('dashKpiGrid');
   if(grid&&_dashTpl){const agg=dashAggFiltered();grid.innerHTML=(_dashTpl.metrics||[]).filter(k=>METRIC_CATALOG[k]).map(k=>{const mc=METRIC_CATALOG[k];const key=k===_dashTpl.keyMetric;return`<div class="rt-kpi ${key?'gr':'pu'}"${key?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${mc.label}${key?' ★':''}</div><div class="rt-kpi-val sm">${fmtMetric(mc.calc(agg),mc.fmt)}</div></div>`}).join('');}
   const fr=document.getElementById('dashFocosRow');if(fr)fr.innerHTML=dashFocosHTML();
+  renderDashFunnel();
   drawDashLine();drawDashLevel();
 }
 function dashMetOpts(sel){return Object.entries(DASH_METRICS).map(([k,v])=>`<option value="${k}" ${k===sel?'selected':''}>${v.label}</option>`).join('');}
@@ -4489,6 +4529,14 @@ function renderMetaDashboard(c,rep,since,until){
         </div>
       </div>
       <div class="chart-box tall"><canvas id="cDashLine"></canvas></div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <h3 style="margin:0">🔻 Funil</h3>
+        <button class="btn sm ghost" type="button" onclick="toggleDashFunnelEditor()">⚙ Etapas</button>
+      </div>
+      <div id="dashFunnelEditor" style="display:none"></div>
+      <div id="dashFunnelBox"></div>
     </div>
     <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px">
       <div class="card">
