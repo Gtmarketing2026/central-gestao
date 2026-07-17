@@ -751,7 +751,7 @@
       </div>
       <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:6px">
         <button class="btn sm" style="flex:1;justify-content:center" type="button" onclick="addMetaAccount()">+ Vincular</button>
-        <button class="btn sm ghost" style="flex:1;justify-content:center" type="button" id="cMetaLoadBtn" onclick="loadMetaAccounts()">Carregar contas</button>
+        <button class="btn sm ghost" style="flex:1;justify-content:center" type="button" id="cMetaLoadBtn" onclick="loadMetaAccounts()" title="Busca a lista direto do Meta — contas que você acabou de pegar acesso aparecem aqui">🔄 Atualizar contas</button>
       </div>
       <div id="cMetaAccountChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
       <div id="cMetaAccountHint" style="font-size:11px;color:var(--faint)"></div>
@@ -3006,7 +3006,7 @@ async function loadMetaAccounts(){
     metaAccountsCache=(data.data||data||[]).map(a=>({id:String(a.id),name:a.name||a.id}));
     localStorage.setItem('metaAccountsCache',JSON.stringify(metaAccountsCache));
     fillMetaSelect();renderMetaChips();
-    hint.style.color='var(--faint)';hint.textContent=`${metaAccountsCache.length} contas carregadas — escolha e clique em "+ Vincular" (pode adicionar várias).`;
+    hint.style.color='var(--faint)';hint.textContent=`${metaAccountsCache.length} contas atualizadas direto do Meta — acesso novo já aparece na lista. Escolha e clique em "+ Vincular" (pode adicionar várias).`;
   }catch(e){hint.style.color='var(--red)';hint.textContent='Erro: '+(e.message||e)+' (o token do Meta já foi publicado no Supabase?)';}
   btn.disabled=false;btn.textContent=old;
 }
