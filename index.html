@@ -2114,19 +2114,18 @@ function renderClientConfig(){
     grp('Perfil',
       ccCard({icon:'👤',label:'Informações',badge:c.status,title:c.name,desc:'Dados básicos, plataforma e cobrança.',rows:ccRow('Segmento',c.seg||'—')+ccRow('Plataforma',c.plat||'—')+ccRow('Cobrança',c.billing||'—'),btn:'Editar',onclick:"ccOpen('dados')"})
      +ccCard({icon:'📡',label:'Mídia & Verba',badge:metaCount?metaCount+' conta(s) Meta':'sem Meta',title:metaCount?metaNames:'Nenhuma conta vinculada',desc:'Contas de anúncio e verba por canal.',rows:ccRow('Contas Meta',metaCount||'—')+ccRow('Verba',c.budget?fmt(c.budget):'—'),btn:'Editar',onclick:"ccOpen('midia')"})
-     +(()=>{const saldo=c.usesBalance?calcBalance(c.id):null;const min=+c.minBalance||0;
-        const st=saldo==null?'':saldo<=0?'<span style="color:#f87171;font-weight:800">🔴 SEM SALDO</span>':(min&&saldo<=min)?'<span style="color:#f59e0b;font-weight:800">🟠 abaixo do mínimo</span>':'<span style="color:#34d399;font-weight:700">🟢 ok</span>';
+     +(()=>{const min=+c.minBalance||0;const teto=clientMetaTeto(c);const temMeta=(c.metaAccountIds||[]).length>0;
         return `<div class="card" style="display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;justify-content:space-between;align-items:start">
-          <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">💰 Saldo & Alerta</div>
+          <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">💰 Verba de Mídia & Alerta</div>
           ${min?`<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);white-space:nowrap">mín ${fmt(min)}</span>`:''}
         </div>
-        <div style="font-size:14px;font-weight:700">${saldo!=null?fmt(saldo)+' ':'Cliente não usa saldo'}${st}</div>
-        <div style="font-size:12px;color:var(--muted);flex:1">${saldo!=null?'Quando o saldo bater no mínimo, o sistema avisa na abertura e marca na lista de clientes.':'Ative "usa saldo" no cadastro (Mídia & Verba) pra controlar a carteira deste cliente.'}</div>
+        ${ccRow('Verba mensal (teto)',teto?fmt(teto):'—')}
+        <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:var(--muted)">Saldo na conta do Meta</span><span id="ccFundVal" style="font-weight:600;text-align:right">${temMeta?'carregando…':'—'}</span></div>
+        <div style="font-size:12px;color:var(--muted);flex:1;margin-top:4px">Pra quem carrega verba por <b>pix/boleto</b> (pré-pago): defina o saldo mínimo e o sistema avisa antes de acabar — na abertura, no Dashboard e nas Campanhas.</div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
-          <input id="ccMinBal" type="number" placeholder="Saldo mínimo R$" value="${min||''}" style="width:150px;font-size:12px">
+          <input id="ccMinBal" type="number" placeholder="Verba mínima R$" value="${min||''}" style="width:150px;font-size:12px">
           <button class="btn sm primary" type="button" onclick="saveMinBalance()">Salvar</button>
-          ${saldo!=null?`<button class="btn sm ghost" type="button" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:''}
         </div>
       </div>`})())
    +grp('Inteligência',
@@ -2135,6 +2134,7 @@ function renderClientConfig(){
    +grp('Relatório',
       ccCard({icon:'📋',label:'Relatório & Template',title:tplName,desc:'Modelo do relatório e fonte de vendas.',rows:ccRow('Modelo',tplName.slice(0,24))+ccRow('Fonte de vendas',convLbl),btn:'Editar',onclick:"ccOpen('relatorios')"})
      +ccCard({icon:'🧠',label:'Conhecimento',title:'Materiais do cliente',desc:'PDFs específicos (briefing, tom, particularidades) pra AndréIA.',btn:'Gerenciar',onclick:"ccOpen('dna')"}));
+  fillFundingCard(c); // saldo pré-pago do Meta (async)
 }
 document.querySelectorAll('.tab').forEach(t=>{if(t.dataset.tab)t.onclick=()=>goToTab(t.dataset.tab)});
 
@@ -2151,6 +2151,33 @@ function goToTasksForClient(clientId){
 }
 
 /* ---- ALERTS POPUP ---- */
+// ---- Verba de mídia: saldo pré-pago da conta no Meta (pix/boleto) ----
+async function fetchMetaFunding(c){
+  if(!(c&&c.metaAccountIds&&c.metaAccountIds.length))return null;
+  const accounts=c.metaAccountIds.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaFunding:{accounts}}});
+    if(error)return null;
+    const d=(data&&data.data)||data||{};
+    const accs=d.accounts||[];
+    const comSaldo=accs.filter(a=>a.saldo!=null);
+    return {accounts:accs,saldoTotal:comSaldo.length?comSaldo.reduce((s,a)=>s+a.saldo,0):null};
+  }catch(e){return null;}
+}
+async function fillFundingCard(c){
+  const el=document.getElementById('ccFundVal');if(!el)return;
+  const f=await fetchMetaFunding(c);
+  const el2=document.getElementById('ccFundVal');if(!el2)return;
+  if(!f){el2.textContent='—';return;}
+  if(f.saldoTotal!=null){
+    const min=+c.minBalance||0;
+    const low=min&&f.saldoTotal<=min;
+    el2.innerHTML=`<span style="color:${f.saldoTotal<=0?'#f87171':low?'#f59e0b':'#34d399'};font-weight:700">${fmt(f.saldoTotal)}${low?' 🟠 abaixo do mínimo':' 🟢'}</span>`;
+  }else{
+    const disp=(f.accounts.find(a=>a.display)||{}).display||'';
+    el2.innerHTML=disp?`<span style="color:var(--muted);font-weight:400">${disp.replace(/</g,'&lt;')}</span>`:'<span style="color:var(--faint);font-weight:400">conta pós-paga (cartão) — sem saldo pré-pago</span>';
+  }
+}
 // ---- Teto de investimento (verba mensal): avisa ao se aproximar/estourar ----
 function clientMetaTeto(c){
   const ch=(c.budgetChannels||[]).find(b=>/meta|facebook|insta/i.test(b.name||''));
@@ -2160,36 +2187,71 @@ function clientMetaTeto(c){
 async function renderBudgetBanner(c,elId){
   const el=document.getElementById(elId);if(!el)return;
   el.innerHTML='';
+  if(!(c.metaAccountIds&&c.metaAccountIds.length))return;
   const teto=clientMetaTeto(c);
-  if(!teto||!(c.metaAccountIds&&c.metaAccountIds.length))return;
+  const min=+c.minBalance||0;
   const since=today().slice(0,8)+'01';
-  const t=await fetchMetaTotals(c,since,today());
-  const el2=document.getElementById(elId);if(!el2||!t)return;
-  const spend=+t.spend||0,pct=spend/teto*100;
-  if(pct<80)return;
-  const over=pct>=100;
-  el2.innerHTML=`<div style="background:${over?'rgba(248,113,113,.08)':'rgba(245,158,11,.08)'};border:1px solid ${over?'rgba(248,113,113,.5)':'rgba(245,158,11,.5)'};border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:12.5px">
-    <b style="color:${over?'#f87171':'#f59e0b'}">${over?'⛔ TETO DE INVESTIMENTO ESTOURADO':'⚠ Aproximando do teto de investimento'}</b>
-    — gasto do mês no Meta: <b>${fmt(spend)}</b> de <b>${fmt(teto)}</b> (${pct.toFixed(0)}%)${over?'':' · ajuste os orçamentos pra não passar'}.</div>`;
+  const [t,f]=await Promise.all([
+    teto?fetchMetaTotals(c,since,today()):Promise.resolve(null),
+    min?fetchMetaFunding(c):Promise.resolve(null),
+  ]);
+  const el2=document.getElementById(elId);if(!el2)return;
+  let html='';
+  if(t&&teto){
+    const spend=+t.spend||0,pct=spend/teto*100;
+    if(pct>=80){
+      const over=pct>=100;
+      html+=`<div style="background:${over?'rgba(248,113,113,.08)':'rgba(245,158,11,.08)'};border:1px solid ${over?'rgba(248,113,113,.5)':'rgba(245,158,11,.5)'};border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:12.5px">
+        <b style="color:${over?'#f87171':'#f59e0b'}">${over?'⛔ TETO DE INVESTIMENTO ESTOURADO':'⚠ Aproximando do teto de investimento'}</b>
+        — gasto do mês no Meta: <b>${fmt(spend)}</b> de <b>${fmt(teto)}</b> (${pct.toFixed(0)}%)${over?'':' · ajuste os orçamentos pra não passar'}.</div>`;
+    }
+  }
+  if(f&&f.saldoTotal!=null&&min&&f.saldoTotal<=min){
+    const zero=f.saldoTotal<=0;
+    html+=`<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.5);border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:12.5px">
+      <b style="color:#f87171">${zero?'🪫 VERBA DE MÍDIA ESGOTADA':'🪫 Verba de mídia acabando'}</b>
+      — saldo pré-pago na conta do Meta: <b>${fmt(f.saldoTotal)}</b> (mínimo configurado: ${fmt(min)}) · recarregue via pix/boleto pra não parar os anúncios.</div>`;
+  }
+  el2.innerHTML=html;
 }
 // Checagem geral na abertura (só clientes com teto definido; sequencial + cache de 6h pra não estourar rate limit)
 async function checkBudgetAlerts(){
   try{
     const KEY='budgetAlertCache';
     let cache=null;try{cache=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){}
-    let itemsB;
-    if(cache&&Date.now()-cache.ts<6*3600*1000){itemsB=cache.items||[];}
+    let itemsB,fundItems;
+    if(cache&&Date.now()-cache.ts<6*3600*1000){itemsB=cache.items||[];fundItems=cache.fund||[];}
     else{
-      itemsB=[];
-      const list=DB.clients.filter(c=>c.status==='Ativo'&&c.metaAccountIds&&c.metaAccountIds.length&&clientMetaTeto(c)>0);
+      itemsB=[];fundItems=[];
       const since=today().slice(0,8)+'01';
+      const list=DB.clients.filter(c=>c.status==='Ativo'&&c.metaAccountIds&&c.metaAccountIds.length&&clientMetaTeto(c)>0);
       for(const c of list){
         const t=await fetchMetaTotals(c,since,today());
         if(!t)continue;
         const teto=clientMetaTeto(c),spend=+t.spend||0,pct=spend/teto*100;
         if(pct>=80)itemsB.push({name:c.name,spend,teto,pct});
       }
-      localStorage.setItem(KEY,JSON.stringify({ts:Date.now(),items:itemsB}));
+      // verba pré-paga (pix/boleto): clientes com verba mínima configurada
+      const listF=DB.clients.filter(c=>c.status==='Ativo'&&c.metaAccountIds&&c.metaAccountIds.length&&(+c.minBalance||0)>0);
+      for(const c of listF){
+        const f=await fetchMetaFunding(c);
+        if(f&&f.saldoTotal!=null&&f.saldoTotal<=(+c.minBalance||0))fundItems.push({name:c.name,saldo:f.saldoTotal,min:+c.minBalance});
+      }
+      localStorage.setItem(KEY,JSON.stringify({ts:Date.now(),items:itemsB,fund:fundItems}));
+    }
+    if(fundItems.length){
+      const sn0=localStorage.getItem('alerts_snooze');
+      if(!(sn0&&Date.now()<+sn0)){
+        const body0=document.getElementById('alertsPopupBody'),bg0=document.getElementById('alertsPopupBg');
+        if(body0&&!document.getElementById('fundAlertBlock')){
+          body0.insertAdjacentHTML('beforeend',`<div id="fundAlertBlock" style="background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.3);border-radius:12px;padding:12px 14px">
+            <div style="font-size:13px;font-weight:700;color:#f87171;margin-bottom:8px">🪫 ${fundItems.length} cliente${fundItems.length!==1?'s':''} com verba de mídia acabando (saldo pré-pago no Meta)</div>
+            ${fundItems.sort((a,b)=>a.saldo-b.saldo).map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)"><span><strong>${x.name}</strong>${x.saldo<=0?' · <span style="color:#f87171;font-weight:700">ESGOTOU</span>':''}</span><span style="color:${x.saldo<=0?'#f87171':'#f59e0b'};white-space:nowrap;margin-left:12px">${fmt(x.saldo)} · mín ${fmt(x.min)}</span></div>`).join('')}
+            <div style="font-size:11px;color:var(--faint);margin-top:6px">Recarregue via pix/boleto pra não parar os anúncios.</div>
+          </div>`);
+          bg0.style.display='flex';
+        }
+      }
     }
     if(!itemsB.length)return;
     const sn=localStorage.getItem('alerts_snooze');if(sn&&Date.now()<+sn)return;
@@ -2218,19 +2280,6 @@ function showAlertsPopup(){
   localStorage.removeItem(STORAGE_KEY);
 
   const items=[];
-
-  // Saldo baixo / sem saldo (clientes com saldo mínimo configurado)
-  const lowBal=DB.clients.filter(c=>c.status==='Ativo'&&c.usesBalance&&(+c.minBalance||0)>0)
-    .map(c=>({c,saldo:calcBalance(c.id)})).filter(x=>x.saldo<=(+x.c.minBalance||0));
-  if(lowBal.length){
-    items.push({icon:'💰',cor:'#f87171',bg:'rgba(248,113,113,.08)',border:'rgba(248,113,113,.25)',
-      title:`${lowBal.length} cliente${lowBal.length!==1?'s':''} com saldo baixo ou acabando`,
-      linhas:lowBal.sort((a,b)=>a.saldo-b.saldo).map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)">
-        <span><strong>${x.c.name}</strong>${x.saldo<=0?' · <span style="color:#f87171;font-weight:700">SEM SALDO</span>':''}</span>
-        <span style="color:${x.saldo<=0?'#f87171':'#f59e0b'};white-space:nowrap;margin-left:12px">${fmt(x.saldo)} · mín ${fmt(+x.c.minBalance)}</span>
-      </div>`).join(''),
-      btn:{label:'Ver clientes',action:"goToTab('clients')"}});
-  }
 
   // Tarefas vencidas há mais de 3 dias
   const tAtrasadas=DB.tasks.filter(t=>t.status!=='done'&&t.due&&daysUntil(t.due)<=-3);
@@ -2574,9 +2623,7 @@ function renderClients(){
     const valTxt=(c.billing==='parceria'||c.billing==='permuta')?'—':fmt(c.fee);
     const budgetTxt=c.budget?`<div style="font-weight:600">${fmt(c.budget)}</div>${(c.budgetChannels||[]).map(ch=>`<div style="font-size:11px;color:var(--muted)">${ch.name}: ${fmt(ch.val)}</div>`).join('')}`:'—';
     const saldo=c.usesBalance?calcBalance(c.id):null;
-    const minB=+c.minBalance||0;
-    const balWarn=(saldo!==null&&minB&&saldo<=minB)?`<div style="font-size:10px;color:${saldo<=0?'#f87171':'#f59e0b'};font-weight:800">⚠ ${saldo<=0?'SEM SALDO':'abaixo do mínimo ('+fmt(minB)+')'}</div>`:'';
-    const balanceTxt=saldo!==null?`<div style="font-weight:700;color:${saldo>=0?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div>${balWarn}<button class="btn sm ghost" style="margin-top:4px;font-size:11px" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:'—';
+    const balanceTxt=saldo!==null?`<div style="font-weight:700;color:${saldo>=0?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div><button class="btn sm ghost" style="margin-top:4px;font-size:11px" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:'—';
     const reportBtn=c.reportSheetUrl?`<button class="btn sm ghost" onclick="selectReportClient('${c.id}')" title="Ver relatório de anúncios">📊 Relatório</button>`:'';
     return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td class="row-actions">${reportBtn}${cfgMenuBtn(c.id)}<button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
   }).join('')+'</tbody>'+archFoot;
