@@ -4454,9 +4454,42 @@ function renderDashFunnelEditor(){
     <button class="btn sm ghost" type="button" onclick="dashFunnelReset()">↺ restaurar padrão</button></div>
     <div style="font-size:11px;color:var(--faint);margin-bottom:10px">◀ ▶ mudam a ordem · × remove · 💾 grava como padrão do cliente (equipe toda) · ↺ descarta o ajuste local e volta pro padrão salvo (ou pro funil do objetivo principal). Respeita os filtros de conta/campanha/conjunto.</div>`;
 }
+// Filtros locais do funil (não mexem no resto do dashboard): campanha → conjunto → anúncio
+let _dashFunCamp='',_dashFunAdset='',_dashFunAd='';
+function dashFunnelAds(){
+  let ads=dashFilteredAds();
+  if(_dashFunCamp)ads=ads.filter(a=>(a.campaign||'')===_dashFunCamp);
+  if(_dashFunAdset)ads=ads.filter(a=>(a.adset||'')===_dashFunAdset);
+  if(_dashFunAd)ads=ads.filter(a=>(a.adName||'')===_dashFunAd);
+  return ads;
+}
+function dashFunnelAgg(){
+  if(!_dashFunCamp&&!_dashFunAdset&&!_dashFunAd)return dashAggFiltered();
+  const g={spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,addToCart:0,initiateCheckout:0,conversas:0,videoViews:0,engajamentos:0};
+  dashFunnelAds().forEach(a=>Object.keys(g).forEach(k=>g[k]+=(a[k]||0)));
+  return {spend:g.spend,impressions:g.impressions,clicks:g.clicks,reach:g.reach,revenue:g.revenue,compras:Math.round(g.purchases),leads:g.leads,addCarrinho:g.addToCart,checkout:g.initiateCheckout,conversas:g.conversas,videoViews:g.videoViews,engajamentos:g.engajamentos,frequencia:g.reach?g.impressions/g.reach:0};
+}
+function setDashFunFilter(level,val){
+  if(level==='camp'){_dashFunCamp=val;_dashFunAdset='';_dashFunAd='';}
+  else if(level==='adset'){_dashFunAdset=val;_dashFunAd='';}
+  else _dashFunAd=val;
+  renderDashFunnel();
+}
+function renderDashFunnelFilters(){
+  const el=document.getElementById('dashFunnelFilters');if(!el)return;
+  const base=dashFilteredAds();
+  const camps=[...new Set(base.map(a=>a.campaign||''))].filter(Boolean).sort();
+  const adsets=[...new Set(base.filter(a=>!_dashFunCamp||(a.campaign||'')===_dashFunCamp).map(a=>a.adset||''))].filter(Boolean).sort();
+  const adsL=[...new Set(base.filter(a=>(!_dashFunCamp||(a.campaign||'')===_dashFunCamp)&&(!_dashFunAdset||(a.adset||'')===_dashFunAdset)).map(a=>a.adName||''))].filter(Boolean).sort();
+  const sel=(level,cur,opts,lbl)=>`<select onchange="setDashFunFilter('${level}',this.value)" style="width:auto;max-width:230px;font-size:12px">
+    <option value="">${lbl} (todos)</option>${opts.map(o=>`<option value="${o.replace(/"/g,'&quot;')}" ${o===cur?'selected':''}>${o.replace(/</g,'&lt;')}</option>`).join('')}</select>`;
+  el.innerHTML=sel('camp',_dashFunCamp,camps,'Campanha')+sel('adset',_dashFunAdset,adsets,'Conjunto')+sel('ad',_dashFunAd,adsL,'Anúncio')
+    +((_dashFunCamp||_dashFunAdset||_dashFunAd)?`<button class="btn sm ghost" type="button" onclick="setDashFunFilter('camp','')">✕ limpar</button>`:'');
+}
 function renderDashFunnel(){
   const box=document.getElementById('dashFunnelBox');if(!box)return;
-  const agg=dashAggFiltered()||{};
+  renderDashFunnelFilters();
+  const agg=dashFunnelAgg()||{};
   const stages=dashFunnelStages().map(k=>({label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(agg)||0)}));
   if(!stages.length||!stages[0].value){box.innerHTML='<div class="empty">Sem dados pras etapas escolhidas — clique em ⚙ Etapas pra ajustar.</div>';return;}
   box.innerHTML='<div style="padding:4px 2px">'+stages.map((s,i)=>{
@@ -4516,7 +4549,7 @@ function renderMetaDashboard(c,rep,since,until){
   _dashRecs=((t.records||[]).slice().sort((a,b)=>a.date<b.date?-1:1)).map(r=>({...r,purchases:r.sales}));
   _dashAds=rep.ads||[];_dashCampRecs=rep.campaigns||[];_dashTpl=tpl;_dashNoSales=noSales;_dashClientId=c.id;
   _dashAgg={spend:agg.spend,impressions:agg.impressions,clicks:agg.clicks,reach:agg.reach,revenue:agg.revenue,compras:agg.compras,leads:agg.leads,addCarrinho:agg.addCarrinho,checkout:agg.checkout,conversas:agg.conversas,videoViews:agg.videoViews,engajamentos:agg.engajamentos,frequencia:agg.frequencia};
-  _dashFAcc=[];_dashFCamp=[];_dashFAdset=[];
+  _dashFAcc=[];_dashFCamp=[];_dashFAdset=[];_dashFunCamp='';_dashFunAdset='';_dashFunAd='';
   const rb=(key,lbl,fn)=>`<button class="btn sm ${_metaDashPreset===key?'primary':'ghost'}" onclick="${fn}">${lbl}</button>`;
   const rangeBtns=rb('7','7 dias',`metaDashRange('${c.id}',7)`)+rb('30','30 dias',`metaDashRange('${c.id}',30)`)+rb('90','90 dias',`metaDashRange('${c.id}',90)`)+rb('mes','Este mês',`metaDashMonth('${c.id}')`)+rb('custom','📅 Personalizado','toggleDashDate()')
     +`<span id="dashDateWrap" style="display:none;gap:6px;align-items:center">
@@ -4547,7 +4580,10 @@ function renderMetaDashboard(c,rep,since,until){
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
         <h3 style="margin:0">🔻 Funil</h3>
-        <button class="btn sm ghost" type="button" onclick="toggleDashFunnelEditor()">⚙ Etapas</button>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <div id="dashFunnelFilters" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"></div>
+          <button class="btn sm ghost" type="button" onclick="toggleDashFunnelEditor()">⚙ Etapas</button>
+        </div>
       </div>
       <div id="dashFunnelEditor" style="display:none"></div>
       <div id="dashFunnelBox"></div>
