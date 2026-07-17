@@ -4488,6 +4488,26 @@ function renderDashFunnelEditor(){
 }
 // Filtros locais do funil (não mexem no resto do dashboard): campanha → conjunto → anúncio
 let _dashFunCamp='',_dashFunAdset='',_dashFunAd='';
+// Status 🟢/🔴 dos itens do funil (consulta leve por adIds, igual às Campanhas)
+let _dashStatus={ad:{}};
+function dashLoadStatuses(c){
+  _dashStatus={ad:{}};
+  if(!(c&&c.metaAccountIds&&c.metaAccountIds.length))return;
+  const adIds=[...new Set(_dashAds.map(a=>a.adId).filter(Boolean))].slice(0,300);
+  if(!adIds.length)return;
+  const accounts=c.metaAccountIds.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
+  sb.functions.invoke('dynamic-responder',{body:{metaEntities:{accounts,adIds}}}).then(r=>{
+    const ent=(r.data&&r.data.data)||r.data||{};
+    (ent.ads||[]).forEach(a=>{_dashStatus.ad[a.id]=a.entrega||a.status;});
+    renderDashFunnelFilters();
+  }).catch(()=>{});
+}
+function _dashNameStatus(list,field,name){
+  let known=false,active=false;
+  list.forEach(a=>{if((a[field]||'')!==name)return;const st=_dashStatus.ad[a.adId];if(st){known=true;if(st==='ACTIVE')active=true;}});
+  return known?(active?'ACTIVE':'PAUSED'):null;
+}
+function _dashStDot(st){return st==='ACTIVE'?'🟢 ':st?'🔴 ':'';}
 function dashFunnelAds(){
   let ads=dashFilteredAds();
   if(_dashFunCamp)ads=ads.filter(a=>(a.campaign||'')===_dashFunCamp);
@@ -4513,9 +4533,9 @@ function renderDashFunnelFilters(){
   const camps=[...new Set(base.map(a=>a.campaign||''))].filter(Boolean).sort();
   const adsets=[...new Set(base.filter(a=>!_dashFunCamp||(a.campaign||'')===_dashFunCamp).map(a=>a.adset||''))].filter(Boolean).sort();
   const adsL=[...new Set(base.filter(a=>(!_dashFunCamp||(a.campaign||'')===_dashFunCamp)&&(!_dashFunAdset||(a.adset||'')===_dashFunAdset)).map(a=>a.adName||''))].filter(Boolean).sort();
-  const sel=(level,cur,opts,lbl)=>`<select onchange="setDashFunFilter('${level}',this.value)" style="width:auto;max-width:230px;font-size:12px">
-    <option value="">${lbl} (todos)</option>${opts.map(o=>`<option value="${o.replace(/"/g,'&quot;')}" ${o===cur?'selected':''}>${o.replace(/</g,'&lt;')}</option>`).join('')}</select>`;
-  el.innerHTML=sel('camp',_dashFunCamp,camps,'Campanha')+sel('adset',_dashFunAdset,adsets,'Conjunto')+sel('ad',_dashFunAd,adsL,'Anúncio')
+  const sel=(level,cur,opts,lbl,field)=>`<select onchange="setDashFunFilter('${level}',this.value)" style="width:auto;max-width:230px;font-size:12px">
+    <option value="">${lbl} (todos)</option>${opts.map(o=>`<option value="${o.replace(/"/g,'&quot;')}" ${o===cur?'selected':''}>${_dashStDot(_dashNameStatus(base,field,o))}${o.replace(/</g,'&lt;')}</option>`).join('')}</select>`;
+  el.innerHTML=sel('camp',_dashFunCamp,camps,'Campanha','campaign')+sel('adset',_dashFunAdset,adsets,'Conjunto','adset')+sel('ad',_dashFunAd,adsL,'Anúncio','adName')
     +((_dashFunCamp||_dashFunAdset||_dashFunAd)?`<button class="btn sm ghost" type="button" onclick="setDashFunFilter('camp','')">✕ limpar</button>`:'');
 }
 function renderDashFunnel(){
@@ -4642,6 +4662,7 @@ function renderMetaDashboard(c,rep,since,until){
     </div>`;
   renderDashFilterBar();
   applyDashFilters();setDashLevel(_dashLevel);
+  dashLoadStatuses(c); // status 🟢/🔴 chega async e re-renderiza os seletores do funil
 }
 async function fetchMetaChannelStats(c,month){
   const ids=c.metaAccountIds||[];
