@@ -5218,6 +5218,15 @@ function drawDashLevel(){
 function setDashLine(w,v){if(w==='a')_dashLineA=v;else _dashLineB=v;drawDashLine();}
 function setDashLevel(l){_dashLevel=l;document.querySelectorAll('[data-dlvl]').forEach(b=>{const on=b.dataset.dlvl===l;b.classList.toggle('primary',on);b.classList.toggle('ghost',!on)});drawDashLevel();}
 function setDashLevelMetric(v){_dashLevelMetric=v;drawDashLevel();}
+// Aviso de conta(s) com problema no dashboard (restrita/desativada/etc.) — igual à aba Campanhas.
+// Explica por que uma conta pode não aparecer nos filtros (sem entrega = 0 gasto).
+function dashAccErrBar(errs){
+  if(!errs||!errs.length)return '';
+  return `<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.5);border-radius:10px;padding:10px 14px;margin-bottom:14px">
+    <div style="font-size:12.5px;font-weight:800;color:#f87171">⚠ ${errs.length} conta(s) com problema no Meta — sem entrega no período (por isso não aparecem nos filtros)</div>
+    ${errs.map(e=>`<div style="font-size:12px;margin-top:5px"><b>${String(e.name||e.id).replace(/</g,'&lt;')}</b> <span style="color:var(--faint)">(${e.id})</span><br><span style="color:var(--muted)">Motivo: ${metaErrHuman(e.error).replace(/</g,'&lt;')}</span></div>`).join('')}
+  </div>`;
+}
 function renderMetaDashboard(c,rep,since,until){
   const body=document.getElementById('clientReportBody');
   const t=rep.total||{};
@@ -5246,7 +5255,7 @@ function renderMetaDashboard(c,rep,since,until){
   const srcName=dashSourceLabel();
   const srcBtn=(k,l)=>`<button class="btn sm ${_dashSource===k?'primary':'ghost'}" onclick="setDashSource('${k}')">${l}</button>`;
   const srcBar=((hasM?srcBtn('meta','Ⓜ️ Meta Ads'):'')+(hasG?srcBtn('google','🔎 Google Ads'):'')+((hasM&&hasG)?srcBtn('geral','🌐 Geral'):''));
-  body.innerHTML=`<div id="dashBudgetWarn"></div>
+  body.innerHTML=`<div id="dashBudgetWarn"></div>${dashAccErrBar(rep.accountErrors)}
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
         <div><h3 style="margin:0">📡 ${srcName}</h3><div class="hint">${dateBR(since)}–${dateBR(until)} · modelo: ${(tpl.name||'').replace(/</g,'&lt;')}</div></div>
