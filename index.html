@@ -4766,13 +4766,30 @@ function _dashAdsAcc(){return _dashAds.filter(a=>a.spend>0&&(!_dashFAcc.length||
 function _dashAdsCamp(){return _dashAdsAcc().filter(a=>!_dashFCamp.length||_dashFCamp.includes(a.campaign));}
 function dashFilteredAds(){return _dashAdsCamp().filter(a=>!_dashFAdset.length||_dashFAdset.includes((a.campaign||'')+' · '+(a.adset||'')));}
 function dashFilterActive(){return !!(_dashFAcc.length||_dashFCamp.length||_dashFAdset.length);}
+// Atribui a métrica-resultado ao objetivo dela (leads só de campanhas de Lead, conversas só de Mensagem, etc.)
+// — evita o "vazamento" entre objetivos que fazia o KPI total divergir dos cards de foco.
+function _objAttrib(ads){
+  const m={leads:0,conversas:0,videoViews:0,engajamentos:0,purchases:0,revenue:0};
+  (ads||[]).forEach(a=>{
+    const t=(a.objetivo&&a.objetivo.tipo)||'outro';
+    if(t==='leads')m.leads+=a.leads||0;
+    else if(t==='mensagens')m.conversas+=a.conversas||0;
+    else if(t==='video')m.videoViews+=a.videoViews||0;
+    else if(t==='engajamento')m.engajamentos+=a.engajamentos||0;
+    else if(t==='conversao'||t==='app'){m.purchases+=a.purchases||0;m.revenue+=a.revenue||0;}
+  });
+  return m;
+}
 function _dashAggFromAds(list){
   const filtered=list.filter(a=>a.spend>0&&(!_dashFAcc.length||_dashFAcc.includes(a.account))).filter(a=>!_dashFCamp.length||_dashFCamp.includes(a.campaign)).filter(a=>!_dashFAdset.length||_dashFAdset.includes((a.campaign||'')+' · '+(a.adset||'')));
   const g={spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,addToCart:0,initiateCheckout:0,conversas:0,videoViews:0,engajamentos:0};
   filtered.forEach(a=>Object.keys(g).forEach(k=>g[k]+=(a[k]||0)));
   const out={spend:g.spend,impressions:g.impressions,clicks:g.clicks,reach:g.reach,revenue:_dashNoSales?0:g.revenue,compras:_dashNoSales?0:Math.round(g.purchases),leads:g.leads,addCarrinho:g.addToCart,checkout:g.initiateCheckout,conversas:g.conversas,videoViews:g.videoViews,engajamentos:g.engajamentos,frequencia:g.reach?g.impressions/g.reach:0};
-  // venda da planilha: total do canal (não se divide por campanha) — mídia acima já é filtrada
-  if(_dashSalesFromSheet&&_dashSheetSales){out.revenue=_dashSheetSales.revenue;out.compras=Math.round(_dashSheetSales.sales);}
+  // métricas-resultado atribuídas por objetivo (leads só de campanhas de Lead, etc.) — batem com os cards de foco
+  const objM=_objAttrib(filtered);
+  out.leads=objM.leads;out.conversas=objM.conversas;out.videoViews=objM.videoViews;out.engajamentos=objM.engajamentos;
+  if(_dashSalesFromSheet&&_dashSheetSales){out.revenue=_dashSheetSales.revenue;out.compras=Math.round(_dashSheetSales.sales);} // venda da planilha: total do canal
+  else if(!_dashNoSales){out.compras=Math.round(objM.purchases);out.revenue=objM.revenue;}
   return out;
 }
 function dashAggFiltered(){
@@ -5207,6 +5224,10 @@ function renderMetaDashboard(c,rep,since,until){
   const noSales=c.conversionSource==='none';
   const tpl=resolveClientTemplate(c,rep.ads);
   const agg={spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:noSales?0:(t.revenue||0),compras:noSales?0:Math.round(t.purchases||0),leads:t.leads||0,addCarrinho:t.addToCart||0,checkout:t.initiateCheckout||0,conversas:t.conversas||0,videoViews:t.videoViews||0,engajamentos:t.engajamentos||0,frequencia:t.reach?t.impressions/t.reach:0};
+  // métricas-resultado atribuídas por objetivo (mídia continua no nível de conta) — KPI bate com os cards de foco
+  {const objM=_objAttrib((rep.ads||[]).filter(a=>a.spend>0));
+   agg.leads=objM.leads;agg.conversas=objM.conversas;agg.videoViews=objM.videoViews;agg.engajamentos=objM.engajamentos;
+   if(!rep._salesFromSheet&&!noSales){agg.compras=Math.round(objM.purchases);agg.revenue=objM.revenue;}}
   _dashRecs=((t.records||[]).slice().sort((a,b)=>a.date<b.date?-1:1)).map(r=>({...r,purchases:r.sales}));
   _dashAds=rep.ads||[];_dashCampRecs=rep.campaigns||[];_dashTpl=tpl;_dashNoSales=noSales;_dashClientId=c.id;_dashSince=since;_dashUntil=until;_dashCompare=false;_dashPrevAds=null;_dashPrevRange=null;
   _dashSalesFromSheet=!!rep._salesFromSheet;_dashSheetSales=rep._sheetSales||null;
