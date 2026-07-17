@@ -605,6 +605,7 @@
         <div id="campColsPanel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);width:420px;max-width:90vw;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.4);z-index:50;padding:14px"></div>
       </div>
     </div>
+    <div id="campBudgetWarn"></div>
     <div id="campBody"></div>
   </section>
 
@@ -1611,6 +1612,7 @@ async function loadAll(){
   renderWhoAmI();loadNotifications();
   renderAll();setupRealtime();
   setTimeout(showAlertsPopup, 600);
+  setTimeout(checkBudgetAlerts, 1800); // tetos de investimento (cache 6h)
 }
 
 /* ---- REALTIME ---- */
@@ -1798,6 +1800,7 @@ async function loadCampanhas(clientId,days){
     const rep=await fetchMetaReportRange(c,since,until);
     _campAds=refineCampAds(rep.ads||[]);
     _campAccErrors=rep.accountErrors||[];
+    renderBudgetBanner(c,'campBudgetWarn'); // teto de investimento (async)
     _campCols=focoCols(_campFoco);
     _campStatus={camp:{},adset:{},ad:{}};
     renderCampFocos();renderCampBody(); // mostra a tabela já (status carrega em seguida)
@@ -2148,6 +2151,58 @@ function goToTasksForClient(clientId){
 }
 
 /* ---- ALERTS POPUP ---- */
+// ---- Teto de investimento (verba mensal): avisa ao se aproximar/estourar ----
+function clientMetaTeto(c){
+  const ch=(c.budgetChannels||[]).find(b=>/meta|facebook|insta/i.test(b.name||''));
+  return (ch&&+ch.val>0)?+ch.val:(+c.budget||0);
+}
+// Banner no Dashboard/Campanhas do cliente ativo (gasto do mês corrente vs teto)
+async function renderBudgetBanner(c,elId){
+  const el=document.getElementById(elId);if(!el)return;
+  el.innerHTML='';
+  const teto=clientMetaTeto(c);
+  if(!teto||!(c.metaAccountIds&&c.metaAccountIds.length))return;
+  const since=today().slice(0,8)+'01';
+  const t=await fetchMetaTotals(c,since,today());
+  const el2=document.getElementById(elId);if(!el2||!t)return;
+  const spend=+t.spend||0,pct=spend/teto*100;
+  if(pct<80)return;
+  const over=pct>=100;
+  el2.innerHTML=`<div style="background:${over?'rgba(248,113,113,.08)':'rgba(245,158,11,.08)'};border:1px solid ${over?'rgba(248,113,113,.5)':'rgba(245,158,11,.5)'};border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:12.5px">
+    <b style="color:${over?'#f87171':'#f59e0b'}">${over?'⛔ TETO DE INVESTIMENTO ESTOURADO':'⚠ Aproximando do teto de investimento'}</b>
+    — gasto do mês no Meta: <b>${fmt(spend)}</b> de <b>${fmt(teto)}</b> (${pct.toFixed(0)}%)${over?'':' · ajuste os orçamentos pra não passar'}.</div>`;
+}
+// Checagem geral na abertura (só clientes com teto definido; sequencial + cache de 6h pra não estourar rate limit)
+async function checkBudgetAlerts(){
+  try{
+    const KEY='budgetAlertCache';
+    let cache=null;try{cache=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){}
+    let itemsB;
+    if(cache&&Date.now()-cache.ts<6*3600*1000){itemsB=cache.items||[];}
+    else{
+      itemsB=[];
+      const list=DB.clients.filter(c=>c.status==='Ativo'&&c.metaAccountIds&&c.metaAccountIds.length&&clientMetaTeto(c)>0);
+      const since=today().slice(0,8)+'01';
+      for(const c of list){
+        const t=await fetchMetaTotals(c,since,today());
+        if(!t)continue;
+        const teto=clientMetaTeto(c),spend=+t.spend||0,pct=spend/teto*100;
+        if(pct>=80)itemsB.push({name:c.name,spend,teto,pct});
+      }
+      localStorage.setItem(KEY,JSON.stringify({ts:Date.now(),items:itemsB}));
+    }
+    if(!itemsB.length)return;
+    const sn=localStorage.getItem('alerts_snooze');if(sn&&Date.now()<+sn)return;
+    const body=document.getElementById('alertsPopupBody'),bg=document.getElementById('alertsPopupBg');
+    if(!body||document.getElementById('budgetAlertBlock'))return;
+    body.insertAdjacentHTML('beforeend',`<div id="budgetAlertBlock" style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:12px 14px">
+      <div style="font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:8px">📈 ${itemsB.length} cliente${itemsB.length!==1?'s':''} perto ou acima do teto de investimento (mês)</div>
+      ${itemsB.sort((a,b)=>b.pct-a.pct).map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)"><span><strong>${x.name}</strong>${x.pct>=100?' · <span style="color:#f87171;font-weight:700">ESTOUROU</span>':''}</span><span style="color:${x.pct>=100?'#f87171':'#f59e0b'};white-space:nowrap;margin-left:12px">${fmt(x.spend)} de ${fmt(x.teto)} (${x.pct.toFixed(0)}%)</span></div>`).join('')}
+      <button class="btn sm ghost" style="margin-top:10px;font-size:12px" onclick="closeAlertsPopup('close');goToTab('campanhas')">Ver campanhas →</button>
+    </div>`);
+    bg.style.display='flex';
+  }catch(e){}
+}
 async function saveMinBalance(){
   const v=parseFloat(document.getElementById('ccMinBal').value);
   const val=isNaN(v)||v<=0?null:v;
@@ -2505,10 +2560,10 @@ function renderClients(){
   list.sort((a,b)=>_clientSortAsc?a.name.localeCompare(b.name,'pt'):b.name.localeCompare(a.name,'pt'));
   const nEnc=DB.clients.filter(c=>c.status==='Encerrado').length;
   const archFoot=fStatus==='Encerrado'
-    ?`<tfoot><tr><td colspan="10" style="padding:10px"><button class="btn sm ghost" onclick="document.getElementById('cFilterStatus').value='';renderClients()">← Voltar pra lista de clientes</button></td></tr></tfoot>`
-    :(nEnc&&!fStatus?`<tfoot><tr><td colspan="10" style="padding:10px"><button class="btn sm ghost" style="color:var(--muted)" onclick="document.getElementById('cFilterStatus').value='Encerrado';renderClients()">🗄 Arquivo: ver ${nEnc} cliente(s) encerrado(s)</button></td></tr></tfoot>`:'');
+    ?`<tfoot><tr><td colspan="9" style="padding:10px"><button class="btn sm ghost" onclick="document.getElementById('cFilterStatus').value='';renderClients()">← Voltar pra lista de clientes</button></td></tr></tfoot>`
+    :(nEnc&&!fStatus?`<tfoot><tr><td colspan="9" style="padding:10px"><button class="btn sm ghost" style="color:var(--muted)" onclick="document.getElementById('cFilterStatus').value='Encerrado';renderClients()">🗄 Arquivo: ver ${nEnc} cliente(s) encerrado(s)</button></td></tr></tfoot>`:'');
   if(!list.length){t.innerHTML='<tr><td><div class="empty">Nenhum cliente com esses filtros.</div></td></tr>'+archFoot;return}
-  t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Verba mídia</th><th>Saldo</th><th>Próx. relatório</th><th></th></tr></thead><tbody>`+list.map(c=>{
+  t.innerHTML=`<thead><tr><th>Cliente</th><th>Plataformas</th><th>Status</th><th>Tipo</th><th>Cobrança</th><th>Valor</th><th>Verba mídia</th><th>Saldo</th><th></th></tr></thead><tbody>`+list.map(c=>{
     const sp={'Ativo':'green','Onboarding':'blue','Pausado':'amber','Encerrado':'gray'}[c.status]||'gray';
     const d=daysUntil(c.report);let rep=c.report?dateBR(c.report):'—';
     if(d!==null&&d<=3&&d>=0)rep=`<span class="pill amber">${rep}</span>`;else if(d!==null&&d<0)rep=`<span class="pill red">atrasado</span>`;
@@ -2523,7 +2578,7 @@ function renderClients(){
     const balWarn=(saldo!==null&&minB&&saldo<=minB)?`<div style="font-size:10px;color:${saldo<=0?'#f87171':'#f59e0b'};font-weight:800">⚠ ${saldo<=0?'SEM SALDO':'abaixo do mínimo ('+fmt(minB)+')'}</div>`:'';
     const balanceTxt=saldo!==null?`<div style="font-weight:700;color:${saldo>=0?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div>${balWarn}<button class="btn sm ghost" style="margin-top:4px;font-size:11px" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:'—';
     const reportBtn=c.reportSheetUrl?`<button class="btn sm ghost" onclick="selectReportClient('${c.id}')" title="Ver relatório de anúncios">📊 Relatório</button>`:'';
-    return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td>${rep}</td><td class="row-actions">${reportBtn}${cfgMenuBtn(c.id)}<button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
+    return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td class="row-actions">${reportBtn}${cfgMenuBtn(c.id)}<button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
   }).join('')+'</tbody>'+archFoot;
 }
 function showPays(s){if(s.payments&&s.payments.length)return s.payments;return [{id:s.id+'_p',date:s.date,val:s.val,status:s.status||'pendente',_virtual:1}]}
@@ -4654,7 +4709,8 @@ function renderMetaDashboard(c,rep,since,until){
     <button class="btn sm ghost" id="dashCmpBtn" type="button" onclick="toggleDashCompare('${c.id}')" title="Compara todas as métricas com o período imediatamente anterior de mesma duração">⇄ Comparar</button>`;
   const cards=(tpl.metrics||[]).filter(k=>METRIC_CATALOG[k]).map(k=>{const mc=METRIC_CATALOG[k];const key=k===tpl.keyMetric;return`<div class="rt-kpi ${key?'gr':'pu'}"${key?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${mc.label}${key?' ★':''}</div><div class="rt-kpi-val sm">${fmtMetric(mc.calc(agg),mc.fmt)}</div></div>`}).join('');
   const lvlBtns=[['campanha','Campanha'],['conjunto','Conjunto'],['anuncio','Anúncio']].map(([k,l])=>`<button class="btn sm ${_dashLevel===k?'primary':'ghost'}" data-dlvl="${k}" onclick="setDashLevel('${k}')">${l}</button>`).join('');
-  body.innerHTML=`<div class="card" style="margin-bottom:16px">
+  body.innerHTML=`<div id="dashBudgetWarn"></div>
+    <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
         <div><h3 style="margin:0">📡 META — ao vivo</h3><div class="hint">${dateBR(since)}–${dateBR(until)} · modelo: ${(tpl.name||'').replace(/</g,'&lt;')}</div></div>
         <div style="display:flex;gap:5px">${rangeBtns}</div>
@@ -4701,6 +4757,7 @@ function renderMetaDashboard(c,rep,since,until){
   renderDashFilterBar();
   applyDashFilters();setDashLevel(_dashLevel);
   dashLoadStatuses(c); // status 🟢/🔴 chega async e re-renderiza os seletores do funil
+  renderBudgetBanner(c,'dashBudgetWarn'); // teto de investimento (async)
 }
 async function fetchMetaChannelStats(c,month){
   const ids=c.metaAccountIds||[];
