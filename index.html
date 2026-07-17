@@ -1546,7 +1546,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[]});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -4420,8 +4420,21 @@ function dashFocosHTML(){
 }
 // ---- Funil configurável do Dashboard: gestor escolhe etapas, métricas e ordem (salvo por cliente) ----
 function dashFunnelStages(){
+  // 1) ajuste local (deste navegador) → 2) padrão salvo do cliente (banco, vale pra equipe) → 3) pré-set pelo objetivo principal
   try{const s=JSON.parse(localStorage.getItem('dashFunnel_'+_dashClientId)||'null');if(Array.isArray(s)&&s.length)return s.filter(k=>FUNNEL_CATALOG[k]);}catch(e){}
+  const c=DB.clients.find(x=>x.id===_dashClientId);
+  if(c&&Array.isArray(c.dashFunnel)&&c.dashFunnel.length)return c.dashFunnel.filter(k=>FUNNEL_CATALOG[k]);
+  const foco=(c&&c.reportFocos&&c.reportFocos.length)?c.reportFocos[0]:null;
+  if(foco){const bt=BASE_TEMPLATES.find(t=>t.objectiveType===foco);if(bt)return bt.funnel.filter(k=>FUNNEL_CATALOG[k]);}
   return (((_dashTpl&&_dashTpl.funnel)||['impressoes','cliques']).filter(k=>FUNNEL_CATALOG[k]));
+}
+async function dashFunnelSaveDefault(){
+  const s=dashFunnelStages();const c=DB.clients.find(x=>x.id===_dashClientId);if(!c||!s.length)return;
+  const {error}=await sb.from('clients').update({dash_funnel:s}).eq('id',_dashClientId);
+  if(error){alert('Erro ao salvar: '+error.message);return;}
+  c.dashFunnel=s.slice();localStorage.removeItem('dashFunnel_'+_dashClientId);
+  renderDashFunnel();renderDashFunnelEditor();
+  const p=document.getElementById('dashFunnelEditor');if(p){const ok=document.createElement('div');ok.style.cssText='font-size:12px;color:#34d399;margin-top:4px';ok.textContent='✓ Salvo como padrão deste cliente (vale pra equipe toda)';p.appendChild(ok);setTimeout(()=>ok.remove(),3500);}
 }
 function _saveDashFunnel(arr){localStorage.setItem('dashFunnel_'+_dashClientId,JSON.stringify(arr));renderDashFunnel();renderDashFunnelEditor();}
 function dashFunnelMove(i,d){const s=dashFunnelStages();const j=i+d;if(j<0||j>=s.length)return;[s[i],s[j]]=[s[j],s[i]];_saveDashFunnel(s);}
@@ -4437,8 +4450,9 @@ function renderDashFunnelEditor(){
   const opts=Object.entries(FUNNEL_CATALOG).filter(([k])=>!s.includes(k)).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
   p.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">${rows}
     <select onchange="dashFunnelAdd(this.value);this.value=''" style="width:auto;font-size:12px"><option value="">+ adicionar etapa…</option>${opts}</select>
+    <button class="btn sm primary" type="button" onclick="dashFunnelSaveDefault()">💾 Salvar padrão do cliente</button>
     <button class="btn sm ghost" type="button" onclick="dashFunnelReset()">↺ restaurar padrão</button></div>
-    <div style="font-size:11px;color:var(--faint);margin-bottom:10px">◀ ▶ mudam a ordem · × remove · a escolha fica salva pra este cliente e respeita os filtros de conta/campanha/conjunto.</div>`;
+    <div style="font-size:11px;color:var(--faint);margin-bottom:10px">◀ ▶ mudam a ordem · × remove · 💾 grava como padrão do cliente (equipe toda) · ↺ descarta o ajuste local e volta pro padrão salvo (ou pro funil do objetivo principal). Respeita os filtros de conta/campanha/conjunto.</div>`;
 }
 function renderDashFunnel(){
   const box=document.getElementById('dashFunnelBox');if(!box)return;
