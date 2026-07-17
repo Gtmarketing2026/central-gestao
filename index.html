@@ -3102,7 +3102,9 @@ function openClientModal(id){
   fillReportFocos(c.reportFocos||[]);
   document.getElementById('cConversionSource').value=c.conversionSource||'';
   {const bm=c.benchmarkMetas||{};const setM=(id,v)=>{document.getElementById(id).value=(v||v===0)?v:''};
-   setM('cMetaCtr',bm.ctr);setM('cMetaCpc',bm.cpc);setM('cMetaCpm',bm.cpm);setM('cMetaRoas',bm.roas);setM('cMetaCpa',bm.cpa);setM('cMetaCpl',bm.cpl);setM('cMetaConversa',bm.custoConversa);setM('cMetaView',bm.custoView);}
+   setM('cMetaCtr',bm.ctr);setM('cMetaCpc',bm.cpc);setM('cMetaCpm',bm.cpm);setM('cMetaRoas',bm.roas);setM('cMetaCpa',bm.cpa);setM('cMetaCpl',bm.cpl);setM('cMetaConversa',bm.custoConversa);setM('cMetaView',bm.custoView);
+   document.getElementById('cMetaAvgMsg').textContent='';
+   autoFillBenchmark(c);} // metas vazias → preenche automático com a média (gestor ajusta manual)
   {const st=document.getElementById('cDnaStatus');if(st)st.textContent=c.dna&&c.dna.personas?('✓ DNA salvo · '+(c.dna.personas.length||0)+' personas'):(id?'Ainda sem DNA — clique pra montar':'(disponível após salvar o cliente)');}
   document.getElementById('cKnowledgeUpload').value='';document.getElementById('cKnowledgeStatus').textContent='';
   if(id){document.getElementById('cKnowledgeHint').textContent='';renderKnowledgeList('cKnowledgeList',id)}
@@ -3149,6 +3151,27 @@ async function loadMetaAccounts(){
     hint.style.color='var(--faint)';hint.textContent=`${metaAccountsCache.length} contas atualizadas direto do Meta — acesso novo já aparece na lista. Escolha e clique em "+ Vincular" (pode adicionar várias).`;
   }catch(e){hint.style.color='var(--red)';hint.textContent='Erro: '+(e.message||e)+' (o token do Meta já foi publicado no Supabase?)';}
   btn.disabled=false;btn.textContent=old;
+}
+// Preenche as metas automaticamente com a média da conta quando estão vazias (o gestor ajusta manual se quiser)
+async function autoFillBenchmark(c){
+  if(!c||!c.id||!(c.metaAccountIds&&c.metaAccountIds.length))return;
+  const ids=['cMetaCtr','cMetaCpc','cMetaCpm','cMetaRoas','cMetaCpa','cMetaCpl','cMetaConversa','cMetaView'];
+  const empty=()=>ids.every(i=>{const el=document.getElementById(i);return el&&el.value==='';});
+  if(!empty())return; // já tem metas definidas — não sobrescreve
+  const msg=document.getElementById('cMetaAvgMsg');if(msg)msg.textContent='⏳ Preenchendo com a média da conta (90 dias)…';
+  try{
+    const t=await fetchMetaTotals(c,daysAgoISO(90),today());
+    const msg2=document.getElementById('cMetaAvgMsg');
+    if(!t||!t.spend){if(msg2)msg2.textContent='';return;}
+    if(!empty())return; // gestor começou a digitar enquanto carregava
+    const setV=(elid,v,dec)=>{const el=document.getElementById(elid);if(el&&v&&isFinite(v))el.value=(+v).toFixed(dec==null?2:dec)};
+    setV('cMetaCtr',t.ctr,2);setV('cMetaCpc',t.cpc,2);setV('cMetaCpm',t.cpm,2);setV('cMetaRoas',t.roas,2);
+    setV('cMetaCpa',t.purchases?t.spend/t.purchases:0,2);
+    setV('cMetaCpl',t.leads?t.spend/t.leads:0,2);
+    setV('cMetaConversa',t.conversas?t.spend/t.conversas:0,2);
+    setV('cMetaView',t.videoViews?t.spend/t.videoViews:0,3);
+    if(msg2)msg2.textContent='✓ Preenchido automático com a média de 90 dias — ajuste manual o que quiser e salve.';
+  }catch(e){const m=document.getElementById('cMetaAvgMsg');if(m)m.textContent='';}
 }
 async function pullAccountAverages(){
   const id=cId.value;const c=DB.clients.find(x=>x.id===id);
