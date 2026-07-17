@@ -689,9 +689,9 @@ function googleObjetivo(channelType: string) {
   return { codigo: t || null, ...(map[t] || { tipo: "conversao", rotulo: "Google Ads", metrica: "conversões, CPA, ROAS" }) };
 }
 
-// v23 não expõe mais video_views/engagements nesses recursos — métricas essenciais só
+// v23 renomeou video_views -> video_trueview_views (e customer não aceita métricas de vídeo/engajamento)
 const GADS_METRICS = "metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value";
-const GADS_METRICS_FULL = GADS_METRICS;
+const GADS_METRICS_FULL = GADS_METRICS + ", metrics.video_trueview_views, metrics.engagements";
 function gadsShape(m: any) {
   const spend = (Number(m?.costMicros) || 0) / 1e6;
   const impressions = Number(m?.impressions) || 0;
@@ -706,7 +706,7 @@ function gadsShape(m: any) {
     reach: 0, frequency: 0,
     purchases, revenue, roas: spend ? revenue / spend : 0,
     leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0,
-    videoViews: Number(m?.videoViews) || 0,
+    videoViews: Number(m?.videoTrueviewViews ?? m?.videoViews) || 0,
     engajamentos: Number(m?.engagements) || 0,
   };
 }

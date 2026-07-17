@@ -584,6 +584,7 @@
   <!-- CAMPANHAS (drill-down estilo gerenciador) -->
   <section class="panel" id="campanhas">
     <div class="section-head" style="margin-top:0"><h2>📣 Campanhas <span id="campClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
+    <div id="campSource" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <div id="campRange" style="display:flex;gap:5px"></div>
       <div id="campDateWrap" style="display:none;gap:6px;align-items:center">
@@ -1797,38 +1798,54 @@ function selectSidebarClient(id){
   else{openClientConfig(id);}
 }
 /* ===== CAMPANHAS (drill-down estilo gerenciador) ===== */
-let _campDays=30,_campAds=[],_campClientId='',_campFoco='',_campSince='',_campUntil='',_campSearch='',_campStatusFilter='',_campMinSpend=0,_campShowPaused=false,_campPreset='30',_campCompare=false,_campPrev=null,_campAccErrors=[];
+let _campDays=30,_campAds=[],_campClientId='',_campFoco='',_campSince='',_campUntil='',_campSearch='',_campStatusFilter='',_campMinSpend=0,_campShowPaused=false,_campPreset='30',_campCompare=false,_campPrev=null,_campAccErrors=[],_campSource='meta';
+// Submenu de canal: cada fonte carrega separada (colunas e filtros diferentes)
+function renderCampSource(hasMeta,hasGoogle){
+  const el=document.getElementById('campSource');if(!el)return;
+  const b=(key,lbl)=>`<button class="btn sm ${_campSource===key?'primary':'ghost'}" onclick="setCampSource('${key}')">${lbl}</button>`;
+  let html='';
+  if(hasMeta)html+=b('meta','Ⓜ️ Meta Ads');
+  if(hasGoogle)html+=b('google','🔎 Google Ads');
+  el.innerHTML=html;
+}
+function setCampSource(s){
+  if(s===_campSource)return;
+  _campSource=s;_campFoco='';_campStatusFilter='';_campCols=focoCols('');_campPrev=null;
+  loadCampanhas(null);if(_campCompare)loadCampPrev();
+}
 const CAMP_AGG_KEYS=['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'];
 function _newAgg(){const o={};CAMP_AGG_KEYS.forEach(k=>o[k]=0);return o;}
 function _addAgg(agg,a){CAMP_AGG_KEYS.forEach(k=>agg[k]+=(a[k]||0));}
-function goToCampanhasFoco(clientId,tipo){activeClientId=clientId;const s=document.getElementById('sidebarClient');if(s)s.value=clientId;_campFoco=tipo||'';goToTab('campanhas');}
+function goToCampanhasFoco(clientId,tipo){activeClientId=clientId;const s=document.getElementById('sidebarClient');if(s)s.value=clientId;_campFoco=tipo||'';_campSource='meta';goToTab('campanhas');}
 async function loadCampanhas(clientId,days){
   const c=DB.clients.find(x=>x.id===(clientId||activeClientId||_campClientId));
   const body=document.getElementById('campBody');if(!body)return;
   document.getElementById('campClientName').textContent=c?('· '+c.name):'';
   if(!c){body.innerHTML='<div class="empty">Selecione um cliente na sidebar.</div>';document.getElementById('campRange').innerHTML='';document.getElementById('campFocos').innerHTML='';return}
   const hasMetaAcc=!!(c.metaAccountIds&&c.metaAccountIds.length),hasGoogleAcc=!!(c.googleAccountIds&&c.googleAccountIds.length);
-  if(!hasMetaAcc&&!hasGoogleAcc){body.innerHTML='<div class="empty">Este cliente não tem conta do Meta nem do Google vinculada.</div>';return}
+  if(!hasMetaAcc&&!hasGoogleAcc){document.getElementById('campSource').innerHTML='';body.innerHTML='<div class="empty">Este cliente não tem conta do Meta nem do Google vinculada.</div>';return}
+  // fonte selecionada precisa existir no cliente (cada canal carrega separado — colunas e filtros diferentes)
+  if(_campSource==='google'&&!hasGoogleAcc)_campSource='meta';
+  if(_campSource==='meta'&&!hasMetaAcc)_campSource='google';
+  const clientChanged=_campClientId!==c.id;
   _campClientId=c.id;if(days){_campDays=days;_campSince='';_campUntil='';}
+  if(clientChanged&&!hasMetaAcc)_campSource='google';
+  renderCampSource(hasMetaAcc,hasGoogleAcc);
   renderCampRange();renderCampStatusFilter();
-  body.innerHTML='<div class="empty">Carregando campanhas ao vivo...</div>';
+  body.innerHTML='<div class="empty">Carregando campanhas ao vivo ('+(_campSource==='google'?'Google Ads':'Meta Ads')+')...</div>';
   try{
     const accounts=(c.metaAccountIds||[]).map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
     const since=_campSince||daysAgoISO(_campDays),until=_campUntil||today();
-    // Meta e Google em paralelo; erro de um não derruba o outro (aparece na barra de erros)
-    const [rep,grep]=await Promise.all([
-      hasMetaAcc?fetchMetaReportRange(c,since,until):Promise.resolve({ads:[],accountErrors:[]}),
-      hasGoogleAcc?fetchGoogleReportRange(c,since,until).catch(e=>({ads:[],accountErrors:[{id:'google',name:'Google Ads',error:e.message||String(e)}]})):Promise.resolve({ads:[],accountErrors:[]})
-    ]);
-    _campAds=refineCampAds([...(rep.ads||[]),...(grep.ads||[])]);
-    _campAccErrors=[...(rep.accountErrors||[]),...(grep.accountErrors||[])];
+    const rep=_campSource==='google'?await fetchGoogleReportRange(c,since,until):await fetchMetaReportRange(c,since,until);
+    _campAds=refineCampAds(rep.ads||[]);
+    _campAccErrors=rep.accountErrors||[];
     renderBudgetBanner(c,'campBudgetWarn'); // teto de investimento (async)
     _campCols=focoCols(_campFoco);
     _campStatus={camp:{},adset:{},ad:{}};
     renderCampFocos();renderCampBody(); // mostra a tabela já (status carrega em seguida)
     // status leve: só os anúncios da tela (evita puxar todos os anúncios da conta e estourar rate limit) — só Meta (Google não tem toggle)
     const adIds=[...new Set(_campAds.filter(a=>!a._google).map(a=>a.adId).filter(Boolean))].slice(0,300);
-    if(hasMetaAcc)sb.functions.invoke('dynamic-responder',{body:{metaEntities:{accounts,adIds}}}).then(r=>{
+    if(_campSource==='meta'&&hasMetaAcc)sb.functions.invoke('dynamic-responder',{body:{metaEntities:{accounts,adIds}}}).then(r=>{
       const ent=(r.data&&r.data.data)||r.data||{};
       (ent.campaigns||[]).forEach(x=>_campStatus.camp[x.id]=x.status);
       (ent.adsets||[]).forEach(x=>_campStatus.adset[x.id]=x.status);
@@ -1875,21 +1892,20 @@ function toggleCampCompare(){_campCompare=!_campCompare;renderCampRange();if(_ca
 async function loadCampPrev(){
   const c=DB.clients.find(x=>x.id===_campClientId);if(!c)return;
   const hasM=!!(c.metaAccountIds&&c.metaAccountIds.length),hasG=!!(c.googleAccountIds&&c.googleAccountIds.length);
-  if(!hasM&&!hasG)return;
+  if(_campSource==='google'?!hasG:!hasM)return;
   const pr=prevCampRange();
   try{
-    const [rep,grep]=await Promise.all([
-      hasM?fetchMetaReportRange(c,pr.since,pr.until):Promise.resolve({ads:[]}),
-      hasG?fetchGoogleReportRange(c,pr.since,pr.until).catch(()=>({ads:[]})):Promise.resolve({ads:[]})
-    ]);
-    const ads=refineCampAds([...(rep.ads||[]),...(grep.ads||[])]).filter(a=>a.spend>0);
+    const rep=_campSource==='google'?await fetchGoogleReportRange(c,pr.since,pr.until):await fetchMetaReportRange(c,pr.since,pr.until);
+    const ads=refineCampAds(rep.ads||[]).filter(a=>a.spend>0);
     const agg=_newAgg();ads.forEach(a=>_addAgg(agg,a));deriveMeta(agg);
     const tree=buildCampaignTree(ads);const resSum=tree.reduce((s,cp)=>s+campResultado(cp.agg,cp.objetivo.tipo).resNum,0);
     _campPrev={agg,resSum,range:pr};
   }catch(e){_campPrev=null;}
   if(document.querySelector('.panel#campanhas.active'))renderCampBody();
 }
-function renderCampStatusFilter(){const el=document.getElementById('campStatusFilter');if(!el)return;el.innerHTML=[['','Todos'],['ACTIVE','Ativos'],['PAUSED','Pausados']].map(([v,l])=>`<button class="btn sm ${_campStatusFilter===v?'primary':'ghost'}" onclick="setCampStatusFilter('${v}')">${l}</button>`).join('');}
+function renderCampStatusFilter(){const el=document.getElementById('campStatusFilter');if(!el)return;
+  if(_campSource==='google'){el.innerHTML='';return}// Google não traz status ao vivo (sem toggle) — filtro não se aplica
+  el.innerHTML=[['','Todos'],['ACTIVE','Ativos'],['PAUSED','Pausados']].map(([v,l])=>`<button class="btn sm ${_campStatusFilter===v?'primary':'ghost'}" onclick="setCampStatusFilter('${v}')">${l}</button>`).join('');}
 function setCampStatusFilter(v){_campStatusFilter=v;renderCampStatusFilter();renderCampBody();}
 function setCampSearch(v){_campSearch=(v||'').toLowerCase().trim();renderCampBody();}
 function setCampMinSpend(v){_campMinSpend=+v||0;renderCampBody();}
@@ -1962,7 +1978,18 @@ const COLS_BY_OBJETIVO={
 // Classificação de foco vem do BACKEND (objetivo + local de conversão dos conjuntos: destination_type/optimization_goal).
 // Regra por nome foi removida — nomenclatura engana (ex: "venda" no nome, mas campanha de mensagem).
 function refineCampAds(list){return list;}
-function focoCols(tipo){return (COLS_BY_OBJETIVO[tipo]||CAMP_COLS_DEFAULT).slice();}
+// Colunas do Google: sem alcance/frequência/conversas (a API não traz) — foco em mídia + conversões
+const GOOGLE_COLS_DEFAULT=['invest','impressions','clicks','ctr','cpc','resultado','custores'];
+const GOOGLE_COLS_BY_OBJETIVO={
+  conversao:['invest','impressions','clicks','ctr','cpc','compras','cpa','roas'],
+  video:['invest','impressions','views','custoview','cpm','clicks'],
+  alcance:['invest','impressions','cpm','clicks','ctr'],
+  engajamento:['invest','impressions','clicks','ctr','cpc','cpm'],
+};
+function focoCols(tipo){
+  if(_campSource==='google')return (GOOGLE_COLS_BY_OBJETIVO[tipo]||GOOGLE_COLS_DEFAULT).slice();
+  return (COLS_BY_OBJETIVO[tipo]||CAMP_COLS_DEFAULT).slice();
+}
 let _campCols=CAMP_COLS_DEFAULT.slice();
 function campGrid(){return `grid-template-columns:minmax(200px,2.2fr) repeat(${_campCols.length},minmax(66px,1fr));`;}
 function _campPresets(){try{return JSON.parse(localStorage.getItem('campColPresets')||'{}')}catch(e){return {}}}
