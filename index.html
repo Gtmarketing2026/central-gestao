@@ -756,6 +756,21 @@
       </div>
       <div id="cMetaAccountChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
       <div id="cMetaAccountHint" style="font-size:11px;color:var(--faint)"></div>
+      <hr class="budget-divider">
+      <div class="form-row" style="margin-bottom:6px">
+        <span style="font-size:13px;font-weight:600;color:var(--text)">🔎 Conta de anúncios (Google Ads — ao vivo)</span>
+        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Vincule a conta do Google Ads (via MCC) pra puxar investimento, cliques, CTR e conversões em tempo real. A venda pode continuar vindo da planilha (aba GOOGLE VENDAS), igual ao Meta.</div>
+      </div>
+      <div class="form-row" style="margin-bottom:6px"><input id="cGoogleSearch" type="text" placeholder="🔎 Buscar conta por nome ou ID…" autocomplete="off" oninput="googleSelectSearch=this.value;fillGoogleSelect()" style="width:100%"></div>
+      <div class="form-row"><label>Conta do Google Ads</label>
+        <select id="cGoogleAccountId" autocomplete="off" size="8" style="width:100%"><option value="">— carregue as contas e escolha —</option></select>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:6px">
+        <button class="btn sm" style="flex:1;justify-content:center" type="button" onclick="addGoogleAccount()">+ Vincular</button>
+        <button class="btn sm ghost" style="flex:1;justify-content:center" type="button" id="cGoogleLoadBtn" onclick="loadGoogleAccounts()" title="Busca a lista de contas direto da MCC do Google Ads">🔄 Atualizar contas</button>
+      </div>
+      <div id="cGoogleAccountChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+      <div id="cGoogleAccountHint" style="font-size:11px;color:var(--faint)"></div>
     </div>
 
     <div class="cpanel" data-panel="relatorios" style="display:none">
@@ -1361,7 +1376,7 @@
 </div>
 
 <script>
-const APP_VERSION = '1.2';
+const APP_VERSION = '1.3';
 const APP_URL = 'https://gtmarketing2026.github.io/central-gestao/';
 
 const SUPA_URL = 'https://mocrfqmdjwvyhqvdpimm.supabase.co';
@@ -1549,8 +1564,8 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,minBalance:+r.min_balance||0});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,minBalance:+r.min_balance||0});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||'',category:r.category||'',fixedType:r.fixed_type||''});
@@ -1792,23 +1807,28 @@ async function loadCampanhas(clientId,days){
   const body=document.getElementById('campBody');if(!body)return;
   document.getElementById('campClientName').textContent=c?('· '+c.name):'';
   if(!c){body.innerHTML='<div class="empty">Selecione um cliente na sidebar.</div>';document.getElementById('campRange').innerHTML='';document.getElementById('campFocos').innerHTML='';return}
-  if(!(c.metaAccountIds&&c.metaAccountIds.length)){body.innerHTML='<div class="empty">Este cliente não tem conta do Meta vinculada.</div>';return}
+  const hasMetaAcc=!!(c.metaAccountIds&&c.metaAccountIds.length),hasGoogleAcc=!!(c.googleAccountIds&&c.googleAccountIds.length);
+  if(!hasMetaAcc&&!hasGoogleAcc){body.innerHTML='<div class="empty">Este cliente não tem conta do Meta nem do Google vinculada.</div>';return}
   _campClientId=c.id;if(days){_campDays=days;_campSince='';_campUntil='';}
   renderCampRange();renderCampStatusFilter();
   body.innerHTML='<div class="empty">Carregando campanhas ao vivo...</div>';
   try{
-    const accounts=c.metaAccountIds.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
+    const accounts=(c.metaAccountIds||[]).map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
     const since=_campSince||daysAgoISO(_campDays),until=_campUntil||today();
-    const rep=await fetchMetaReportRange(c,since,until);
-    _campAds=refineCampAds(rep.ads||[]);
-    _campAccErrors=rep.accountErrors||[];
+    // Meta e Google em paralelo; erro de um não derruba o outro (aparece na barra de erros)
+    const [rep,grep]=await Promise.all([
+      hasMetaAcc?fetchMetaReportRange(c,since,until):Promise.resolve({ads:[],accountErrors:[]}),
+      hasGoogleAcc?fetchGoogleReportRange(c,since,until).catch(e=>({ads:[],accountErrors:[{id:'google',name:'Google Ads',error:e.message||String(e)}]})):Promise.resolve({ads:[],accountErrors:[]})
+    ]);
+    _campAds=refineCampAds([...(rep.ads||[]),...(grep.ads||[])]);
+    _campAccErrors=[...(rep.accountErrors||[]),...(grep.accountErrors||[])];
     renderBudgetBanner(c,'campBudgetWarn'); // teto de investimento (async)
     _campCols=focoCols(_campFoco);
     _campStatus={camp:{},adset:{},ad:{}};
     renderCampFocos();renderCampBody(); // mostra a tabela já (status carrega em seguida)
-    // status leve: só os anúncios da tela (evita puxar todos os anúncios da conta e estourar rate limit)
-    const adIds=[...new Set(_campAds.map(a=>a.adId).filter(Boolean))].slice(0,300);
-    sb.functions.invoke('dynamic-responder',{body:{metaEntities:{accounts,adIds}}}).then(r=>{
+    // status leve: só os anúncios da tela (evita puxar todos os anúncios da conta e estourar rate limit) — só Meta (Google não tem toggle)
+    const adIds=[...new Set(_campAds.filter(a=>!a._google).map(a=>a.adId).filter(Boolean))].slice(0,300);
+    if(hasMetaAcc)sb.functions.invoke('dynamic-responder',{body:{metaEntities:{accounts,adIds}}}).then(r=>{
       const ent=(r.data&&r.data.data)||r.data||{};
       (ent.campaigns||[]).forEach(x=>_campStatus.camp[x.id]=x.status);
       (ent.adsets||[]).forEach(x=>_campStatus.adset[x.id]=x.status);
@@ -1853,11 +1873,16 @@ function currentCampRange(){return{since:_campSince||daysAgoISO(_campDays),until
 function prevCampRange(){const {since,until}=currentCampRange();const s=new Date(since+'T12:00:00'),u=new Date(until+'T12:00:00');const days=Math.round((u-s)/86400000)+1;const pu=new Date(s);pu.setDate(pu.getDate()-1);const ps=new Date(pu);ps.setDate(ps.getDate()-(days-1));const iso=x=>x.toISOString().slice(0,10);return{since:iso(ps),until:iso(pu)};}
 function toggleCampCompare(){_campCompare=!_campCompare;renderCampRange();if(_campCompare){_campPrev=null;renderCampBody();loadCampPrev();}else{_campPrev=null;renderCampBody();}}
 async function loadCampPrev(){
-  const c=DB.clients.find(x=>x.id===_campClientId);if(!c||!(c.metaAccountIds&&c.metaAccountIds.length))return;
+  const c=DB.clients.find(x=>x.id===_campClientId);if(!c)return;
+  const hasM=!!(c.metaAccountIds&&c.metaAccountIds.length),hasG=!!(c.googleAccountIds&&c.googleAccountIds.length);
+  if(!hasM&&!hasG)return;
   const pr=prevCampRange();
   try{
-    const rep=await fetchMetaReportRange(c,pr.since,pr.until);
-    const ads=refineCampAds(rep.ads||[]).filter(a=>a.spend>0);
+    const [rep,grep]=await Promise.all([
+      hasM?fetchMetaReportRange(c,pr.since,pr.until):Promise.resolve({ads:[]}),
+      hasG?fetchGoogleReportRange(c,pr.since,pr.until).catch(()=>({ads:[]})):Promise.resolve({ads:[]})
+    ]);
+    const ads=refineCampAds([...(rep.ads||[]),...(grep.ads||[])]).filter(a=>a.spend>0);
     const agg=_newAgg();ads.forEach(a=>_addAgg(agg,a));deriveMeta(agg);
     const tree=buildCampaignTree(ads);const resSum=tree.reduce((s,cp)=>s+campResultado(cp.agg,cp.objetivo.tipo).resNum,0);
     _campPrev={agg,resSum,range:pr};
@@ -1875,7 +1900,7 @@ function buildCampaignTree(ads){
   const camps={};
   ads.forEach(a=>{
     const cn=a.campaign||'—';
-    if(!camps[cn])camps[cn]={nome:cn,id:a.campaignId,objetivo:a.objetivo||{tipo:'outro',rotulo:'Outro'},agg:_newAgg(),adsets:{}};
+    if(!camps[cn])camps[cn]={nome:cn,id:a.campaignId,_google:!!a._google,objetivo:a.objetivo||{tipo:'outro',rotulo:'Outro'},agg:_newAgg(),adsets:{}};
     _addAgg(camps[cn].agg,a);
     const sn=a.adset||'—';
     if(!camps[cn].adsets[sn])camps[cn].adsets[sn]={nome:sn,id:a.adsetId,agg:_newAgg(),ads:[]};
@@ -1992,10 +2017,10 @@ function renderCampBody(){
     const cid=pfx+ci;
     const adsetRows=Object.values(cp.adsets).sort((a,b)=>b.agg.spend-a.agg.spend).map((as,ai)=>{
       const sid=pfx+ci+'as'+ai;
-      const adRows=as.ads.sort((a,b)=>b.spend-a.spend).map(ad=>campRowHTML(ad.adName,3,ad,cp.objetivo.tipo,null,null,'ad',ad.adId)).join('');
-      return `<div>${campRowHTML(as.nome,2,as.agg,cp.objetivo.tipo,sid,as.ads.length+' anúncio(s)','adset',as.id)}<div id="${sid}" style="display:none">${adRows}</div></div>`;
+      const adRows=as.ads.sort((a,b)=>b.spend-a.spend).map(ad=>campRowHTML(ad.adName,3,ad,cp.objetivo.tipo,null,null,'ad',cp._google?null:ad.adId)).join('');
+      return `<div>${campRowHTML(as.nome,2,as.agg,cp.objetivo.tipo,sid,as.ads.length+' anúncio(s)','adset',cp._google?null:as.id)}<div id="${sid}" style="display:none">${adRows}</div></div>`;
     }).join('');
-    return `<div>${campRowHTML(cp.nome,1,cp.agg,cp.objetivo.tipo,cid,cp.objetivo.rotulo,'camp',cp.id)}<div id="${cid}" style="display:none">${adsetRows}</div></div>`;
+    return `<div>${campRowHTML(cp.nome,1,cp.agg,cp.objetivo.tipo,cid,cp.objetivo.rotulo,'camp',cp._google?null:cp.id)}<div id="${cid}" style="display:none">${adsetRows}</div></div>`;
   }).join('');
   // Divide em ativas x pausadas (padrão: só ativas; pausadas carregam sob demanda). Status desconhecido conta como ativa.
   let active=tree,paused=[];
@@ -3100,6 +3125,8 @@ function openClientModal(id){
   document.getElementById('cReportOrdersSheetRow').style.display=(c.reportOrdersMode==='local')?'none':'block';
   setMetaSelection(c.metaAccountIds||[]);
   document.getElementById('cMetaAccountHint').textContent='';
+  setGoogleSelection(c.googleAccountIds||[]);
+  document.getElementById('cGoogleAccountHint').textContent='';
   fillTemplateSelect(c.reportTemplateId||'');
   fillReportFocos(c.reportFocos||[]);
   document.getElementById('cConversionSource').value=c.conversionSource||'';
@@ -3152,6 +3179,45 @@ async function loadMetaAccounts(){
     fillMetaSelect();renderMetaChips();
     hint.style.color='var(--faint)';hint.textContent=`${metaAccountsCache.length} contas atualizadas direto do Meta — acesso novo já aparece na lista. Escolha e clique em "+ Vincular" (pode adicionar várias).`;
   }catch(e){hint.style.color='var(--red)';hint.textContent='Erro: '+(e.message||e)+' (o token do Meta já foi publicado no Supabase?)';}
+  btn.disabled=false;btn.textContent=old;
+}
+/* ---- GOOGLE ADS (mesma lógica do Meta) ---- */
+let googleAccountsCache=JSON.parse(localStorage.getItem('googleAccountsCache')||'[]');
+let googleSelectedIds=[];
+let googleSelectSearch='';
+function googleAccName(id){const a=googleAccountsCache.find(x=>x.id===id);return a?a.name:id;}
+function fillGoogleSelect(){
+  const sel=document.getElementById('cGoogleAccountId');if(!sel)return;
+  const q=googleSelectSearch.trim().toLowerCase();
+  let list=googleAccountsCache.slice().filter(a=>!googleSelectedIds.includes(a.id)).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  if(q)list=list.filter(a=>((a.name||'')+' '+a.id).toLowerCase().includes(q));
+  const head=googleAccountsCache.length?(q?(list.length+' conta(s) encontrada(s)'):'selecione e clique em Vincular'):'carregue as contas e escolha';
+  sel.innerHTML='<option value="">— '+head+' —</option>'+list.map(a=>`<option value="${a.id}">${(a.name||a.id).replace(/</g,'')} (${a.id})</option>`).join('');
+}
+function renderGoogleChips(){
+  const box=document.getElementById('cGoogleAccountChips');if(!box)return;
+  box.innerHTML=googleSelectedIds.map(id=>`<span style="display:inline-flex;align-items:center;gap:6px;background:rgba(52,211,153,.15);border:1px solid rgba(52,211,153,.4);border-radius:14px;padding:3px 10px;font-size:12px;color:var(--text)">${googleAccName(id).replace(/</g,'')} <span style="cursor:pointer;color:var(--faint);font-weight:700" onclick="removeGoogleAccount('${id}')">×</span></span>`).join('');
+}
+function addGoogleAccount(){
+  const sel=document.getElementById('cGoogleAccountId');const id=sel.value;
+  if(!id)return;
+  if(!googleSelectedIds.includes(id))googleSelectedIds.push(id);
+  fillGoogleSelect();renderGoogleChips();
+}
+function removeGoogleAccount(id){googleSelectedIds=googleSelectedIds.filter(x=>x!==id);fillGoogleSelect();renderGoogleChips();}
+function setGoogleSelection(ids){googleSelectedIds=(ids||[]).slice();googleSelectSearch='';const s=document.getElementById('cGoogleSearch');if(s)s.value='';fillGoogleSelect();renderGoogleChips();}
+async function loadGoogleAccounts(){
+  const btn=document.getElementById('cGoogleLoadBtn'),hint=document.getElementById('cGoogleAccountHint');
+  btn.disabled=true;const old=btn.textContent;btn.textContent='Carregando…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleAccounts:true}});
+    if(error)throw error;
+    if(data.error)throw new Error(data.error);
+    googleAccountsCache=(data.data||data||[]).map(a=>({id:String(a.id),name:a.name||a.id}));
+    localStorage.setItem('googleAccountsCache',JSON.stringify(googleAccountsCache));
+    fillGoogleSelect();renderGoogleChips();
+    hint.style.color='var(--faint)';hint.textContent=`${googleAccountsCache.length} contas da MCC atualizadas. Escolha e clique em "+ Vincular" (pode adicionar várias).`;
+  }catch(e){hint.style.color='var(--red)';hint.textContent='Erro: '+(e.message||e)+' (os secrets do Google Ads já foram publicados no Supabase?)';}
   btn.disabled=false;btn.textContent=old;
 }
 // Preenche as metas automaticamente com a média da conta quando estão vazias (o gestor ajusta manual se quiser)
@@ -3207,7 +3273,7 @@ async function saveClient(){
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
   const reportWeekly=document.getElementById('cReportWeekly').checked;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),reportTemplateId:document.getElementById('cReportTemplate').value||'',conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:(document.getElementById('cReportFocos')?[...document.querySelectorAll('.cFoco:checked')].map(x=>x.value):((DB.clients.find(x=>x.id===cId.value)||{}).reportFocos||[])),benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),googleAccountIds:googleSelectedIds.slice(),reportTemplateId:document.getElementById('cReportTemplate').value||'',conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:(document.getElementById('cReportFocos')?[...document.querySelectorAll('.cFoco:checked')].map(x=>x.value):((DB.clients.find(x=>x.id===cId.value)||{}).reportFocos||[])),benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
@@ -4362,7 +4428,7 @@ async function loadClientTemplate(){
   const body=document.getElementById('crTemplateBody');
   if(!c){body.innerHTML='<div class="empty">Selecione um cliente.</div>';return}
   const isLocal=c.reportOrdersMode==='local';
-  const hasMeta=!!(c.metaAccountIds&&c.metaAccountIds.length);
+  const hasMeta=!!(c.metaAccountIds&&c.metaAccountIds.length)||!!(c.googleAccountIds&&c.googleAccountIds.length);
   const noSales=c.conversionSource==='none';
   const hasOrdersSource=!noSales&&(isLocal||!!(c.reportOrdersSheetUrl&&c.reportOrdersTab));
   if(!hasOrdersSource&&!hasMeta){body.innerHTML='<div class="empty">Este cliente não tem fonte de dados. Vincule uma conta do Meta (aba Mídia) ou configure a planilha de pedidos no cadastro.</div>';return}
@@ -4396,13 +4462,19 @@ async function loadClientTemplate(){
       if(error)throw error;
       Object.assign(dataByTab,(data&&data.data)||{});
     }
-    // checkout e Meta em PARALELO (Meta numa única chamada que já traz canal + Raio-X)
+    // checkout, Meta e Google em PARALELO (cada API numa única chamada que já traz canal + Raio-X)
     const hasMeta=c.metaAccountIds&&c.metaAccountIds.length;
-    const [checkoutCount,metaRep]=await Promise.all([
+    const hasGoogle=c.googleAccountIds&&c.googleAccountIds.length;
+    const [checkoutCount,metaRep,googleRep]=await Promise.all([
       sb.from('checkout_events').select('*',{count:'exact',head:true}).eq('client_id',c.id).gte('event_date',month+'-01').lte('event_date',month+'-31').then(r=>r.count||0).catch(()=>0),
-      hasMeta?fetchMetaReport(c,month).catch(e=>({_err:e.message})):Promise.resolve({channelStats:null,ads:null})
+      hasMeta?fetchMetaReport(c,month).catch(e=>({_err:e.message})):Promise.resolve({channelStats:null,ads:null}),
+      hasGoogle?fetchGoogleReport(c,month).catch(e=>({_err:e.message,channelStats:null,ads:null})):Promise.resolve({channelStats:null,ads:null})
     ]);
-    const metaChStats=(metaRep&&metaRep.channelStats)||null,metaAds=(metaRep&&metaRep.ads)||null;
+    // canais ao vivo combinados (Meta + Google); erro do Google não derruba o relatório
+    let metaChStats=(metaRep&&metaRep.channelStats)||null;
+    const googleChStats=(googleRep&&googleRep.channelStats)||null;
+    if(googleChStats)metaChStats={...(metaChStats||{}),...googleChStats};
+    const metaAds=(metaRep&&metaRep.ads)||null;
     _tplCache[cacheKey]={ordersKey,dataByTab,adTabs,checkoutCount,metaChStats,metaAds,ts:Date.now()};
     if(myToken!==_tplLoadToken)return; // usuário trocou de cliente/mês: descarta este render
     if(metaRep&&metaRep._err&&!cached){body.innerHTML=`<div class="empty">Erro ao buscar Meta Ads ao vivo: ${metaRep._err}</div>`;return}
@@ -4434,22 +4506,29 @@ function computeFunnelStages(channelList,aprovadosCount,checkoutCount){
   return stages;
 }
 function monthRange(month){const [y,m]=month.split('-').map(Number);const last=new Date(y,m,0).getDate();return{since:`${month}-01`,until:`${month}-${String(last).padStart(2,'0')}`};}
-// Mescla canais: mantém os da planilha que NÃO são Meta/Facebook/Instagram (Google, WhatsApp, etc.) e adiciona os canais Meta ao vivo. Evita contar o Meta duas vezes.
+// Mescla canais: mantém os da planilha que NÃO têm fonte ao vivo e adiciona os canais ao vivo (Meta e Google). Evita contar duas vezes.
 function isMetaChannelLabel(l){return /\bmeta\b|facebook|\bfb\b/i.test(l||'')&&!/\bbio\b|organico|organic/i.test(l||'');}
-function mergeChannelStats(sheetStats,metaStats){
+function isGoogleChannelLabel(l){return /\bgoogle\b/i.test(l||'')&&!/organico|organic/i.test(l||'');}
+function mergeChannelStats(sheetStats,liveStats){
   const out={};
-  let sheetMeta=null;
+  const live=Object.values(liveStats||{});
+  const hasLiveGoogle=live.some(ch=>ch._google);
+  const hasLiveMeta=live.some(ch=>ch._meta);
+  let sheetMeta=null,sheetGoogle=null;
+  const better=(a,b)=>!a||((b.sales||0)+(b.revenue||0)+(b.spend||0))>((a.sales||0)+(a.revenue||0)+(a.spend||0));
   Object.values(sheetStats||{}).forEach(ch=>{
-    if(isMetaChannelLabel(ch.label)){const score=(ch.sales||0)+(ch.revenue||0)+(ch.spend||0);if(!sheetMeta||score>((sheetMeta.sales||0)+(sheetMeta.revenue||0)+(sheetMeta.spend||0)))sheetMeta=ch;}
+    if(hasLiveMeta&&isMetaChannelLabel(ch.label)){if(better(sheetMeta,ch))sheetMeta=ch;}
+    else if(hasLiveGoogle&&isGoogleChannelLabel(ch.label)){if(better(sheetGoogle,ch))sheetGoogle=ch;}
     else out[ch.label]=ch;
   });
-  Object.values(metaStats||{}).forEach(ch=>{
+  live.forEach(ch=>{
     const c={...ch};
-    // Se a planilha tem aba de Meta (ex: "META VENDAS"), venda e faturamento do Meta vêm dela (o pixel da API superatribui). Mídia (invest/cliques/CTR) continua da API.
-    if(sheetMeta){
-      c.revenue=sheetMeta.revenue||0;
-      c.sales=sheetMeta.sales||0;
-      c.records=(sheetMeta.records&&sheetMeta.records.length)?sheetMeta.records:[];
+    // Se a planilha tem aba de vendas do canal (ex: "META VENDAS"/"GOOGLE VENDAS"), venda e faturamento vêm dela (o pixel da API superatribui). Mídia (invest/cliques/CTR) continua da API.
+    const sheetCh=c._google?sheetGoogle:sheetMeta;
+    if(sheetCh){
+      c.revenue=sheetCh.revenue||0;
+      c.sales=sheetCh.sales||0;
+      c.records=(sheetCh.records&&sheetCh.records.length)?sheetCh.records:[];
       c._salesFromSheet=true;
     }
     out[c.label]=c;
@@ -4491,6 +4570,33 @@ async function fetchMetaReportRange(c,since,until){
   if(data&&data.error)throw new Error('Meta Ads: '+data.error);
   const d=(data&&data.data)||data;
   return {channelStats:metaChannelFromData(d),ads:(d&&d.ads)||[],campaigns:(d&&d.campaigns)||[],total:d&&d.total,accountErrors:(d&&d.accountErrors)||[]};
+}
+/* ---- GOOGLE ADS ao vivo (mesma lógica do Meta) ---- */
+function googleChannelFromData(d){
+  if(!d||!d.total)return null;
+  const t=d.total;
+  const records=(t.records||[]).map(x=>({date:x.date,sales:Math.round(x.sales||0),spend:x.spend||0,revenue:x.revenue||0,clicks:x.clicks||0,impressions:x.impressions||0}));
+  return {GOOGLE:{label:'GOOGLE',spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:0,revenue:t.revenue||0,sales:Math.round(t.purchases||0),leads:0,addToCart:0,initiateCheckout:0,conversas:0,videoViews:t.videoViews||0,engajamentos:t.engajamentos||0,records,_google:true}};
+}
+async function fetchGoogleReport(c,month){
+  const ids=c.googleAccountIds||[];
+  if(!ids.length)return {channelStats:null,ads:null};
+  const accounts=ids.map(id=>({id,name:(googleAccountsCache.find(a=>a.id===id)||{}).name||id}));
+  const {since,until}=monthRange(month);
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleAds:{accounts,since,until,daily:true}}});
+  if(error)throw new Error('Google Ads: '+(error.message||error));
+  if(data&&data.error)throw new Error('Google Ads: '+data.error);
+  const d=(data&&data.data)||data;
+  return {channelStats:googleChannelFromData(d),ads:(d&&d.ads)||[],total:d&&d.total};
+}
+async function fetchGoogleReportRange(c,since,until){
+  const ids=c.googleAccountIds||[];if(!ids.length)return {channelStats:null,ads:[],campaigns:[],accountErrors:[]};
+  const accounts=ids.map(id=>({id,name:(googleAccountsCache.find(a=>a.id===id)||{}).name||id}));
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleAds:{accounts,since,until,daily:true,byAd:true,byCampaign:true}}});
+  if(error)throw new Error('Google Ads: '+(error.message||error));
+  if(data&&data.error)throw new Error('Google Ads: '+data.error);
+  const d=(data&&data.data)||data;
+  return {channelStats:googleChannelFromData(d),ads:(d&&d.ads)||[],campaigns:(d&&d.campaigns)||[],total:d&&d.total,accountErrors:(d&&d.accountErrors)||[]};
 }
 // Traduz erros comuns da Graph API pra um motivo legível
 function metaErrHuman(msg){
@@ -5037,8 +5143,14 @@ async function fetchClientReportMetrics(c,month){
   const ticketMedio=aprovadosCount?aprovadosVal/aprovadosCount:0;
   let chStats;
   const sheetStats0=computeChannelStats(adTabs,dataByTab,month);
-  try{const mr=await fetchMetaChannelStats(c,month);chStats=mr?mergeChannelStats(sheetStats0,mr.stats):sheetStats0;}
-  catch(e){chStats=sheetStats0;}
+  try{
+    const [mr,gr]=await Promise.all([
+      fetchMetaChannelStats(c,month).catch(()=>null),
+      (c.googleAccountIds&&c.googleAccountIds.length)?fetchGoogleReport(c,month).catch(()=>null):Promise.resolve(null)
+    ]);
+    const liveCh={...((mr&&mr.stats)||{}),...((gr&&gr.channelStats)||{})};
+    chStats=Object.keys(liveCh).length?mergeChannelStats(sheetStats0,liveCh):sheetStats0;
+  }catch(e){chStats=sheetStats0;}
   const canais=Object.values(chStats).map(ch=>({nome:ch.label,investimento:Math.round(ch.spend),faturamento:Math.round(ch.revenue),vendas:ch.sales,cliques:ch.clicks,impressoes:ch.impressions,cpc:ch.clicks?+(ch.spend/ch.clicks).toFixed(2):null,ctrPct:ch.impressions?+((ch.clicks/ch.impressions)*100).toFixed(2):null,roas:ch.spend?+(ch.revenue/ch.spend).toFixed(2):null}));
   let metaEntidades=null;
   if(c.metaAccountIds&&c.metaAccountIds.length){

@@ -196,7 +196,22 @@ PERIODOS E BENCHMARK:
 
 Se o snapshot tiver 'dnaCliente' (identidade, produtos, personas com dores/desejos, diretrizes de copy), USE como base ao sugerir angulos de criativo, headlines, copies e publico — respeite o tom, as palavras que ressoam e evite as proibidas.
 
-Voce tambem pode EXECUTAR acoes quando o gestor pedir explicitamente: criar/concluir tarefas E acoes reais no Meta Ads (pausar_meta, reativar_meta, ajustar_orcamento, duplicar_campanha). Para as acoes do Meta, use SEMPRE o 'id' e o 'nivel' que estao na lista 'metaEntidades' do snapshot (campanhas, conjuntos e anuncios com id, status e orcamento atuais) — nunca invente ids. O sistema mostra um card de confirmacao antes de executar; entao apenas PROPONHA a acao chamando a funcao e explique o porque em texto; nunca afirme que ja executou. So proponha acao no Meta quando o gestor pedir ou quando os dados claramente justificarem (ex: anuncio com gasto alto e 0 compras -> propor pausar). Seu valor principal continua sendo a analise tecnica.`;
+Voce tambem pode EXECUTAR acoes quando o gestor pedir explicitamente: criar/concluir tarefas E acoes reais no Meta Ads (pausar_meta, reativar_meta, ajustar_orcamento, duplicar_campanha). Para as acoes do Meta, use SEMPRE o 'id' e o 'nivel' que estao na lista 'metaEntidades' do snapshot (campanhas, conjuntos e anuncios com id, status e orcamento atuais) — nunca invente ids. O sistema mostra um card de confirmacao antes de executar; entao apenas PROPONHA a acao chamando a funcao e explique o porque em texto; nunca afirme que ja executou. So proponha acao no Meta quando o gestor pedir ou quando os dados claramente justificarem (ex: anuncio com gasto alto e 0 compras -> propor pausar). Seu valor principal continua sendo a analise tecnica.
+
+===== FORMATO DAS RESPOSTAS (OBRIGATORIO) =====
+O gestor nao tem tempo de ler textao. Toda resposta deve ser ESCANEAVEL:
+- Comece com 1 linha de resposta direta (a conclusao primeiro, nao no final).
+- Estruture com titulos curtos em **negrito** e blocos separados por linha em branco.
+- Estrategias e planos: SEMPRE em passo a passo numerado (1. 2. 3.) ou checklist (☐), um item por linha, cada item com no maximo 2 linhas.
+- Numeros e metricas: em bullets "• Metrica: valor (leitura)", nunca dissolvidos num paragrafo.
+- Nada de paragrafos com mais de 3 linhas. Pode ser extensa SE necessario, desde que dividida em blocos claros.
+- Feche com "**Proximo passo:**" quando fizer sentido (1 acao concreta).
+
+RESUMO PARA CLIENTE (quando pedirem resumo/relatorio pro cliente): escreva PRONTO PRA COLAR NO WHATSAPP:
+- Saudacao curta + periodo. Emojis com moderacao (📊 ✅ 🎯).
+- Bullets curtos com os numeros que importam pro cliente (sem jargao tecnico: nada de CPM/CTR sem explicar).
+- 1 bloco "O que faremos agora" com 2-3 acoes.
+- Maximo ~15 linhas. Tom profissional e proximo, sem markdown de titulo (#), so *negrito estilo WhatsApp* com um asterisco.`;
 
   if (Array.isArray(a.knowledge) && a.knowledge.length) {
     system += `\n\n===== BASE DE CONHECIMENTO (JARVIS) =====\nEstes sao os metodos e frameworks dos gestores que a agencia treinou em voce (Pedro Sobral e outros). Eles sao a SUA forma de pensar: aplique estes principios, benchmarks e mentalidade em TODA analise e recomendacao, citando o raciocinio quando util. Nao os ignore.\n` +
@@ -206,6 +221,23 @@ Voce tambem pode EXECUTAR acoes quando o gestor pedir explicitamente: criar/conc
   const messages: any[] = [{ role: "system", content: system }];
   messages.push({ role: "user", content: `Snapshot atual (dados reais do sistema):\n${JSON.stringify(a.snapshot, null, 2)}` });
   if (Array.isArray(a.history)) for (const t of a.history) messages.push({ role: t.role === "user" ? "user" : "assistant", content: String(t.text || "") });
+
+  // URLs enviadas pelo gestor: busca o conteúdo da página e entrega como contexto (análise de sites)
+  if (Array.isArray(a.urls) && a.urls.length) {
+    for (const u of a.urls.slice(0, 3)) {
+      try { const t = await fetchUrlText(String(u)); messages.push({ role: "user", content: `Conteúdo da página ${u} (texto extraído):\n${t.slice(0, 12000)}` }); }
+      catch (_e) { messages.push({ role: "user", content: `(Não consegui acessar a URL ${u} — avise o gestor.)` }); }
+    }
+  }
+  // Anexos: imagens vão como vision (gpt-4o); PDFs/textos já chegam extraídos do front
+  if (Array.isArray(a.anexos) && a.anexos.length) {
+    const imgs: any[] = [];
+    for (const ax of a.anexos.slice(0, 4)) {
+      if (ax.tipo === "imagem" && ax.dataUrl) imgs.push({ type: "image_url", image_url: { url: String(ax.dataUrl) } });
+      else if (ax.texto) messages.push({ role: "user", content: `Anexo "${ax.nome || "arquivo"}" (texto extraído):\n${String(ax.texto).slice(0, 15000)}` });
+    }
+    if (imgs.length) messages.push({ role: "user", content: [{ type: "text", text: "Imagem(ns) anexada(s) pelo gestor — analise:" }, ...imgs] });
+  }
 
   const json = await callOpenAI({ model: "gpt-4o", messages, tools: AGENT_TOOLS, tool_choice: "auto", max_tokens: 2000, temperature: 0.5 });
   const msg = json.choices?.[0]?.message || {};
@@ -288,6 +320,31 @@ async function metaAdsInsights(m: any) {
       for (const c of (j.data || [])) map[c.id] = metaObjetivo(c.objective);
       url = j.paging?.next || null;
     }
+    // Local de conversão: nomenclatura engana (ex: campanha com "venda" no nome mas objetivo Mensagem).
+    // Lê destination_type/optimization_goal dos conjuntos e refina o tipo por campanha.
+    try {
+      let aurl: string | null = `${base}/act_${acct}/adsets?fields=campaign_id,destination_type,optimization_goal&limit=500&access_token=${token}`;
+      for (let i = 0; i < 10 && aurl; i++) {
+        const r = await fetch(aurl);
+        const j = await r.json();
+        if (j.error) break;
+        for (const as of (j.data || [])) {
+          const ob = map[as.campaign_id];
+          if (!ob) continue;
+          const dest = String(as.destination_type || "").toUpperCase();
+          const opt = String(as.optimization_goal || "").toUpperCase();
+          // Mensagem: otimiza pra conversas ou destino de mensagens — mas venda (OUTCOME_SALES) continua venda mesmo via WhatsApp
+          if (ob.tipo !== "conversao" && (opt === "CONVERSATIONS" || /MESSENGER|WHATSAPP|INSTAGRAM_DIRECT|MESSAGING/.test(dest))) {
+            map[as.campaign_id] = { ...ob, tipo: "mensagens", rotulo: "Mensagens", metrica: "custo por conversa iniciada" };
+          } else if (opt === "THRUPLAY" || opt === "TWO_SECOND_CONTINUOUS_VIDEO_VIEWS") {
+            map[as.campaign_id] = { ...ob, tipo: "video", rotulo: "Vídeo / Distribuição", metrica: "custo por ThruPlay/view, CPM" };
+          } else if (opt === "REACH" && ob.tipo === "engajamento") {
+            map[as.campaign_id] = { ...ob, tipo: "alcance", rotulo: "Alcance / Distribuição", metrica: "CPM, alcance, frequência" };
+          }
+        }
+        aurl = j.paging?.next || null;
+      }
+    } catch (_e) { /* sem local de conversão: mantém o objetivo puro */ }
     return map;
   }
   // miniaturas SÓ dos ad_ids informados (batch /?ids=, sem paginar a conta inteira)
@@ -335,16 +392,41 @@ async function metaAdsInsights(m: any) {
   const ads: any[] = [];
   const wantObj = m.byAd || m.byCampaign;
   // Contas em PARALELO, e dentro de cada conta as chamadas (conta/objetivos/anuncios/campanhas/thumbs) tambem em paralelo.
+  // Status da conta (restrita/desativada NAO gera erro na API de insights — precisa checar explicitamente)
+  async function fetchAccountStatus(acct: string): Promise<string | null> {
+    try {
+      const r = await fetch(`${base}/act_${acct}?fields=account_status,disable_reason&access_token=${token}`);
+      const j = await r.json();
+      if (j.error) return null; // erro de chamada ja e tratado pelo catch das insights
+      const st = Number(j.account_status);
+      const dr = Number(j.disable_reason || 0);
+      const drTxt = dr === 3 ? " (motivo: pagamento/risco)" : dr === 1 || dr === 5 ? " (motivo: política de anúncios)" : dr ? ` (código do Meta: ${dr})` : "";
+      if (st === 1) return null;
+      if (st === 3) return "Conta RESTRITA por pagamento — o último pagamento não foi processado; os anúncios estão parados até regularizar.";
+      if (st === 2) return "Conta DESATIVADA pelo Meta" + drTxt + ".";
+      if (st === 9) return "Conta em período de carência de pagamento — regularize pra não parar os anúncios.";
+      if (st === 100 || st === 101) return "Conta encerrada/em encerramento no Meta.";
+      if (st === 7 || st === 8) return "Conta pendente de análise/acerto no Meta.";
+      return `Conta com status atípico no Meta (código ${st}).`;
+    } catch (_e) { return null; }
+  }
   const perAccount = await Promise.all(accounts.map(async (acc) => {
-    const [accountRows, acctDaily, objByCampId, adRows, campRows] = await Promise.all([
-      fetchInsights(acc.id, "account"),
-      m.daily ? fetchInsights(acc.id, "account", "&time_increment=1") : Promise.resolve([] as any[]),
-      wantObj ? fetchObjectives(acc.id) : Promise.resolve({} as Record<string, any>),
-      m.byAd ? fetchInsights(acc.id, "ad") : Promise.resolve([] as any[]),
-      m.byCampaign ? fetchInsights(acc.id, "campaign", m.daily ? "&time_increment=1" : "") : Promise.resolve([] as any[]),
-    ]);
-    return { acc, accountRows, acctDaily, objByCampId, adRows, campRows };
+    const statusIssue = await fetchAccountStatus(acc.id);
+    try {
+      const [accountRows, acctDaily, objByCampId, adRows, campRows] = await Promise.all([
+        fetchInsights(acc.id, "account"),
+        m.daily ? fetchInsights(acc.id, "account", "&time_increment=1") : Promise.resolve([] as any[]),
+        wantObj ? fetchObjectives(acc.id) : Promise.resolve({} as Record<string, any>),
+        m.byAd ? fetchInsights(acc.id, "ad") : Promise.resolve([] as any[]),
+        m.byCampaign ? fetchInsights(acc.id, "campaign", m.daily ? "&time_increment=1" : "") : Promise.resolve([] as any[]),
+      ]);
+      return { acc, accountRows, acctDaily, objByCampId, adRows, campRows, error: statusIssue as string | null };
+    } catch (e) {
+      // conta com erro NAO derruba as outras: devolve vazia + motivo (front mostra o disclaimer)
+      return { acc, accountRows: [] as any[], acctDaily: [] as any[], objByCampId: {} as Record<string, any>, adRows: [] as any[], campRows: [] as any[], error: statusIssue || (e as any)?.message || String(e) };
+    }
   }));
+  const accountErrors = perAccount.filter((p) => p.error).map((p) => ({ id: p.acc.id, name: p.acc.name || p.acc.id, error: p.error }));
   const totRecByDate: Record<string, any> = {};
   for (const { acc, accountRows, acctDaily, objByCampId, adRows, campRows } of perAccount) {
     for (const row of acctDaily) {
@@ -378,7 +460,7 @@ async function metaAdsInsights(m: any) {
       const c = byCamp[label];
       c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks; c.reach += s.reach;
       c.revenue += s.revenue; c.purchases += s.purchases; c.leads += s.leads; c.addToCart += s.addToCart; c.initiateCheckout += s.initiateCheckout;
-      if (m.daily) c.records.push({ date: row.date_start, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions });
+      if (m.daily) c.records.push({ date: row.date_start, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: s.reach, leads: s.leads, conversas: s.conversas, videoViews: s.videoViews, engajamentos: s.engajamentos });
     }
   }
   const total = {
@@ -402,7 +484,31 @@ async function metaAdsInsights(m: any) {
     const thumbs = await fetchThumbsByIds(topIds);
     for (const a of ads) if (thumbs[a.adId]) a.thumbnail = thumbs[a.adId];
   }
-  return { total, campaigns, ads, accounts, period: m.since && m.until ? { since: m.since, until: m.until } : { datePreset: m.datePreset || "last_30d" } };
+  return { total, campaigns, ads, accounts, accountErrors, period: m.since && m.until ? { since: m.since, until: m.until } : { datePreset: m.datePreset || "last_30d" } };
+}
+
+// Saldo pré-pago da conta (pix/boleto): funding_source_details traz o saldo disponível
+async function metaFunding(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN");
+  if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
+  const accounts = (Array.isArray(m.accounts) ? m.accounts : []).map((a: any) => ({ id: String(a.id).replace(/^act_/, ""), name: a.name || "" }));
+  if (!accounts.length) throw new Error("accounts obrigatorio");
+  const base = "https://graph.facebook.com/v21.0";
+  const out: any[] = [];
+  await Promise.all(accounts.map(async (acc: any) => {
+    try {
+      const r = await fetch(`${base}/act_${acc.id}?fields=name,account_status,funding_source_details&access_token=${token}`);
+      const j = await r.json();
+      if (j.error) { out.push({ id: acc.id, name: acc.name, error: j.error.message }); return; }
+      const ds = j.funding_source_details || {};
+      const disp = String(ds.display_string || "");
+      let saldo: number | null = null;
+      const mm = disp.match(/R\$\s?([\d\.]+,\d{2}|[\d\.]+)/);
+      if (mm) saldo = parseFloat(mm[1].replace(/\./g, "").replace(",", "."));
+      out.push({ id: acc.id, name: j.name || acc.name, display: disp, saldo, tipo: ds.type ?? null, status: j.account_status });
+    } catch (e) { out.push({ id: acc.id, name: acc.name, error: (e as any)?.message || String(e) }); }
+  }));
+  return { accounts: out };
 }
 
 async function metaListAccounts() {
@@ -511,6 +617,188 @@ async function metaAction(m: any) {
   throw new Error("action invalida");
 }
 
+/* ================= GOOGLE ADS ================= */
+const GADS_VER = "v23";
+
+async function googleAdsAccessToken() {
+  const clientId = Deno.env.get("GOOGLE_ADS_CLIENT_ID");
+  const clientSecret = Deno.env.get("GOOGLE_ADS_CLIENT_SECRET");
+  const refreshToken = Deno.env.get("GOOGLE_ADS_REFRESH_TOKEN");
+  if (!clientId || !clientSecret || !refreshToken) throw new Error("Credenciais do Google Ads nao configuradas nos secrets (GOOGLE_ADS_CLIENT_ID/SECRET/REFRESH_TOKEN)");
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.access_token) throw new Error("Google Ads OAuth: " + (j.error_description || j.error || "falha ao renovar token"));
+  return j.access_token as string;
+}
+
+// searchStream paginado (search comum) na conta cid
+async function gadsSearch(cid: string, query: string, accessToken: string) {
+  const devToken = Deno.env.get("GOOGLE_ADS_DEV_TOKEN");
+  const mcc = String(Deno.env.get("GOOGLE_ADS_MCC_ID") || "").replace(/-/g, "");
+  if (!devToken) throw new Error("GOOGLE_ADS_DEV_TOKEN nao configurada nos secrets");
+  const out: any[] = [];
+  let pageToken: string | undefined;
+  for (let i = 0; i < 20; i++) {
+    const r = await fetch(`https://googleads.googleapis.com/${GADS_VER}/customers/${cid}/googleAds:search`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${accessToken}`, "developer-token": devToken, "login-customer-id": mcc, "Content-Type": "application/json" },
+      body: JSON.stringify({ query, ...(pageToken ? { pageToken } : {}) }),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+      const msg = j?.error?.details?.[0]?.errors?.[0]?.message || j?.error?.message || `HTTP ${r.status}`;
+      throw new Error(msg);
+    }
+    out.push(...(j.results || []));
+    pageToken = j.nextPageToken;
+    if (!pageToken) break;
+  }
+  return out;
+}
+
+// Lista as contas-cliente sob a MCC
+async function googleListAccounts() {
+  const mcc = String(Deno.env.get("GOOGLE_ADS_MCC_ID") || "").replace(/-/g, "");
+  if (!mcc) throw new Error("GOOGLE_ADS_MCC_ID nao configurada nos secrets");
+  const token = await googleAdsAccessToken();
+  const rows = await gadsSearch(mcc, `SELECT customer_client.id, customer_client.descriptive_name, customer_client.status, customer_client.manager, customer_client.currency_code FROM customer_client WHERE customer_client.hidden = FALSE`, token);
+  return rows
+    .map((r: any) => r.customerClient)
+    .filter((c: any) => c && !c.manager)
+    .map((c: any) => ({ id: String(c.id), name: c.descriptiveName || String(c.id), status: c.status, currency: c.currencyCode }));
+}
+
+// Objetivo "equivalente" pelo tipo de canal da campanha (pra aba Campanhas avaliar pela metrica certa)
+function googleObjetivo(channelType: string) {
+  const t = String(channelType || "").toUpperCase();
+  const map: Record<string, { tipo: string; rotulo: string; metrica: string }> = {
+    SEARCH: { tipo: "conversao", rotulo: "Google · Pesquisa", metrica: "ROAS, CPA, conversões" },
+    PERFORMANCE_MAX: { tipo: "conversao", rotulo: "Google · Performance Max", metrica: "ROAS, CPA, conversões" },
+    SHOPPING: { tipo: "conversao", rotulo: "Google · Shopping", metrica: "ROAS, CPA, conversões" },
+    DISPLAY: { tipo: "alcance", rotulo: "Google · Display", metrica: "CPM, alcance, cliques" },
+    VIDEO: { tipo: "video", rotulo: "Google · Vídeo (YouTube)", metrica: "custo por view, CPM" },
+    DEMAND_GEN: { tipo: "engajamento", rotulo: "Google · Demand Gen", metrica: "CTR, custo por clique/engajamento" },
+    DISCOVERY: { tipo: "engajamento", rotulo: "Google · Discovery", metrica: "CTR, CPC" },
+    LOCAL: { tipo: "conversao", rotulo: "Google · Local", metrica: "conversões, CPA" },
+    HOTEL: { tipo: "conversao", rotulo: "Google · Hotel", metrica: "ROAS, CPA" },
+  };
+  return { codigo: t || null, ...(map[t] || { tipo: "conversao", rotulo: "Google Ads", metrica: "conversões, CPA, ROAS" }) };
+}
+
+// v23 não expõe mais video_views/engagements nesses recursos — métricas essenciais só
+const GADS_METRICS = "metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value";
+const GADS_METRICS_FULL = GADS_METRICS;
+function gadsShape(m: any) {
+  const spend = (Number(m?.costMicros) || 0) / 1e6;
+  const impressions = Number(m?.impressions) || 0;
+  const clicks = Number(m?.clicks) || 0;
+  const purchases = Number(m?.conversions) || 0;
+  const revenue = Number(m?.conversionsValue) || 0;
+  return {
+    spend, impressions, clicks,
+    ctr: impressions ? (clicks / impressions) * 100 : 0,
+    cpc: clicks ? spend / clicks : 0,
+    cpm: impressions ? (spend / impressions) * 1000 : 0,
+    reach: 0, frequency: 0,
+    purchases, revenue, roas: spend ? revenue / spend : 0,
+    leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0,
+    videoViews: Number(m?.videoViews) || 0,
+    engajamentos: Number(m?.engagements) || 0,
+  };
+}
+
+// Insights do Google Ads no MESMO formato do metaAdsInsights ({total, campaigns, ads, accounts, accountErrors, period})
+async function googleAdsInsights(g: any) {
+  let accounts: { id: string; name: string }[] = [];
+  if (Array.isArray(g.accounts) && g.accounts.length) accounts = g.accounts.map((a: any) => ({ id: String(a.id).replace(/-/g, ""), name: a.name || "" }));
+  else if (Array.isArray(g.accountIds) && g.accountIds.length) accounts = g.accountIds.map((id: any) => ({ id: String(id).replace(/-/g, ""), name: "" }));
+  if (!accounts.length) throw new Error("accountId(s) do Google obrigatorio");
+  const since = g.since, until = g.until;
+  if (!since || !until) throw new Error("since e until obrigatorios (YYYY-MM-DD)");
+  const range = `segments.date BETWEEN '${String(since).slice(0, 10)}' AND '${String(until).slice(0, 10)}'`;
+  const token = await googleAdsAccessToken();
+
+  const totAgg: any = { spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0 };
+  const totRecByDate: Record<string, any> = {};
+  const byCamp: Record<string, any> = {};
+  const ads: any[] = [];
+
+  const perAccount = await Promise.all(accounts.map(async (acc) => {
+    try {
+      const [accountRows, acctDaily, campRows, adRows] = await Promise.all([
+        gadsSearch(acc.id, `SELECT ${GADS_METRICS} FROM customer WHERE ${range}`, token),
+        g.daily ? gadsSearch(acc.id, `SELECT segments.date, ${GADS_METRICS} FROM customer WHERE ${range}`, token) : Promise.resolve([] as any[]),
+        g.byCampaign ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, campaign.advertising_channel_type${g.daily ? ", segments.date" : ""}, ${GADS_METRICS_FULL} FROM campaign WHERE ${range}`, token) : Promise.resolve([] as any[]),
+        g.byAd ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, campaign.advertising_channel_type, ad_group.id, ad_group.name, ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.ad.type, ${GADS_METRICS_FULL} FROM ad_group_ad WHERE ${range} AND metrics.cost_micros > 0`, token) : Promise.resolve([] as any[]),
+      ]);
+      return { acc, accountRows, acctDaily, campRows, adRows, error: null as string | null };
+    } catch (e) {
+      return { acc, accountRows: [] as any[], acctDaily: [] as any[], campRows: [] as any[], adRows: [] as any[], error: (e as any)?.message || String(e) };
+    }
+  }));
+  const accountErrors = perAccount.filter((p) => p.error).map((p) => ({ id: p.acc.id, name: p.acc.name || p.acc.id, error: p.error }));
+
+  for (const { acc, accountRows, acctDaily, campRows, adRows } of perAccount) {
+    for (const row of accountRows) {
+      const s = gadsShape(row.metrics);
+      totAgg.spend += s.spend; totAgg.impressions += s.impressions; totAgg.clicks += s.clicks;
+      totAgg.revenue += s.revenue; totAgg.purchases += s.purchases; totAgg.videoViews += s.videoViews; totAgg.engajamentos += s.engajamentos;
+    }
+    for (const row of acctDaily) {
+      const s = gadsShape(row.metrics); const k = row.segments?.date;
+      if (!k) continue;
+      if (!totRecByDate[k]) totRecByDate[k] = { date: k, sales: 0, spend: 0, revenue: 0, clicks: 0, impressions: 0, reach: 0, leads: 0, conversas: 0, videoViews: 0, engajamentos: 0, addToCart: 0, checkout: 0 };
+      const rec = totRecByDate[k];
+      rec.sales += Math.round(s.purchases); rec.spend += s.spend; rec.revenue += s.revenue; rec.clicks += s.clicks; rec.impressions += s.impressions; rec.videoViews += s.videoViews; rec.engajamentos += s.engajamentos;
+    }
+    for (const row of campRows) {
+      const label = row.campaign?.name || "Google Ads";
+      const s = gadsShape(row.metrics);
+      if (!byCamp[label]) byCamp[label] = { campaign: label, campaignId: row.campaign?.id ? String(row.campaign.id) : null, account: acc.name || acc.id, objetivo: googleObjetivo(row.campaign?.advertisingChannelType), _google: true, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
+      const c = byCamp[label];
+      c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks;
+      c.revenue += s.revenue; c.purchases += s.purchases;
+      if (g.daily && row.segments?.date) c.records.push({ date: row.segments.date, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: 0, leads: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos });
+    }
+    for (const row of adRows) {
+      const s = gadsShape(row.metrics);
+      const ad = row.adGroupAd?.ad || {};
+      const adName = ad.name || (ad.type ? String(ad.type).replace(/_/g, " ").toLowerCase() : "anúncio") + " #" + (ad.id || "");
+      ads.push({
+        adId: ad.id ? "g" + ad.id : null, adName, campaign: row.campaign?.name || "", campaignId: row.campaign?.id ? String(row.campaign.id) : null,
+        adset: row.adGroup?.name || "", adsetId: row.adGroup?.id ? String(row.adGroup.id) : null,
+        account: acc.name || acc.id, thumbnail: null, _google: true,
+        objetivo: googleObjetivo(row.campaign?.advertisingChannelType),
+        spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: 0, frequency: 0,
+        ctr: s.ctr, cpc: s.cpc, cpm: s.cpm, purchases: s.purchases, revenue: s.revenue, roas: s.roas,
+        leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos,
+        cpa: s.purchases ? s.spend / s.purchases : 0,
+      });
+    }
+  }
+  const total = {
+    ...totAgg,
+    ctr: totAgg.impressions ? (totAgg.clicks / totAgg.impressions) * 100 : 0,
+    cpc: totAgg.clicks ? totAgg.spend / totAgg.clicks : 0,
+    cpm: totAgg.impressions ? (totAgg.spend / totAgg.impressions) * 1000 : 0,
+    roas: totAgg.spend ? totAgg.revenue / totAgg.spend : 0,
+    records: Object.values(totRecByDate).sort((a: any, b: any) => a.date < b.date ? -1 : 1),
+  };
+  const campaigns = Object.values(byCamp).map((c: any) => {
+    c.ctr = c.impressions ? (c.clicks / c.impressions) * 100 : 0;
+    c.cpc = c.clicks ? c.spend / c.clicks : 0;
+    c.cpm = c.impressions ? (c.spend / c.impressions) * 1000 : 0;
+    c.roas = c.spend ? c.revenue / c.spend : 0;
+    return c;
+  }).sort((a: any, b: any) => b.spend - a.spend);
+  ads.sort((a: any, b: any) => b.spend - a.spend);
+  return { total, campaigns, ads, accounts, accountErrors, period: { since, until } };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -521,12 +809,24 @@ Deno.serve(async (req) => {
     const analysis = body.analysis;
     const agent = body.agent;
 
+    if (body.googleAds) {
+      const r = await googleAdsInsights(body.googleAds);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleAccounts) {
+      const r = await googleListAccounts();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (body.metaAds) {
       const r = await metaAdsInsights(body.metaAds);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.metaAccounts) {
       const r = await metaListAccounts();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.metaFunding) {
+      const r = await metaFunding(body.metaFunding);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.metaEntities) {
