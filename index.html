@@ -5911,8 +5911,8 @@ function templatePanelHTML(tpl,agg){
   }).join('');
   const km=METRIC_CATALOG[tpl.keyMetric]?METRIC_CATALOG[tpl.keyMetric].label:tpl.keyMetric;
   return`<div class="rt-sec">
-      <div class="rt-sec-hdr"><div class="rt-sec-num">◆</div><div class="rt-sec-title">Modelo: ${(tpl.name||'').replace(/</g,'&lt;')}</div><div class="rt-sec-ln"></div></div>
-      <div style="font-size:11.5px;color:var(--rt2);margin-bottom:10px">Métrica-chave: <b>${km}</b> · ${tpl.isBase?'modelo-base (automático pelo objetivo do Meta)':'modelo personalizado'}</div>
+      <div class="rt-sec-hdr"><div class="rt-sec-num">◆</div><div class="rt-sec-title">Modelo: ${(tpl.name||'').replace(/</g,'&lt;')}</div><span style="font-size:10px;font-weight:800;letter-spacing:.04em;color:#a5b4fc;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.4);border-radius:8px;padding:2px 8px;margin-left:8px">🌐 GERAL · TODOS OS CANAIS</span><div class="rt-sec-ln"></div></div>
+      <div style="font-size:11.5px;color:var(--rt2);margin-bottom:10px">Métrica-chave: <b>${km}</b> · ${tpl.isBase?'modelo-base (automático pelo objetivo do Meta)':'modelo personalizado'} · <span style="color:var(--rtm)">números somam <b>todos os canais</b> (Meta + Google + planilha). O detalhe por canal está no Resumo Executivo, e as campanhas por canal na aba Campanhas (Meta / Google).</span></div>
       <div class="rt-kpi-grid">${cards}</div>
     </div>
     <div class="rt-div"></div>`;
@@ -6028,7 +6028,7 @@ function raioXSectionHTML(ads,clientId){
   setTimeout(loadRaioXStatus,50); // depois que a seção entrar no DOM
   return `<div class="rt-div"></div>
     <div class="rt-sec">
-      <div class="rt-sec-hdr"><div class="rt-sec-num">🎯</div><div class="rt-sec-title">Raio-X de Criativos</div><div class="rt-sec-ln"></div></div>
+      <div class="rt-sec-hdr"><div class="rt-sec-num">🎯</div><div class="rt-sec-title">Raio-X de Criativos</div><span style="font-size:10px;font-weight:800;letter-spacing:.04em;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.4);border-radius:8px;padding:2px 8px;margin-left:8px">Ⓜ️ META ADS</span><div class="rt-sec-ln"></div></div>
       <div id="raioXWrap">${raioXInnerHTML()}</div>
     </div>`;
 }
@@ -6108,7 +6108,8 @@ function osFocosHTML(objGroups,clientId){
     <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0"><span style="color:var(--rtm)">Investimento</span><b>${fmt(g.agg.spend)}</b></div>
     <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0"><span style="color:var(--rtm)">${m[1][0]}</span><b>${m[1][1]}</b></div>
   </div>`;}).join('');
-  return `<div class="rt-sec"><div class="rt-sec-hdr"><div class="rt-sec-num">◎</div><div class="rt-sec-title">Os focos da operação</div><div class="rt-sec-ln"></div></div>
+  return `<div class="rt-sec"><div class="rt-sec-hdr"><div class="rt-sec-num">◎</div><div class="rt-sec-title">Os focos da operação</div><span style="font-size:10px;font-weight:800;letter-spacing:.04em;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.4);border-radius:8px;padding:2px 8px;margin-left:8px">Ⓜ️ META ADS</span><div class="rt-sec-ln"></div></div>
+    <div style="font-size:11.5px;color:var(--rtm);margin-bottom:10px">Objetivos e criativos vêm do <b>Meta Ads</b>. Os dados do Google estão no Resumo Executivo (canal GOOGLE) e na aba Campanhas › Google Ads.</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">${cards}</div></div>`;
 }
 function setReportTab(id){
