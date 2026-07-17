@@ -4162,7 +4162,7 @@ function selectReportClient(clientId){
   const sel=document.getElementById('crClientSelect');
   if(sel){sel.value=clientId;loadClientReport(clientId)}
 }
-async function loadClientReport(clientId){
+async function loadClientReport(clientId,forceSheet){
   const myToken=++_tplLoadToken;
   if(!clientId){
     document.getElementById('crFilterBar').style.display='none';
@@ -4182,12 +4182,13 @@ async function loadClientReport(clientId){
   const activeSub=((document.querySelector('#crSubSeg [data-sub].active')||{}).dataset||{}).sub||'dashboard';
   if(activeSub==='template'){setReportSub('template');return;}
   setReportSub('dashboard');
-  const temMeta=c&&c.metaAccountIds&&c.metaAccountIds.length;
-  if(c&&!c.reportSheetUrl&&temMeta){return loadMetaDashboard(c,myToken,30);}
+  // Dashboard ao vivo (novo layout) é o padrão pra quem tem Meta ou Google vinculado — mesmo com planilha
+  const temMedia=c&&((c.metaAccountIds&&c.metaAccountIds.length)||(c.googleAccountIds&&c.googleAccountIds.length));
+  if(c&&temMedia&&!forceSheet){return loadMetaDashboard(c,myToken,30);}
   if(!c||!c.reportSheetUrl){
     currentReport=null;
     document.getElementById('crFilterBar').style.display='none';
-    document.getElementById('clientReportBody').innerHTML=`<div class="empty">Este cliente não tem planilha de dashboard nem Meta vinculado. Vincule uma conta do Meta (aba Mídia) ou configure a planilha.</div>`;
+    document.getElementById('clientReportBody').innerHTML=`<div class="empty">Este cliente não tem planilha de dashboard nem conta de anúncios vinculada. Vincule uma conta (aba Mídia) ou configure a planilha.</div>`;
     return;
   }
   currentReport=null;
@@ -4217,7 +4218,9 @@ let selectedReportChannels=null;
 function renderChannelFilter(){
   const el=document.getElementById('crChannelFilter');
   if(!el||!currentReport)return;
-  el.innerHTML=currentReport.tabs.map(tab=>{
+  const c=DB.clients.find(x=>x.id===activeClientId);
+  const temMedia=c&&((c.metaAccountIds&&c.metaAccountIds.length)||(c.googleAccountIds&&c.googleAccountIds.length));
+  el.innerHTML=(temMedia?`<span onclick="loadClientReport('${activeClientId}')" class="pill gray" style="cursor:pointer" title="Voltar ao dashboard ao vivo (Meta/Google)">📡 Ao vivo</span>`:'')+currentReport.tabs.map(tab=>{
     const on=selectedReportChannels.has(tab);
     return `<span onclick="toggleReportChannel('${tab.replace(/'/g,"\\'")}')" class="pill ${on?'blue':'gray'}" style="cursor:pointer">${reportChannelLabel(tab)}</span>`;
   }).join('');
@@ -5131,7 +5134,7 @@ function renderMetaDashboard(c,rep,since,until){
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
         <div><h3 style="margin:0">📡 ${srcName}</h3><div class="hint">${dateBR(since)}–${dateBR(until)} · modelo: ${(tpl.name||'').replace(/</g,'&lt;')}</div></div>
-        <div style="display:flex;gap:5px;flex-wrap:wrap">${rangeBtns}<button class="btn sm ghost" type="button" onclick="dashShareHTML()" title="Gera um arquivo HTML do dashboard pra enviar ao cliente">📤 Compartilhar</button></div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">${rangeBtns}<button class="btn sm ghost" type="button" onclick="dashShareHTML()" title="Gera um arquivo HTML do dashboard pra enviar ao cliente">📤 Compartilhar</button>${c.reportSheetUrl?`<button class="btn sm ghost" type="button" onclick="loadClientReport('${c.id}',true)" title="Visão antiga por canal, com os dados da planilha (Google, TikTok, WhatsApp...)">📄 Planilha</button>`:''}</div>
       </div>
       ${(hasM&&hasG)?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${srcBar}</div>`:''}
       <div id="dashFilterBar" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
