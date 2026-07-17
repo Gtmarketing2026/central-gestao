@@ -816,9 +816,10 @@
         </select>
       </div>
       <hr class="budget-divider">
-      <div class="form-row" style="margin-bottom:10px">
-        <span style="font-size:13px;font-weight:600;color:var(--text)">📊 Relatório automático (Google Sheets)</span>
+      <div class="form-row" style="margin-bottom:10px;cursor:pointer" onclick="const b=document.getElementById('cSheetsBlock');const o=b.style.display==='none';b.style.display=o?'block':'none';document.getElementById('cSheetsArrow').textContent=o?'▾':'▸'">
+        <span style="font-size:13px;font-weight:600;color:var(--text)"><span id="cSheetsArrow" style="color:var(--accent)">▸</span> 📊 Relatório automático (Google Sheets) <span style="font-size:11px;color:var(--faint);font-weight:400">— clique pra abrir (planilha, abas e pedidos)</span></span>
       </div>
+      <div id="cSheetsBlock" style="display:none">
       <div style="background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.35);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:var(--text)">
         ⚠️ <strong>Ação obrigatória na planilha:</strong> compartilhe (botão "Compartilhar" do Google Sheets) como <strong>Leitor</strong> com este e-mail:
         <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
@@ -844,6 +845,7 @@
       <div id="cReportOrdersSheetRow">
         <div class="form-row"><label>Link(s) da planilha de pedidos <span style="font-size:11px;color:var(--faint);font-weight:400">— uma URL por linha, se tiver mais de uma (ex: histórico + atual)</span></label><textarea id="cReportOrdersSheetUrl" rows="2" placeholder="Cole a URL (uma por linha se tiver mais de uma planilha)"></textarea></div>
         <div class="form-row"><label>Nome da aba de pedidos</label><input id="cReportOrdersTab" placeholder="Ex: SITE"></div>
+      </div>
       </div>
     </div>
 
