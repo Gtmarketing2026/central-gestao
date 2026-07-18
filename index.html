@@ -239,6 +239,7 @@
       <button class="tab" data-tab="rastreamento">📡 Rastreamento</button>
       <button class="tab" data-tab="modelos">📋 Modelos</button>
       <button class="tab" data-tab="iagestora">🤖 AndréIA</button>
+      <button class="tab" data-tab="configuracoes">⚙️ Configurações</button>
     </nav>
   </aside>
   <main class="main">
@@ -612,6 +613,13 @@
     </div>
     <div id="campBudgetWarn"></div>
     <div id="campBody"></div>
+  </section>
+
+  <!-- CONFIGURAÇÕES DA CONTA (integrações) -->
+  <section class="panel" id="configuracoes">
+    <div class="section-head" style="margin-top:0"><h2>⚙️ Configurações da conta</h2></div>
+    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Integrações e conexões da agência (nível conta) — diferente da configuração de cada cliente.</div>
+    <div id="configBody"></div>
   </section>
 
   <!-- RASTREAMENTO (pixel + links + jornada do lead) -->
@@ -1784,6 +1792,7 @@ function goToTab(tabId){
   if(tabId==='iagestora'&&activeClientId&&agentClientId!==activeClientId){loadAgentProject(activeClientId);}
   if(tabId==='campanhas')loadCampanhas(activeClientId);
   if(tabId==='rastreamento')loadRastreamento(activeClientId);
+  if(tabId==='configuracoes')loadConfiguracoes();
 }
 function setClientsSub(v){
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
@@ -1801,6 +1810,96 @@ function fillSidebarClient(){
   s.value=cur;
 }
 let activeClientId='';
+/* ================= CONFIGURAÇÕES DA CONTA (integrações) ================= */
+let _acctCfg=null;
+async function loadAccountConfig(){
+  if(_acctCfg)return _acctCfg;
+  const {data}=await sb.from('account_config').select('data').eq('id','main').maybeSingle();
+  _acctCfg=(data&&data.data)||{};
+  return _acctCfg;
+}
+async function saveAccountConfig(patch){
+  const cur=await loadAccountConfig();
+  _acctCfg={...cur,...patch};
+  await sb.from('account_config').upsert({id:'main',data:_acctCfg,updated_at:new Date().toISOString()});
+}
+function integStatusPill(state,txt){
+  const m={ok:['#34d399','rgba(52,211,153,.13)','rgba(52,211,153,.4)'],warn:['#f59e0b','rgba(245,158,11,.12)','rgba(245,158,11,.4)'],err:['#f87171','rgba(248,113,113,.12)','rgba(248,113,113,.4)'],off:['var(--faint)','var(--surface2)','var(--border)'],load:['var(--muted)','var(--surface2)','var(--border)']};
+  const [c,bg,bd]=m[state]||m.off;
+  return `<span style="font-size:11px;font-weight:800;letter-spacing:.03em;color:${c};background:${bg};border:1px solid ${bd};border-radius:999px;padding:3px 10px;white-space:nowrap">${txt}</span>`;
+}
+function integCard(id,icon,name,desc,rightHtml,bodyHtml){
+  return `<div class="card" style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:12px;min-width:0">
+        <div style="font-size:26px;flex:none">${icon}</div>
+        <div style="min-width:0"><div style="font-weight:700;font-size:15px">${name}</div><div style="font-size:12px;color:var(--muted)">${desc}</div></div>
+      </div>
+      <div id="integRight_${id}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${rightHtml||''}</div>
+    </div>
+    ${bodyHtml?`<div id="integBody_${id}" style="margin-top:12px">${bodyHtml}</div>`:''}
+  </div>`;
+}
+async function loadConfiguracoes(){
+  const body=document.getElementById('configBody');if(!body)return;
+  await loadAccountConfig();
+  const rd=_acctCfg.rd_station||{};
+  body.innerHTML=`
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;margin:4px 0 12px">🔌 Integrações</div>
+    ${integCard('meta','Ⓜ️','Meta Ads','Contas de anúncio do Facebook/Instagram (token da API).',integStatusPill('load','Checando…'),'')}
+    ${integCard('google','🔎','Google Ads','Contas via MCC do Google Ads.',integStatusPill('load','Checando…'),'')}
+    ${integCard('rd','📣','RD Station','CRM/automação de marketing — leads e oportunidades.',
+      integStatusPill(rd.token?'ok':'off',rd.token?'Configurado':'Não conectado'),
+      `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        <div style="flex:1;min-width:220px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">TOKEN / API KEY DO RD STATION</label><input id="rdToken" type="password" placeholder="${rd.token?'•••••••••• (salvo)':'cole o token do RD Station'}" style="width:100%;font-size:12px"></div>
+        <button class="btn sm primary" style="flex:none" onclick="saveRdStation()">Salvar</button>
+        ${rd.token?`<button class="btn sm ghost" style="flex:none;color:var(--red)" onclick="clearRdStation()">Remover</button>`:''}
+      </div>
+      <div style="font-size:11px;color:var(--faint);margin-top:8px">Guardado com segurança na conta. A ingestão de leads do RD usa o webhook <code style="background:var(--surface2);padding:1px 5px;border-radius:5px">rd-webhook</code> (próxima etapa de fluxo).</div>`)}
+    ${integCard('whatsapp','💬','WhatsApp Cloud API',
+      'Conectar o WhatsApp do cliente por QR code (Meta Cloud API) + CRM de conversas com origem por anúncio/UTM.',
+      integStatusPill('warn','Em construção'),
+      `<div style="font-size:12.5px;color:var(--muted);line-height:1.6">Fase 2 do rastreamento. Vai precisar de um <b>App no Meta for Developers com o produto WhatsApp</b> (hoje só temos o de Meta Ads). Quando ativarmos, o cliente escaneia o QR aqui e as conversas passam a chegar marcadas com a campanha/anúncio (Meta) ou campanha/palavra-chave (Google) de origem.</div>`)}
+    ${integCard('sheets','📊','Google Sheets','Leitura das planilhas de venda (contas conectadas por compartilhamento).',
+      integStatusPill('ok','Ativo'),
+      `<div style="font-size:12px;color:var(--muted)">Cada cliente compartilha a planilha dele como Leitor com <code style="background:var(--surface2);padding:1px 5px;border-radius:5px;word-break:break-all">leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com</code> (configurado por cliente na aba Relatórios).</div>`)}
+    <div style="font-size:11px;color:var(--faint);margin-top:6px">O status de Meta e Google é verificado ao vivo. Se aparecer "reconectar", o token expirou — me avise que renovamos.</div>`;
+  // status ao vivo Meta + Google
+  checkIntegMeta();checkIntegGoogle();
+}
+async function checkIntegMeta(){
+  const el=document.getElementById('integRight_meta');if(!el)return;
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAccounts:true}});
+    if(error||(data&&data.error))throw new Error((data&&data.error)||error.message||'erro');
+    const n=((data&&data.data)||data||[]).length;
+    el.innerHTML=integStatusPill('ok','✓ Conectado')+`<span style="font-size:11px;color:var(--faint)">${n} contas</span><button class="btn sm ghost" onclick="loadConfiguracoes()">↻ Testar</button>`;
+  }catch(e){
+    el.innerHTML=integStatusPill('err','⚠ Reconectar')+`<span style="font-size:11px;color:var(--muted);max-width:260px" title="${String(e.message||e).replace(/"/g,'&quot;')}">${metaErrHuman(String(e.message||e)).replace(/</g,'&lt;').slice(0,80)}</span><button class="btn sm ghost" onclick="alert('Token do Meta expirado ou inválido. Gere um novo token de ~60 dias no Graph API Explorer (com escopo ads_read/ads_management) e me passe pra eu atualizar o secret no Supabase.')">Como resolver</button>`;
+  }
+}
+async function checkIntegGoogle(){
+  const el=document.getElementById('integRight_google');if(!el)return;
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleAccounts:true}});
+    if(error||(data&&data.error))throw new Error((data&&data.error)||error.message||'erro');
+    const n=((data&&data.data)||data||[]).length;
+    el.innerHTML=integStatusPill('ok','✓ Conectado')+`<span style="font-size:11px;color:var(--faint)">${n} contas (MCC)</span><button class="btn sm ghost" onclick="loadConfiguracoes()">↻ Testar</button>`;
+  }catch(e){
+    el.innerHTML=integStatusPill('err','⚠ Reconectar')+`<span style="font-size:11px;color:var(--muted);max-width:260px" title="${String(e.message||e).replace(/"/g,'&quot;')}">${String(e.message||e).replace(/</g,'&lt;').slice(0,80)}</span><button class="btn sm ghost" onclick="alert('Google Ads com problema — geralmente o refresh token foi revogado ou o developer token mudou. Me avise pra renovar as credenciais no Supabase.')">Como resolver</button>`;
+  }
+}
+async function saveRdStation(){
+  const v=(document.getElementById('rdToken').value||'').trim();
+  if(!v){alert('Cole o token do RD Station.');return;}
+  await saveAccountConfig({rd_station:{token:v,savedAt:new Date().toISOString()}});
+  loadConfiguracoes();
+}
+async function clearRdStation(){
+  if(!confirm('Remover a integração do RD Station?'))return;
+  await saveAccountConfig({rd_station:{}});
+  loadConfiguracoes();
+}
 /* ================= RASTREAMENTO (pixel + links + jornada do lead) ================= */
 const TRACK_BASE=SUPA_URL+'/functions/v1/tracking';
 let _rastClientId='';
