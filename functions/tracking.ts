@@ -36,6 +36,32 @@ async function sbPatch(table: string, query: string, row: Record<string, unknown
 }
 function uid() { return crypto.randomUUID().replace(/-/g, "").slice(0, 20); }
 
+// Webhook do RD Station: RD chama a cada conversão. Guarda o payload cru + campos extraídos.
+async function handleRdWebhook(url: URL, req: Request) {
+  const clientId = url.searchParams.get("client") || "";
+  let body: any = {};
+  try { body = await req.json(); } catch (_e) { /* ignora */ }
+  // O RD manda {leads:[{...}]} ou {event_type,...,leads:[...]}; guardamos cada lead como uma linha.
+  const leads: any[] = Array.isArray(body?.leads) ? body.leads : (body?.leads ? [body.leads] : [body]);
+  const rows = leads.map((L: any) => {
+    const conv = L?.last_conversion || (Array.isArray(L?.conversions) ? L.conversions[L.conversions.length - 1] : null) || {};
+    const src = conv?.content || conv || {};
+    return {
+      id: uid(), client_id: clientId,
+      event_identifier: clip(conv?.conversion_identifier || conv?.identifier || L?.conversion_identifier, 200),
+      email: clip(L?.email, 200), name: clip(L?.name, 200),
+      source: clip(src?.utm_source || L?.traffic_source || conv?.source, 120),
+      medium: clip(src?.utm_medium || L?.traffic_medium, 120),
+      campaign: clip(src?.utm_campaign || L?.traffic_campaign, 200),
+      content: clip(src?.utm_content, 200), term: clip(src?.utm_term, 200),
+      converted_at: conv?.created_at || conv?.event_timestamp || null,
+      payload: L || body,
+    };
+  });
+  for (const r of rows) { try { await sbInsert("rd_conversions", r); } catch (_e) { /* segue */ } }
+  return new Response("ok", { headers: { ...cors, "Content-Type": "text/plain" } });
+}
+
 // OAuth do RD Station: recebe o ?code, troca por refresh_token e guarda em account_config.data.rd_station
 async function handleRdCallback(url: URL) {
   // Supabase força text/plain nas Edge Functions — então retorno TEXTO PURO, sem tags e sem acento (evita mojibake).
@@ -149,6 +175,9 @@ Deno.serve(async (req) => {
   if (p === "/collect" && req.method === "POST") return handleCollect(req);
 
   if (p === "/rd/callback") return handleRdCallback(url);
+
+  if (p === "/rd/webhook" && req.method === "POST") return handleRdWebhook(url, req);
+  if (p === "/rd/webhook") return new Response("rd webhook ok", { headers: { ...cors, "Content-Type": "text/plain" } });
 
   // GET /l/<client_id>/<slug>
   const mLink = p.match(/^\/l\/([^/]+)\/([^/]+)$/);
