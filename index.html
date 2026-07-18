@@ -2417,6 +2417,24 @@ async function renderBudgetBanner(c,elId){
   }
   el2.innerHTML=html;
 }
+// Transições de verba pré-paga → sino: avisa quando ZERA e quando é RECARREGADA (dedupe por estado, por navegador)
+function fundHealthTransitions(saldos){
+  if(!currentTeamId||!saldos)return;
+  let prev={};try{prev=JSON.parse(localStorage.getItem('fundZeroState')||'{}')}catch(e){}
+  const zeroed=[],recovered=[];
+  Object.entries(saldos).forEach(([id,x])=>{
+    const wasZero=!!prev[id],isZero=x.saldo<=0;
+    if(isZero&&!wasZero){zeroed.push(x);prev[id]=1;}
+    else if(!isZero&&wasZero&&x.saldo>x.min){recovered.push(x);delete prev[id];}
+  });
+  const notif=[];
+  if(zeroed.length)notif.push({type:'funding_alert',title:`🪫 ${zeroed.length} conta(s) com verba de mídia ZERADA`,details:zeroed.map(x=>`${x.name}: saldo ${fmt(x.saldo)}`).join(' | ')});
+  if(recovered.length)notif.push({type:'funding_ok',title:`✅ ${recovered.length} conta(s) com verba recarregada`,details:recovered.map(x=>`${x.name}: saldo ${fmt(x.saldo)}`).join(' | ')});
+  if(notif.length){
+    sb.from('notifications').insert(notif.map(n=>({id:uid(),to_team:currentTeamId,from_team:'sistema',task_id:null,task_name:n.title,comment_text:n.details,read:false,type:n.type}))).then(()=>loadNotifications());
+    localStorage.setItem('fundZeroState',JSON.stringify(prev));
+  }
+}
 // Checagem geral na abertura (só clientes com teto definido; sequencial + cache de 6h pra não estourar rate limit)
 async function checkBudgetAlerts(){
   try{
@@ -2436,10 +2454,15 @@ async function checkBudgetAlerts(){
       }
       // verba pré-paga (pix/boleto): clientes com verba mínima configurada
       const listF=DB.clients.filter(c=>c.status==='Ativo'&&c.metaAccountIds&&c.metaAccountIds.length&&(+c.minBalance||0)>0);
+      const fundSaldos={};
       for(const c of listF){
         const f=await fetchMetaFunding(c);
-        if(f&&f.saldoTotal!=null&&f.saldoTotal<=(+c.minBalance||0))fundItems.push({name:c.name,saldo:f.saldoTotal,min:+c.minBalance});
+        if(f&&f.saldoTotal!=null){
+          fundSaldos[c.id]={name:c.name,saldo:f.saldoTotal,min:+c.minBalance||0};
+          if(f.saldoTotal<=(+c.minBalance||0))fundItems.push({name:c.name,saldo:f.saldoTotal,min:+c.minBalance});
+        }
       }
+      fundHealthTransitions(fundSaldos); // sino: zerou / recarregou
       localStorage.setItem(KEY,JSON.stringify({ts:Date.now(),items:itemsB,fund:fundItems}));
     }
     if(fundItems.length&&!alertDismissed('funding')){
@@ -2584,10 +2607,10 @@ async function checkAccountHealth(){
   try{
     const KEY='acctHealthCache';
     let cache=null;try{cache=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){}
-    let problems;
+    let problems,fresh=false,presentOk={};
     if(cache&&Date.now()-cache.ts<3600*1000){problems=cache.problems||[];}
     else{
-      problems=[];
+      fresh=true;problems=[];
       const anyMeta=DB.clients.some(c=>c.status==='Ativo'&&c.metaAccountIds&&c.metaAccountIds.length);
       const anyGoogle=DB.clients.some(c=>c.status==='Ativo'&&c.googleAccountIds&&c.googleAccountIds.length);
       const [ma,ga]=await Promise.all([
@@ -2596,24 +2619,26 @@ async function checkAccountHealth(){
       ]);
       const metaById={};(ma||[]).forEach(a=>metaById[String(a.id).replace(/^act_/,'')]=a);
       const gById={};(ga||[]).forEach(a=>gById[String(a.id).replace(/-/g,'')]=a);
+      const scan=(c,id,a,canal,statusFn)=>{if(!a)return;const k=canal+'|'+String(id);const s=statusFn(a.status);if(s)problems.push({client:c.name,canal,conta:a.name||id,id:String(id),key:k,...s});else presentOk[k]={client:c.name,canal,conta:a.name||id};};
       DB.clients.filter(c=>c.status==='Ativo').forEach(c=>{
-        (c.metaAccountIds||[]).forEach(id=>{const a=metaById[String(id).replace(/^act_/,'')];if(!a)return;const s=metaAcctStatusText(a.status);if(s)problems.push({client:c.name,canal:'Meta',conta:a.name||id,id:String(id),...s});});
-        (c.googleAccountIds||[]).forEach(id=>{const a=gById[String(id).replace(/-/g,'')];if(!a)return;const s=googleAcctStatusText(a.status);if(s)problems.push({client:c.name,canal:'Google',conta:a.name||id,id:String(id),...s});});
+        (c.metaAccountIds||[]).forEach(id=>scan(c,id,metaById[String(id).replace(/^act_/,'')],'Meta',metaAcctStatusText));
+        (c.googleAccountIds||[]).forEach(id=>scan(c,id,gById[String(id).replace(/-/g,'')],'Google',googleAcctStatusText));
       });
       localStorage.setItem(KEY,JSON.stringify({ts:Date.now(),problems}));
     }
-    if(!problems.length)return;
-    // Sino: notifica só o que é NOVO pra este usuário (dedupe por navegador), pra não repetir a cada reload
-    let seen={};try{seen=JSON.parse(localStorage.getItem('acctAlertSeen')||'{}')}catch(e){}
-    const key=p=>p.canal+'|'+p.id+'|'+p.txt;
-    const novos=problems.filter(p=>!seen[key(p)]);
-    if(novos.length&&currentTeamId){
-      const title=`🚫 ${novos.length} conta(s) de anúncio com problema`;
-      const details=novos.map(p=>`${p.client} · ${p.canal} · ${p.conta}: ${p.txt}`).join(' | ');
-      await sb.from('notifications').insert([{id:uid(),to_team:currentTeamId,from_team:'sistema',task_id:null,task_name:title,comment_text:details,read:false,type:'account_alert'}]);
-      const now=Date.now();novos.forEach(p=>seen[key(p)]=now);localStorage.setItem('acctAlertSeen',JSON.stringify(seen));
-      loadNotifications();
+    // Transições (só quando buscou ao vivo): problema NOVO + RECUPERAÇÃO (voltou a ficar OK) → sino
+    if(fresh&&currentTeamId){
+      let prev={};try{prev=JSON.parse(localStorage.getItem('acctHealthState')||'{}')}catch(e){}
+      const curMap={};problems.forEach(p=>curMap[p.key]=p.txt);
+      const novos=problems.filter(p=>!prev[p.key]);
+      const recovered=Object.keys(prev).filter(k=>!curMap[k]&&presentOk[k]).map(k=>presentOk[k]);
+      const notif=[];
+      if(novos.length)notif.push({type:'account_alert',title:`🚫 ${novos.length} conta(s) de anúncio com problema`,details:novos.map(p=>`${p.client} · ${p.canal} · ${p.conta}: ${p.txt}`).join(' | ')});
+      if(recovered.length)notif.push({type:'account_ok',title:`✅ ${recovered.length} conta(s) de anúncio ${recovered.length!==1?'voltaram':'voltou'} a ficar OK`,details:recovered.map(r=>`${r.client} · ${r.canal} · ${r.conta}`).join(' | ')});
+      if(notif.length){await sb.from('notifications').insert(notif.map(n=>({id:uid(),to_team:currentTeamId,from_team:'sistema',task_id:null,task_name:n.title,comment_text:n.details,read:false,type:n.type})));loadNotifications();}
+      localStorage.setItem('acctHealthState',JSON.stringify(curMap));
     }
+    if(!problems.length)return; // sem problema no momento: nada de popup (recuperação já foi ao sino)
     // Popup (respeita a soneca dos alertas e a dispensa individual)
     const sn=localStorage.getItem('alerts_snooze');if(sn&&Date.now()<+sn)return;
     if(alertDismissed('account'))return;
