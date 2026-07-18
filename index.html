@@ -5400,7 +5400,10 @@ function dashFunnelAgg(){
   if(!_dashFunCamp&&!_dashFunAdset&&!_dashFunAd)return dashAggFiltered();
   const g={spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,addToCart:0,initiateCheckout:0,conversas:0,videoViews:0,engajamentos:0};
   dashFunnelAds().forEach(a=>Object.keys(g).forEach(k=>g[k]+=(a[k]||0)));
-  return {spend:g.spend,impressions:g.impressions,clicks:g.clicks,reach:g.reach,revenue:g.revenue,compras:Math.round(g.purchases),leads:g.leads,addCarrinho:g.addToCart,checkout:g.initiateCheckout,conversas:g.conversas,videoViews:g.videoViews,engajamentos:g.engajamentos,frequencia:g.reach?g.impressions/g.reach:0};
+  const out={spend:g.spend,impressions:g.impressions,clicks:g.clicks,reach:g.reach,revenue:g.revenue,compras:Math.round(g.purchases),leads:g.leads,addCarrinho:g.addToCart,checkout:g.initiateCheckout,conversas:g.conversas,videoViews:g.videoViews,engajamentos:g.engajamentos,frequencia:g.reach?g.impressions/g.reach:0};
+  // venda real = planilha (total do canal), mesmo drilando por campanha
+  if(_dashSalesFromSheet&&_dashSheetSales){out.revenue=_dashSheetSales.revenue;out.compras=Math.round(_dashSheetSales.sales);}
+  return out;
 }
 function setDashFunFilter(level,val){
   if(level==='camp'){_dashFunCamp=val;_dashFunAdset='';_dashFunAd='';}
