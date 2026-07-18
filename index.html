@@ -5023,11 +5023,14 @@ const DASH_METRICS={
 };
 const DASH_PAL=['#f0c040','#60a5fa','#34d399','#f472b6','#a78bfa','#fb923c','#22d3ee','#f87171','#94a3b8','#facc15'];
 let _dashRecs=[],_dashAds=[],_dashCharts={},_dashLineA='spend',_dashLineB='impressions',_dashLevel='campanha',_dashLevelMetric='spend',_dashSalesFromSheet=false,_dashSheetSales=null;
-let _dashCampRecs=[],_dashFAcc=[],_dashFCamp=[],_dashFAdset=[],_dashAgg=null,_dashTpl=null,_dashNoSales=false;
+let _dashCampRecs=[],_dashFAcc=[],_dashFObj=[],_dashFCamp=[],_dashFAdset=[],_dashAgg=null,_dashTpl=null,_dashNoSales=false;
+function _dashObjTipo(a){return (a.objetivo&&a.objetivo.tipo)||'outro';}
+// Cadeia de filtros: Conta → Objetivo → Campanha → Conjunto. Objetivo combina com campanha (não é ou/ou).
 function _dashAdsAcc(){return _dashAds.filter(a=>a.spend>0&&(!_dashFAcc.length||_dashFAcc.includes(a.account)));}
-function _dashAdsCamp(){return _dashAdsAcc().filter(a=>!_dashFCamp.length||_dashFCamp.includes(a.campaign));}
+function _dashAdsObj(){return _dashAdsAcc().filter(a=>!_dashFObj.length||_dashFObj.includes(_dashObjTipo(a)));}
+function _dashAdsCamp(){return _dashAdsObj().filter(a=>!_dashFCamp.length||_dashFCamp.includes(a.campaign));}
 function dashFilteredAds(){return _dashAdsCamp().filter(a=>!_dashFAdset.length||_dashFAdset.includes((a.campaign||'')+' · '+(a.adset||'')));}
-function dashFilterActive(){return !!(_dashFAcc.length||_dashFCamp.length||_dashFAdset.length);}
+function dashFilterActive(){return !!(_dashFAcc.length||_dashFObj.length||_dashFCamp.length||_dashFAdset.length);}
 // Atribui a métrica-resultado ao objetivo dela (leads só de campanhas de Lead, conversas só de Mensagem, etc.)
 // — evita o "vazamento" entre objetivos que fazia o KPI total divergir dos cards de foco.
 function _objAttrib(ads){
@@ -5043,7 +5046,7 @@ function _objAttrib(ads){
   return m;
 }
 function _dashAggFromAds(list){
-  const filtered=list.filter(a=>a.spend>0&&(!_dashFAcc.length||_dashFAcc.includes(a.account))).filter(a=>!_dashFCamp.length||_dashFCamp.includes(a.campaign)).filter(a=>!_dashFAdset.length||_dashFAdset.includes((a.campaign||'')+' · '+(a.adset||'')));
+  const filtered=list.filter(a=>a.spend>0&&(!_dashFAcc.length||_dashFAcc.includes(a.account))).filter(a=>!_dashFObj.length||_dashFObj.includes(_dashObjTipo(a))).filter(a=>!_dashFCamp.length||_dashFCamp.includes(a.campaign)).filter(a=>!_dashFAdset.length||_dashFAdset.includes((a.campaign||'')+' · '+(a.adset||'')));
   const g={spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,addToCart:0,initiateCheckout:0,conversas:0,videoViews:0,engajamentos:0};
   filtered.forEach(a=>Object.keys(g).forEach(k=>g[k]+=(a[k]||0)));
   const out={spend:g.spend,impressions:g.impressions,clicks:g.clicks,reach:g.reach,revenue:_dashNoSales?0:g.revenue,compras:_dashNoSales?0:Math.round(g.purchases),leads:g.leads,addCarrinho:g.addToCart,checkout:g.initiateCheckout,conversas:g.conversas,videoViews:g.videoViews,engajamentos:g.engajamentos,frequencia:g.reach?g.impressions/g.reach:0};
@@ -5098,24 +5101,44 @@ function dashLineRecs(){
   _dashCampRecs.forEach(c=>{if(!camps.has(c.campaign))return;(c.records||[]).forEach(r=>{const d=byDate[r.date]||(byDate[r.date]={date:r.date,spend:0,sales:0,purchases:0,revenue:0,clicks:0,impressions:0,reach:0,leads:0,conversas:0,videoViews:0,engajamentos:0});d.spend+=r.spend||0;d.sales+=r.sales||0;d.purchases+=r.sales||0;d.revenue+=r.revenue||0;d.clicks+=r.clicks||0;d.impressions+=r.impressions||0;d.reach+=r.reach||0;d.leads+=r.leads||0;d.conversas+=r.conversas||0;d.videoViews+=r.videoViews||0;d.engajamentos+=r.engajamentos||0;});});
   return Object.values(byDate).sort((a,b)=>a.date<b.date?-1:1);
 }
-function dashMulti(id,label,opts,sel){
+function dashMulti(id,label,opts,sel,labelFn){
   const cnt=sel.length?`${sel.length} sel.`:'todas';
-  const items=opts.length?opts.map(o=>`<label style="display:flex;gap:6px;align-items:center;padding:3px 4px;font-size:12px;cursor:pointer"><input type="checkbox" ${sel.includes(o)?'checked':''} onchange="dashToggleFilter('${id}',this.getAttribute('data-v'))" data-v="${(o||'').replace(/"/g,'&quot;')}" style="width:auto">${(o||'—').replace(/</g,'&lt;')}</label>`).join(''):'<div style="font-size:11px;color:var(--faint);padding:4px">sem opções</div>';
+  const lbl=o=>((labelFn?labelFn(o):o)||'—').replace(/</g,'&lt;');
+  const items=opts.length?opts.map(o=>`<label style="display:flex;gap:6px;align-items:center;padding:3px 4px;font-size:12px;cursor:pointer"><input type="checkbox" ${sel.includes(o)?'checked':''} onchange="dashToggleFilter('${id}',this.getAttribute('data-v'))" data-v="${(o||'').replace(/"/g,'&quot;')}" style="width:auto">${lbl(o)}</label>`).join(''):'<div style="font-size:11px;color:var(--faint);padding:4px">sem opções</div>';
   return `<div style="position:relative">
     <button class="btn sm ${sel.length?'primary':'ghost'}" type="button" onclick="dashTogglePanel('${id}')">${label}: ${cnt} ▾</button>
     <div id="dmp_${id}" style="display:none;position:absolute;z-index:30;top:110%;left:0;min-width:240px;max-height:280px;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.45)">
       <div style="text-align:right;padding:0 4px 4px"><a onclick="dashClearFilter('${id}')" style="font-size:11px;color:var(--accent);cursor:pointer">limpar</a></div>${items}</div></div>`;
 }
 function dashTogglePanel(id){const p=document.getElementById('dmp_'+id);if(!p)return;const open=p.style.display==='none';document.querySelectorAll('[id^=dmp_]').forEach(x=>x.style.display='none');p.style.display=open?'block':'none';}
-function dashToggleFilter(id,val){const arr=id==='acc'?_dashFAcc:id==='camp'?_dashFCamp:_dashFAdset;const i=arr.indexOf(val);if(i>=0)arr.splice(i,1);else arr.push(val);if(id==='acc'){_dashFCamp=[];_dashFAdset=[];}if(id==='camp'){_dashFAdset=[];}renderDashFilterBar();applyDashFilters();}
-function dashClearFilter(id){if(id==='acc'){_dashFAcc=[];_dashFCamp=[];_dashFAdset=[];}else if(id==='camp'){_dashFCamp=[];_dashFAdset=[];}else _dashFAdset=[];renderDashFilterBar();applyDashFilters();}
-function dashClearAll(){_dashFAcc=[];_dashFCamp=[];_dashFAdset=[];renderDashFilterBar();applyDashFilters();}
+function dashToggleFilter(id,val){
+  const arr=id==='acc'?_dashFAcc:id==='obj'?_dashFObj:id==='camp'?_dashFCamp:_dashFAdset;
+  const i=arr.indexOf(val);if(i>=0)arr.splice(i,1);else arr.push(val);
+  if(id==='acc'){_dashFObj=[];_dashFCamp=[];_dashFAdset=[];}
+  if(id==='obj'){_dashFCamp=[];_dashFAdset=[];}
+  if(id==='camp'){_dashFAdset=[];}
+  renderDashFilterBar();applyDashFilters();
+}
+function dashClearFilter(id){
+  if(id==='acc'){_dashFAcc=[];_dashFObj=[];_dashFCamp=[];_dashFAdset=[];}
+  else if(id==='obj'){_dashFObj=[];_dashFCamp=[];_dashFAdset=[];}
+  else if(id==='camp'){_dashFCamp=[];_dashFAdset=[];}
+  else _dashFAdset=[];
+  renderDashFilterBar();applyDashFilters();
+}
+function dashClearAll(){_dashFAcc=[];_dashFObj=[];_dashFCamp=[];_dashFAdset=[];renderDashFilterBar();applyDashFilters();}
 function renderDashFilterBar(){
   const el=document.getElementById('dashFilterBar');if(!el)return;
   const accs=[...new Set(_dashAds.filter(a=>a.spend>0).map(a=>a.account))].sort();
-  const camps=[...new Set(_dashAdsAcc().map(a=>a.campaign))].sort();
+  const objs=[...new Set(_dashAdsAcc().map(_dashObjTipo))].sort((a,b)=>((OBJETIVO_INFO[a]||{}).rotulo||a).localeCompare((OBJETIVO_INFO[b]||{}).rotulo||b,'pt'));
+  const camps=[...new Set(_dashAdsObj().map(a=>a.campaign))].sort();
   const adsets=[...new Set(_dashAdsCamp().map(a=>(a.campaign||'')+' · '+(a.adset||'')))].sort();
-  el.innerHTML=(accs.length>1?dashMulti('acc','Contas',accs,_dashFAcc):'')+dashMulti('camp','Campanhas',camps,_dashFCamp)+dashMulti('adset','Conjuntos',adsets,_dashFAdset)+(dashFilterActive()?`<button class="btn sm ghost" type="button" onclick="dashClearAll()">✕ limpar tudo</button><span style="font-size:11px;color:var(--faint);align-self:center">${dashFilteredAds().length} anúncio(s)</span>`:'');
+  const objLbl=t=>(OBJETIVO_INFO[t]||{}).rotulo||t;
+  el.innerHTML=(accs.length>1?dashMulti('acc','Contas',accs,_dashFAcc):'')
+    +(objs.length>1?dashMulti('obj','Objetivo',objs,_dashFObj,objLbl):'')
+    +dashMulti('camp','Campanhas',camps,_dashFCamp)
+    +dashMulti('adset','Conjuntos',adsets,_dashFAdset)
+    +(dashFilterActive()?`<button class="btn sm ghost" type="button" onclick="dashClearAll()">✕ limpar tudo</button><span style="font-size:11px;color:var(--faint);align-self:center">${dashFilteredAds().length} anúncio(s)</span>`:'');
 }
 let _dashClientId='';
 /* ---- KPIs Principais editáveis (padrão pra todos os clientes; segue objetivo/canal/filtros) ---- */
@@ -5506,7 +5529,7 @@ function renderMetaDashboard(c,rep,since,until){
   _dashAds=rep.ads||[];_dashCampRecs=rep.campaigns||[];_dashTpl=tpl;_dashNoSales=noSales;_dashClientId=c.id;_dashSince=since;_dashUntil=until;_dashCompare=false;_dashPrevAds=null;_dashPrevRange=null;
   _dashSalesFromSheet=!!rep._salesFromSheet;_dashSheetSales=rep._sheetSales||null;
   _dashAgg={spend:agg.spend,impressions:agg.impressions,clicks:agg.clicks,reach:agg.reach,revenue:agg.revenue,compras:agg.compras,leads:agg.leads,addCarrinho:agg.addCarrinho,checkout:agg.checkout,conversas:agg.conversas,videoViews:agg.videoViews,engajamentos:agg.engajamentos,frequencia:agg.frequencia};
-  _dashFAcc=[];_dashFCamp=[];_dashFAdset=[];_dashFunCamp='';_dashFunAdset='';_dashFunAd='';
+  _dashFAcc=[];_dashFObj=[];_dashFCamp=[];_dashFAdset=[];_dashFunCamp='';_dashFunAdset='';_dashFunAd='';
   const rb=(key,lbl,fn)=>`<button class="btn sm ${_metaDashPreset===key?'primary':'ghost'}" onclick="${fn}">${lbl}</button>`;
   const rangeBtns=rb('7','7 dias',`metaDashRange('${c.id}',7)`)+rb('30','30 dias',`metaDashRange('${c.id}',30)`)+rb('90','90 dias',`metaDashRange('${c.id}',90)`)+rb('mes','Este mês',`metaDashMonth('${c.id}')`)+rb('custom','📅 Personalizado','toggleDashDate()')
     +`<span id="dashDateWrap" style="display:none;gap:6px;align-items:center">
