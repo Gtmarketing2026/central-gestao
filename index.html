@@ -1642,6 +1642,7 @@ async function loadAll(){
   renderAll();setupRealtime();
   setTimeout(showAlertsPopup, 600);
   setTimeout(checkBudgetAlerts, 1800); // tetos de investimento (cache 6h)
+  setTimeout(checkAccountHealth, 2600); // saúde das contas de anúncio: banimento/restrição/cancelamento (cache 1h)
 }
 
 /* ---- REALTIME ---- */
@@ -2544,6 +2545,77 @@ function showAlertsPopup(){
 function closeAlertsPopup(mode){
   document.getElementById('alertsPopupBg').style.display='none';
   if(mode==='later')localStorage.setItem('alerts_snooze',Date.now()+30*60*1000); // 30 min
+}
+/* ---- SAÚDE DAS CONTAS DE ANÚNCIO (banimento / restrição / cancelamento) ---- */
+function metaAcctStatusText(st){
+  st=Number(st);
+  if(st===1||st===201)return null; // ativa
+  if(st===2)return {sev:'crit',txt:'DESATIVADA pelo Meta'};
+  if(st===3)return {sev:'crit',txt:'RESTRITA por pagamento (último pagamento não processado)'};
+  if(st===9)return {sev:'warn',txt:'em período de carência de pagamento'};
+  if(st===8)return {sev:'warn',txt:'pendente de acerto de pagamento'};
+  if(st===7)return {sev:'warn',txt:'em análise de risco/política'};
+  if(st===100)return {sev:'crit',txt:'em processo de encerramento'};
+  if(st===101||st===202)return {sev:'crit',txt:'encerrada'};
+  return {sev:'warn',txt:'status atípico no Meta (código '+st+')'};
+}
+function googleAcctStatusText(st){
+  st=String(st||'').toUpperCase();
+  if(st===''||st==='ENABLED'||st==='UNSPECIFIED')return null;
+  if(st==='SUSPENDED')return {sev:'crit',txt:'SUSPENSA pelo Google'};
+  if(st==='CANCELED')return {sev:'crit',txt:'CANCELADA'};
+  if(st==='CLOSED')return {sev:'crit',txt:'encerrada'};
+  return {sev:'warn',txt:'status atípico no Google ('+st+')'};
+}
+async function checkAccountHealth(){
+  try{
+    const KEY='acctHealthCache';
+    let cache=null;try{cache=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){}
+    let problems;
+    if(cache&&Date.now()-cache.ts<3600*1000){problems=cache.problems||[];}
+    else{
+      problems=[];
+      const anyMeta=DB.clients.some(c=>c.status==='Ativo'&&c.metaAccountIds&&c.metaAccountIds.length);
+      const anyGoogle=DB.clients.some(c=>c.status==='Ativo'&&c.googleAccountIds&&c.googleAccountIds.length);
+      const [ma,ga]=await Promise.all([
+        anyMeta?sb.functions.invoke('dynamic-responder',{body:{metaAccounts:true}}).then(r=>(r.data&&r.data.data)||r.data||[]).catch(()=>[]):Promise.resolve([]),
+        anyGoogle?sb.functions.invoke('dynamic-responder',{body:{googleAccounts:true}}).then(r=>(r.data&&r.data.data)||r.data||[]).catch(()=>[]):Promise.resolve([])
+      ]);
+      const metaById={};(ma||[]).forEach(a=>metaById[String(a.id).replace(/^act_/,'')]=a);
+      const gById={};(ga||[]).forEach(a=>gById[String(a.id).replace(/-/g,'')]=a);
+      DB.clients.filter(c=>c.status==='Ativo').forEach(c=>{
+        (c.metaAccountIds||[]).forEach(id=>{const a=metaById[String(id).replace(/^act_/,'')];if(!a)return;const s=metaAcctStatusText(a.status);if(s)problems.push({client:c.name,canal:'Meta',conta:a.name||id,id:String(id),...s});});
+        (c.googleAccountIds||[]).forEach(id=>{const a=gById[String(id).replace(/-/g,'')];if(!a)return;const s=googleAcctStatusText(a.status);if(s)problems.push({client:c.name,canal:'Google',conta:a.name||id,id:String(id),...s});});
+      });
+      localStorage.setItem(KEY,JSON.stringify({ts:Date.now(),problems}));
+    }
+    if(!problems.length)return;
+    // Sino: notifica só o que é NOVO pra este usuário (dedupe por navegador), pra não repetir a cada reload
+    let seen={};try{seen=JSON.parse(localStorage.getItem('acctAlertSeen')||'{}')}catch(e){}
+    const key=p=>p.canal+'|'+p.id+'|'+p.txt;
+    const novos=problems.filter(p=>!seen[key(p)]);
+    if(novos.length&&currentTeamId){
+      const title=`🚫 ${novos.length} conta(s) de anúncio com problema`;
+      const details=novos.map(p=>`${p.client} · ${p.canal} · ${p.conta}: ${p.txt}`).join(' | ');
+      await sb.from('notifications').insert([{id:uid(),to_team:currentTeamId,from_team:'sistema',task_id:null,task_name:title,comment_text:details,read:false,type:'account_alert'}]);
+      const now=Date.now();novos.forEach(p=>seen[key(p)]=now);localStorage.setItem('acctAlertSeen',JSON.stringify(seen));
+      loadNotifications();
+    }
+    // Popup (respeita a soneca dos alertas)
+    const sn=localStorage.getItem('alerts_snooze');if(sn&&Date.now()<+sn)return;
+    const body=document.getElementById('alertsPopupBody'),bg=document.getElementById('alertsPopupBg');
+    if(!body||document.getElementById('acctAlertBlock'))return;
+    const ord={crit:0,warn:1};
+    const rows=problems.sort((a,b)=>ord[a.sev]-ord[b.sev]).map(p=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)">
+      <span><strong>${(p.client||'').replace(/</g,'&lt;')}</strong> · ${p.canal} · <span style="color:var(--muted)">${String(p.conta).replace(/</g,'&lt;')}</span></span>
+      <span style="color:${p.sev==='crit'?'#f87171':'#f59e0b'};white-space:nowrap;margin-left:12px;font-weight:600">${p.txt}</span></div>`).join('');
+    body.insertAdjacentHTML('afterbegin',`<div id="acctAlertBlock" style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.4);border-radius:12px;padding:12px 14px">
+      <div style="font-size:13px;font-weight:800;color:#f87171;margin-bottom:8px">🚫 ${problems.length} conta(s) de anúncio com problema — regularize pra não parar os anúncios</div>
+      ${rows}
+      <button class="btn sm ghost" style="margin-top:10px;font-size:12px" onclick="closeAlertsPopup('close');goToTab('campanhas')">Ver campanhas →</button>
+    </div>`);
+    bg.style.display='flex';
+  }catch(e){}
 }
 
 /* ---- RENDER ---- */
