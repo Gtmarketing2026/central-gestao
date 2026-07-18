@@ -2185,9 +2185,15 @@ function renderCampBody(){
   if(_campStatusFilter)tree=tree.filter(cp=>(_campStatus.camp[cp.id]||'')===_campStatusFilter);
   if(_campMinSpend>0)tree=tree.filter(cp=>cp.agg.spend>=_campMinSpend);
   if(!tree.length){body.innerHTML=campAccErrBar()+'<div class="empty">Nenhuma campanha para o filtro atual.</div>';return}
+  // venda deste canal vem da planilha? então o que a API mostra aqui (por campanha) é ASSISTÊNCIA, não venda real
+  const _cCamp=DB.clients.find(x=>x.id===_campClientId);
+  const assist=channelHasSheetSales(_cCamp,_campSource);
+  const VENDA_KEYS=['roas','compras','cpa','revenue','resultado','custores'];
+  const colLbl=k=>CAMP_COLS[k].label+((assist&&VENDA_KEYS.includes(k))?' <span style="color:var(--faint)">(assist.)</span>':'');
+  const assistBar=assist?`<div style="background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.35);border-radius:10px;padding:9px 13px;margin-bottom:10px;font-size:12px;color:var(--muted)">💡 A venda real deste canal vem da <b>planilha</b> (aba de vendas). Os números de venda/ROAS aqui são do <b>pixel (assistência)</b> — servem pra saber o que o anúncio "tocou", não como faturamento real. Veja a venda real no Dashboard/Relatório.</div>`:'';
   const header=`<div style="display:grid;${campGrid()}align-items:center;border-bottom:2px solid var(--border)">
     <div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted)">Campanha / Conjunto / Anúncio</div>
-    ${_campCols.map(k=>`<div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted);text-align:right">${CAMP_COLS[k].label}</div>`).join('')}
+    ${_campCols.map(k=>`<div style="padding:9px 6px;font-size:10px;text-transform:uppercase;color:var(--muted);text-align:right">${colLbl(k)}</div>`).join('')}
   </div>`;
   const buildRows=(list,pfx)=>list.map((cp,ci)=>{
     const cid=pfx+ci;
@@ -2243,7 +2249,7 @@ function renderCampBody(){
       </div>`;
     }
   }
-  body.innerHTML=campAccErrBar()+`<div class="card" style="padding:0;overflow-x:auto">${header}${rows}${pausedBlock}${totRow}${cmpStrip}</div>`;
+  body.innerHTML=campAccErrBar()+assistBar+`<div class="card" style="padding:0;overflow-x:auto">${header}${rows}${pausedBlock}${totRow}${cmpStrip}</div>`;
 }
 function toggleCampRow(id){
   if(event&&event.stopPropagation)event.stopPropagation();
@@ -4916,6 +4922,15 @@ async function fetchDashSheetSales(c,since,until,source){
   });
   return any?{sales,revenue,byDate}:null;
 }
+// O canal tem fonte de VENDA REAL na planilha (aba META VENDAS / GOOGLE VENDAS)?
+// Se sim, a venda/faturamento da API vira "assistência". Se não, a venda da API é a venda real.
+function channelHasSheetSales(c,source){
+  if(!c||!c.reportSheetUrl)return false;
+  if(c.conversionSource==='meta'||c.conversionSource==='none')return false;
+  const tabs=(c.reportTabs||'').split(',').map(t=>t.trim()).filter(Boolean);
+  const want=source==='google'?'GOOGLE':'META';
+  return tabs.some(t=>channelPlatform(t)===want);
+}
 // Traduz erros comuns da Graph API pra um motivo legível
 function metaErrHuman(msg){
   const m=String(msg||'');
@@ -4991,6 +5006,7 @@ async function loadMetaDashboard(c,myToken,days){
     const sheetSales=await fetchDashSheetSales(c,since,until,_dashSource).catch(()=>null);
     if(myToken!==_tplLoadToken)return;
     if(sheetSales&&rep.total){
+      rep._apiVenda={purchases:rep.total.purchases||0,revenue:rep.total.revenue||0}; // guarda a venda do pixel (vira assistência)
       rep.total.purchases=sheetSales.sales;
       rep.total.revenue=sheetSales.revenue;
       rep.total.roas=rep.total.spend?sheetSales.revenue/rep.total.spend:0;
@@ -5515,7 +5531,8 @@ function renderMetaDashboard(c,rep,since,until){
       </div>
       <div id="dashKpiEditor" style="display:none"></div>
       <div id="dashKpiGrid" class="rt-kpi-grid">${cards}</div>
-      ${rep._salesFromSheet?`<div style="font-size:11px;color:var(--faint);margin-top:8px">💡 Venda, faturamento e ROAS vêm da <b>planilha</b> (aba de vendas do canal) — o pixel da API superatribui. Mídia (investimento, cliques, CTR, CPC) é da API. Ao filtrar por campanha/conjunto, a venda mostrada é o total do canal (a planilha não divide por campanha).</div>`:''}
+      ${rep._salesFromSheet?`<div style="font-size:11px;color:var(--faint);margin-top:8px">💡 Venda, faturamento e ROAS vêm da <b>planilha</b> (aba de vendas do canal) — o pixel da API superatribui. Mídia (investimento, cliques, CTR, CPC) é da API. Ao filtrar por campanha/conjunto, a venda mostrada é o total do canal (a planilha não divide por campanha).</div>
+      ${rep._apiVenda?`<div style="font-size:11.5px;color:var(--muted);margin-top:6px;padding:8px 12px;background:var(--surface2);border-radius:8px;display:inline-block">🔵 <b>Assistência do pixel</b> (referência, não é a venda real): Faturamento ${fmt(rep._apiVenda.revenue)} · Compras ${Math.round(rep._apiVenda.purchases).toLocaleString('pt-BR')} · ROAS ${(agg.spend?rep._apiVenda.revenue/agg.spend:0).toFixed(2)}x</div>`:''}`:''}
       <div id="dashFocosRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px"></div>
     </div>
     <div class="card" id="dashBenchCard" style="margin-bottom:16px;display:none"></div>
@@ -6164,8 +6181,10 @@ function templatePanelHTML(tpl,agg){
     <div class="rt-div"></div>`;
 }
 // Métricas do card do Raio-X conforme o objetivo do anúncio (lead→CPL/leads, tráfego→cliques/CPC, etc.)
-function raioXMetricRows(a,tipo){
+// assist=true quando a venda real do canal vem da planilha → aqui (por anúncio) a venda da API é só assistência.
+function raioXMetricRows(a,tipo,assist){
   const num=v=>Math.round(v||0).toLocaleString('pt-BR');
+  const sfx=assist?' (assist.)':'';
   const inv=['Invest.',fmt(a.spend)];
   const ctr=['CTR',a.impressions?a.ctr.toFixed(2)+'%':'—'];
   const cpc=['CPC',a.clicks?fmt(a.cpc):'—'];
@@ -6177,16 +6196,17 @@ function raioXMetricRows(a,tipo){
   if(tipo==='mensagens')return [inv,['Conversas',num(a.conversas)],['Custo/conv',a.conversas?fmt(a.spend/a.conversas):'—'],ctr,cpc,cpm];
   if(tipo==='video')return [inv,['Views',num(a.videoViews)],['Custo/view',a.videoViews?fmt(a.spend/a.videoViews):'—'],cpm,ctr,alc];
   if(tipo==='alcance')return [inv,alc,cpm,['Freq.',(a.frequency||0).toFixed(1)],['Impr.',a.impressions?num(a.impressions):'—'],ctr];
-  // conversao / app / outro
-  return [inv,['ROAS',a.spend?(a.roas||0).toFixed(2)+'x':'—'],['Compras',num(a.purchases)],['CPA',a.purchases?fmt(a.cpa):'—'],ctr,cpm];
+  // conversao / app / outro — venda; vira assistência quando a venda real é da planilha
+  return [inv,['ROAS'+sfx,a.spend?(a.roas||0).toFixed(2)+'x':'—'],['Compras'+sfx,num(a.purchases)],['CPA'+sfx,a.purchases?fmt(a.cpa):'—'],ctr,cpm];
 }
 function raioXCardHTML(a){
   const cl=classifyAdByObjective(a), good=cl.v==='good', bad=cl.v==='bad';
   const tipo=(a.objetivo&&a.objetivo.tipo)||'conversao';
+  const assist=channelHasSheetSales(DB.clients.find(x=>x.id===_raioXClientId),a._google?'google':'meta');
   const bd=good?'#34d399':bad?'#f87171':'rgba(255,255,255,.09)';
   const tag=good?'<span style="color:#34d399">▲ Escalar</span>':bad?'<span style="color:#f87171">▼ Rever</span>':'<span style="color:var(--rtm)">Observar</span>';
   const thumb=a.thumbnail?`<img src="${a.thumbnail}" style="width:100%;height:120px;object-fit:cover;background:#111" referrerpolicy="no-referrer">`:`<div style="width:100%;height:120px;background:linear-gradient(135deg,#1a1a22,#111);display:flex;align-items:center;justify-content:center;color:var(--rtm);font-size:11px">sem prévia</div>`;
-  const rows=raioXMetricRows(a,tipo).map(([l,v])=>`<div><span style="color:var(--rtm)">${l}</span> <b>${v}</b></div>`).join('');
+  const rows=raioXMetricRows(a,tipo,assist).map(([l,v])=>`<div><span style="color:var(--rtm)">${l}</span> <b>${v}</b></div>`).join('');
   return`<div style="border:1px solid ${bd};border-radius:12px;overflow:hidden;background:var(--rbg2)">
     ${thumb}
     <div style="padding:10px 12px">
@@ -6275,6 +6295,7 @@ function raioXSectionHTML(ads,clientId){
   return `<div class="rt-div"></div>
     <div class="rt-sec">
       <div class="rt-sec-hdr"><div class="rt-sec-num">🎯</div><div class="rt-sec-title">Raio-X de Criativos</div><span style="font-size:10px;font-weight:800;letter-spacing:.04em;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.4);border-radius:8px;padding:2px 8px;margin-left:8px">Ⓜ️ META ADS</span><div class="rt-sec-ln"></div></div>
+      ${channelHasSheetSales(DB.clients.find(x=>x.id===_raioXClientId),'meta')?`<div style="font-size:11.5px;color:var(--rtm);margin-bottom:8px">💡 Venda/ROAS por criativo são do <b>pixel (assistência)</b> — a venda real do canal vem da planilha. Use como leitura de quais criativos mais "tocaram", não como faturamento.</div>`:''}
       <div id="raioXWrap">${raioXInnerHTML()}</div>
     </div>`;
 }
@@ -6348,6 +6369,7 @@ function focusCampTableHTML(camps,tipo){
 }
 function osFocosHTML(objGroups,clientId){
   if(!objGroups.length)return '';
+  // g.agg de conversão já vem com a venda REAL da planilha (sobrescrito antes); os demais não mostram venda — nada de "assist." aqui.
   const cards=objGroups.map(g=>{const m=raioXMetricRows(g.agg,g.tipo);return `<div class="rt-tc focoCard" data-foco="${g.tipo}" style="padding:14px 16px;cursor:pointer" onclick="goToCampanhasFoco('${clientId}','${g.tipo}')" title="Ver as campanhas deste foco">
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--accent)">🎯 ${g.rotulo} <span style="color:var(--rtm);font-weight:400">↗</span></div>
     <div style="font-size:12px;color:var(--rtm);margin:2px 0 8px">${g.ads.length} anúncio(s) · ${Object.keys(g.camps).length} campanha(s)</div>
@@ -6637,6 +6659,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
       <div class="rtTab" data-rtab="geral">
         ${focoVisBar}
         ${templatePanelHTML(clientTpl,tplAgg)}
+        ${(channelList.some(ch=>ch._salesFromSheet&&!ch._google)&&!noSales)?(()=>{const av=(metaAds||[]).reduce((s,a)=>({p:s.p+(a.purchases||0),r:s.r+(a.revenue||0)}),{p:0,r:0});return `<div style="font-size:11.5px;color:var(--rtm);margin:-6px 0 10px;padding:8px 12px;background:var(--rbg2);border:1px solid var(--rbr);border-radius:8px">🔵 <b>Assistência do pixel Meta</b> (referência — a venda real acima é da planilha): Faturamento ${fmt(av.r)} · Compras ${Math.round(av.p).toLocaleString('pt-BR')} · ROAS ${(tplAgg.spend?av.r/tplAgg.spend:0).toFixed(2)}x</div>`;})():''}
         ${secPedidos?dv+secPedidos:''}
         ${focosHTML?dv+focosHTML:''}
         ${secFunil?dv+secFunil:''}
