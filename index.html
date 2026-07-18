@@ -2442,13 +2442,13 @@ async function checkBudgetAlerts(){
       }
       localStorage.setItem(KEY,JSON.stringify({ts:Date.now(),items:itemsB,fund:fundItems}));
     }
-    if(fundItems.length){
+    if(fundItems.length&&!alertDismissed('funding')){
       const sn0=localStorage.getItem('alerts_snooze');
       if(!(sn0&&Date.now()<+sn0)){
         const body0=document.getElementById('alertsPopupBody'),bg0=document.getElementById('alertsPopupBg');
         if(body0&&!document.getElementById('fundAlertBlock')){
-          body0.insertAdjacentHTML('beforeend',`<div id="fundAlertBlock" style="background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.3);border-radius:12px;padding:12px 14px">
-            <div style="font-size:13px;font-weight:700;color:#f87171;margin-bottom:8px">🪫 ${fundItems.length} cliente${fundItems.length!==1?'s':''} com verba de mídia acabando (saldo pré-pago no Meta)</div>
+          body0.insertAdjacentHTML('beforeend',`<div id="fundAlertBlock" class="alertBlock" data-akey="funding" style="background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.3);border-radius:12px;padding:12px 14px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px"><div style="font-size:13px;font-weight:700;color:#f87171">🪫 ${fundItems.length} cliente${fundItems.length!==1?'s':''} com verba de mídia acabando (saldo pré-pago no Meta)</div>${alertX('funding')}</div>
             ${fundItems.sort((a,b)=>a.saldo-b.saldo).map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)"><span><strong>${x.name}</strong>${x.saldo<=0?' · <span style="color:#f87171;font-weight:700">ESGOTOU</span>':''}</span><span style="color:${x.saldo<=0?'#f87171':'#f59e0b'};white-space:nowrap;margin-left:12px">${fmt(x.saldo)} · mín ${fmt(x.min)}</span></div>`).join('')}
             <div style="font-size:11px;color:var(--faint);margin-top:6px">Recarregue via pix/boleto pra não parar os anúncios.</div>
           </div>`);
@@ -2456,12 +2456,12 @@ async function checkBudgetAlerts(){
         }
       }
     }
-    if(!itemsB.length)return;
+    if(!itemsB.length||alertDismissed('budget'))return;
     const sn=localStorage.getItem('alerts_snooze');if(sn&&Date.now()<+sn)return;
     const body=document.getElementById('alertsPopupBody'),bg=document.getElementById('alertsPopupBg');
     if(!body||document.getElementById('budgetAlertBlock'))return;
-    body.insertAdjacentHTML('beforeend',`<div id="budgetAlertBlock" style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:12px 14px">
-      <div style="font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:8px">📈 ${itemsB.length} cliente${itemsB.length!==1?'s':''} perto ou acima do teto de investimento (mês)</div>
+    body.insertAdjacentHTML('beforeend',`<div id="budgetAlertBlock" class="alertBlock" data-akey="budget" style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:12px 14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px"><div style="font-size:13px;font-weight:700;color:#f59e0b">📈 ${itemsB.length} cliente${itemsB.length!==1?'s':''} perto ou acima do teto de investimento (mês)</div>${alertX('budget')}</div>
       ${itemsB.sort((a,b)=>b.pct-a.pct).map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)"><span><strong>${x.name}</strong>${x.pct>=100?' · <span style="color:#f87171;font-weight:700">ESTOUROU</span>':''}</span><span style="color:${x.pct>=100?'#f87171':'#f59e0b'};white-space:nowrap;margin-left:12px">${fmt(x.spend)} de ${fmt(x.teto)} (${x.pct.toFixed(0)}%)</span></div>`).join('')}
       <button class="btn sm ghost" style="margin-top:10px;font-size:12px" onclick="closeAlertsPopup('close');goToTab('campanhas')">Ver campanhas →</button>
     </div>`);
@@ -2487,7 +2487,7 @@ function showAlertsPopup(){
   // Tarefas vencidas há mais de 3 dias
   const tAtrasadas=DB.tasks.filter(t=>t.status!=='done'&&t.due&&daysUntil(t.due)<=-3);
   if(tAtrasadas.length){
-    items.push({icon:'⚠️',cor:'#f87171',bg:'rgba(248,113,113,.08)',border:'rgba(248,113,113,.25)',
+    items.push({key:'tasks',icon:'⚠️',cor:'#f87171',bg:'rgba(248,113,113,.08)',border:'rgba(248,113,113,.25)',
       title:`${tAtrasadas.length} tarefa${tAtrasadas.length!==1?'s':''} vencida${tAtrasadas.length!==1?'s':''} há mais de 3 dias`,
       linhas:tAtrasadas.sort((a,b)=>daysUntil(a.due)-daysUntil(b.due)).slice(0,5).map(t=>{
         const dias=Math.abs(daysUntil(t.due));
@@ -2504,7 +2504,7 @@ function showAlertsPopup(){
   const fAtrasadas=DB.finance.filter(f=>f.type==='receita'&&f.status!=='pago'&&f.due&&daysUntil(f.due)<0);
   if(fAtrasadas.length){
     const total=fAtrasadas.reduce((s,f)=>s+(+f.val||0),0);
-    items.push({icon:'💰',cor:'#f0c040',bg:'rgba(240,192,64,.07)',border:'rgba(240,192,64,.25)',
+    items.push({key:'billing',icon:'💰',cor:'#f0c040',bg:'rgba(240,192,64,.07)',border:'rgba(240,192,64,.25)',
       title:`${fAtrasadas.length} cobrança${fAtrasadas.length!==1?'s':''} vencida${fAtrasadas.length!==1?'s':''} — ${fmt(total)} a receber`,
       linhas:fAtrasadas.sort((a,b)=>daysUntil(a.due)-daysUntil(b.due)).slice(0,5).map(f=>{
         const dias=Math.abs(daysUntil(f.due));
@@ -2524,18 +2524,22 @@ function showAlertsPopup(){
     return nd&&daysUntil(nd)<0&&(()=>{const mes=nd.slice(0,7);const task=DB.tasks.find(t=>t.client===c.id&&t.name===`Enviar ao cliente (${c.name})`&&(t.due||'').slice(0,7)===mes);return!task||task.status!=='done'})();
   });
   if(relMensais.length){
-    items.push({icon:'📋',cor:'#a78bfa',bg:'rgba(167,139,250,.07)',border:'rgba(167,139,250,.25)',
+    items.push({key:'reports',icon:'📋',cor:'#a78bfa',bg:'rgba(167,139,250,.07)',border:'rgba(167,139,250,.25)',
       title:`${relMensais.length} relatório${relMensais.length!==1?'s':''} mensal${relMensais.length!==1?'is':''} não enviado${relMensais.length!==1?'s':''}`,
       linhas:relMensais.slice(0,5).map(c=>`<div style="font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)"><strong>${c.name}</strong></div>`)+(relMensais.length>5?`<div style="font-size:11px;color:var(--faint);margin-top:4px">+${relMensais.length-5} mais...</div>`:''),
       btn:{label:'Ver operacional',action:"goToTab('operacional')"}
     });
   }
 
-  if(!items.length)return; // sem avisos, não abre
+  const visibles=items.filter(it=>!alertDismissed(it.key));
+  if(!visibles.length)return; // sem avisos (ou todos dispensados), não abre
 
-  document.getElementById('alertsPopupBody').innerHTML=items.map(it=>`
-    <div style="background:${it.bg};border:1px solid ${it.border};border-radius:12px;padding:12px 14px">
-      <div style="font-size:13px;font-weight:700;color:${it.cor};margin-bottom:8px">${it.icon} ${it.title}</div>
+  document.getElementById('alertsPopupBody').innerHTML=visibles.map(it=>`
+    <div class="alertBlock" data-akey="${it.key}" style="background:${it.bg};border:1px solid ${it.border};border-radius:12px;padding:12px 14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:700;color:${it.cor}">${it.icon} ${it.title}</div>
+        ${alertX(it.key)}
+      </div>
       <div style="display:flex;flex-direction:column;gap:0">${Array.isArray(it.linhas)?it.linhas.join(''):it.linhas}</div>
       <button class="btn sm ghost" style="margin-top:10px;font-size:12px" onclick="closeAlertsPopup('close');${it.btn.action}">${it.btn.label} →</button>
     </div>`).join('');
@@ -2545,6 +2549,15 @@ function showAlertsPopup(){
 function closeAlertsPopup(mode){
   document.getElementById('alertsPopupBg').style.display='none';
   if(mode==='later')localStorage.setItem('alerts_snooze',Date.now()+30*60*1000); // 30 min
+}
+// Dispensar UM aviso (X do bloco): sai da tela e fica em soneca por 8h; se não sobrar nenhum, fecha o popup.
+function alertDismissed(k){try{const d=JSON.parse(localStorage.getItem('alerts_dismissed')||'{}');return !!(d[k]&&Date.now()<d[k]);}catch(e){return false}}
+function alertX(key){return `<button title="Dispensar este aviso (volta em 8h se ainda valer)" onclick="dismissAlert('${key}',this)" style="flex:none;background:none;border:none;color:var(--faint);cursor:pointer;font-size:15px;line-height:1;padding:0 2px">✕</button>`;}
+function dismissAlert(key,btn){
+  try{const d=JSON.parse(localStorage.getItem('alerts_dismissed')||'{}');d[key]=Date.now()+8*3600*1000;localStorage.setItem('alerts_dismissed',JSON.stringify(d));}catch(e){}
+  const blk=btn.closest('.alertBlock');if(blk)blk.remove();
+  const body=document.getElementById('alertsPopupBody');
+  if(body&&!body.querySelector('.alertBlock'))document.getElementById('alertsPopupBg').style.display='none';
 }
 /* ---- SAÚDE DAS CONTAS DE ANÚNCIO (banimento / restrição / cancelamento) ---- */
 function metaAcctStatusText(st){
@@ -2601,16 +2614,17 @@ async function checkAccountHealth(){
       const now=Date.now();novos.forEach(p=>seen[key(p)]=now);localStorage.setItem('acctAlertSeen',JSON.stringify(seen));
       loadNotifications();
     }
-    // Popup (respeita a soneca dos alertas)
+    // Popup (respeita a soneca dos alertas e a dispensa individual)
     const sn=localStorage.getItem('alerts_snooze');if(sn&&Date.now()<+sn)return;
+    if(alertDismissed('account'))return;
     const body=document.getElementById('alertsPopupBody'),bg=document.getElementById('alertsPopupBg');
     if(!body||document.getElementById('acctAlertBlock'))return;
     const ord={crit:0,warn:1};
     const rows=problems.sort((a,b)=>ord[a.sev]-ord[b.sev]).map(p=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)">
       <span><strong>${(p.client||'').replace(/</g,'&lt;')}</strong> · ${p.canal} · <span style="color:var(--muted)">${String(p.conta).replace(/</g,'&lt;')}</span></span>
       <span style="color:${p.sev==='crit'?'#f87171':'#f59e0b'};white-space:nowrap;margin-left:12px;font-weight:600">${p.txt}</span></div>`).join('');
-    body.insertAdjacentHTML('afterbegin',`<div id="acctAlertBlock" style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.4);border-radius:12px;padding:12px 14px">
-      <div style="font-size:13px;font-weight:800;color:#f87171;margin-bottom:8px">🚫 ${problems.length} conta(s) de anúncio com problema — regularize pra não parar os anúncios</div>
+    body.insertAdjacentHTML('afterbegin',`<div id="acctAlertBlock" class="alertBlock" data-akey="account" style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.4);border-radius:12px;padding:12px 14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px"><div style="font-size:13px;font-weight:800;color:#f87171">🚫 ${problems.length} conta(s) de anúncio com problema — regularize pra não parar os anúncios</div>${alertX('account')}</div>
       ${rows}
       <button class="btn sm ghost" style="margin-top:10px;font-size:12px" onclick="closeAlertsPopup('close');goToTab('campanhas')">Ver campanhas →</button>
     </div>`);
