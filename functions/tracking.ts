@@ -38,9 +38,11 @@ function uid() { return crypto.randomUUID().replace(/-/g, "").slice(0, 20); }
 
 // OAuth do RD Station: recebe o ?code, troca por refresh_token e guarda em account_config.data.rd_station
 async function handleRdCallback(url: URL) {
+  // Supabase força text/plain nas Edge Functions — então retorno TEXTO PURO, sem tags e sem acento (evita mojibake).
+  const strip = (s: string) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "");
   const page = (title: string, msg: string, ok: boolean) => new Response(
-    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="font-family:system-ui;background:#0f1118;color:#e9ebf2;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center;max-width:420px;padding:24px"><div style="font-size:44px">${ok ? "✅" : "⚠️"}</div><h2>${title}</h2><p style="color:#9aa0b0;line-height:1.6">${msg}</p><p style="color:#666c7c;font-size:13px">Pode fechar esta aba e voltar ao sistema.</p></div><script>setTimeout(function(){try{window.close()}catch(e){}},4000)</script></body>`,
-    { headers: { ...cors, "Content-Type": "text/html; charset=utf-8" } });
+    (ok ? "[OK] " : "[!] ") + strip(title) + "\n\n" + strip(msg) + "\n\nPode fechar esta aba e voltar ao sistema.",
+    { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
   const code = url.searchParams.get("code");
   const clientId = url.searchParams.get("state"); // qual cliente está conectando o RD dele
   if (!code) return page("Autorização não concluída", "Não recebi o código do RD Station. Tente conectar de novo.", false);
