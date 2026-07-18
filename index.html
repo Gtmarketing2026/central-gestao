@@ -791,6 +791,12 @@
       </div>
       <div id="cGoogleAccountChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
       <div id="cGoogleAccountHint" style="font-size:11px;color:var(--faint)"></div>
+      <hr class="budget-divider">
+      <div class="form-row" style="margin-bottom:6px">
+        <span style="font-size:13px;font-weight:600;color:var(--text)">📣 RD Station (leads &amp; eventos deste cliente)</span>
+        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Conecte a conta RD Station <b>deste cliente</b> pra puxar os eventos (conversões), leads por evento e o carrinho. Cada cliente autoriza a conta RD dele.</div>
+      </div>
+      <div id="cRdConnectRow"></div>
     </div>
 
     <div class="cpanel" data-panel="relatorios" style="display:none">
@@ -1584,7 +1590,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,minBalance:+r.min_balance||0});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,minBalance:+r.min_balance||0});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -1848,15 +1854,15 @@ async function loadConfiguracoes(){
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;margin:4px 0 12px">🔌 Integrações</div>
     ${integCard('meta','Ⓜ️','Meta Ads','Contas de anúncio do Facebook/Instagram (token da API).',integStatusPill('load','Checando…'),'')}
     ${integCard('google','🔎','Google Ads','Contas via MCC do Google Ads.',integStatusPill('load','Checando…'),'')}
-    ${integCard('rd','📣','RD Station','Marketing — segmentações, conversões e checkout (leitura via OAuth).',
-      integStatusPill(rd.refresh_token?'ok':(rd.client_id?'warn':'off'),rd.refresh_token?'✓ Conectado':(rd.client_id?'Falta autorizar':'Não conectado')),
+    ${integCard('rd','📣','RD Station (App)','Credenciais do App (nível conta). A conexão é feita em cada cliente.',
+      integStatusPill(rd.client_id&&rd.client_secret?'ok':'off',rd.client_id&&rd.client_secret?'✓ App configurado':'Faltam credenciais'),
       `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
         <div style="flex:1;min-width:200px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CLIENT ID</label><input id="rdClientId" placeholder="${rd.client_id?rd.client_id:'do app do RD'}" style="width:100%;font-size:12px"></div>
         <div style="flex:1;min-width:200px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CLIENT SECRET</label><input id="rdClientSecret" type="password" placeholder="${rd.client_secret?'•••••••••• (salvo)':'do app do RD'}" style="width:100%;font-size:12px"></div>
-        <button class="btn sm primary" style="flex:none" onclick="connectRdStation()">${rd.refresh_token?'Reconectar':'Salvar e conectar'}</button>
+        <button class="btn sm primary" style="flex:none" onclick="saveRdApp()">Salvar credenciais</button>
         ${rd.client_id?`<button class="btn sm ghost" style="flex:none;color:var(--red)" onclick="clearRdStation()">Remover</button>`:''}
       </div>
-      <div style="font-size:11px;color:var(--faint);margin-top:8px">${rd.refresh_token?('Conectado em '+(rd.connected_at?new Date(rd.connected_at).toLocaleString('pt-BR'):'—')+'. Puxamos segmentações, conversões e checkout do RD Marketing.'):'Cole Client ID + Secret do app do RD, clique em conectar e autorize na tela do RD. A URL de callback já está registrada no app.'}</div>`)}
+      <div style="font-size:11px;color:var(--faint);margin-top:8px">Estas são as credenciais do <b>App</b> (uma vez só). Para conectar o RD de um cliente, vá no cadastro dele → aba <b>Mídia</b> → "Conectar RD Station" (cada cliente autoriza a conta RD dele).</div>`)}
     ${integCard('whatsapp','💬','WhatsApp Cloud API',
       'Conectar o WhatsApp do cliente por QR code (Meta Cloud API) + CRM de conversas com origem por anúncio/UTM.',
       integStatusPill('warn','Em construção'),
@@ -1890,23 +1896,40 @@ async function checkIntegGoogle(){
     el.innerHTML=integStatusPill('err','⚠ Reconectar')+`<span style="font-size:11px;color:var(--muted);max-width:260px" title="${String(e.message||e).replace(/"/g,'&quot;')}">${String(e.message||e).replace(/</g,'&lt;').slice(0,80)}</span><button class="btn sm ghost" onclick="alert('Google Ads com problema — geralmente o refresh token foi revogado ou o developer token mudou. Me avise pra renovar as credenciais no Supabase.')">Como resolver</button>`;
   }
 }
-async function connectRdStation(){
+async function saveRdApp(){
   const cur=(await loadAccountConfig()).rd_station||{};
   const id=(document.getElementById('rdClientId').value||'').trim()||cur.client_id||'';
   const secretInput=(document.getElementById('rdClientSecret').value||'').trim();
   const secret=secretInput||cur.client_secret||'';
   if(!id||!secret){alert('Cole o Client ID e o Client Secret do app do RD.');return;}
-  await saveAccountConfig({rd_station:{...cur,client_id:id,client_secret:secret}});
-  // abre a tela de autorização do RD; o callback (nossa função) guarda o refresh_token e a página fecha sozinha
-  const redirect=TRACK_BASE+'/rd/callback';
-  const url='https://api.rd.services/auth/dialog?client_id='+encodeURIComponent(id)+'&redirect_uri='+encodeURIComponent(redirect);
-  window.open(url,'_blank','width=560,height=720');
-  alert('Abri a tela do RD Station numa nova aba. Autorize por lá; quando voltar, clique em "↻ Testar" ou reabra esta aba pra ver "Conectado".');
+  await saveAccountConfig({rd_station:{client_id:id,client_secret:secret}});
+  loadConfiguracoes();
 }
 async function clearRdStation(){
-  if(!confirm('Remover a integração do RD Station?'))return;
+  if(!confirm('Remover as credenciais do App do RD? As conexões dos clientes deixam de funcionar.'))return;
   await saveAccountConfig({rd_station:{}});
   loadConfiguracoes();
+}
+function renderRdConnect(clientId,rdConfig){
+  const el=document.getElementById('cRdConnectRow');if(!el)return;
+  if(!clientId){el.innerHTML='<div style="font-size:11px;color:var(--faint)">Salve o cliente primeiro pra poder conectar o RD.</div>';return;}
+  const connected=rdConfig&&rdConfig.refresh_token;
+  const when=connected&&rdConfig.connected_at?new Date(rdConfig.connected_at).toLocaleString('pt-BR'):'';
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="font-size:12px;font-weight:700;color:${connected?'#34d399':'var(--faint)'}">${connected?'✓ RD conectado':'○ RD não conectado'}</span>
+    ${when?`<span style="font-size:11px;color:var(--faint)">desde ${when}</span>`:''}
+    <button type="button" class="btn sm ${connected?'ghost':'primary'}" onclick="connectRdForClient('${clientId}')">${connected?'Reconectar':'Conectar RD Station'}</button>
+  </div>
+  <div style="font-size:11px;color:var(--faint);margin-top:6px">${connected?'Depois de conectado, os eventos/leads deste cliente ficam disponíveis na aba Eventos (em construção).':'Esteja logado na conta RD deste cliente antes de autorizar.'}</div>`;
+}
+// Conexão do RD POR CLIENTE (abre a autorização passando state=clientId; o callback guarda o refresh_token no cliente)
+async function connectRdForClient(clientId){
+  const app=(await loadAccountConfig()).rd_station||{};
+  if(!app.client_id){alert('Primeiro configure as credenciais do App do RD em ⚙️ Configurações.');return;}
+  const redirect=TRACK_BASE+'/rd/callback';
+  const url='https://api.rd.services/auth/dialog?client_id='+encodeURIComponent(app.client_id)+'&redirect_uri='+encodeURIComponent(redirect)+'&state='+encodeURIComponent(clientId);
+  window.open(url,'_blank','width=560,height=760');
+  alert('Abri a tela do RD Station numa aba nova. IMPORTANTE: esteja logado na conta RD DESTE cliente. Autorize por lá; depois recarregue o cadastro pra ver "Conectado".');
 }
 /* ================= RASTREAMENTO (pixel + links + jornada do lead) ================= */
 const TRACK_BASE=SUPA_URL+'/functions/v1/tracking';
@@ -3526,6 +3549,7 @@ function openClientModal(id){
   document.getElementById('cMetaAccountHint').textContent='';
   setGoogleSelection(c.googleAccountIds||[]);
   document.getElementById('cGoogleAccountHint').textContent='';
+  renderRdConnect(id,c.rdConfig);
   fillTemplateSelect(c.reportTemplateId||'');
   fillReportFocos(c.reportFocos||[]);
   document.getElementById('cConversionSource').value=c.conversionSource||'';

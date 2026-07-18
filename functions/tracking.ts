@@ -42,11 +42,13 @@ async function handleRdCallback(url: URL) {
     `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="font-family:system-ui;background:#0f1118;color:#e9ebf2;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center;max-width:420px;padding:24px"><div style="font-size:44px">${ok ? "✅" : "⚠️"}</div><h2>${title}</h2><p style="color:#9aa0b0;line-height:1.6">${msg}</p><p style="color:#666c7c;font-size:13px">Pode fechar esta aba e voltar ao sistema.</p></div><script>setTimeout(function(){try{window.close()}catch(e){}},4000)</script></body>`,
     { headers: { ...cors, "Content-Type": "text/html; charset=utf-8" } });
   const code = url.searchParams.get("code");
+  const clientId = url.searchParams.get("state"); // qual cliente está conectando o RD dele
   if (!code) return page("Autorização não concluída", "Não recebi o código do RD Station. Tente conectar de novo.", false);
+  if (!clientId) return page("Cliente não identificado", "Faltou identificar o cliente. Refaça a conexão pelo cadastro do cliente.", false);
+  // client_id/secret do APP (nível conta)
   const rows = await sbSelect("account_config", `id=eq.main&select=data`);
-  const data = rows[0]?.data || {};
-  const rd = data.rd_station || {};
-  if (!rd.client_id || !rd.client_secret) return page("Faltam credenciais", "Salve o Client ID e o Client Secret na aba Configurações antes de conectar.", false);
+  const rd = (rows[0]?.data || {}).rd_station || {};
+  if (!rd.client_id || !rd.client_secret) return page("Faltam credenciais do App", "Salve o Client ID e o Client Secret do App do RD na aba Configurações antes de conectar.", false);
   const redirect = `${url.origin}/functions/v1/tracking/rd/callback`;
   try {
     const r = await fetch("https://api.rd.services/auth/token", {
@@ -55,9 +57,13 @@ async function handleRdCallback(url: URL) {
     });
     const j = await r.json();
     if (!r.ok || !j.refresh_token) return page("Falha ao conectar", "O RD não devolveu o token. Motivo: " + (j.error_description || j.error || `HTTP ${r.status}`), false);
-    const newData = { ...data, rd_station: { ...rd, refresh_token: j.refresh_token, connected_at: new Date().toISOString() } };
-    await sbPatch("account_config", "id=eq.main", { data: newData, updated_at: new Date().toISOString() });
-    return page("RD Station conectado!", "A integração está ativa. Já podemos puxar segmentações, conversões e checkout do RD.", true);
+    // guarda o refresh_token NO CLIENTE (cada cliente tem o RD dele)
+    const cRows = await sbSelect("clients", `id=eq.${encodeURIComponent(clientId)}&select=rd_config,name`);
+    if (!cRows[0]) return page("Cliente não encontrado", "O cliente informado não existe mais.", false);
+    const cfg = cRows[0].rd_config || {};
+    const newCfg = { ...cfg, refresh_token: j.refresh_token, connected_at: new Date().toISOString() };
+    await sbPatch("clients", `id=eq.${encodeURIComponent(clientId)}`, { rd_config: newCfg });
+    return page("RD Station conectado!", `A conta RD de "${cRows[0].name || "cliente"}" foi conectada. Já podemos puxar os eventos e conversões dela.`, true);
   } catch (e) {
     return page("Erro ao conectar", String((e as any)?.message || e), false);
   }
