@@ -27,7 +27,41 @@ async function sbSelect(table: string, query: string) {
   });
   return r.ok ? await r.json() : [];
 }
+async function sbPatch(table: string, query: string, row: Record<string, unknown>) {
+  await fetch(`${SB_URL}/rest/v1/${table}?${query}`, {
+    method: "PATCH",
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify(row),
+  });
+}
 function uid() { return crypto.randomUUID().replace(/-/g, "").slice(0, 20); }
+
+// OAuth do RD Station: recebe o ?code, troca por refresh_token e guarda em account_config.data.rd_station
+async function handleRdCallback(url: URL) {
+  const page = (title: string, msg: string, ok: boolean) => new Response(
+    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="font-family:system-ui;background:#0f1118;color:#e9ebf2;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center;max-width:420px;padding:24px"><div style="font-size:44px">${ok ? "✅" : "⚠️"}</div><h2>${title}</h2><p style="color:#9aa0b0;line-height:1.6">${msg}</p><p style="color:#666c7c;font-size:13px">Pode fechar esta aba e voltar ao sistema.</p></div><script>setTimeout(function(){try{window.close()}catch(e){}},4000)</script></body>`,
+    { headers: { ...cors, "Content-Type": "text/html; charset=utf-8" } });
+  const code = url.searchParams.get("code");
+  if (!code) return page("Autorização não concluída", "Não recebi o código do RD Station. Tente conectar de novo.", false);
+  const rows = await sbSelect("account_config", `id=eq.main&select=data`);
+  const data = rows[0]?.data || {};
+  const rd = data.rd_station || {};
+  if (!rd.client_id || !rd.client_secret) return page("Faltam credenciais", "Salve o Client ID e o Client Secret na aba Configurações antes de conectar.", false);
+  const redirect = `${url.origin}/functions/v1/tracking/rd/callback`;
+  try {
+    const r = await fetch("https://api.rd.services/auth/token", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: rd.client_id, client_secret: rd.client_secret, code, redirect_uri: redirect }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.refresh_token) return page("Falha ao conectar", "O RD não devolveu o token. Motivo: " + (j.error_description || j.error || `HTTP ${r.status}`), false);
+    const newData = { ...data, rd_station: { ...rd, refresh_token: j.refresh_token, connected_at: new Date().toISOString() } };
+    await sbPatch("account_config", "id=eq.main", { data: newData, updated_at: new Date().toISOString() });
+    return page("RD Station conectado!", "A integração está ativa. Já podemos puxar segmentações, conversões e checkout do RD.", true);
+  } catch (e) {
+    return page("Erro ao conectar", String((e as any)?.message || e), false);
+  }
+}
 function clip(s: unknown, n = 400) { const v = s == null ? null : String(s); return v ? v.slice(0, n) : null; }
 
 // ---- pixel script (embute client_id + base) ----
@@ -105,6 +139,8 @@ Deno.serve(async (req) => {
   }
 
   if (p === "/collect" && req.method === "POST") return handleCollect(req);
+
+  if (p === "/rd/callback") return handleRdCallback(url);
 
   // GET /l/<client_id>/<slug>
   const mLink = p.match(/^\/l\/([^/]+)\/([^/]+)$/);

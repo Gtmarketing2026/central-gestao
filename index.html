@@ -1848,14 +1848,15 @@ async function loadConfiguracoes(){
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;margin:4px 0 12px">🔌 Integrações</div>
     ${integCard('meta','Ⓜ️','Meta Ads','Contas de anúncio do Facebook/Instagram (token da API).',integStatusPill('load','Checando…'),'')}
     ${integCard('google','🔎','Google Ads','Contas via MCC do Google Ads.',integStatusPill('load','Checando…'),'')}
-    ${integCard('rd','📣','RD Station','CRM/automação de marketing — leads e oportunidades.',
-      integStatusPill(rd.token?'ok':'off',rd.token?'Configurado':'Não conectado'),
+    ${integCard('rd','📣','RD Station','Marketing — segmentações, conversões e checkout (leitura via OAuth).',
+      integStatusPill(rd.refresh_token?'ok':(rd.client_id?'warn':'off'),rd.refresh_token?'✓ Conectado':(rd.client_id?'Falta autorizar':'Não conectado')),
       `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
-        <div style="flex:1;min-width:220px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">TOKEN / API KEY DO RD STATION</label><input id="rdToken" type="password" placeholder="${rd.token?'•••••••••• (salvo)':'cole o token do RD Station'}" style="width:100%;font-size:12px"></div>
-        <button class="btn sm primary" style="flex:none" onclick="saveRdStation()">Salvar</button>
-        ${rd.token?`<button class="btn sm ghost" style="flex:none;color:var(--red)" onclick="clearRdStation()">Remover</button>`:''}
+        <div style="flex:1;min-width:200px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CLIENT ID</label><input id="rdClientId" placeholder="${rd.client_id?rd.client_id:'do app do RD'}" style="width:100%;font-size:12px"></div>
+        <div style="flex:1;min-width:200px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CLIENT SECRET</label><input id="rdClientSecret" type="password" placeholder="${rd.client_secret?'•••••••••• (salvo)':'do app do RD'}" style="width:100%;font-size:12px"></div>
+        <button class="btn sm primary" style="flex:none" onclick="connectRdStation()">${rd.refresh_token?'Reconectar':'Salvar e conectar'}</button>
+        ${rd.client_id?`<button class="btn sm ghost" style="flex:none;color:var(--red)" onclick="clearRdStation()">Remover</button>`:''}
       </div>
-      <div style="font-size:11px;color:var(--faint);margin-top:8px">Guardado com segurança na conta. A ingestão de leads do RD usa o webhook <code style="background:var(--surface2);padding:1px 5px;border-radius:5px">rd-webhook</code> (próxima etapa de fluxo).</div>`)}
+      <div style="font-size:11px;color:var(--faint);margin-top:8px">${rd.refresh_token?('Conectado em '+(rd.connected_at?new Date(rd.connected_at).toLocaleString('pt-BR'):'—')+'. Puxamos segmentações, conversões e checkout do RD Marketing.'):'Cole Client ID + Secret do app do RD, clique em conectar e autorize na tela do RD. A URL de callback já está registrada no app.'}</div>`)}
     ${integCard('whatsapp','💬','WhatsApp Cloud API',
       'Conectar o WhatsApp do cliente por QR code (Meta Cloud API) + CRM de conversas com origem por anúncio/UTM.',
       integStatusPill('warn','Em construção'),
@@ -1889,11 +1890,18 @@ async function checkIntegGoogle(){
     el.innerHTML=integStatusPill('err','⚠ Reconectar')+`<span style="font-size:11px;color:var(--muted);max-width:260px" title="${String(e.message||e).replace(/"/g,'&quot;')}">${String(e.message||e).replace(/</g,'&lt;').slice(0,80)}</span><button class="btn sm ghost" onclick="alert('Google Ads com problema — geralmente o refresh token foi revogado ou o developer token mudou. Me avise pra renovar as credenciais no Supabase.')">Como resolver</button>`;
   }
 }
-async function saveRdStation(){
-  const v=(document.getElementById('rdToken').value||'').trim();
-  if(!v){alert('Cole o token do RD Station.');return;}
-  await saveAccountConfig({rd_station:{token:v,savedAt:new Date().toISOString()}});
-  loadConfiguracoes();
+async function connectRdStation(){
+  const cur=(await loadAccountConfig()).rd_station||{};
+  const id=(document.getElementById('rdClientId').value||'').trim()||cur.client_id||'';
+  const secretInput=(document.getElementById('rdClientSecret').value||'').trim();
+  const secret=secretInput||cur.client_secret||'';
+  if(!id||!secret){alert('Cole o Client ID e o Client Secret do app do RD.');return;}
+  await saveAccountConfig({rd_station:{...cur,client_id:id,client_secret:secret}});
+  // abre a tela de autorização do RD; o callback (nossa função) guarda o refresh_token e a página fecha sozinha
+  const redirect=TRACK_BASE+'/rd/callback';
+  const url='https://api.rd.services/auth/dialog?client_id='+encodeURIComponent(id)+'&redirect_uri='+encodeURIComponent(redirect);
+  window.open(url,'_blank','width=560,height=720');
+  alert('Abri a tela do RD Station numa nova aba. Autorize por lá; quando voltar, clique em "↻ Testar" ou reabra esta aba pra ver "Conectado".');
 }
 async function clearRdStation(){
   if(!confirm('Remover a integração do RD Station?'))return;
