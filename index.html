@@ -1913,14 +1913,66 @@ async function clearRdStation(){
 function renderRdConnect(clientId,rdConfig){
   const el=document.getElementById('cRdConnectRow');if(!el)return;
   if(!clientId){el.innerHTML='<div style="font-size:11px;color:var(--faint)">Salve o cliente primeiro pra poder conectar o RD.</div>';return;}
-  const connected=rdConfig&&rdConfig.refresh_token;
-  const when=connected&&rdConfig.connected_at?new Date(rdConfig.connected_at).toLocaleString('pt-BR'):'';
+  const cfg=rdConfig||{};
+  const connected=!!cfg.refresh_token;
+  const when=connected&&cfg.connected_at?new Date(cfg.connected_at).toLocaleString('pt-BR'):'';
   el.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <span style="font-size:12px;font-weight:700;color:${connected?'#34d399':'var(--faint)'}">${connected?'✓ RD conectado':'○ RD não conectado'}</span>
     ${when?`<span style="font-size:11px;color:var(--faint)">desde ${when}</span>`:''}
     <button type="button" class="btn sm ${connected?'ghost':'primary'}" onclick="connectRdForClient('${clientId}')">${connected?'Reconectar':'Conectar RD Station'}</button>
   </div>
-  <div style="font-size:11px;color:var(--faint);margin-top:6px">${connected?'Depois de conectado, os eventos/leads deste cliente ficam disponíveis na aba Eventos (em construção).':'Esteja logado na conta RD deste cliente antes de autorizar.'}</div>`;
+  ${connected?rdEventsConfigHTML(clientId,cfg):`<div style="font-size:11px;color:var(--faint);margin-top:6px">Esteja logado na conta RD deste cliente antes de autorizar.</div>`}`;
+  if(connected)loadRdDetectedEvents(clientId);
+}
+// Configuração dos eventos do cliente: quais entram + qual é o carrinho
+function rdEventsConfigHTML(clientId,cfg){
+  const evs=Array.isArray(cfg.events)?cfg.events:[];
+  const rows=evs.length?evs.map(e=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+    <label style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;cursor:pointer;font-size:12.5px"><input type="checkbox" ${e.sel?'checked':''} onchange="rdEventToggle('${clientId}','${(e.id||'').replace(/'/g,"\\'")}')" style="width:auto"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code style="background:var(--surface2);padding:1px 5px;border-radius:5px">${(e.id||'').replace(/</g,'&lt;')}</code></span></label>
+    <button type="button" class="btn sm ${e.cart?'primary':'ghost'}" style="font-size:11px" onclick="rdEventSetCart('${clientId}','${(e.id||'').replace(/'/g,"\\'")}')" title="Marcar como o evento de carrinho/checkout geral">${e.cart?'🛒 Carrinho':'definir carrinho'}</button>
+    <button type="button" class="btn sm ghost" style="flex:none;color:var(--red)" onclick="rdEventRemove('${clientId}','${(e.id||'').replace(/'/g,"\\'")}')">✕</button>
+  </div>`).join(''):'<div style="font-size:11.5px;color:var(--faint);padding:6px 0">Nenhum evento configurado. Adicione pelo identificador (ex: form-checkout) ou clique nos detectados abaixo.</div>';
+  return `<div style="margin-top:12px;border-top:1px dashed var(--border);padding-top:12px">
+    <div style="font-size:12px;font-weight:600;margin-bottom:2px">Eventos deste cliente</div>
+    <div style="font-size:11px;color:var(--faint);margin-bottom:8px">Marque ✓ os eventos que entram no sistema e 🛒 qual é o carrinho (checkout geral no dash/relatório).</div>
+    ${rows}
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <input id="rdNewEvent" placeholder="identificador do evento (ex: form-checkout)" style="flex:1;min-width:200px;font-size:12px" onkeydown="if(event.key==='Enter'){event.preventDefault();rdEventAdd('${clientId}')}">
+      <button type="button" class="btn sm primary" onclick="rdEventAdd('${clientId}')">+ Adicionar</button>
+    </div>
+    <div id="rdDetectedEvents" style="margin-top:8px"></div>
+  </div>`;
+}
+async function _rdSaveEvents(clientId,evs){
+  const c=DB.clients.find(x=>x.id===clientId);const cfg={...(c&&c.rdConfig||{}),events:evs};
+  cfg.cart_event=(evs.find(e=>e.cart)||{}).id||null;
+  const {error}=await sb.from('clients').update({rd_config:cfg}).eq('id',clientId);
+  if(error){alert('Erro ao salvar: '+error.message);return;}
+  if(c)c.rdConfig=cfg;
+  renderRdConnect(clientId,cfg);
+}
+function _rdEvents(clientId){const c=DB.clients.find(x=>x.id===clientId);return Array.isArray(c&&c.rdConfig&&c.rdConfig.events)?c.rdConfig.events.slice():[];}
+function rdEventAdd(clientId,idFromChip){
+  let id=idFromChip||((document.getElementById('rdNewEvent')||{}).value||'').trim();
+  if(!id)return;
+  const evs=_rdEvents(clientId);
+  if(evs.some(e=>e.id===id)){if(!idFromChip)alert('Esse evento já está na lista.');return;}
+  evs.push({id,sel:true,cart:id==='form-checkout'&&!evs.some(e=>e.cart)});
+  _rdSaveEvents(clientId,evs);
+}
+function rdEventToggle(clientId,id){const evs=_rdEvents(clientId);const e=evs.find(x=>x.id===id);if(e)e.sel=!e.sel;_rdSaveEvents(clientId,evs);}
+function rdEventSetCart(clientId,id){const evs=_rdEvents(clientId);const was=evs.find(x=>x.id===id&&x.cart);evs.forEach(e=>e.cart=false);if(!was){const e=evs.find(x=>x.id===id);if(e){e.cart=true;e.sel=true;}}_rdSaveEvents(clientId,evs);}
+function rdEventRemove(clientId,id){_rdSaveEvents(clientId,_rdEvents(clientId).filter(e=>e.id!==id));}
+// Eventos detectados = identificadores já vistos no webhook (rd_conversions), pra adicionar com 1 clique
+async function loadRdDetectedEvents(clientId){
+  const box=document.getElementById('rdDetectedEvents');if(!box)return;
+  try{
+    const {data}=await sb.from('rd_conversions').select('event_identifier').eq('client_id',clientId).not('event_identifier','is',null).limit(2000);
+    const configured=new Set(_rdEvents(clientId).map(e=>e.id));
+    const detected=[...new Set((data||[]).map(x=>x.event_identifier).filter(Boolean))].filter(id=>!configured.has(id));
+    if(!detected.length){box.innerHTML='';return;}
+    box.innerHTML=`<div style="font-size:11px;color:var(--faint);margin-bottom:4px">Detectados no RD (clique pra adicionar):</div>`+detected.slice(0,30).map(id=>`<span style="display:inline-block;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:3px 9px;font-size:11.5px;margin:0 4px 4px 0;cursor:pointer" onclick="rdEventAdd('${clientId}','${id.replace(/'/g,"\\'")}')">+ ${id.replace(/</g,'&lt;')}</span>`).join('');
+  }catch(e){box.innerHTML='';}
 }
 // Conexão do RD POR CLIENTE (abre a autorização passando state=clientId; o callback guarda o refresh_token no cliente)
 async function connectRdForClient(clientId){
