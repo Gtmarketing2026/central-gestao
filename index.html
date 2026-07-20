@@ -2671,7 +2671,7 @@ async function checkBudgetAlerts(){
             ${fundItems.sort((a,b)=>a.saldo-b.saldo).map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)"><span><strong>${x.name}</strong>${x.saldo<=0?' · <span style="color:#f87171;font-weight:700">ESGOTOU</span>':''}</span><span style="color:${x.saldo<=0?'#f87171':'#f59e0b'};white-space:nowrap;margin-left:12px">${fmt(x.saldo)} · mín ${fmt(x.min)}</span></div>`).join('')}
             <div style="font-size:11px;color:var(--faint);margin-top:6px">Recarregue via pix/boleto pra não parar os anúncios.</div>
           </div>`);
-          bg0.style.display='flex';
+          bg0.style.display='flex';renderMutedNote();
         }
       }
     }
@@ -2684,7 +2684,7 @@ async function checkBudgetAlerts(){
       ${itemsB.sort((a,b)=>b.pct-a.pct).map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)"><span><strong>${x.name}</strong>${x.pct>=100?' · <span style="color:#f87171;font-weight:700">ESTOUROU</span>':''}</span><span style="color:${x.pct>=100?'#f87171':'#f59e0b'};white-space:nowrap;margin-left:12px">${fmt(x.spend)} de ${fmt(x.teto)} (${x.pct.toFixed(0)}%)</span></div>`).join('')}
       <button class="btn sm ghost" style="margin-top:10px;font-size:12px" onclick="closeAlertsPopup('close');goToTab('campanhas')">Ver campanhas →</button>
     </div>`);
-    bg.style.display='flex';
+    bg.style.display='flex';renderMutedNote();
   }catch(e){}
 }
 async function saveMinBalance(){
@@ -2764,19 +2764,42 @@ function showAlertsPopup(){
     </div>`).join('');
   const bg=document.getElementById('alertsPopupBg');
   bg.style.display='flex';
+  renderMutedNote();
 }
 function closeAlertsPopup(mode){
   document.getElementById('alertsPopupBg').style.display='none';
   if(mode==='later')localStorage.setItem('alerts_snooze',Date.now()+30*60*1000); // 30 min
 }
-// Dispensar UM aviso (X do bloco): sai da tela e fica em soneca por 8h; se não sobrar nenhum, fecha o popup.
-function alertDismissed(k){try{const d=JSON.parse(localStorage.getItem('alerts_dismissed')||'{}');return !!(d[k]&&Date.now()<d[k]);}catch(e){return false}}
-function alertX(key){return `<button title="Dispensar este aviso (volta em 8h se ainda valer)" onclick="dismissAlert('${key}',this)" style="flex:none;background:none;border:none;color:var(--faint);cursor:pointer;font-size:15px;line-height:1;padding:0 2px">✕</button>`;}
-function dismissAlert(key,btn){
-  try{const d=JSON.parse(localStorage.getItem('alerts_dismissed')||'{}');d[key]=Date.now()+8*3600*1000;localStorage.setItem('alerts_dismissed',JSON.stringify(d));}catch(e){}
+// Cada aviso tem 2 opções próprias: ✕ = adia 8h · "não ver mais" = silencia pra sempre (reversível no rodapé).
+function alertMuted(k){try{return !!JSON.parse(localStorage.getItem('alerts_muted')||'{}')[k];}catch(e){return false}}
+function alertDismissed(k){
+  if(alertMuted(k))return true; // silenciado de vez
+  try{const d=JSON.parse(localStorage.getItem('alerts_dismissed')||'{}');return !!(d[k]&&Date.now()<d[k]);}catch(e){return false}
+}
+function alertX(key){return `<span style="display:flex;align-items:center;gap:8px;flex:none">
+  <a onclick="muteAlert('${key}',this)" title="Não mostrar mais este aviso" style="font-size:10.5px;color:var(--faint);cursor:pointer;text-decoration:underline;white-space:nowrap">não ver mais</a>
+  <button title="Dispensar por agora (volta em 8h se ainda valer)" onclick="dismissAlert('${key}',this)" style="background:none;border:none;color:var(--faint);cursor:pointer;font-size:15px;line-height:1;padding:0 2px">✕</button></span>`;}
+function _alertCloseBlock(btn){
   const blk=btn.closest('.alertBlock');if(blk)blk.remove();
   const body=document.getElementById('alertsPopupBody');
+  renderMutedNote();
   if(body&&!body.querySelector('.alertBlock'))document.getElementById('alertsPopupBg').style.display='none';
+}
+function dismissAlert(key,btn){
+  try{const d=JSON.parse(localStorage.getItem('alerts_dismissed')||'{}');d[key]=Date.now()+8*3600*1000;localStorage.setItem('alerts_dismissed',JSON.stringify(d));}catch(e){}
+  _alertCloseBlock(btn);
+}
+function muteAlert(key,el){
+  if(!confirm('Não mostrar mais este aviso?\n\nEle deixa de aparecer no popup. Dá pra reativar no rodapé do popup ("reativar avisos ocultos").'))return;
+  try{const m=JSON.parse(localStorage.getItem('alerts_muted')||'{}');m[key]=true;localStorage.setItem('alerts_muted',JSON.stringify(m));}catch(e){}
+  _alertCloseBlock(el);
+}
+function mutedAlertKeys(){try{return Object.keys(JSON.parse(localStorage.getItem('alerts_muted')||'{}'));}catch(e){return []}}
+function unmuteAllAlerts(){localStorage.removeItem('alerts_muted');renderMutedNote();alert('Avisos reativados. Eles voltam a aparecer na próxima abertura do sistema.');}
+function renderMutedNote(){
+  const el=document.getElementById('alertsMutedNote');if(!el)return;
+  const n=mutedAlertKeys().length;
+  el.innerHTML=n?`<a onclick="unmuteAllAlerts()" style="font-size:11px;color:var(--accent);cursor:pointer">↺ reativar ${n} aviso(s) oculto(s)</a>`:'';
 }
 /* ---- SAÚDE DAS CONTAS DE ANÚNCIO (banimento / restrição / cancelamento) ---- */
 function metaAcctStatusText(st){
@@ -2849,7 +2872,7 @@ async function checkAccountHealth(){
       ${rows}
       <button class="btn sm ghost" style="margin-top:10px;font-size:12px" onclick="closeAlertsPopup('close');goToTab('campanhas')">Ver campanhas →</button>
     </div>`);
-    bg.style.display='flex';
+    bg.style.display='flex';renderMutedNote();
   }catch(e){}
 }
 
@@ -7044,6 +7067,7 @@ checkAuth();
       <button onclick="closeAlertsPopup('close')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;line-height:1">✕</button>
     </div>
     <div id="alertsPopupBody" style="overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:10px"></div>
+    <div style="padding:0 22px" id="alertsMutedNote"></div>
     <div style="display:flex;gap:10px;padding:14px 22px;border-top:1px solid var(--border)">
       <button onclick="closeAlertsPopup('later')" class="btn ghost" style="flex:1">⏰ Lembrar em 30 min</button>
       <button onclick="closeAlertsPopup('close')" class="btn primary" style="flex:1">✓ Entendido</button>
