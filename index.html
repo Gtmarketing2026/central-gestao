@@ -595,10 +595,7 @@
     </div>
 
     <div id="crTemplateView" style="display:none">
-      <div class="filterbar" style="margin-bottom:14px">
-        <label style="margin:0">Mês:</label>
-        <input type="month" id="crtMonth" style="width:auto" onchange="loadClientTemplate()">
-      </div>
+      <div class="filterbar" id="crtRangeBar" style="margin-bottom:14px;flex-wrap:wrap;gap:6px"></div>
       <div id="crTemplateBody"><div class="empty">Selecione um cliente com planilha de pedidos configurada.</div></div>
     </div>
   </section>
@@ -5180,7 +5177,6 @@ function setReportSub(v){
   document.getElementById('crDashboardView').style.display=v==='dashboard'?'block':'none';
   document.getElementById('crTemplateView').style.display=v==='template'?'block':'none';
   if(v==='template'){
-    if(!document.getElementById('crtMonth').value)document.getElementById('crtMonth').value=today().slice(0,7);
     loadClientTemplate();
   }
 }
@@ -5338,10 +5334,12 @@ async function loadClientTemplate(){
   const noSales=c.conversionSource==='none';
   const hasOrdersSource=!noSales&&(isLocal||!!(c.reportOrdersSheetUrl&&c.reportOrdersTab));
   if(!hasOrdersSource&&!hasMeta){body.innerHTML='<div class="empty">Este cliente não tem fonte de dados. Vincule uma conta do Meta (aba Mídia) ou configure a planilha de pedidos no cadastro.</div>';return}
-  const month=document.getElementById('crtMonth').value||today().slice(0,7);
-  const cacheKey=c.id+'|'+month;
+  const rbEl=document.getElementById('crtRangeBar');if(rbEl)rbEl.innerHTML=tplRangeBarHTML();
+  const {since,until}=tplRangeBounds();
+  const month=until.slice(0,7); // mês-âncora p/ recursos mensais (comparativo semanal, análise salva, RD)
+  const cacheKey=c.id+'|'+since+'|'+until;
   const cached=_tplCache[cacheKey];
-  if(cached){renderClientTemplate({...c,reportOrdersTab:cached.ordersKey},month,cached.dataByTab,cached.adTabs,cached.checkoutCount,cached.metaChStats,cached.metaAds);}
+  if(cached){renderClientTemplate({...c,reportOrdersTab:cached.ordersKey},month,cached.dataByTab,cached.adTabs,cached.checkoutCount,cached.metaChStats,cached.metaAds,since,until);}
   else body.innerHTML='<div class="empty">Carregando dados ao vivo (pode levar alguns segundos)...</div>';
   const adM=(c.reportSheetUrl||'').match(/\/d\/([a-zA-Z0-9_-]+)/);
   const adSpreadsheetId=adM?adM[1]:null;
@@ -5358,7 +5356,7 @@ async function loadClientTemplate(){
       // cliente só-Meta: sem fonte de pedidos, seção de vendas fica vazia
       dataByTab[ordersKey]={aggregated:true,rows:[]};
     }else if(isLocal){
-      const {data:rows,error}=await sb.from('order_aggregates').select('date,status,count,total').eq('client_id',c.id).gte('date',month+'-01').lte('date',month+'-31');
+      const {data:rows,error}=await sb.from('order_aggregates').select('date,status,count,total').eq('client_id',c.id).gte('date',since).lte('date',until);
       if(error)throw error;
       dataByTab[ordersKey]={aggregated:true,rows:rows||[]};
     }else{
@@ -5372,9 +5370,9 @@ async function loadClientTemplate(){
     const hasMeta=c.metaAccountIds&&c.metaAccountIds.length;
     const hasGoogle=c.googleAccountIds&&c.googleAccountIds.length;
     const [checkoutCount,metaRep,googleRep]=await Promise.all([
-      sb.from('checkout_events').select('*',{count:'exact',head:true}).eq('client_id',c.id).gte('event_date',month+'-01').lte('event_date',month+'-31').then(r=>r.count||0).catch(()=>0),
-      hasMeta?fetchMetaReport(c,month).catch(e=>({_err:e.message})):Promise.resolve({channelStats:null,ads:null}),
-      hasGoogle?fetchGoogleReport(c,month).catch(e=>({_err:e.message,channelStats:null,ads:null})):Promise.resolve({channelStats:null,ads:null})
+      sb.from('checkout_events').select('*',{count:'exact',head:true}).eq('client_id',c.id).gte('event_date',since).lte('event_date',until).then(r=>r.count||0).catch(()=>0),
+      hasMeta?fetchMetaReportRange(c,since,until).catch(e=>({_err:e.message})):Promise.resolve({channelStats:null,ads:null}),
+      hasGoogle?fetchGoogleReportRange(c,since,until).catch(e=>({_err:e.message,channelStats:null,ads:null})):Promise.resolve({channelStats:null,ads:null})
     ]);
     // canais ao vivo combinados (Meta + Google); erro do Google não derruba o relatório
     let metaChStats=(metaRep&&metaRep.channelStats)||null;
@@ -5384,7 +5382,7 @@ async function loadClientTemplate(){
     _tplCache[cacheKey]={ordersKey,dataByTab,adTabs,checkoutCount,metaChStats,metaAds,ts:Date.now()};
     if(myToken!==_tplLoadToken)return; // usuário trocou de cliente/mês: descarta este render
     if(metaRep&&metaRep._err&&!cached){body.innerHTML=`<div class="empty">Erro ao buscar Meta Ads ao vivo: ${metaRep._err}</div>`;return}
-    renderClientTemplate({...c,reportOrdersTab:ordersKey},month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds);
+    renderClientTemplate({...c,reportOrdersTab:ordersKey},month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds,since,until);
   }catch(e){
     if(myToken!==_tplLoadToken)return;
     body.innerHTML=`<div class="empty">Erro ao buscar dados: ${e.message}</div>`;
@@ -5565,6 +5563,20 @@ function metaDashRange(clientId,days){_metaDashDays=days;_metaDashSince='';_meta
 function metaDashMonth(clientId){const b=monthBounds(0);_metaDashSince=b.since;_metaDashUntil=today();_metaDashPreset='mes';const c=DB.clients.find(x=>x.id===clientId);if(c)loadMetaDashboard(c,++_tplLoadToken);}
 function toggleDashDate(){const w=document.getElementById('dashDateWrap');if(!w)return;w.style.display=w.style.display==='none'?'inline-flex':'none';const f=document.getElementById('dashDateFrom');if(f&&!f.value){f.value=_metaDashSince||daysAgoISO(30);document.getElementById('dashDateTo').value=_metaDashUntil||today();}}
 function metaDashCustom(clientId){const f=document.getElementById('dashDateFrom'),t=document.getElementById('dashDateTo');if(!f||!f.value||!t||!t.value)return;_metaDashSince=f.value;_metaDashUntil=t.value;_metaDashPreset='custom';const c=DB.clients.find(x=>x.id===clientId);if(c)loadMetaDashboard(c,++_tplLoadToken);}
+// ---- Menu de datas do Template/Relatório (mesmo do Dashboard): 7/30/90 dias, Este mês, Personalizado (calendário mês/dia/ano), período X a X ----
+let _tplDays=30,_tplSince='',_tplUntil='',_tplPreset='mes';
+function tplRange(days){_tplDays=days;_tplSince='';_tplUntil='';_tplPreset=String(days);loadClientTemplate();}
+function tplMonth(){const b=monthBounds(0);_tplSince=b.since;_tplUntil=today();_tplPreset='mes';loadClientTemplate();}
+function toggleTplDate(){const w=document.getElementById('tplDateWrap');if(!w)return;w.style.display=w.style.display==='none'?'inline-flex':'none';const f=document.getElementById('tplDateFrom');if(f&&!f.value){f.value=_tplSince||daysAgoISO(_tplDays);document.getElementById('tplDateTo').value=_tplUntil||today();}}
+function tplCustom(){const f=document.getElementById('tplDateFrom'),t=document.getElementById('tplDateTo');if(!f||!f.value||!t||!t.value)return;_tplSince=f.value;_tplUntil=t.value;_tplPreset='custom';loadClientTemplate();}
+function tplRangeBounds(){const until=_tplUntil||today();const since=_tplSince||(_tplPreset==='mes'?monthBounds(0).since:daysAgoISO(_tplDays));return {since,until};}
+function tplRangeBarHTML(){
+  const rb=(key,lbl,fn)=>`<button class="btn sm ${_tplPreset===key?'primary':'ghost'}" type="button" onclick="${fn}">${lbl}</button>`;
+  return `<span style="font-size:12px;color:var(--faint);align-self:center;margin-right:2px">Período:</span>`+rb('7','7 dias','tplRange(7)')+rb('30','30 dias','tplRange(30)')+rb('90','90 dias','tplRange(90)')+rb('mes','Este mês','tplMonth()')+rb('custom','📅 Personalizado','toggleTplDate()')
+   +`<span id="tplDateWrap" style="display:none;gap:6px;align-items:center">
+     <input type="date" id="tplDateFrom" value="${_tplSince||''}" style="width:auto;font-size:12px"><span style="color:var(--faint)">–</span><input type="date" id="tplDateTo" value="${_tplUntil||''}" style="width:auto;font-size:12px">
+     <button class="btn sm primary" type="button" onclick="tplCustom()">Aplicar</button></span>`;
+}
 let _dashSource='meta';
 function dashSourceLabel(){return _dashSource==='google'?'Google Ads':_dashSource==='geral'?'Visão Geral':'Meta Ads';}
 function setDashSource(s){
@@ -5635,6 +5647,8 @@ const DASH_METRICS={
 const DASH_PAL=['#f0c040','#60a5fa','#34d399','#f472b6','#a78bfa','#fb923c','#22d3ee','#f87171','#94a3b8','#facc15'];
 let _dashRecs=[],_dashAds=[],_dashCharts={},_dashLineA='spend',_dashLineB='impressions',_dashLevel='campanha',_dashLevelMetric='spend',_dashSalesFromSheet=false,_dashSheetSales=null;
 let _dashCampRecs=[],_dashFAcc=[],_dashFObj=[],_dashFCamp=[],_dashFAdset=[],_dashAgg=null,_dashTpl=null,_dashNoSales=false,_dashTplId='';
+// alcance/frequência deduplicados por campanha (do backend) — alcance NÃO é somável entre anúncios/dias
+let _dashCampReach={};
 function setDashTpl(id){_dashTplId=id;const c=DB.clients.find(x=>x.id===_dashClientId);if(c)loadMetaDashboard(c,++_tplLoadToken);}
 // Chips "Todos / por template" (só aparece quando o cliente tem >1 template)
 function dashTplChips(c){
@@ -5668,7 +5682,11 @@ function _dashAggFromAds(list){
   const filtered=list.filter(a=>a.spend>0&&(!_dashFAcc.length||_dashFAcc.includes(a.account))).filter(a=>!_dashFObj.length||_dashFObj.includes(_dashObjTipo(a))).filter(a=>!_dashFCamp.length||_dashFCamp.includes(a.campaign)).filter(a=>!_dashFAdset.length||_dashFAdset.includes((a.campaign||'')+' · '+(a.adset||'')));
   const g={spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,addToCart:0,initiateCheckout:0,conversas:0,videoViews:0,engajamentos:0};
   filtered.forEach(a=>Object.keys(g).forEach(k=>g[k]+=(a[k]||0)));
-  const out={spend:g.spend,impressions:g.impressions,clicks:g.clicks,reach:g.reach,revenue:_dashNoSales?0:g.revenue,compras:_dashNoSales?0:Math.round(g.purchases),leads:g.leads,addCarrinho:g.addToCart,checkout:g.initiateCheckout,conversas:g.conversas,videoViews:g.videoViews,engajamentos:g.engajamentos,frequencia:g.reach?g.impressions/g.reach:0};
+  // ALCANCE não é somável: usa o dedup por campanha (do backend); só soma o reach cru dos ads das campanhas sem dedup conhecido; nunca passa do total dedup do período
+  let reach=0;const campsView=[...new Set(filtered.map(a=>a.campaign||'—'))];
+  campsView.forEach(cn=>{const dd=_dashCampReach&&_dashCampReach[cn];if(dd&&dd.reach)reach+=dd.reach;else reach+=filtered.filter(a=>(a.campaign||'—')===cn).reduce((s,a)=>s+(a.reach||0),0);});
+  if(_dashAgg&&_dashAgg.reach)reach=Math.min(reach,_dashAgg.reach);
+  const out={spend:g.spend,impressions:g.impressions,clicks:g.clicks,reach:reach,revenue:_dashNoSales?0:g.revenue,compras:_dashNoSales?0:Math.round(g.purchases),leads:g.leads,addCarrinho:g.addToCart,checkout:g.initiateCheckout,conversas:g.conversas,videoViews:g.videoViews,engajamentos:g.engajamentos,frequencia:reach?g.impressions/reach:0};
   // métricas-resultado atribuídas por objetivo (leads só de campanhas de Lead, etc.) — batem com os cards de foco
   const objM=_objAttrib(filtered);
   out.leads=objM.leads;out.conversas=objM.conversas;out.videoViews=objM.videoViews;out.engajamentos=objM.engajamentos;
@@ -6083,7 +6101,7 @@ function dashShareHTML(){
 // KPIs por objetivo do cliente no dashboard (respeita reportFocos e os filtros de conta/campanha/conjunto)
 function dashFocosHTML(){
   const c=DB.clients.find(x=>x.id===_dashClientId);
-  const groups=groupAdsByObjective(dashFilteredAds());
+  const groups=groupAdsByObjective(dashFilteredAds(),_dashCampReach);
   const vis=(c&&c.reportFocos&&c.reportFocos.length)?c.reportFocos:null;
   const show=vis?groups.filter(g=>vis.includes(g.tipo)):groups;
   return show.map(g=>{
@@ -6269,7 +6287,8 @@ function renderMetaDashboard(c,rep,since,until){
    agg.leads=objM.leads;agg.conversas=objM.conversas;agg.videoViews=objM.videoViews;agg.engajamentos=objM.engajamentos;
    if(!rep._salesFromSheet&&!noSales){agg.compras=Math.round(objM.purchases);agg.revenue=objM.revenue;}}
   _dashRecs=((t.records||[]).slice().sort((a,b)=>a.date<b.date?-1:1)).map(r=>({...r,purchases:r.sales}));
-  _dashAds=rep.ads||[];_dashCampRecs=rep.campaigns||[];_dashTpl=tpl;_dashNoSales=noSales;_dashClientId=c.id;_dashSince=since;_dashUntil=until;_dashCompare=false;_dashPrevAds=null;_dashPrevRange=null;
+  _dashAds=rep.ads||[];_dashCampRecs=rep.campaigns||[];_dashTpl=tpl;
+  _dashCampReach={};(rep.campaigns||[]).forEach(cp=>{if(cp&&cp.campaign)_dashCampReach[cp.campaign]={reach:cp.reach||0,frequency:cp.frequency||0};});_dashNoSales=noSales;_dashClientId=c.id;_dashSince=since;_dashUntil=until;_dashCompare=false;_dashPrevAds=null;_dashPrevRange=null;
   _dashSalesFromSheet=!!rep._salesFromSheet;_dashSheetSales=rep._sheetSales||null;
   _dashAgg={spend:agg.spend,impressions:agg.impressions,clicks:agg.clicks,reach:agg.reach,revenue:agg.revenue,compras:agg.compras,leads:agg.leads,addCarrinho:agg.addCarrinho,checkout:agg.checkout,conversas:agg.conversas,videoViews:agg.videoViews,engajamentos:agg.engajamentos,frequencia:agg.frequencia};
   _dashFAcc=[];_dashFObj=[];_dashFCamp=[];_dashFAdset=[];_dashFunCamp='';_dashFunAdset='';_dashFunAd='';
@@ -6474,8 +6493,8 @@ function exportReportHTML(){
   let css='';
   for(const sheet of document.styleSheets){let rules;try{rules=sheet.cssRules}catch(e){continue}if(!rules)continue;for(const rule of rules){const sel=rule.selectorText||'';if(sel&&/\.rt-/.test(sel))css+=rule.cssText+'\n';}}
   const clientName=(document.getElementById('crClientSelect')&&document.getElementById('crClientSelect').selectedOptions[0]?document.getElementById('crClientSelect').selectedOptions[0].textContent:'Relatório');
-  const monthVal=document.getElementById('crtMonth')?document.getElementById('crtMonth').value:'';
-  const title=`${clientName} — ${monthVal}`;
+  const rng=tplRangeBounds();
+  const title=`${clientName} — ${dateBR(rng.since)} a ${dateBR(rng.until)}`;
   const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>*{margin:0;padding:0;box-sizing:border-box}body{background:#070711;font-family:'Inter',sans-serif;padding:24px;display:flex;justify-content:center}#rtPrintArea{max-width:1240px;width:100%}${css}</style>
@@ -7230,18 +7249,31 @@ function reportFocusGroups(metaAds,focos){
   if(!focos||!focos.length)return groupAdsByObjective(metaAds);
   return focos.flatMap(tipo=>groupAdsByObjective(remapAdsToFoco(metaAds,tipo)));
 }
-function groupAdsByObjective(metaAds){
+// campReach (opcional): mapa {campanha -> {reach}} deduplicado por campanha (do backend).
+// ALCANCE não é somável entre anúncios — quando o mapa existe, usa o dedup por campanha; senão cai na soma dos ads (comportamento antigo).
+function groupAdsByObjective(metaAds,campReach){
   const g={};
   (metaAds||[]).filter(a=>a.spend>0).forEach(a=>{
     const t=(a.objetivo&&a.objetivo.tipo)||'outro';
     if(!g[t])g[t]={tipo:t,rotulo:(a.objetivo&&a.objetivo.rotulo)||t,objetivo:a.objetivo,ads:[],camps:{},agg:{spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,conversas:0,videoViews:0,engajamentos:0}};
     const grp=g[t];grp.ads.push(a);
-    ['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'].forEach(k=>grp.agg[k]+=(a[k]||0));
+    ['spend','impressions','clicks','revenue','purchases','leads','conversas','videoViews','engajamentos'].forEach(k=>grp.agg[k]+=(a[k]||0));
     const cn=a.campaign||'—';
-    if(!grp.camps[cn])grp.camps[cn]={campanha:cn,objetivo:a.objetivo,spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,conversas:0,videoViews:0,engajamentos:0};
-    const C=grp.camps[cn];['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'].forEach(k=>C[k]+=(a[k]||0));
+    if(!grp.camps[cn])grp.camps[cn]={campanha:cn,objetivo:a.objetivo,spend:0,impressions:0,clicks:0,reach:0,_reachSum:0,revenue:0,purchases:0,leads:0,conversas:0,videoViews:0,engajamentos:0};
+    const C=grp.camps[cn];['spend','impressions','clicks','revenue','purchases','leads','conversas','videoViews','engajamentos'].forEach(k=>C[k]+=(a[k]||0));
+    C._reachSum+=(a.reach||0);
   });
-  return Object.values(g).map(grp=>{deriveMeta(grp.agg);return grp;}).sort((a,b)=>b.agg.spend-a.agg.spend);
+  return Object.values(g).map(grp=>{
+    let reachTot=0;
+    Object.values(grp.camps).forEach(C=>{
+      const dd=campReach&&campReach[C.campanha];
+      C.reach=(dd&&dd.reach)?dd.reach:C._reachSum; // dedup por campanha, senão soma dos ads
+      reachTot+=C.reach;
+    });
+    grp.agg.reach=reachTot; // alcance do objetivo = soma do dedup por campanha (não dos anúncios)
+    deriveMeta(grp.agg);
+    return grp;
+  }).sort((a,b)=>b.agg.spend-a.agg.spend);
 }
 function focusKpiHTML(agg,tipo){
   const rows=raioXMetricRows(agg,tipo);
@@ -7349,17 +7381,18 @@ function renderFunnel(key){
   const wrap=document.getElementById('funnelWrap');if(wrap)wrap.innerHTML=funnelBarsHTML(funnelStagesFor(_funnelAggs[key]||{},_funnelKeys,_funnelNoSales));
 }
 function funnelChannelAgg(ch){return {spend:ch.spend||0,impressions:ch.impressions||0,clicks:ch.clicks||0,reach:ch.reach||0,revenue:ch.revenue||0,compras:Math.round(ch.sales||0),leads:ch.leads||0,addCarrinho:ch.addToCart||0,checkout:ch.initiateCheckout||0,conversas:ch.conversas||0,videoViews:ch.videoViews||0,engajamentos:ch.engajamentos||0,frequencia:ch.reach?ch.impressions/ch.reach:0};}
-async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds){
+async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds,since,until){
   const body=document.getElementById('crTemplateBody');
+  const rangeStart=since||(month+'-01'),rangeEnd=until||(month+'-31');
   metaAds=refineCampAds((metaAds||[]).slice()); // mesmos focos do menu Campanhas (Mensagem/Distribuição pelo nome)
   const hasMetaData=!!(metaChStats&&Object.keys(metaChStats).length)||!!(metaAds&&metaAds.length);
   const ordersResult=dataByTab[c.reportOrdersTab]||{aggregated:true,rows:[]};
   if(ordersResult.error&&!hasMetaData){
     body.innerHTML=`<div class="empty">Erro: ${ordersResult.error}</div>`;return;
   }
-  const rows=(ordersResult.rows||[]).filter(r=>r.date.slice(0,7)===month);
+  const rows=(ordersResult.rows||[]).filter(r=>r.date>=rangeStart&&r.date<=rangeEnd);
   if(!rows.length&&!hasMetaData){
-    body.innerHTML=`<div class="empty">Nenhum pedido encontrado em ${new Date(month+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}.${ordersResult.sheetRowCount?` (A busca cobre as últimas ~60 mil linhas da planilha — se o mês for muito antigo, pode estar fora desse alcance.)`:''}</div>`;
+    body.innerHTML=`<div class="empty">Nenhum pedido encontrado no período ${dateBR(rangeStart)} a ${dateBR(rangeEnd)}.${ordersResult.sheetRowCount?` (A busca cobre as últimas ~60 mil linhas da planilha — se o período for muito antigo, pode estar fora desse alcance.)`:''}</div>`;
     return;
   }
   let totalPedidos=0,aprovadosCount=0,aprovadosVal=0,aguardando=0;

@@ -415,22 +415,25 @@ async function metaAdsInsights(m: any) {
   const perAccount = await Promise.all(accounts.map(async (acc) => {
     const statusIssue = await fetchAccountStatus(acc.id);
     try {
-      const [accountRows, acctDaily, objByCampId, adRows, campRows] = await Promise.all([
+      const [accountRows, acctDaily, objByCampId, adRows, campRows, campDedup] = await Promise.all([
         fetchInsights(acc.id, "account"),
         m.daily ? fetchInsights(acc.id, "account", "&time_increment=1") : Promise.resolve([] as any[]),
         wantObj ? fetchObjectives(acc.id) : Promise.resolve({} as Record<string, any>),
         m.byAd ? fetchInsights(acc.id, "ad") : Promise.resolve([] as any[]),
         m.byCampaign ? fetchInsights(acc.id, "campaign", m.daily ? "&time_increment=1" : "") : Promise.resolve([] as any[]),
+        // ALCANCE nao e somavel: a busca diaria (time_increment=1) soma a mesma pessoa a cada dia.
+        // Buscamos tambem SEM quebra diaria pra ter o reach/frequencia DEDUPLICADO por campanha no periodo.
+        (m.byCampaign && m.daily) ? fetchInsights(acc.id, "campaign", "") : Promise.resolve([] as any[]),
       ]);
-      return { acc, accountRows, acctDaily, objByCampId, adRows, campRows, error: statusIssue as string | null };
+      return { acc, accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, error: statusIssue as string | null };
     } catch (e) {
       // conta com erro NAO derruba as outras: devolve vazia + motivo (front mostra o disclaimer)
-      return { acc, accountRows: [] as any[], acctDaily: [] as any[], objByCampId: {} as Record<string, any>, adRows: [] as any[], campRows: [] as any[], error: statusIssue || (e as any)?.message || String(e) };
+      return { acc, accountRows: [] as any[], acctDaily: [] as any[], objByCampId: {} as Record<string, any>, adRows: [] as any[], campRows: [] as any[], campDedup: [] as any[], error: statusIssue || (e as any)?.message || String(e) };
     }
   }));
   const accountErrors = perAccount.filter((p) => p.error).map((p) => ({ id: p.acc.id, name: p.acc.name || p.acc.id, error: p.error }));
   const totRecByDate: Record<string, any> = {};
-  for (const { acc, accountRows, acctDaily, objByCampId, adRows, campRows } of perAccount) {
+  for (const { acc, accountRows, acctDaily, objByCampId, adRows, campRows, campDedup } of perAccount) {
     for (const row of acctDaily) {
       const s = shape(row); const k = row.date_start;
       if (!totRecByDate[k]) totRecByDate[k] = { date: k, sales: 0, spend: 0, revenue: 0, clicks: 0, impressions: 0, reach: 0, leads: 0, conversas: 0, videoViews: 0, engajamentos: 0, addToCart: 0, checkout: 0 };
@@ -460,9 +463,17 @@ async function metaAdsInsights(m: any) {
       const s = shape(row);
       if (!byCamp[label]) byCamp[label] = { campaign: label, account: acc.name || acc.id, objetivo: objByCampId[row.campaign_id] || metaObjetivo(""), spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
       const c = byCamp[label];
-      c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks; c.reach += s.reach;
+      // NAO soma reach aqui: metricas aditivas (spend/impressoes/etc) somam por dia; reach vem do dedup abaixo
+      c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks;
       c.revenue += s.revenue; c.purchases += s.purchases; c.leads += s.leads; c.addToCart += s.addToCart; c.initiateCheckout += s.initiateCheckout;
       if (m.daily) c.records.push({ date: row.date_start, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: s.reach, leads: s.leads, conversas: s.conversas, videoViews: s.videoViews, engajamentos: s.engajamentos });
+    }
+    // reach/frequencia DEDUPLICADO por campanha no periodo (fonte nao-diaria; quando m.daily=false, campRows ja e o dedup)
+    const dedupSrc = (m.daily ? campDedup : campRows) as any[];
+    for (const row of dedupSrc) {
+      const label = row.campaign_name || "Meta Ads";
+      const s = shape(row);
+      if (byCamp[label]) byCamp[label].reach += s.reach; // soma so entre contas (audiencias distintas), nunca entre dias/anuncios
     }
   }
   const total = {
@@ -478,6 +489,7 @@ async function metaAdsInsights(m: any) {
     c.cpc = c.clicks ? c.spend / c.clicks : 0;
     c.cpm = c.impressions ? (c.spend / c.impressions) * 1000 : 0;
     c.roas = c.spend ? c.revenue / c.spend : 0;
+    c.frequency = c.reach ? c.impressions / c.reach : 0; // impressoes(periodo) / alcance dedup
     return c;
   }).sort((a: any, b: any) => b.spend - a.spend);
   ads.sort((a: any, b: any) => b.spend - a.spend);
