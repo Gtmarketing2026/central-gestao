@@ -1659,7 +1659,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,siteUrl:r.site_url||'',minBalance:+r.min_balance||0});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',minBalance:+r.min_balance||0});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -7579,7 +7579,43 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   objGroups.forEach(g=>_tabs.push(['foco_'+g.tipo,g.rotulo]));
   _tabs.push(['criativos','Criativos']);
   const tabBtns=_tabs.map((t,i)=>`<button class="rtTabBtn ${i===0?'on':''}" data-rtab="${t[0]}" onclick="setReportTab('${t[0]}')">${t[1]}</button>`).join('');
+  // ---- CONSTRUTOR DE LAYOUT: seções da Visão Geral montadas conforme o layout do cliente (ligar/desligar/ordenar + personalizadas) ----
+  _rtLast={cid:c.id,ordersTab:c.reportOrdersTab,month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds,since,until};
+  const pixelAssistNote=(channelList.some(ch=>ch._salesFromSheet&&!ch._google)&&!noSales)?(()=>{const av=(metaAds||[]).reduce((s,a)=>({p:s.p+(a.purchases||0),r:s.r+(a.revenue||0)}),{p:0,r:0});return `<div style="font-size:11.5px;color:var(--rtm);margin:8px 0 0;padding:8px 12px;background:var(--rbg2);border:1px solid var(--rbr);border-radius:8px">🔵 <b>Assistência do pixel Meta</b> (referência — a venda real acima é da planilha): Faturamento ${fmt(av.r)} · Compras ${Math.round(av.p).toLocaleString('pt-BR')} · ROAS ${(tplAgg.spend?av.r/tplAgg.spend:0).toFixed(2)}x</div>`;})():'';
+  const chanAgg={geral:tplAgg,meta:funnelChannelAgg((metaChStats&&metaChStats.META)||{}),google:funnelChannelAgg((metaChStats&&metaChStats.GOOGLE)||{})};
+  const secMap={
+    kpis:templatePanelHTML(clientTpl,tplAgg)+pixelAssistNote,
+    pedidos:secPedidos,
+    focos:focosHTML?((focoVisBar||'')+focosHTML):'',
+    funil:secFunil,
+    ranking:secRanking,
+    eventos_rd:(c.rdConfig&&c.rdConfig.refresh_token)?'<div id="rtRdSection"></div>':'',
+    resumo:secResumo,
+    analise:secAnalise,
+  };
+  const catLabel={};RT_SEC_CATALOG.forEach(s=>catLabel[s.key]=s.label);
+  const layout=rtResolveLayout(c);
+  const geralInner=layout.map(entry=>{
+    if(entry.on===false)return '';
+    const isCustom=(entry.key||'').startsWith('custom_');
+    const html=isCustom?rtRenderCustomSection(entry,chanAgg):(secMap[entry.key]||'');
+    if(!html)return '';
+    const lbl=isCustom?(entry.title||'Seção personalizada'):(catLabel[entry.key]||entry.key);
+    return `<div data-section="${entry.key}">${rtSecEditBar(entry.key,lbl)}${html}</div>`;
+  }).filter(Boolean).join(dv);
+  const offSecs=RT_SEC_CATALOG.filter(s=>{const e=layout.find(x=>x.key===s.key);return e&&e.on===false;});
+  const rtEditToolbar=_rtLayoutEdit?`<div class="rt-no-print" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px;padding:12px 14px;background:var(--rbg2);border:1px dashed var(--accent);border-radius:12px">
+      <b style="font-size:12.5px">✎ Editando layout</b>
+      <button class="btn sm ghost" type="button" onclick="rtLayoutAddCustom('')">➕ Seção personalizada</button>
+      ${offSecs.length?`<select onchange="rtLayoutToggleOn(this.value);this.value=''" style="width:auto;font-size:12px"><option value="">+ re-adicionar seção…</option>${offSecs.map(s=>`<option value="${s.key}">${s.label}</option>`).join('')}</select>`:''}
+      <span style="flex:1"></span>
+      <input id="rtLayoutName" placeholder="nome do layout" style="width:auto;font-size:12px">
+      <button class="btn sm ghost" type="button" onclick="rtLayoutSaveLibrary()">💾 Salvar na biblioteca</button>
+      ${_rtLayouts.length?`<select onchange="rtLayoutApply(this.value);this.value=''" style="width:auto;font-size:12px"><option value="">📂 aplicar layout…</option>${_rtLayouts.map(l=>`<option value="${l.id}">${(l.name||'').replace(/</g,'&lt;')}</option>`).join('')}</select>`:''}
+      <button class="btn sm primary" type="button" onclick="toggleRtLayoutEdit()">✓ Concluir</button>
+    </div>`:'';
   body.innerHTML=`<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px" class="rt-no-print">
+      <button class="btn sm ${_rtLayoutEdit?'primary':'ghost'}" onclick="toggleRtLayoutEdit()" title="Monte o relatório: ligue/desligue seções, reordene e crie seções personalizadas">✎ Editar layout</button>
       <button class="btn sm ghost" onclick="exportReportHTML()">⬇ Exportar HTML</button>
       <button class="btn sm primary" onclick="exportReportTemplate()">🖨 Imprimir / PDF</button>
     </div>
@@ -7591,16 +7627,8 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
     <div class="rt-wrap">
       <div class="rtTabBar rt-no-print">${tabBtns}</div>
       <div class="rtTab" data-rtab="geral">
-        ${focoVisBar}
-        ${templatePanelHTML(clientTpl,tplAgg)}
-        ${(channelList.some(ch=>ch._salesFromSheet&&!ch._google)&&!noSales)?(()=>{const av=(metaAds||[]).reduce((s,a)=>({p:s.p+(a.purchases||0),r:s.r+(a.revenue||0)}),{p:0,r:0});return `<div style="font-size:11.5px;color:var(--rtm);margin:-6px 0 10px;padding:8px 12px;background:var(--rbg2);border:1px solid var(--rbr);border-radius:8px">🔵 <b>Assistência do pixel Meta</b> (referência — a venda real acima é da planilha): Faturamento ${fmt(av.r)} · Compras ${Math.round(av.p).toLocaleString('pt-BR')} · ROAS ${(tplAgg.spend?av.r/tplAgg.spend:0).toFixed(2)}x</div>`;})():''}
-        ${secPedidos?dv+secPedidos:''}
-        ${focosHTML?dv+focosHTML:''}
-        ${secFunil?dv+secFunil:''}
-        ${secRanking?dv+secRanking:''}
-        ${(c.rdConfig&&c.rdConfig.refresh_token)?dv+'<div id="rtRdSection"></div>':''}
-        ${dv}${secResumo}
-        ${dv}${secAnalise}
+        ${rtEditToolbar}
+        ${geralInner}
       </div>
       ${(secSemanal||secSemanaisFoco)?`<div class="rtTab rtoff" data-rtab="semanal">${secSemanal}${secSemanal&&secSemanaisFoco?dv:''}${secSemanaisFoco}</div>`:''}
       ${focoTabs}
@@ -7610,7 +7638,112 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   </div>`;
   renderAnalysisChat();
   applyReportFocoVis(c.id);
-  if(c.rdConfig&&c.rdConfig.refresh_token)loadReportRdSection(c.id,month,metaAds); // eventos do RD (async)
+  if(c.rdConfig&&c.rdConfig.refresh_token&&document.getElementById('rtRdSection'))loadReportRdSection(c.id,month,metaAds); // eventos do RD (async; só se a seção estiver no layout)
+}
+/* ===== CONSTRUTOR DE LAYOUT DO RELATÓRIO ===== */
+const RT_SEC_CATALOG=[
+  {key:'kpis',label:'Modelo / KPIs Gerais'},
+  {key:'pedidos',label:'Resultados de Pedidos'},
+  {key:'focos',label:'Focos da operação (por objetivo)'},
+  {key:'funil',label:'Funil de Conversão'},
+  {key:'ranking',label:'Ranking de Canais'},
+  {key:'eventos_rd',label:'Eventos (RD Station)'},
+  {key:'resumo',label:'Resumo Executivo'},
+  {key:'analise',label:'Análise do Gestor'},
+];
+let _rtLayoutEdit=false,_rtLayouts=[],_rtLast=null;
+// resolve o layout do cliente (ordem + on/off); default = tudo ligado; acrescenta seções novas do catálogo no fim
+function rtResolveLayout(c){
+  let secs=(c&&c.reportLayout&&Array.isArray(c.reportLayout.sections))?c.reportLayout.sections.map(s=>({...s})):null;
+  if(!secs)secs=RT_SEC_CATALOG.map(s=>({key:s.key,on:true}));
+  RT_SEC_CATALOG.forEach(s=>{if(!secs.some(x=>x.key===s.key))secs.push({key:s.key,on:true});});
+  return secs;
+}
+function rtSecEditBar(key,label){
+  if(!_rtLayoutEdit)return '';
+  const isCustom=(key||'').startsWith('custom_');
+  return `<div class="rt-no-print" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;padding:5px 9px;background:var(--rbg2);border:1px dashed var(--rbr);border-radius:8px">
+    <span style="font-size:11px;color:var(--rtm);flex:1">⋮⋮ ${label.replace(/</g,'&lt;')}${isCustom?' <b style="color:#93c5fd">· personalizada</b>':''}</span>
+    <button class="btn sm ghost" type="button" onclick="rtLayoutMove('${key}',-1)" title="subir">▲</button>
+    <button class="btn sm ghost" type="button" onclick="rtLayoutMove('${key}',1)" title="descer">▼</button>
+    ${isCustom?`<button class="btn sm ghost" type="button" onclick="rtLayoutAddCustom('${key}')" title="editar">✎</button>`:''}
+    <button class="btn sm ghost" type="button" style="color:#f87171" onclick="rtLayoutToggle('${key}')" title="ocultar do relatório">✕</button></div>`;
+}
+function rtRenderCustomSection(entry,chanAgg){
+  const agg=(chanAgg&&chanAgg[entry.channel||'geral'])||{};
+  const metrics=(entry.metrics||[]).filter(k=>METRIC_CATALOG[k]);
+  if(!metrics.length)return '';
+  const title=(entry.title||'Seção personalizada').replace(/</g,'&lt;');
+  const chLbl=entry.channel==='meta'?'Ⓜ️ META ADS':entry.channel==='google'?'🔎 GOOGLE ADS':'🌐 GERAL';
+  const val=k=>{const mc=METRIC_CATALOG[k];return fmtMetric(mc.calc(agg),mc.fmt);};
+  let bodyH;
+  if(entry.format==='tabela'){
+    bodyH=`<div class="rt-tc" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Indicador</th><th style="text-align:right;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Valor</th></tr>${metrics.map(k=>`<tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${METRIC_CATALOG[k].label}</td><td style="text-align:right;padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${val(k)}</td></tr>`).join('')}</table></div>`;
+  }else if(entry.format==='destaque'){
+    bodyH=`<div style="display:flex;flex-wrap:wrap;gap:26px">${metrics.map(k=>`<div><div style="font-size:11px;color:var(--rtm);text-transform:uppercase;letter-spacing:.05em">${METRIC_CATALOG[k].label}</div><div style="font-size:26px;font-weight:800;color:var(--rt1)">${val(k)}</div></div>`).join('')}</div>`;
+  }else{
+    bodyH=`<div class="rt-kpi-grid">${metrics.map(k=>`<div class="rt-kpi pu"><div class="rt-kpi-lbl">${METRIC_CATALOG[k].label}</div><div class="rt-kpi-val sm">${val(k)}</div></div>`).join('')}</div>`;
+  }
+  return `<div class="rt-sec"><div class="rt-sec-hdr"><div class="rt-sec-num">★</div><div class="rt-sec-title">${title}</div><span style="font-size:10px;font-weight:800;letter-spacing:.04em;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.4);border-radius:8px;padding:2px 8px;margin-left:8px">${chLbl}</span><div class="rt-sec-ln"></div></div>${bodyH}</div>`;
+}
+function _rtClient(){return _rtLast?DB.clients.find(x=>x.id===_rtLast.cid):null;}
+function rtRerender(){
+  if(!_rtLast)return;const real=_rtClient();if(!real)return;
+  renderClientTemplate({...real,reportOrdersTab:_rtLast.ordersTab},_rtLast.month,_rtLast.dataByTab,_rtLast.adTabs,_rtLast.checkoutCount,_rtLast.metaChStats,_rtLast.metaAds,_rtLast.since,_rtLast.until);
+}
+async function rtSaveClientLayout(c){try{await sb.from('clients').update({report_layout:c.reportLayout}).eq('id',c.id);}catch(e){console.warn('salvar layout',e);}}
+function _rtSetLayout(secs){const c=_rtClient();if(!c)return;c.reportLayout={sections:secs};rtSaveClientLayout(c);rtRerender();}
+function rtLayoutMove(key,dir){const secs=rtResolveLayout(_rtClient());const i=secs.findIndex(s=>s.key===key);const j=i+dir;if(i<0||j<0||j>=secs.length)return;const t=secs[i];secs[i]=secs[j];secs[j]=t;_rtSetLayout(secs);}
+function rtLayoutToggle(key){const secs=rtResolveLayout(_rtClient());const e=secs.find(s=>s.key===key);if(e)e.on=false;_rtSetLayout(secs);}
+function rtLayoutToggleOn(key){if(!key)return;const secs=rtResolveLayout(_rtClient());const e=secs.find(s=>s.key===key);if(e)e.on=true;_rtSetLayout(secs);}
+async function toggleRtLayoutEdit(){_rtLayoutEdit=!_rtLayoutEdit;if(_rtLayoutEdit&&!_rtLayouts.length)await rtLoadLayouts();rtRerender();}
+async function rtLoadLayouts(){try{const {data}=await sb.from('report_layouts').select('*').order('created_at',{ascending:false});_rtLayouts=data||[];}catch(e){_rtLayouts=[];}}
+async function rtLayoutSaveLibrary(){
+  const c=_rtClient();if(!c)return;
+  const el=document.getElementById('rtLayoutName');const name=(el&&el.value||'').trim();
+  if(!name){alert('Dê um nome ao layout antes de salvar.');return;}
+  const id='ly'+uid();const secs=rtResolveLayout(c);
+  const {error}=await sb.from('report_layouts').insert({id,name,sections:secs});
+  if(error){alert('Erro ao salvar layout: '+error.message);return;}
+  await rtLoadLayouts();rtRerender();alert('✓ Layout "'+name+'" salvo na biblioteca — já pode aplicar em qualquer cliente.');
+}
+function rtLayoutApply(id){if(!id)return;const ly=_rtLayouts.find(l=>l.id===id);if(!ly)return;const c=_rtClient();if(!c)return;c.reportLayout={sections:(ly.sections||[]).map(s=>({...s}))};rtSaveClientLayout(c);rtRerender();}
+function rtLayoutAddCustom(editKey){
+  const c=_rtClient();if(!c)return;const secs=rtResolveLayout(c);
+  const ex=editKey?secs.find(s=>s.key===editKey):null;
+  const cur=ex||{title:'',channel:'geral',metrics:[],format:'cards'};
+  const metOpts=Object.entries(METRIC_CATALOG).map(([k,v])=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:4px 8px;cursor:pointer"><input type="checkbox" class="rtcMetric" value="${k}" ${(cur.metrics||[]).includes(k)?'checked':''}> ${v.label}</label>`).join('');
+  const chan=(v,l)=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="radio" name="rtcChan" value="${v}" ${(cur.channel||'geral')===v?'checked':''}> ${l}</label>`;
+  const fmtOpt=(v,l)=>`<option value="${v}" ${cur.format===v?'selected':''}>${l}</option>`;
+  let ov=document.getElementById('rtCustomOverlay');if(!ov){ov=document.createElement('div');ov.id='rtCustomOverlay';document.body.appendChild(ov);}
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;width:min(640px,94vw);max-height:88vh;overflow:auto">
+    <h3 style="margin:0 0 14px;font-size:17px">${editKey?'Editar':'Nova'} seção personalizada</h3>
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Título</div>
+    <input id="rtcTitle" value="${(cur.title||'').replace(/"/g,'&quot;')}" placeholder="Ex: Desempenho de Mídia" style="width:100%;margin-bottom:14px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Canal</div>
+    <div style="display:flex;gap:16px;margin-bottom:14px">${chan('geral','🌐 Geral')}${chan('meta','Ⓜ️ Meta')}${chan('google','🔎 Google')}</div>
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Métricas</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${metOpts}</div>
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Formato</div>
+    <select id="rtcFmt" style="width:auto;margin-bottom:18px">${fmtOpt('cards','Cards')}${fmtOpt('tabela','Tabela')}${fmtOpt('destaque','Destaque (números grandes)')}</select>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn ghost" type="button" onclick="document.getElementById('rtCustomOverlay').remove()">Cancelar</button>
+      <button class="btn primary" type="button" onclick="rtLayoutSaveCustom('${editKey||''}')">${editKey?'Salvar alterações':'Adicionar seção'}</button>
+    </div></div>`;
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+}
+function rtLayoutSaveCustom(editKey){
+  const title=(document.getElementById('rtcTitle').value||'').trim()||'Seção personalizada';
+  const channel=(document.querySelector('input[name=rtcChan]:checked')||{}).value||'geral';
+  const metrics=[...document.querySelectorAll('.rtcMetric:checked')].map(x=>x.value);
+  const format=document.getElementById('rtcFmt').value||'cards';
+  if(!metrics.length){alert('Escolha ao menos uma métrica.');return;}
+  const c=_rtClient();if(!c)return;const secs=rtResolveLayout(c);
+  if(editKey){const e=secs.find(s=>s.key===editKey);if(e){e.title=title;e.channel=channel;e.metrics=metrics;e.format=format;e.on=true;}}
+  else secs.push({key:'custom_'+uid(),on:true,title,channel,metrics,format});
+  const ov=document.getElementById('rtCustomOverlay');if(ov)ov.remove();
+  _rtSetLayout(secs);
 }
 // Visibilidade das abas de foco (escolha feita no relatório, salva por cliente em report_focos)
 function applyReportFocoVis(clientId){
