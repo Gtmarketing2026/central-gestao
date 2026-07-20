@@ -916,6 +916,58 @@ async function rdCatalog(m: any) {
   return { period: { since, until }, events: list };
 }
 
+// Raio-X · leitura da IA: resumo executivo + por que cada criativo ganha/perde (Vision) + o que separa os lados.
+async function raioxAI(m: any) {
+  const sys = `Você é uma gestora de tráfego senior (nível Pedro Sobral) analisando o Raio-X de um cliente. Recebe: KPIs do período, o objetivo/modelo, o health score por dimensão, e os criativos vencedores e perdedores (com IMAGEM de cada um e a métrica do objetivo). Escreva uma análise afiada, específica e acionável, em português.
+Responda SOMENTE um JSON válido, sem markdown, no formato:
+{"resumo":"2-4 frases: diagnóstico do período (o que foi bem/mal, e por quê), citando números reais","separa":"1-3 frases: o que separa os vencedores dos perdedores (padrão de hook/oferta/estética/CTA)","ads":[{"adId":"<id>","why":"1 frase curta: por que ESTE criativo ganha ou perde — olhe a imagem (hook, oferta, estética, clareza, CTA)"}],"proximos_passos":["2-4 ações concretas priorizadas"]}
+Regras: baseie-se nos números e nas imagens; nunca invente dados; avalie cada criativo pela métrica do objetivo dele.`;
+  const content: any[] = [{ type: "text", text: `Cliente: ${m.clientName}\nPeríodo: ${m.periodo}\nModelo/objetivo: ${m.objetivo}\nKPIs: ${JSON.stringify(m.kpis)}\nHealth score: ${m.score}/100 (${m.classificacao}) — dimensões: ${JSON.stringify(m.dims)}\n${m.dna ? "DNA do cliente: " + JSON.stringify(m.dna).slice(0, 2000) : ""}\n\nCriativos abaixo (imagem + dados):` }];
+  for (const a of (m.ads || []).slice(0, 10)) {
+    if (a.thumbnail) content.push({ type: "image_url", image_url: { url: String(a.thumbnail) } });
+    content.push({ type: "text", text: `^ adId=${a.adId} · ${a.adName} · lado=${a.lado} · ${a.metric}=${a.valor} · invest=${a.spend}` });
+  }
+  const json = await callOpenAI({ model: "gpt-4o", messages: [{ role: "system", content: sys }, { role: "user", content }], response_format: { type: "json_object" }, max_tokens: 1800, temperature: 0.5 });
+  return JSON.parse(json.choices?.[0]?.message?.content || "{}");
+}
+
+// Análise de site: PageSpeed Insights (carregamento/acessibilidade/SEO) + leitura de UX/navegação por IA.
+async function siteAudit(m: any) {
+  const url = String(m.url || "").trim();
+  if (!url) throw new Error("url obrigatória");
+  const key = Deno.env.get("GOOGLE_PSI_KEY") || "";
+  let psi: any = null, psiErr: string | null = null;
+  try {
+    const u = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&strategy=mobile&category=performance&category=accessibility&category=best-practices&category=seo${key ? `&key=${key}` : ""}`;
+    const r = await fetch(u);
+    const j = await r.json();
+    if (j.error) psiErr = j.error.message || `HTTP ${r.status}`;
+    else {
+      const cat = j.lighthouseResult?.categories || {};
+      const au = j.lighthouseResult?.audits || {};
+      const pct = (x: any) => x?.score != null ? Math.round(x.score * 100) : null;
+      psi = {
+        scores: { performance: pct(cat.performance), accessibility: pct(cat.accessibility), bestPractices: pct(cat["best-practices"]), seo: pct(cat.seo) },
+        metrics: {
+          lcp: au["largest-contentful-paint"]?.displayValue, cls: au["cumulative-layout-shift"]?.displayValue,
+          tbt: au["total-blocking-time"]?.displayValue, fcp: au["first-contentful-paint"]?.displayValue, si: au["speed-index"]?.displayValue,
+        },
+        opportunities: Object.values(au).filter((a: any) => a?.details?.type === "opportunity" && a.score != null && a.score < 0.9)
+          .sort((a: any, b: any) => (b.details?.overallSavingsMs || 0) - (a.details?.overallSavingsMs || 0))
+          .slice(0, 6).map((a: any) => ({ title: a.title, savingsMs: Math.round(a.details?.overallSavingsMs || 0) })),
+      };
+    }
+  } catch (e) { psiErr = (e as any)?.message || String(e); }
+  let ai: any = null;
+  try {
+    const text = await fetchUrlText(url);
+    const sys = `Você é especialista em CRO/UX e otimização de conversão. A partir do conteúdo/estrutura da página, avalie: usabilidade, navegação, clareza da oferta, força do CTA, prova social, confiança e mobile. Responda SOMENTE JSON: {"resumo":"2-3 frases","pontos_fortes":["..."],"melhorias":["ações concretas priorizadas"]}. Português, sem inventar o que não está na página.`;
+    const j = await callOpenAI({ messages: [{ role: "system", content: sys }, { role: "user", content: `URL: ${url}\n\nConteúdo:\n${text.slice(0, 14000)}` }], response_format: { type: "json_object" }, max_tokens: 900, temperature: 0.5 });
+    ai = JSON.parse(j.choices?.[0]?.message?.content || "{}");
+  } catch (_e) { /* sem IA: segue só com PSI */ }
+  return { url, psi, psiErr, ai };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -926,6 +978,14 @@ Deno.serve(async (req) => {
     const analysis = body.analysis;
     const agent = body.agent;
 
+    if (body.raioxAI) {
+      const r = await raioxAI(body.raioxAI);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.siteAudit) {
+      const r = await siteAudit(body.siteAudit);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (body.rdCatalog) {
       const r = await rdCatalog(body.rdCatalog);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

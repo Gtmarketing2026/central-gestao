@@ -841,6 +841,9 @@
         <div id="cReportTemplates" style="display:flex;flex-wrap:wrap;gap:6px"></div>
         <div style="font-size:11px;color:var(--faint);margin-top:6px">Nenhum marcado = detecta automático pelo objetivo com mais gasto.</div>
       </div>
+      <div class="form-row"><label>🌐 Site do cliente <span style="font-size:11px;color:var(--faint);font-weight:400">— usado na análise de site do Raio-X (carregamento, usabilidade, SEO)</span></label>
+        <input id="cSiteUrl" placeholder="https://site-do-cliente.com.br">
+      </div>
       <div class="form-row"><label>Fonte de vendas do funil <span style="font-size:11px;color:var(--faint);font-weight:400">— de onde vem o nº de vendas/conversões</span></label>
         <select id="cConversionSource">
           <option value="">Automático (pedidos se houver, senão Meta)</option>
@@ -1653,8 +1656,8 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,minBalance:+r.min_balance||0});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,siteUrl:r.site_url||'',minBalance:+r.min_balance||0});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||'',category:r.category||'',fixedType:r.fixed_type||''});
@@ -2102,7 +2105,7 @@ async function loadRaioX(clientId){
     const {data}=await sb.from('raiox').select('since,until,data,generated_at').eq('client_id',c.id).maybeSingle();
     if(data&&data.data&&data.data.rep){
       _rxSince=data.since||_rxSince;_rxUntil=data.until||_rxUntil;_rxGeneratedAt=data.generated_at||'';
-      _rxData={rep:data.data.rep,prev:data.data.prev||{total:{}},c};
+      _rxData={rep:data.data.rep,prev:data.data.prev||{total:{}},ai:data.data.ai||null,c};
       renderRaioX();return;
     }
   }catch(e){}
@@ -2213,37 +2216,108 @@ function renderRaioX(){
   const classified=ads.map(a=>({a,cl:classifyAdByObjective(a)}));
   const winners=classified.filter(x=>x.cl.v==='good').sort((a,b)=>b.a.spend-a.a.spend).slice(0,6);
   const losers=classified.filter(x=>x.cl.v==='bad').sort((a,b)=>b.a.spend-a.a.spend).slice(0,6);
-  const adCard=(x,win)=>{const a=x.a;const m=raioXMetricRows(a,(a.objetivo&&a.objetivo.tipo)||'conversao',channelHasSheetSales(c,a._google?'google':'meta'))[1];
+  const adM=a=>raioXMetricRows(a,(a.objetivo&&a.objetivo.tipo)||'conversao',channelHasSheetSales(c,a._google?'google':'meta'))[1];
+  const ai=_rxData.ai||null;const aiMap={};((ai&&ai.ads)||[]).forEach(x=>{if(x.adId)aiMap[x.adId]=x.why});
+  const adCard=(x,win)=>{const a=x.a;const m=adM(a);const why=aiMap[a.adId];
     return `<div style="border:1px solid ${win?'rgba(52,211,153,.4)':'rgba(248,113,113,.4)'};border-radius:10px;overflow:hidden;background:var(--surface2)">
       ${a.thumbnail?`<img src="${a.thumbnail}" style="width:100%;height:96px;object-fit:cover" referrerpolicy="no-referrer">`:`<div style="height:96px;background:linear-gradient(135deg,#1a1a22,#111);display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:10px">sem prévia</div>`}
       <div style="padding:8px 10px"><div style="font-size:11px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(a.adName||'').replace(/"/g,'')}">${(a.adName||'—').replace(/</g,'&lt;')}</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">${m[0]}: <b style="color:${win?'#34d399':'#f87171'}">${m[1]}</b></div></div></div>`;};
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">${m[0]}: <b style="color:${win?'#34d399':'#f87171'}">${m[1]}</b></div>
+      ${why?`<div style="font-size:10.5px;color:var(--text);margin-top:6px;line-height:1.4;border-top:1px solid rgba(255,255,255,.06);padding-top:5px">🤖 ${String(why).replace(/</g,'&lt;')}</div>`:''}</div></div>`;};
+  // snapshot pra IA
+  _rxSnap={clientName:c.name,periodo:dateBR(_rxSince)+'–'+dateBR(_rxUntil),objetivo:tpl.name,kpis:kpis.map(k=>k[0]+': '+k[1]),score:hp.score,classificacao:hp.cls[0],dims:hp.dims,dna:c.dna||null,
+    ads:[...winners.map(x=>({adId:x.a.adId,adName:x.a.adName,lado:'vencedor',metric:adM(x.a)[0],valor:adM(x.a)[1],spend:fmt(x.a.spend),thumbnail:x.a.thumbnail})),
+         ...losers.map(x=>({adId:x.a.adId,adName:x.a.adName,lado:'perdedor',metric:adM(x.a)[0],valor:adM(x.a)[1],spend:fmt(x.a.spend),thumbnail:x.a.thumbnail}))]};
   const confronto=(winners.length||losers.length)?`<div class="card" style="margin-bottom:16px">
     <h3 style="margin:0 0 4px">⚔️ O Confronto · ${ads.length} anúncio(s)</h3>
-    <div style="font-size:11.5px;color:var(--muted);margin-bottom:12px">Vencedores × perdedores pela métrica do objetivo. A leitura da IA (por que cada um ganha/perde) entra na próxima fase.</div>
+    <div style="font-size:11.5px;color:var(--muted);margin-bottom:12px">Vencedores × perdedores pela métrica do objetivo${ai?' — 🤖 com a leitura da IA em cada criativo':'.'}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-      <div><div style="font-size:12px;font-weight:700;color:#34d399;margin-bottom:8px">● Vencedores${winners.length?` · médio ${fmt(winners.reduce((s,x)=>s+x.a.spend,0)/(winners.reduce((s,x)=>s+(x.a.purchases||x.a.leads||x.a.conversas||x.a.clicks||0),0)||1))}`:''}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${winners.map(x=>adCard(x,true)).join('')||'<div style="font-size:11px;color:var(--faint)">—</div>'}</div></div>
+      <div><div style="font-size:12px;font-weight:700;color:#34d399;margin-bottom:8px">● Vencedores</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${winners.map(x=>adCard(x,true)).join('')||'<div style="font-size:11px;color:var(--faint)">—</div>'}</div></div>
       <div><div style="font-size:12px;font-weight:700;color:#f87171;margin-bottom:8px">● Perdedores</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${losers.map(x=>adCard(x,false)).join('')||'<div style="font-size:11px;color:var(--faint)">—</div>'}</div></div>
     </div></div>`:'';
+  // card da IA (resumo executivo + o que separa + próximos passos)
+  const iaCard=ai?`<div class="card" style="margin-bottom:16px;border:1px solid rgba(240,192,64,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0">🤖 Leitura da IA</h3><button class="btn sm ghost" onclick="rxGenAI()">↻ Refazer com IA</button></div>
+    ${ai.resumo?`<div style="font-size:13px;line-height:1.6;margin-bottom:12px">${String(ai.resumo).replace(/</g,'&lt;')}</div>`:''}
+    ${ai.separa?`<div style="background:var(--surface2);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12.5px"><b style="color:var(--accent)">O que separa vencedores × perdedores:</b> ${String(ai.separa).replace(/</g,'&lt;')}</div>`:''}
+    ${(ai.proximos_passos&&ai.proximos_passos.length)?`<div style="font-size:12px;font-weight:700;margin-bottom:6px">Próximos passos</div><ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.6">${ai.proximos_passos.map(p=>`<li>${String(p).replace(/</g,'&lt;')}</li>`).join('')}</ul>`:''}
+  </div>`:`<div class="card" style="border:1px dashed var(--border);margin-bottom:16px;text-align:center;padding:24px">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:12px">A AndréIA escreve o diagnóstico + próximos passos e analisa cada criativo do confronto com Vision (por que ganha/perde).</div>
+    <button class="btn primary" onclick="rxGenAI()">🤖 Gerar leitura com IA</button></div>`;
+  const analiseHTML=`
+    <div class="card" style="margin-bottom:16px"><div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+      ${gauge}
+      <div style="flex:1;min-width:240px">${dimBars}</div>
+    </div></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">${kpiCards}</div>
+    ${iaCard}
+    <div class="card" style="margin-bottom:16px"><h3 style="margin:0 0 10px">📈 Evolução Diária</h3><div class="chart-box tall"><canvas id="cRxLine"></canvas></div></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="card"><h3 style="margin:0 0 10px">🏆 Top campanhas (investimento)</h3><div class="chart-box tall"><canvas id="cRxBar"></canvas></div></div>
+      <div class="card"><h3 style="margin:0 0 10px">🍩 Distribuição de investimento</h3><div class="chart-box tall"><canvas id="cRxDonut"></canvas></div></div>
+    </div>
+    ${confronto}`;
   body.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <div style="font-size:11px;color:var(--faint)">RAIO-X · ${c.name.replace(/</g,'&lt;')} · ${dateBR(_rxSince)}–${dateBR(_rxUntil)} · modelo: <b>${(tpl.name||'').replace(/</g,'&lt;')}</b>${_rxGeneratedAt?` · <span title="Fica salvo até você gerar o próximo">gerado ${new Date(_rxGeneratedAt).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>`:''}</div>
       <div style="display:flex;gap:6px"><button class="btn sm primary" onclick="rxShowGenerate()">⚡ Gerar novo</button><button class="btn sm ghost" onclick="rxShareHTML()">📤 Exportar</button></div>
     </div>
     ${_rxtpls.length>1?`<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:14px"><span style="font-size:11px;color:var(--faint)">Template:</span><button class="btn sm ${(_rxTplId||'__all__')==='__all__'?'primary':'ghost'}" onclick="setRxTpl('')">Todos</button>${_rxtpls.map(t=>`<button class="btn sm ${_rxTplId===t.id?'primary':'ghost'}" onclick="setRxTpl('${t.id}')">${t.name.replace(/</g,'&lt;')}</button>`).join('')}</div>`:''}
-    <div class="card" style="margin-bottom:16px"><div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
-      ${gauge}
-      <div style="flex:1;min-width:240px">${dimBars}</div>
-    </div></div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">${kpiCards}</div>
-    <div class="card" style="margin-bottom:16px"><h3 style="margin:0 0 10px">📈 Evolução Diária</h3><div class="chart-box tall"><canvas id="cRxLine"></canvas></div></div>
-    <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-      <div class="card"><h3 style="margin:0 0 10px">🏆 Top campanhas (investimento)</h3><div class="chart-box tall"><canvas id="cRxBar"></canvas></div></div>
-      <div class="card"><h3 style="margin:0 0 10px">🍩 Distribuição de investimento</h3><div class="chart-box tall"><canvas id="cRxDonut"></canvas></div></div>
-    </div>
-    ${confronto}
-    <div class="card" style="border:1px dashed var(--border)"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 style="margin:0">🤖 Resumo executivo &amp; leitura dos criativos (IA)</h3><span style="font-size:11px;font-weight:700;color:var(--accent);background:rgba(240,192,64,.12);border:1px solid rgba(240,192,64,.35);border-radius:999px;padding:3px 10px">PRÓXIMA FASE</span></div><div style="font-size:12.5px;color:var(--muted);margin-top:8px">A AndréIA vai escrever o diagnóstico + próximos passos e analisar cada criativo do confronto com Vision (por que ganha/perde). Health score já é híbrido (base por regras; ajuste da IA vem aqui).</div></div>`;
+    <div class="seg" style="margin-bottom:16px"><button class="${_rxTab==='site'?'':'active'}" onclick="rxTab('analise')">📊 Análise</button><button class="${_rxTab==='site'?'active':''}" onclick="rxTab('site')">🌐 Site</button></div>
+    <div id="rxTabAnalise" style="display:${_rxTab==='site'?'none':'block'}">${analiseHTML}</div>
+    <div id="rxTabSite" style="display:${_rxTab==='site'?'block':'none'}"></div>`;
   rxDrawCharts(rep,dominant);
+  if(_rxTab==='site')rxLoadSite();
+}
+let _rxSnap=null,_rxTab='analise';
+function rxTab(id){_rxTab=id;document.getElementById('rxTabAnalise').style.display=id==='site'?'none':'block';const s=document.getElementById('rxTabSite');s.style.display=id==='site'?'block':'none';document.querySelectorAll('#raioxBody .seg button').forEach((b,i)=>b.classList.toggle('active',(i===1)===(id==='site')));if(id==='site')rxLoadSite();}
+async function rxGenAI(){
+  if(!_rxSnap)return;
+  const el=document.querySelector('#rxTabAnalise .card [onclick="rxGenAI()"]')||document.querySelector('[onclick="rxGenAI()"]');
+  if(el){el.disabled=true;el.textContent='🤖 Analisando criativos…';}
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{raioxAI:_rxSnap}});
+    if(error)throw error;if(data&&data.error)throw new Error(data.error);
+    _rxData.ai=(data&&data.data)||{};
+    // persiste junto do Raio-X salvo
+    sb.from('raiox').update({data:{rep:_rxData.rep,prev:_rxData.prev,ai:_rxData.ai}}).eq('client_id',_rxClientId).then(()=>{}).catch(()=>{});
+    renderRaioX();
+  }catch(e){alert('Erro na leitura da IA: '+(e.message||e));if(el){el.disabled=false;el.textContent='🤖 Gerar leitura com IA';}}
+}
+// Aba Site do Raio-X
+async function rxLoadSite(){
+  const el=document.getElementById('rxTabSite');if(!el)return;
+  const c=DB.clients.find(x=>x.id===_rxClientId);
+  if(!c||!c.siteUrl){el.innerHTML=`<div class="card" style="text-align:center;padding:32px"><div style="font-size:13px;color:var(--muted)">Cadastre o <b>site do cliente</b> no cadastro (aba Relatórios) pra rodar a análise de carregamento, usabilidade e SEO.</div></div>`;return;}
+  if(el.dataset.loaded==='1')return; // já carregou nesta sessão
+  el.innerHTML='<div class="empty">Analisando o site (carregamento + UX)… pode levar alguns segundos.</div>';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{siteAudit:{url:c.siteUrl}}});
+    if(error)throw error;if(data&&data.error)throw new Error(data.error);
+    renderRxSite(data.data,c);el.dataset.loaded='1';
+  }catch(e){el.innerHTML=`<div class="empty">Erro na análise do site: ${e.message||e}</div>`;}
+}
+function renderRxSite(d,c){
+  const el=document.getElementById('rxTabSite');if(!el)return;
+  const ring=(lbl,v)=>{const col=v==null?'#6b7280':v>=90?'#34d399':v>=50?'#f0c040':'#f87171';return `<div style="flex:1;min-width:130px;text-align:center;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px">
+    <div style="position:relative;width:74px;height:74px;margin:0 auto"><div style="width:74px;height:74px;border-radius:50%;background:conic-gradient(${col} ${(v||0)*3.6}deg,var(--border) 0)"></div><div style="position:absolute;inset:8px;background:var(--surface);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;color:${col}">${v==null?'—':v}</div></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">${lbl}</div></div>`;};
+  const psi=d.psi;
+  const scores=psi?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+    ${ring('Performance',psi.scores.performance)}${ring('Acessibilidade',psi.scores.accessibility)}${ring('Boas práticas',psi.scores.bestPractices)}${ring('SEO',psi.scores.seo)}</div>
+    <div class="card" style="margin-bottom:16px"><h3 style="margin:0 0 10px">⚡ Métricas de carregamento (mobile)</h3><div style="display:flex;gap:14px;flex-wrap:wrap">
+      ${[['LCP',psi.metrics.lcp,'maior conteúdo'],['CLS',psi.metrics.cls,'estabilidade'],['TBT',psi.metrics.tbt,'bloqueio'],['FCP',psi.metrics.fcp,'1º conteúdo'],['Speed Index',psi.metrics.si,'velocidade']].map(([k,v,h])=>`<div><div style="font-size:11px;color:var(--muted)">${k}</div><div style="font-size:17px;font-weight:800">${v||'—'}</div><div style="font-size:10px;color:var(--faint)">${h}</div></div>`).join('')}
+    </div></div>
+    ${(psi.opportunities&&psi.opportunities.length)?`<div class="card" style="margin-bottom:16px"><h3 style="margin:0 0 10px">🔧 Oportunidades de velocidade</h3>${psi.opportunities.map(o=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)"><span>${String(o.title).replace(/</g,'&lt;')}</span>${o.savingsMs?`<span style="color:#f0c040;white-space:nowrap;margin-left:12px">~${(o.savingsMs/1000).toFixed(1)}s</span>`:''}</div>`).join('')}</div>`:''}`
+    :`<div class="card" style="margin-bottom:16px;background:rgba(240,192,64,.06);border:1px solid rgba(240,192,64,.3)"><div style="font-size:12.5px;color:var(--muted)">⚠️ Não consegui puxar o PageSpeed do Google (${(d.psiErr||'sem chave').replace(/</g,'&lt;')}). Falta configurar uma <b>chave da PageSpeed Insights API</b> — me avise que eu ativo. A leitura de UX por IA abaixo já funciona.</div></div>`;
+  const ai=d.ai;
+  const uxCard=ai?`<div class="card"><h3 style="margin:0 0 8px">🤖 Usabilidade &amp; navegação (IA)</h3>
+    ${ai.resumo?`<div style="font-size:13px;line-height:1.6;margin-bottom:12px">${String(ai.resumo).replace(/</g,'&lt;')}</div>`:''}
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px">
+      <div><div style="font-size:12px;font-weight:700;color:#34d399;margin-bottom:6px">Pontos fortes</div><ul style="margin:0;padding-left:16px;font-size:12.5px;line-height:1.6">${(ai.pontos_fortes||[]).map(p=>`<li>${String(p).replace(/</g,'&lt;')}</li>`).join('')||'<li>—</li>'}</ul></div>
+      <div><div style="font-size:12px;font-weight:700;color:#f0c040;margin-bottom:6px">Melhorias</div><ul style="margin:0;padding-left:16px;font-size:12.5px;line-height:1.6">${(ai.melhorias||[]).map(p=>`<li>${String(p).replace(/</g,'&lt;')}</li>`).join('')||'<li>—</li>'}</ul></div>
+    </div></div>`:'';
+  el.innerHTML=`<div style="font-size:11px;color:var(--faint);margin-bottom:12px">Site: <a href="${d.url}" target="_blank" style="color:var(--accent)">${d.url.replace(/</g,'&lt;')}</a> <button class="btn sm ghost" style="margin-left:8px" onclick="document.getElementById('rxTabSite').dataset.loaded='';rxLoadSite()">↻ Reanalisar</button></div>${scores}${uxCard}`;
 }
 function rxDrawCharts(rep,dominant){
   if(!window.Chart)return;
@@ -3911,6 +3985,7 @@ function openClientModal(id){
   let tplIds=Array.isArray(c.reportTemplateIds)?c.reportTemplateIds.slice():null;
   if(!tplIds){tplIds=[];if(c.reportTemplateId)tplIds.push(c.reportTemplateId);(c.reportFocos||[]).forEach(f=>{const id='base_'+f;if(!tplIds.includes(id))tplIds.push(id)});}
   fillTemplatePicker(tplIds);
+  document.getElementById('cSiteUrl').value=c.siteUrl||'';
   document.getElementById('cConversionSource').value=c.conversionSource||'';
   {const bm=c.benchmarkMetas||{};const setM=(id,v)=>{document.getElementById(id).value=(v||v===0)?v:''};
    setM('cMetaCtr',bm.ctr);setM('cMetaCpc',bm.cpc);setM('cMetaCpm',bm.cpm);setM('cMetaRoas',bm.roas);setM('cMetaCpa',bm.cpa);setM('cMetaCpl',bm.cpl);setM('cMetaConversa',bm.custoConversa);setM('cMetaView',bm.custoView);
@@ -4055,7 +4130,7 @@ async function saveClient(){
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
   const reportWeekly=document.getElementById('cReportWeekly').checked;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),googleAccountIds:googleSelectedIds.slice(),reportTemplateIds:getSelectedTemplateIds(),reportTemplateId:(getSelectedTemplateIds()[0]||''),conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:[...new Set(getSelectedTemplateIds().map(id=>(templateById(id)||{}).objectiveType).filter(Boolean))],benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),googleAccountIds:googleSelectedIds.slice(),reportTemplateIds:getSelectedTemplateIds(),reportTemplateId:(getSelectedTemplateIds()[0]||''),siteUrl:document.getElementById('cSiteUrl').value.trim(),conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:[...new Set(getSelectedTemplateIds().map(id=>(templateById(id)||{}).objectiveType).filter(Boolean))],benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
