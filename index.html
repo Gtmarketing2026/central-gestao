@@ -236,7 +236,7 @@
       <button class="tab active" data-tab="operacional">📋 Visão Geral</button>
       <button class="tab" data-tab="tasks">✅ Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" onclick="showComingSoon('CRM','O CRM de conversas do WhatsApp — cada conversa marcada com a origem (anúncio/campanha/anúncio no Meta, ou campanha/palavra-chave no Google) ou UTM. Vem junto com a integração do WhatsApp Cloud API.')">💬 CRM</button>
-      <button class="tab" onclick="showComingSoon('Raio-X do cliente','Análise completa do cliente num só lugar (estilo Alicia): visão consolidada de mídia, criativos, funil, público e recomendações. Em construção — aguardando o modelo de referência.')">🎯 Raio-X</button>
+      <button class="tab" data-tab="raiox">🎯 Raio-X</button>
       <button class="tab" onclick="showComingSoon('Orgânico','Resultados de canais orgânicos (Instagram Bio, tráfego direto, etc.) num só lugar. Em construção.')">🌱 Orgânico</button>
       <button class="tab" data-tab="churn">⚠ Churn <span class="badge" id="churnBadge" style="background:var(--red)">0</span></button>
       <button class="tab" data-tab="financeiro">💰 Financeiro</button>
@@ -628,6 +628,13 @@
     </div>
     <div id="campBudgetWarn"></div>
     <div id="campBody"></div>
+  </section>
+
+  <!-- RAIO-X DO CLIENTE (análise profunda) -->
+  <section class="panel" id="raiox">
+    <div class="section-head" style="margin-top:0"><h2>🎯 Raio-X <span id="raioxClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
+    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Análise profunda do cliente — health score, winners × losers e recomendações.</div>
+    <div id="raioxBody"></div>
   </section>
 
   <!-- PLACEHOLDER (itens em construção do menu) -->
@@ -1829,6 +1836,7 @@ function goToTab(tabId){
   if(tabId==='campanhas')loadCampanhas(activeClientId);
   if(tabId==='rastreamento')loadRastreamento(activeClientId);
   if(tabId==='configuracoes')loadConfiguracoes();
+  if(tabId==='raiox')loadRaioX(activeClientId);
 }
 function setClientsSub(v){
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
@@ -2021,6 +2029,168 @@ async function connectRdForClient(clientId){
   window.open(url,'_blank','width=560,height=760');
   alert('Abri a tela do RD Station numa aba nova. IMPORTANTE: esteja logado na conta RD DESTE cliente. Autorize por lá; depois recarregue o cadastro pra ver "Conectado".');
 }
+/* ================= RAIO-X DO CLIENTE (análise profunda) ================= */
+let _rxClientId='',_rxSince='',_rxUntil='',_rxPreset='90',_rxData=null,_rxCharts={};
+function _rxDestroy(k){if(_rxCharts[k]){_rxCharts[k].destroy();_rxCharts[k]=null;}}
+function loadRaioX(clientId){
+  const c=DB.clients.find(x=>x.id===(clientId||activeClientId||_rxClientId));
+  const body=document.getElementById('raioxBody');if(!body)return;
+  document.getElementById('raioxClientName').textContent=c?('· '+c.name):'';
+  if(!c){body.innerHTML='<div class="empty">Selecione um cliente na sidebar.</div>';return}
+  const hasM=!!(c.metaAccountIds&&c.metaAccountIds.length),hasG=!!(c.googleAccountIds&&c.googleAccountIds.length);
+  if(!hasM&&!hasG){body.innerHTML='<div class="empty">Este cliente não tem Meta nem Google vinculado.</div>';return}
+  _rxClientId=c.id;
+  if(!_rxUntil){_rxUntil=today();_rxSince=daysAgoISO(90);_rxPreset='90';}
+  // tela inicial: escolher período + Gerar
+  const pb=(k,l,days)=>`<button class="btn sm ${_rxPreset===k?'primary':'ghost'}" onclick="rxSetPeriod('${k}',${days})">${l}</button>`;
+  body.innerHTML=`<div class="card" style="text-align:center;padding:40px 24px">
+    <div style="font-size:40px">🎯</div>
+    <h3 style="margin:12px 0 6px">Gerar Raio-X de ${c.name.replace(/</g,'&lt;')}</h3>
+    <div style="font-size:12.5px;color:var(--muted);max-width:520px;margin:0 auto 16px">Cruza as métricas do período com o objetivo, as metas e os criativos pra gerar um health score, os rankings e o confronto vencedores × perdedores.</div>
+    <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:14px">${pb('30','30 dias',30)}${pb('90','90 dias',90)}${pb('180','180 dias',180)}</div>
+    <div style="font-size:11px;color:var(--faint);margin-bottom:16px">Período: ${dateBR(_rxSince)} – ${dateBR(_rxUntil)}</div>
+    <button class="btn primary" onclick="rxGenerate()">⚡ Gerar análise</button>
+  </div>`;
+}
+function rxSetPeriod(k,days){_rxPreset=k;_rxUntil=today();_rxSince=daysAgoISO(days);loadRaioX(_rxClientId);}
+function _rxScore(actual,target,higher){
+  const a=+actual||0,t=+target||0;if(!t)return a?60:40;
+  let s=higher?(a/t)*80:(a?(t/a)*80:0);
+  return Math.max(0,Math.min(100,Math.round(s)));
+}
+function rxHealth(agg,c,dominant){
+  const bm=(c.benchmarkMetas)||{};const d=deriveMeta({...agg});
+  const impr=agg.impressions||0;
+  const engRate=impr?((agg.engajamentos||0)+(agg.videoViews||0)+(agg.clicks||0))/impr*100:0;
+  const dims={};
+  dims['Alcance']=_rxScore(bm.cpm||18,d.cpm||18,false);         // CPM baixo = bom alcance
+  dims['Criativo']=_rxScore(d.ctr,bm.ctr||1.0,true);            // CTR alto
+  dims['Eficiência']=_rxScore(bm.cpc||2.0,d.cpc||2.0,false);    // CPC baixo
+  dims['Engajamento']=_rxScore(engRate,2.5,true);
+  if(dominant==='leads')dims['Conversão']=_rxScore(bm.cpl||10,(agg.leads?agg.spend/agg.leads:0)||10,false);
+  else if(dominant==='mensagens')dims['Conversão']=_rxScore(bm.custoConversa||15,(agg.conversas?agg.spend/agg.conversas:0)||15,false);
+  else if(dominant==='trafego')dims['Conversão']=_rxScore(bm.cpc||2,d.cpc||2,false);
+  else dims['Conversão']=_rxScore(d.roas,bm.roas||2,true);      // venda: ROAS
+  const w={'Conversão':.30,'Criativo':.25,'Eficiência':.20,'Alcance':.15,'Engajamento':.10};
+  let score=0;Object.keys(w).forEach(k=>score+=(dims[k]||0)*w[k]);
+  score=Math.round(score);
+  const cls=score>=80?['Ótimo','#34d399']:score>=60?['Bom','#60a5fa']:score>=40?['Regular','#f0c040']:['Ruim','#f87171'];
+  return {score,dims,cls};
+}
+async function rxGenerate(){
+  const c=DB.clients.find(x=>x.id===_rxClientId);if(!c)return;
+  const body=document.getElementById('raioxBody');
+  body.innerHTML='<div class="empty">Gerando Raio-X… cruzando métricas, objetivo e criativos.</div>';
+  const hasM=!!(c.metaAccountIds&&c.metaAccountIds.length),hasG=!!(c.googleAccountIds&&c.googleAccountIds.length);
+  try{
+    // período atual + anterior (mesma duração)
+    const s=new Date(_rxSince+'T12:00:00'),u=new Date(_rxUntil+'T12:00:00');
+    const days=Math.round((u-s)/86400000)+1;
+    const pu=new Date(s);pu.setDate(pu.getDate()-1);const ps=new Date(pu);ps.setDate(ps.getDate()-(days-1));
+    const iso=x=>x.toISOString().slice(0,10);
+    const fetchRep=async(since,until)=>{
+      const [m,g]=await Promise.all([
+        hasM?fetchMetaReportRange(c,since,until).catch(()=>null):Promise.resolve(null),
+        hasG?fetchGoogleReportRange(c,since,until).catch(()=>null):Promise.resolve(null)
+      ]);
+      return mergeDashReps(m,g);
+    };
+    const [rep,prev,sheet]=await Promise.all([
+      fetchRep(_rxSince,_rxUntil),
+      fetchRep(iso(ps),iso(pu)),
+      fetchDashSheetSales(c,_rxSince,_rxUntil,'geral').catch(()=>null)
+    ]);
+    // venda real da planilha (se houver) entra no total pro ROAS/conversão
+    if(sheet&&rep.total){rep.total.purchases=sheet.sales;rep.total.revenue=sheet.revenue;rep.total.roas=rep.total.spend?sheet.revenue/rep.total.spend:0;rep._salesFromSheet=true;}
+    _rxData={rep,prev,c};
+    renderRaioX();
+  }catch(e){body.innerHTML=`<div class="empty">Erro ao gerar Raio-X: ${e.message||e}</div>`;}
+}
+function renderRaioX(){
+  const {rep,prev,c}=_rxData;const body=document.getElementById('raioxBody');
+  const ads=(rep.ads||[]).filter(a=>a.spend>0);
+  const t=rep.total||{};
+  const agg={spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:t.revenue||0,purchases:t.purchases||0,leads:t.leads||0,conversas:t.conversas||0,videoViews:t.videoViews||0,engajamentos:t.engajamentos||0};
+  // objetivo dominante (por gasto)
+  const bySpend={};ads.forEach(a=>{const tp=(a.objetivo&&a.objetivo.tipo)||'conversao';bySpend[tp]=(bySpend[tp]||0)+(a.spend||0)});
+  const dominant=(Object.entries(bySpend).sort((a,b)=>b[1]-a[1])[0]||['conversao'])[0];
+  const hp=rxHealth(agg,c,dominant);
+  const pt=prev.total||{};
+  const delta=(cur,pv,lower)=>{if(!pv)return '';const v=((cur-pv)/pv)*100;const up=v>=0;const good=lower?!up:up;return `<span style="font-size:11px;font-weight:700;color:${good?'#34d399':'#f87171'}">${up?'▲':'▼'} ${Math.abs(v).toFixed(0)}%</span>`;};
+  // KPIs por objetivo
+  const d=deriveMeta({...agg});
+  let kpis=[['Valor Gasto',fmt(agg.spend),delta(agg.spend,pt.spend,true)]];
+  if(dominant==='mensagens')kpis.push(['Conversas',Math.round(agg.conversas).toLocaleString('pt-BR'),delta(agg.conversas,pt.conversas)],['Custo/conversa',agg.conversas?fmt(agg.spend/agg.conversas):'—','']);
+  else if(dominant==='leads')kpis.push(['Leads',Math.round(agg.leads).toLocaleString('pt-BR'),delta(agg.leads,pt.leads)],['CPL',agg.leads?fmt(agg.spend/agg.leads):'—','']);
+  else if(dominant==='trafego')kpis.push(['Cliques',Math.round(agg.clicks).toLocaleString('pt-BR'),delta(agg.clicks,pt.clicks)],['CPC',fmt(d.cpc),'']);
+  else kpis.push(['Faturamento',fmt(agg.revenue),delta(agg.revenue,pt.revenue)],['ROAS',d.roas.toFixed(2)+'x',''],['Compras',Math.round(agg.purchases).toLocaleString('pt-BR'),'']);
+  kpis.push(['CTR',d.ctr.toFixed(2)+'%',delta(d.ctr,pt.impressions?(pt.clicks/pt.impressions*100):0)],['CPM',fmt(d.cpm),'']);
+  // gauge (conic)
+  const gaugeCol=hp.cls[1];
+  const gauge=`<div style="position:relative;width:150px;height:150px;flex:none">
+    <div style="width:150px;height:150px;border-radius:50%;background:conic-gradient(${gaugeCol} ${hp.score*3.6}deg, var(--surface2) 0)"></div>
+    <div style="position:absolute;inset:14px;background:var(--surface);border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <div style="font-size:38px;font-weight:800;line-height:1;color:${gaugeCol}">${hp.score}</div>
+      <div style="font-size:10px;color:var(--muted)">health / 100</div>
+      <div style="font-size:12px;font-weight:700;color:${gaugeCol};margin-top:2px">${hp.cls[0]}</div>
+    </div></div>`;
+  const dimBars=Object.entries(hp.dims).map(([k,v])=>{const col=v>=70?'#34d399':v>=45?'#f0c040':'#f87171';return `<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:3px"><span style="color:var(--muted)">${k}</span><b style="color:${col}">${v}</b></div><div style="height:7px;background:var(--surface2);border-radius:5px;overflow:hidden"><div style="height:100%;width:${v}%;background:${col};border-radius:5px"></div></div></div>`;}).join('');
+  const kpiCards=kpis.map(([l,v,dl])=>`<div style="flex:1;min-width:120px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 14px"><div style="font-size:10.5px;color:var(--muted);text-transform:uppercase">${l}</div><div style="font-size:20px;font-weight:800;margin-top:3px">${v}</div>${dl?`<div style="margin-top:2px">${dl} <span style="font-size:10px;color:var(--faint)">vs ant.</span></div>`:''}</div>`).join('');
+  // confronto (vencedores x perdedores por objetivo)
+  const classified=ads.map(a=>({a,cl:classifyAdByObjective(a)}));
+  const winners=classified.filter(x=>x.cl.v==='good').sort((a,b)=>b.a.spend-a.a.spend).slice(0,6);
+  const losers=classified.filter(x=>x.cl.v==='bad').sort((a,b)=>b.a.spend-a.a.spend).slice(0,6);
+  const adCard=(x,win)=>{const a=x.a;const m=raioXMetricRows(a,(a.objetivo&&a.objetivo.tipo)||'conversao',channelHasSheetSales(c,a._google?'google':'meta'))[1];
+    return `<div style="border:1px solid ${win?'rgba(52,211,153,.4)':'rgba(248,113,113,.4)'};border-radius:10px;overflow:hidden;background:var(--surface2)">
+      ${a.thumbnail?`<img src="${a.thumbnail}" style="width:100%;height:96px;object-fit:cover" referrerpolicy="no-referrer">`:`<div style="height:96px;background:linear-gradient(135deg,#1a1a22,#111);display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:10px">sem prévia</div>`}
+      <div style="padding:8px 10px"><div style="font-size:11px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(a.adName||'').replace(/"/g,'')}">${(a.adName||'—').replace(/</g,'&lt;')}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">${m[0]}: <b style="color:${win?'#34d399':'#f87171'}">${m[1]}</b></div></div></div>`;};
+  const confronto=(winners.length||losers.length)?`<div class="card" style="margin-bottom:16px">
+    <h3 style="margin:0 0 4px">⚔️ O Confronto · ${ads.length} anúncio(s)</h3>
+    <div style="font-size:11.5px;color:var(--muted);margin-bottom:12px">Vencedores × perdedores pela métrica do objetivo. A leitura da IA (por que cada um ganha/perde) entra na próxima fase.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div><div style="font-size:12px;font-weight:700;color:#34d399;margin-bottom:8px">● Vencedores${winners.length?` · médio ${fmt(winners.reduce((s,x)=>s+x.a.spend,0)/(winners.reduce((s,x)=>s+(x.a.purchases||x.a.leads||x.a.conversas||x.a.clicks||0),0)||1))}`:''}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${winners.map(x=>adCard(x,true)).join('')||'<div style="font-size:11px;color:var(--faint)">—</div>'}</div></div>
+      <div><div style="font-size:12px;font-weight:700;color:#f87171;margin-bottom:8px">● Perdedores</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${losers.map(x=>adCard(x,false)).join('')||'<div style="font-size:11px;color:var(--faint)">—</div>'}</div></div>
+    </div></div>`:'';
+  body.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <div style="font-size:11px;color:var(--faint)">RAIO-X · ${c.name.replace(/</g,'&lt;')} · ${dateBR(_rxSince)}–${dateBR(_rxUntil)} · ${(OBJETIVO_INFO[dominant]||{rotulo:dominant}).rotulo}</div>
+      <div style="display:flex;gap:6px"><button class="btn sm ghost" onclick="loadRaioX('${c.id}')">↻ Refazer</button><button class="btn sm ghost" onclick="rxShareHTML()">📤 Exportar</button></div>
+    </div>
+    <div class="card" style="margin-bottom:16px"><div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+      ${gauge}
+      <div style="flex:1;min-width:240px">${dimBars}</div>
+    </div></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">${kpiCards}</div>
+    <div class="card" style="margin-bottom:16px"><h3 style="margin:0 0 10px">📈 Evolução Diária</h3><div class="chart-box tall"><canvas id="cRxLine"></canvas></div></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="card"><h3 style="margin:0 0 10px">🏆 Top campanhas (investimento)</h3><div class="chart-box tall"><canvas id="cRxBar"></canvas></div></div>
+      <div class="card"><h3 style="margin:0 0 10px">🍩 Distribuição de investimento</h3><div class="chart-box tall"><canvas id="cRxDonut"></canvas></div></div>
+    </div>
+    ${confronto}
+    <div class="card" style="border:1px dashed var(--border)"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 style="margin:0">🤖 Resumo executivo &amp; leitura dos criativos (IA)</h3><span style="font-size:11px;font-weight:700;color:var(--accent);background:rgba(240,192,64,.12);border:1px solid rgba(240,192,64,.35);border-radius:999px;padding:3px 10px">PRÓXIMA FASE</span></div><div style="font-size:12.5px;color:var(--muted);margin-top:8px">A AndréIA vai escrever o diagnóstico + próximos passos e analisar cada criativo do confronto com Vision (por que ganha/perde). Health score já é híbrido (base por regras; ajuste da IA vem aqui).</div></div>`;
+  rxDrawCharts(rep,dominant);
+}
+function rxDrawCharts(rep,dominant){
+  if(!window.Chart)return;
+  const recs=(rep.total.records||[]).slice().sort((a,b)=>a.date<b.date?-1:1);
+  const ctxL=document.getElementById('cRxLine');
+  if(ctxL){_rxDestroy('line');const labels=recs.map(r=>r.date.slice(8,10)+'/'+r.date.slice(5,7));
+    const metricKey=dominant==='mensagens'?'conversas':dominant==='leads'?'leads':dominant==='trafego'?'clicks':'sales';
+    _rxCharts.line=new Chart(ctxL,{type:'line',data:{labels,datasets:[
+      {label:'Investimento',data:recs.map(r=>r.spend||0),borderColor:'#f0c040',backgroundColor:'rgba(240,192,64,.12)',tension:.35,fill:true,pointRadius:0,yAxisID:'y'},
+      {label:'Resultado',data:recs.map(r=>r[metricKey]||0),borderColor:'#60a5fa',backgroundColor:'transparent',tension:.35,pointRadius:0,yAxisID:'y1'}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'#9aa0aa'}}},scales:{y:{position:'left',ticks:{color:'#f0c040'},grid:{color:'rgba(255,255,255,.05)'}},y1:{position:'right',ticks:{color:'#60a5fa'},grid:{display:false}},x:{ticks:{color:'#9aa0aa',maxRotation:0,autoSkip:true,maxTicksLimit:14},grid:{display:false}}}}});
+  }
+  const camps=(rep.campaigns||[]).slice().sort((a,b)=>b.spend-a.spend);
+  const top=camps.slice(0,8);
+  const ctxB=document.getElementById('cRxBar');
+  if(ctxB){_rxDestroy('bar');_rxCharts.bar=new Chart(ctxB,{type:'bar',data:{labels:top.map(c=>(c.campaign||'—').length>26?c.campaign.slice(0,26)+'…':c.campaign),datasets:[{data:top.map(c=>c.spend),backgroundColor:'#f0c040',borderRadius:4}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#9aa0aa'},grid:{color:'rgba(255,255,255,.05)'}},y:{ticks:{color:'#c7ccd4',font:{size:10}},grid:{display:false}}}}});}
+  const ctxD=document.getElementById('cRxDonut');
+  if(ctxD){_rxDestroy('donut');const t7=camps.slice(0,7);const outros=camps.slice(7).reduce((s,c)=>s+c.spend,0);const labels=t7.map(c=>(c.campaign||'—').length>20?c.campaign.slice(0,20)+'…':c.campaign);const vals=t7.map(c=>c.spend);if(outros>0){labels.push('Outros');vals.push(outros);}
+    _rxCharts.donut=new Chart(ctxD,{type:'doughnut',data:{labels,datasets:[{data:vals,backgroundColor:DASH_PAL,borderColor:'#131210',borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'right',labels:{color:'#9aa0aa',boxWidth:10,padding:8,font:{size:10}}}}}});}
+}
+function rxShareHTML(){alert('Exportar do Raio-X vem junto com a fase da IA (resumo + confronto). Por ora use o 📤 Compartilhar do Dashboard.');}
 /* ================= RASTREAMENTO (pixel + links + jornada do lead) ================= */
 const TRACK_BASE=SUPA_URL+'/functions/v1/tracking';
 let _rastClientId='';
