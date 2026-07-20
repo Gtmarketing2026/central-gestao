@@ -2086,7 +2086,8 @@ async function connectRdForClient(clientId){
 let _rxClientId='',_rxSince='',_rxUntil='',_rxPreset='90',_rxData=null,_rxCharts={},_rxTplId='';
 function setRxTpl(id){_rxTplId=id;renderRaioX();}
 function _rxDestroy(k){if(_rxCharts[k]){_rxCharts[k].destroy();_rxCharts[k]=null;}}
-function loadRaioX(clientId){
+let _rxGeneratedAt='';
+async function loadRaioX(clientId){
   const c=DB.clients.find(x=>x.id===(clientId||activeClientId||_rxClientId));
   const body=document.getElementById('raioxBody');if(!body)return;
   document.getElementById('raioxClientName').textContent=c?('· '+c.name):'';
@@ -2095,7 +2096,22 @@ function loadRaioX(clientId){
   if(!hasM&&!hasG){body.innerHTML='<div class="empty">Este cliente não tem Meta nem Google vinculado.</div>';return}
   _rxClientId=c.id;
   if(!_rxUntil){_rxUntil=today();_rxSince=daysAgoISO(90);_rxPreset='90';}
-  // tela inicial: escolher período + Gerar
+  // tenta reabrir o último Raio-X salvo deste cliente
+  body.innerHTML='<div class="empty">Carregando último Raio-X…</div>';
+  try{
+    const {data}=await sb.from('raiox').select('since,until,data,generated_at').eq('client_id',c.id).maybeSingle();
+    if(data&&data.data&&data.data.rep){
+      _rxSince=data.since||_rxSince;_rxUntil=data.until||_rxUntil;_rxGeneratedAt=data.generated_at||'';
+      _rxData={rep:data.data.rep,prev:data.data.prev||{total:{}},c};
+      renderRaioX();return;
+    }
+  }catch(e){}
+  rxShowGenerate();
+}
+// Tela inicial: escolher período + Gerar
+function rxShowGenerate(){
+  const c=DB.clients.find(x=>x.id===_rxClientId);const body=document.getElementById('raioxBody');if(!c||!body)return;
+  if(!_rxUntil){_rxUntil=today();_rxSince=daysAgoISO(90);_rxPreset='90';}
   const pb=(k,l,days)=>`<button class="btn sm ${_rxPreset===k?'primary':'ghost'}" onclick="rxSetPeriod('${k}',${days})">${l}</button>`;
   body.innerHTML=`<div class="card" style="text-align:center;padding:40px 24px">
     <div style="font-size:40px">🎯</div>
@@ -2106,7 +2122,7 @@ function loadRaioX(clientId){
     <button class="btn primary" onclick="rxGenerate()">⚡ Gerar análise</button>
   </div>`;
 }
-function rxSetPeriod(k,days){_rxPreset=k;_rxUntil=today();_rxSince=daysAgoISO(days);loadRaioX(_rxClientId);}
+function rxSetPeriod(k,days){_rxPreset=k;_rxUntil=today();_rxSince=daysAgoISO(days);rxShowGenerate();}
 function _rxScore(actual,target,higher){
   const a=+actual||0,t=+target||0;if(!t)return a?60:40;
   let s=higher?(a/t)*80:(a?(t/a)*80:0);
@@ -2156,7 +2172,9 @@ async function rxGenerate(){
     ]);
     // venda real da planilha (se houver) entra no total pro ROAS/conversão
     if(sheet&&rep.total){rep.total.purchases=sheet.sales;rep.total.revenue=sheet.revenue;rep.total.roas=rep.total.spend?sheet.revenue/rep.total.spend:0;rep._salesFromSheet=true;}
-    _rxData={rep,prev,c};
+    _rxData={rep,prev,c};_rxGeneratedAt=new Date().toISOString();
+    // salva o último Raio-X (reabre sozinho até gerar o próximo)
+    sb.from('raiox').upsert({client_id:c.id,since:_rxSince,until:_rxUntil,data:{rep,prev},generated_at:_rxGeneratedAt}).then(()=>{}).catch(()=>{});
     renderRaioX();
   }catch(e){body.innerHTML=`<div class="empty">Erro ao gerar Raio-X: ${e.message||e}</div>`;}
 }
@@ -2209,8 +2227,8 @@ function renderRaioX(){
     </div></div>`:'';
   body.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
-      <div style="font-size:11px;color:var(--faint)">RAIO-X · ${c.name.replace(/</g,'&lt;')} · ${dateBR(_rxSince)}–${dateBR(_rxUntil)} · modelo: <b>${(tpl.name||'').replace(/</g,'&lt;')}</b></div>
-      <div style="display:flex;gap:6px"><button class="btn sm ghost" onclick="loadRaioX('${c.id}')">↻ Refazer</button><button class="btn sm ghost" onclick="rxShareHTML()">📤 Exportar</button></div>
+      <div style="font-size:11px;color:var(--faint)">RAIO-X · ${c.name.replace(/</g,'&lt;')} · ${dateBR(_rxSince)}–${dateBR(_rxUntil)} · modelo: <b>${(tpl.name||'').replace(/</g,'&lt;')}</b>${_rxGeneratedAt?` · <span title="Fica salvo até você gerar o próximo">gerado ${new Date(_rxGeneratedAt).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>`:''}</div>
+      <div style="display:flex;gap:6px"><button class="btn sm primary" onclick="rxShowGenerate()">⚡ Gerar novo</button><button class="btn sm ghost" onclick="rxShareHTML()">📤 Exportar</button></div>
     </div>
     ${_rxtpls.length>1?`<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:14px"><span style="font-size:11px;color:var(--faint)">Template:</span><button class="btn sm ${(_rxTplId||'__all__')==='__all__'?'primary':'ghost'}" onclick="setRxTpl('')">Todos</button>${_rxtpls.map(t=>`<button class="btn sm ${_rxTplId===t.id?'primary':'ghost'}" onclick="setRxTpl('${t.id}')">${t.name.replace(/</g,'&lt;')}</button>`).join('')}</div>`:''}
     <div class="card" style="margin-bottom:16px"><div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
