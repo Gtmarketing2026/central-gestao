@@ -5509,6 +5509,129 @@ function renderDashGoogleDet(){
     <div style="display:flex;gap:5px;flex-wrap:wrap">${btns}</div>
   </div>${(_dashGoogleDet.errors&&_dashGoogleDet.errors.length)?`<div style="font-size:11px;color:var(--faint);margin-bottom:8px">⚠ ${_dashGoogleDet.errors.join(' · ').replace(/</g,'&lt;')}</div>`:''}${table}`;
 }
+/* ---- Seção Eventos (RD) no RELATÓRIO: por evento, investimento × leads captados × CPL ---- */
+async function loadReportRdSection(clientId,month,ads){
+  const el=document.getElementById('rtRdSection');if(!el)return;
+  const c=DB.clients.find(x=>x.id===clientId);const cfg=(c&&c.rdConfig)||{};
+  const evs=(cfg.events||[]).filter(e=>e.sel);
+  if(!evs.length){el.innerHTML='';return;}
+  const {since,until}=monthRange(month);
+  el.innerHTML=`<div class="rt-sec"><div class="rt-sec-hdr"><div class="rt-sec-num">🎯</div><div class="rt-sec-title">Eventos (RD Station)</div><div class="rt-sec-ln"></div></div><div class="empty" style="padding:14px">Carregando eventos do RD…</div></div>`;
+  try{
+    const cat=await sb.functions.invoke('dynamic-responder',{body:{rdCatalog:{clientId,since,until}}}).then(r=>((r.data&&r.data.data)||{}).events||[]).catch(()=>[]);
+    const rows=evs.map(e=>{
+      const hit=cat.find(x=>x.identifier===e.id);
+      const leads=hit?hit.conversions:0;
+      const camps=e.camps||[];
+      const evAds=(ads||[]).filter(a=>a.spend>0&&camps.includes(a.campaign));
+      const invest=evAds.reduce((s,a)=>s+(a.spend||0),0);
+      const mgr=evAds.reduce((s,a)=>s+(a.leads||0),0);
+      return {id:e.id,cart:e.cart,leads,invest,mgr,camps:camps.length,cpl:leads?invest/leads:0};
+    }).sort((a,b)=>b.leads-a.leads);
+    const th=(s,l)=>`<th style="text-align:${l?'left':'right'};padding:9px 12px;font-size:10px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">${s}</th>`;
+    const td=(s,b,l)=>`<td style="padding:8px 12px;font-size:12.5px;text-align:${l?'left':'right'};${b?'font-weight:700;':''}border-bottom:1px solid rgba(255,255,255,.035)">${s}</td>`;
+    el.innerHTML=`<div class="rt-sec">
+      <div class="rt-sec-hdr"><div class="rt-sec-num">🎯</div><div class="rt-sec-title">Eventos (RD Station)</div><span style="font-size:10px;font-weight:800;letter-spacing:.04em;color:#a5b4fc;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.4);border-radius:8px;padding:2px 8px;margin-left:8px">LEADS REAIS DO RD</span><div class="rt-sec-ln"></div></div>
+      <div style="font-size:11.5px;color:var(--rt2);margin-bottom:10px">Quanto foi investido nas campanhas de captação de cada evento × quantos leads realmente entraram no RD.</div>
+      <div class="rt-tc" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <tr>${th('Evento',1)}${th('Investimento')}${th('Leads no RD')}${th('CPL real')}${th('Leads no gerenciador')}</tr>
+        ${rows.map(r=>`<tr>${td((r.cart?'🛒 ':'')+String(r.id).replace(/</g,'&lt;'),1,1)}${td(r.camps?fmt(r.invest):'<span style="color:var(--rtm)">sem campanha</span>')}${td('<b style="color:#34d399">'+r.leads.toLocaleString('pt-BR')+'</b>')}${td(r.camps&&r.leads?fmt(r.cpl):'—')}${td(r.camps?Math.round(r.mgr).toLocaleString('pt-BR'):'—')}</tr>`).join('')}
+      </table></div>
+      <div style="font-size:11px;color:var(--rtm);margin-top:8px">Vincule as campanhas de captação de cada evento no Dashboard (seção 🎯 Evento) pra ver investimento e CPL real aqui.</div>
+    </div>`;
+  }catch(e){el.innerHTML=`<div class="rt-sec"><div class="empty" style="padding:14px">Erro ao carregar eventos do RD: ${e.message||e}</div></div>`;}
+}
+/* ---- Seção Evento (RD): investimento da mídia × leads captados no RD ---- */
+let _dashRdEvent='',_dashRdCatalog=null,_dashRdDaily=[];
+function _dashRdCfg(){const c=DB.clients.find(x=>x.id===_dashClientId);return (c&&c.rdConfig)||{};}
+function _dashRdEvents(){return (_dashRdCfg().events||[]).filter(e=>e.sel);}
+function _dashRdCampsFor(id){const e=(_dashRdCfg().events||[]).find(x=>x.id===id);return (e&&e.camps)||[];}
+async function loadDashRdEvent(){
+  const el=document.getElementById('dashRdCard');if(!el)return;
+  const evs=_dashRdEvents();if(!evs.length){el.style.display='none';return;}
+  if(!_dashRdEvent||!evs.some(e=>e.id===_dashRdEvent))_dashRdEvent=evs[0].id;
+  el.innerHTML='<h3 style="margin:0 0 10px">🎯 Evento (RD)</h3><div class="empty" style="padding:14px">Carregando dados do RD…</div>';
+  try{
+    const [cat,daily]=await Promise.all([
+      sb.functions.invoke('dynamic-responder',{body:{rdCatalog:{clientId:_dashClientId,since:_dashSince,until:_dashUntil}}}).then(r=>((r.data&&r.data.data)||{}).events||[]).catch(()=>[]),
+      sb.from('rd_conversions').select('converted_at,received_at').eq('client_id',_dashClientId).eq('event_identifier',_dashRdEvent).limit(5000).then(r=>r.data||[]).catch(()=>[])
+    ]);
+    _dashRdCatalog=cat;_dashRdDaily=daily;
+    renderDashRdCard();
+  }catch(e){el.innerHTML='<h3 style="margin:0 0 10px">🎯 Evento (RD)</h3><div class="empty" style="padding:14px">Erro: '+(e.message||e)+'</div>';}
+}
+function setDashRdEvent(id){_dashRdEvent=id;loadDashRdEvent();}
+async function toggleDashRdCamp(camp){
+  const cfg=_dashRdCfg();const evs=(cfg.events||[]).map(e=>({...e}));
+  const e=evs.find(x=>x.id===_dashRdEvent);if(!e)return;
+  const list=(e.camps||[]).slice();const i=list.indexOf(camp);
+  if(i>=0)list.splice(i,1);else list.push(camp);
+  e.camps=list;
+  const newCfg={...cfg,events:evs};
+  await sb.from('clients').update({rd_config:newCfg}).eq('id',_dashClientId);
+  const c=DB.clients.find(x=>x.id===_dashClientId);if(c)c.rdConfig=newCfg;
+  renderDashRdCard();
+}
+function renderDashRdCard(){
+  const el=document.getElementById('dashRdCard');if(!el)return;
+  const evs=_dashRdEvents();
+  const camps=_dashRdCampsFor(_dashRdEvent);
+  const isCart=(_dashRdEvents().find(e=>e.id===_dashRdEvent)||{}).cart;
+  // leads captados no RD no período (catálogo do RD; o form-checkout não vem no catálogo → usa o webhook)
+  const catHit=(_dashRdCatalog||[]).find(x=>x.identifier===_dashRdEvent);
+  const inPeriod=(_dashRdDaily||[]).filter(r=>{const d=(r.converted_at||r.received_at||'').slice(0,10);return d>=_dashSince&&d<=_dashUntil;});
+  const rdLeads=catHit?catHit.conversions:inPeriod.length;
+  // mídia das campanhas escolhidas
+  const ads=_dashAds.filter(a=>a.spend>0&&camps.includes(a.campaign));
+  const invest=ads.reduce((s,a)=>s+(a.spend||0),0);
+  const mgrLeads=ads.reduce((s,a)=>s+(a.leads||0),0);
+  const cpl=rdLeads?invest/rdLeads:0;
+  const diff=mgrLeads-rdLeads;
+  // opções de campanha
+  const allCamps=[...new Set(_dashAds.filter(a=>a.spend>0).map(a=>a.campaign).filter(Boolean))].sort();
+  const evBtns=evs.map(e=>`<button class="btn sm ${_dashRdEvent===e.id?'primary':'ghost'}" onclick="setDashRdEvent('${String(e.id).replace(/'/g,"\\'")}')">${e.cart?'🛒 ':''}${String(e.id).replace(/</g,'&lt;')}</button>`).join('');
+  const campItems=allCamps.length?allCamps.map(cp=>`<label style="display:flex;gap:7px;align-items:center;padding:3px 5px;font-size:12px;cursor:pointer;border-radius:6px"><input type="checkbox" ${camps.includes(cp)?'checked':''} onchange="toggleDashRdCamp(this.getAttribute('data-v'))" data-v="${cp.replace(/"/g,'&quot;')}" style="width:auto"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cp.replace(/</g,'&lt;')}</span></label>`).join(''):'<div style="font-size:11px;color:var(--faint);padding:4px">sem campanhas no período</div>';
+  const tile=(lbl,val,cor,hint)=>`<div style="flex:1;min-width:130px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 14px">
+    <div style="font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">${lbl}</div>
+    <div style="font-size:21px;font-weight:800;margin-top:3px;${cor?'color:'+cor:''}">${val}</div>
+    ${hint?`<div style="font-size:10.5px;color:var(--faint);margin-top:2px">${hint}</div>`:''}</div>`;
+  el.style.display='block';
+  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px">
+      <h3 style="margin:0">🎯 Evento (RD)${isCart?' <span style="font-size:11px;color:var(--accent)">· carrinho</span>':''}</h3>
+      <div style="position:relative">
+        <button class="btn sm ${camps.length?'primary':'ghost'}" onclick="const p=document.getElementById('rdCampPanel');p.style.display=p.style.display==='none'?'block':'none'">Campanhas de captação: ${camps.length?camps.length+' sel.':'nenhuma'} ▾</button>
+        <div id="rdCampPanel" style="display:none;position:absolute;z-index:40;top:110%;right:0;min-width:320px;max-width:70vw;max-height:280px;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.45)">${campItems}</div>
+      </div>
+    </div>
+    <div style="font-size:11.5px;color:var(--muted);margin-bottom:10px">Quanto foi investido nas campanhas de captação × quantos leads realmente entraram no RD.</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${evBtns}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      ${tile('Investimento',camps.length?fmt(invest):'—',null,camps.length?camps.length+' campanha(s)':'selecione as campanhas')}
+      ${tile('Leads no RD',rdLeads.toLocaleString('pt-BR'),'#34d399','captados de verdade')}
+      ${tile('Custo por lead',camps.length&&rdLeads?fmt(cpl):'—',null,'investimento ÷ leads RD')}
+      ${tile('Leads no gerenciador',camps.length?Math.round(mgrLeads).toLocaleString('pt-BR'):'—',null,'o que Meta/Google reportam')}
+      ${tile('Diferença',camps.length?((diff>0?'+':'')+Math.round(diff).toLocaleString('pt-BR')):'—',diff>0?'#f59e0b':(diff<0?'#60a5fa':null),'gerenciador − RD')}
+    </div>
+    <div class="chart-box" style="height:220px"><canvas id="cDashRd"></canvas></div>
+    ${!inPeriod.length?`<div style="font-size:11px;color:var(--faint);margin-top:8px">💡 O gráfico por dia usa os dados que chegam pelo webhook do RD (dali pra frente). O total "Leads no RD" acima vem do RD direto, então já está correto.</div>`:''}`;
+  drawDashRdChart(inPeriod,camps);
+}
+function drawDashRdChart(inPeriod,camps){
+  const ctx=document.getElementById('cDashRd');if(!ctx||!window.Chart)return;
+  _destroyChart('rd');
+  // leads RD por dia (webhook) e investimento por dia (campanhas escolhidas)
+  const byDay={};
+  inPeriod.forEach(r=>{const d=(r.converted_at||r.received_at||'').slice(0,10);if(d)byDay[d]=(byDay[d]||0)+1;});
+  const spendByDay={};
+  (_dashCampRecs||[]).filter(c=>camps.includes(c.campaign)).forEach(c=>(c.records||[]).forEach(r=>{if(r.date>=_dashSince&&r.date<=_dashUntil)spendByDay[r.date]=(spendByDay[r.date]||0)+(r.spend||0);}));
+  const days=[...new Set([...Object.keys(byDay),...Object.keys(spendByDay)])].sort();
+  if(!days.length){_dashCharts.rd=null;return;}
+  const labels=days.map(d=>d.slice(8,10)+'/'+d.slice(5,7));
+  _dashCharts.rd=new Chart(ctx,{type:'bar',data:{labels,datasets:[
+    {label:'Leads no RD',data:days.map(d=>byDay[d]||0),backgroundColor:'#34d399',borderRadius:4,yAxisID:'y'},
+    {label:'Investimento',type:'line',data:days.map(d=>spendByDay[d]||0),borderColor:'#f0c040',backgroundColor:'transparent',tension:.35,pointRadius:0,yAxisID:'y1'}
+  ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'#9aa0aa'}}},scales:{y:{position:'left',ticks:{color:'#34d399'},grid:{color:'rgba(255,255,255,.05)'}},y1:{position:'right',ticks:{color:'#f0c040'},grid:{display:false}},x:{ticks:{color:'#9aa0aa',maxRotation:0,autoSkip:true,maxTicksLimit:15},grid:{display:false}}}}});
+}
 /* ---- Compartilhar: gera HTML standalone do dashboard pra enviar ao cliente ---- */
 function dashShareHTML(){
   const c=DB.clients.find(x=>x.id===_dashClientId);if(!c)return;
@@ -5800,6 +5923,7 @@ function renderMetaDashboard(c,rep,since,until){
       <div id="dashFunnelEditor" style="display:none"></div>
       <div id="dashFunnelBox"></div>
     </div>
+    <div class="card" id="dashRdCard" style="margin-bottom:16px;display:none"></div>
     <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
@@ -5818,6 +5942,7 @@ function renderMetaDashboard(c,rep,since,until){
   applyDashFilters();setDashLevel(_dashLevel);
   if(_dashSource!=='google'&&hasM){loadDashSeg();dashLoadStatuses(c);} // status 🟢/🔴 chega async e re-renderiza os seletores do funil
   if(_dashSource!=='meta'&&hasG)loadDashGoogleDet();
+  if(c.rdConfig&&c.rdConfig.refresh_token)loadDashRdEvent(); // seção Evento (RD)
   renderBudgetBanner(c,'dashBudgetWarn'); // teto de investimento (async)
 }
 async function fetchMetaChannelStats(c,month){
@@ -6904,6 +7029,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
         ${focosHTML?dv+focosHTML:''}
         ${secFunil?dv+secFunil:''}
         ${secRanking?dv+secRanking:''}
+        ${(c.rdConfig&&c.rdConfig.refresh_token)?dv+'<div id="rtRdSection"></div>':''}
         ${dv}${secResumo}
         ${dv}${secAnalise}
       </div>
@@ -6915,6 +7041,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   </div>`;
   renderAnalysisChat();
   applyReportFocoVis(c.id);
+  if(c.rdConfig&&c.rdConfig.refresh_token)loadReportRdSection(c.id,month,metaAds); // eventos do RD (async)
 }
 // Visibilidade das abas de foco (escolha feita no relatório, salva por cliente em report_focos)
 function applyReportFocoVis(clientId){
