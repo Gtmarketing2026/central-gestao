@@ -6644,6 +6644,130 @@ function mdLite(t){
   s=s.replace(/^(\s*)(\d+)\.\s+/gm,'$1<b>$2.</b> ');
   return s;
 }
+/* ===== AndréIA: montar documentos (PDF/Word) com layout dos nossos templates ===== */
+let _docExportIdx=null;
+// converte o markdown da resposta em HTML estruturado (headings, listas, tabelas, negrito)
+function _mdToDocHtml(t){
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inline=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*(?!\s)([^*]+?)\*(?!\*)/g,'$1<em>$2</em>').replace(/`(.+?)`/g,'<code>$1</code>');
+  const lines=(t||'').split(/\r?\n/);
+  let html='',listType='',tbuf=[];
+  const closeList=()=>{if(listType){html+=(listType==='ul'?'</ul>':'</ol>');listType='';}};
+  const flushTable=()=>{
+    if(!tbuf.length)return;
+    const rows=tbuf.filter(r=>!/^\|[\s:|-]+\|$/.test(r)).map(r=>r.replace(/^\||\|$/g,'').split('|').map(c=>c.trim()));
+    if(rows.length){
+      html+='<table><thead><tr>'+rows[0].map(c=>`<th>${inline(c)}</th>`).join('')+'</tr></thead><tbody>';
+      for(let i=1;i<rows.length;i++)html+='<tr>'+rows[i].map(c=>`<td>${inline(c)}</td>`).join('')+'</tr>';
+      html+='</tbody></table>';
+    }
+    tbuf=[];
+  };
+  for(const raw of lines){
+    const line=raw.trim();
+    if(line.startsWith('|')&&line.endsWith('|')&&line.length>1){tbuf.push(line);continue;}
+    flushTable();
+    if(!line){closeList();continue;}
+    let m;
+    if(m=line.match(/^(#{1,4})\s+(.+)$/)){closeList();const lv=m[1].length;html+=`<h${lv}>${inline(m[2])}</h${lv}>`;continue;}
+    if(/^([-–—*_])\1{2,}$/.test(line)){closeList();html+='<hr>';continue;}
+    if(m=line.match(/^[-•*]\s+(.+)$/)){if(listType!=='ul'){closeList();html+='<ul>';listType='ul';}html+=`<li>${inline(m[1])}</li>`;continue;}
+    if(m=line.match(/^\d+[.)]\s+(.+)$/)){if(listType!=='ol'){closeList();html+='<ol>';listType='ol';}html+=`<li>${inline(m[1])}</li>`;continue;}
+    closeList();html+=`<p>${inline(line)}</p>`;
+  }
+  flushTable();closeList();
+  return html;
+}
+// layouts (temas) com a identidade GT — servem tanto pra PDF quanto pra Word
+const DOC_LAYOUTS={
+  executivo:{label:'Executivo (claro) — recomendado p/ cliente',css:`
+    *{box-sizing:border-box}body{margin:0;background:#f4f4f6;font-family:'Segoe UI',system-ui,sans-serif;color:#1c1c22;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .doc{max-width:760px;margin:0 auto;background:#fff}
+    .doc-hd{padding:34px 46px 22px;border-bottom:3px solid #c8a04e}
+    .doc-hd .brand{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#c8a04e;font-weight:700}
+    .doc-hd h1{margin:8px 0 4px;font-size:26px;line-height:1.15}.doc-hd .meta{font-size:12px;color:#8a8a92}
+    .doc-body{padding:26px 46px}
+    .doc-body h1,.doc-body h2{font-size:19px;margin:26px 0 8px;border-bottom:1px solid #eee;padding-bottom:5px}
+    .doc-body h3{font-size:15px;margin:20px 0 6px;color:#b6923f}.doc-body h4{font-size:12px;margin:16px 0 4px;text-transform:uppercase;letter-spacing:.05em;color:#8a8a92}
+    .doc-body p{font-size:14px;line-height:1.7;margin:9px 0}.doc-body ul,.doc-body ol{margin:9px 0;padding-left:22px}.doc-body li{font-size:14px;line-height:1.7;margin:3px 0}
+    .doc-body strong{color:#111}.doc-body code{background:#f0efe9;padding:1px 5px;border-radius:4px}
+    .doc-body hr{border:none;border-top:1px solid #e6e6ea;margin:22px 0}
+    .doc-body table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+    .doc-body th{background:#faf7ef;text-align:left;padding:9px 11px;border-bottom:2px solid #c8a04e;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#7a6a3a}
+    .doc-body td{padding:8px 11px;border-bottom:1px solid #eee}
+    .doc-ft{padding:16px 46px 40px;font-size:11px;color:#a0a0a8;text-align:center;border-top:1px solid #eee;margin-top:24px}
+    @media print{body{background:#fff}.doc{max-width:none}}`},
+  gt_dark:{label:'GT Escuro (marca)',css:`
+    *{box-sizing:border-box}body{margin:0;background:#0f0f13;color:#e8eaf0;font-family:'Segoe UI',system-ui,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .doc{max-width:760px;margin:0 auto}
+    .doc-hd{padding:34px 46px 22px;border-bottom:2px solid #7c5cff}
+    .doc-hd .brand{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#a48bff;font-weight:700}
+    .doc-hd h1{margin:8px 0 4px;font-size:26px;line-height:1.15}.doc-hd .meta{font-size:12px;color:#9aa0aa}
+    .doc-body{padding:26px 46px}
+    .doc-body h1,.doc-body h2{font-size:19px;margin:26px 0 8px;color:#fff;border-bottom:1px solid #2a2a35;padding-bottom:5px}
+    .doc-body h3{font-size:15px;margin:20px 0 6px;color:#a48bff}.doc-body h4{font-size:12px;margin:16px 0 4px;text-transform:uppercase;letter-spacing:.05em;color:#9aa0aa}
+    .doc-body p{font-size:14px;line-height:1.7;margin:9px 0;color:#c7ccd4}.doc-body ul,.doc-body ol{margin:9px 0;padding-left:22px}.doc-body li{font-size:14px;line-height:1.7;margin:3px 0;color:#c7ccd4}
+    .doc-body strong{color:#fff}.doc-body code{background:#22222c;padding:1px 5px;border-radius:4px}
+    .doc-body hr{border:none;border-top:1px solid #2a2a35;margin:22px 0}
+    .doc-body table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+    .doc-body th{background:#191922;text-align:left;padding:9px 11px;border-bottom:2px solid #7c5cff;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#a48bff}
+    .doc-body td{padding:8px 11px;border-bottom:1px solid #22222c}
+    .doc-ft{padding:16px 46px 40px;font-size:11px;color:#6b7280;text-align:center;border-top:1px solid #2a2a35;margin-top:24px}`},
+  clean:{label:'Clean (minimalista, P&B)',css:`
+    *{box-sizing:border-box}body{margin:0;background:#fff;color:#222;font-family:Georgia,'Times New Roman',serif}
+    .doc{max-width:720px;margin:0 auto;padding:40px 32px}
+    .doc-hd{margin-bottom:26px}.doc-hd .brand{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#888;font-family:'Segoe UI',sans-serif}
+    .doc-hd h1{margin:6px 0 4px;font-size:25px}.doc-hd .meta{font-size:12px;color:#999}
+    .doc-body h1,.doc-body h2{font-size:19px;margin:24px 0 8px}.doc-body h3{font-size:15px;margin:18px 0 6px}.doc-body h4{font-size:13px;margin:14px 0 4px;color:#666}
+    .doc-body p{font-size:14.5px;line-height:1.75;margin:10px 0}.doc-body ul,.doc-body ol{padding-left:24px}.doc-body li{font-size:14.5px;line-height:1.75;margin:4px 0}
+    .doc-body code{font-family:Consolas,monospace;font-size:13px}.doc-body hr{border:none;border-top:1px solid #ddd;margin:22px 0}
+    .doc-body table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}.doc-body th{text-align:left;padding:8px 10px;border-bottom:2px solid #333}.doc-body td{padding:7px 10px;border-bottom:1px solid #eee}
+    .doc-ft{font-size:11px;color:#aaa;text-align:center;margin-top:30px;font-family:'Segoe UI',sans-serif}`}
+};
+function _docWrap(layout,h,inner){
+  const L=DOC_LAYOUTS[layout]||DOC_LAYOUTS.executivo;
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${h.title}</title><style>${L.css}</style></head><body>
+  <div class="doc"><header class="doc-hd"><div class="brand">GT Marketing${h.client?' · '+h.client:''}</div><h1>${h.title}</h1><div class="meta">${h.date}</div></header>
+  <main class="doc-body">${inner}</main>
+  <footer class="doc-ft">Gerado por AndréIA · GT Marketing · ${h.date}</footer></div></body></html>`;
+}
+function andreiaExportOpen(idx){
+  const m=agentActiveChat&&agentActiveChat.messages[idx];if(!m||!m.text)return;
+  _docExportIdx=idx;
+  const opts=Object.entries(DOC_LAYOUTS).map(([k,v],i)=>`<label style="display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px"><input type="radio" name="docLayout" value="${k}" ${i===0?'checked':''}> ${v.label}</label>`).join('');
+  let ov=document.getElementById('docExportOverlay');
+  if(!ov){ov=document.createElement('div');ov.id='docExportOverlay';document.body.appendChild(ov);}
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;width:min(460px,92vw)">
+    <h3 style="margin:0 0 4px;font-size:17px">📄 Montar documento</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:15px">Escolha o layout (identidade GT) e o formato. O conteúdo é a resposta da AndréIA.</div>
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:7px">Layout</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px">${opts}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn ghost" onclick="andreiaExportClose()">Cancelar</button>
+      <button class="btn" onclick="andreiaExportBuild('word')">📝 Word (.doc)</button>
+      <button class="btn primary" onclick="andreiaExportBuild('pdf')">📄 PDF</button>
+    </div></div>`;
+  ov.onclick=e=>{if(e.target===ov)andreiaExportClose();};
+}
+function andreiaExportClose(){const ov=document.getElementById('docExportOverlay');if(ov)ov.remove();}
+function andreiaExportBuild(fmt){
+  const idx=_docExportIdx;const m=agentActiveChat&&agentActiveChat.messages[idx];if(!m)return;
+  const r=document.querySelector('input[name=docLayout]:checked');const layout=r?r.value:'executivo';
+  const c=DB.clients.find(x=>x.id===(agentActiveChat&&agentActiveChat.client_id));
+  const rawTitle=(agentActiveChat&&agentActiveChat.title)||'Documento';
+  const h={title:rawTitle.replace(/</g,'&lt;'),client:c?c.name.replace(/</g,'&lt;'):'',date:new Date().toLocaleDateString('pt-BR')};
+  const html=_docWrap(layout,h,_mdToDocHtml(m.text));
+  andreiaExportClose();
+  const fname=(rawTitle.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'documento');
+  if(fmt==='word'){
+    const blob=new Blob(['﻿'+html],{type:'application/msword'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname+'.doc';document.body.appendChild(a);a.click();a.remove();
+  }else{
+    const w=window.open('','_blank');if(!w){alert('Permita pop-ups pra gerar o PDF.');return;}
+    w.document.write(html+'<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print()},350)}</scr'+'ipt>');w.document.close();
+  }
+}
 function renderAgentChat(){
   const el=document.getElementById('agentChat');
   const msgs=agentActiveChat?agentActiveChat.messages:[];
@@ -6652,8 +6776,9 @@ function renderAgentChat(){
     if(m.role==='user')return`<div style="align-self:flex-end;max-width:80%;background:var(--accent);color:#0a0906;border-radius:14px 14px 4px 14px;padding:10px 14px;font-size:13px;font-weight:500;white-space:pre-wrap">${m.text.replace(/</g,'&lt;')}</div>`;
     if(m.role==='typing')return`<div style="align-self:flex-start;color:var(--muted);font-size:13px;padding:6px 4px">AndréIA pensando...</div>`;
     const txt=m.text?`<div style="align-self:flex-start;max-width:88%;background:var(--surface2);border:1px solid var(--border);border-radius:14px 14px 14px 4px;padding:12px 14px;font-size:13px;line-height:1.65;white-space:pre-wrap">${mdLite(m.text)}</div>`:'';
+    const tools=(m.text&&m.text.length>60)?`<div style="align-self:flex-start;margin:2px 0 4px 6px"><button class="btn sm ghost" style="font-size:11px;padding:3px 10px" onclick="andreiaExportOpen(${idx})">📄 Baixar como documento</button></div>`:'';
     const acts=(m.actions||[]).map((a,ai)=>agentActionCardHTML(a,idx,ai)).join('');
-    return txt+acts;
+    return txt+tools+acts;
   }).join('');
   el.scrollTop=el.scrollHeight;
 }
