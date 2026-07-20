@@ -36,6 +36,34 @@ async function sbPatch(table: string, query: string, row: Record<string, unknown
 }
 function uid() { return crypto.randomUUID().replace(/-/g, "").slice(0, 20); }
 
+// OAuth da Nuvemshop: recebe o ?code, troca por access_token + store_id e guarda no cliente (state = clientId).
+async function handleNuvemshopCallback(url: URL) {
+  const strip = (s: string) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const page = (t: string, m: string, ok: boolean) => new Response((ok ? "[OK] " : "[!] ") + strip(t) + "\n\n" + strip(m) + "\n\nPode fechar esta aba e voltar ao sistema.", { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
+  const code = url.searchParams.get("code");
+  const clientId = url.searchParams.get("state");
+  if (!code) return page("Autorizacao nao concluida", "Nao recebi o codigo da Nuvemshop.", false);
+  if (!clientId) return page("Cliente nao identificado", "Refaca a conexao pelo cadastro do cliente.", false);
+  const acc = await sbSelect("account_config", `id=eq.main&select=data`);
+  const ns = (acc[0]?.data || {}).nuvemshop || {};
+  if (!ns.client_id || !ns.client_secret) return page("Faltam credenciais do App", "Configure o App da Nuvemshop em Configuracoes.", false);
+  try {
+    const r = await fetch("https://www.tiendanube.com/apps/authorize/token", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: ns.client_id, client_secret: ns.client_secret, grant_type: "authorization_code", code }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.access_token) return page("Falha ao conectar", "A Nuvemshop nao devolveu o token: " + (j.error_description || j.error || `HTTP ${r.status}`), false);
+    const cRows = await sbSelect("clients", `id=eq.${encodeURIComponent(clientId)}&select=nuvemshop_config,name`);
+    if (!cRows[0]) return page("Cliente nao encontrado", "O cliente informado nao existe mais.", false);
+    const cfg = { ...(cRows[0].nuvemshop_config || {}), access_token: j.access_token, store_id: j.user_id, connected_at: new Date().toISOString() };
+    await sbPatch("clients", `id=eq.${encodeURIComponent(clientId)}`, { nuvemshop_config: cfg });
+    return page("Nuvemshop conectada!", `A loja de "${cRows[0].name || "cliente"}" foi conectada. Ja podemos puxar os pedidos.`, true);
+  } catch (e) {
+    return page("Erro ao conectar", String((e as any)?.message || e), false);
+  }
+}
+
 // Webhook do RD Station: RD chama a cada conversão. Guarda o payload cru + campos extraídos.
 async function handleRdWebhook(url: URL, req: Request) {
   const clientId = url.searchParams.get("client") || "";
@@ -178,6 +206,8 @@ Deno.serve(async (req) => {
 
   if (p === "/rd/webhook" && req.method === "POST") return handleRdWebhook(url, req);
   if (p === "/rd/webhook") return new Response("rd webhook ok", { headers: { ...cors, "Content-Type": "text/plain" } });
+
+  if (p === "/nuvemshop/callback") return handleNuvemshopCallback(url);
 
   // GET /l/<client_id>/<slug>
   const mLink = p.match(/^\/l\/([^/]+)\/([^/]+)$/);

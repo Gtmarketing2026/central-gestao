@@ -916,6 +916,44 @@ async function rdCatalog(m: any) {
   return { period: { since, until }, events: list };
 }
 
+// Nuvemshop · pedidos do cliente no período → agregado diário (data, contagem, faturamento) por status.
+async function nuvemshopOrders(m: any) {
+  const clientId = String(m.clientId || "");
+  if (!clientId) throw new Error("clientId obrigatório");
+  const cli = await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=nuvemshop_config`);
+  const cfg = (cli[0]?.nuvemshop_config || {});
+  if (!cfg.access_token || !cfg.store_id) throw new Error("Este cliente não conectou a Nuvemshop.");
+  const acc = await sbGet("account_config", "id=eq.main&select=data");
+  const ua = ((acc[0]?.data || {}).nuvemshop || {}).ua || "Central de Gestao (contato@gtmarketing.com.br)";
+  const since = m.since || new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+  const until = m.until || new Date().toISOString().slice(0, 10);
+  const base = `https://api.tiendanube.com/2025-03/${cfg.store_id}`;
+  const H = { "Authentication": `bearer ${cfg.access_token}`, "User-Agent": ua, "Content-Type": "application/json" };
+  const agg: Record<string, any> = {};
+  let totalCount = 0, paidCount = 0, paidRevenue = 0;
+  let page = 1;
+  for (let i = 0; i < 20; i++) {
+    const u = `${base}/orders?created_at_min=${since}T00:00:00-03:00&created_at_max=${until}T23:59:59-03:00&per_page=200&page=${page}&fields=id,total,created_at,completed_at,payment_status,status`;
+    const r = await fetch(u, { headers: H });
+    if (!r.ok) { const t = await r.text(); throw new Error(`Nuvemshop: HTTP ${r.status} ${t.slice(0, 120)}`); }
+    const rows = await r.json();
+    if (!Array.isArray(rows) || !rows.length) break;
+    for (const o of rows) {
+      const date = String(o.completed_at || o.created_at || "").slice(0, 10);
+      const paid = o.payment_status === "paid" || o.payment_status === "authorized";
+      const status = paid ? "Aprovado" : (o.payment_status === "voided" || o.status === "cancelled" ? "Cancelado" : "Aguardando");
+      totalCount++;
+      const key = date + "|" + status;
+      if (!agg[key]) agg[key] = { date, status, count: 0, total: 0 };
+      agg[key].count++; agg[key].total += parseFloat(o.total || "0");
+      if (paid) { paidCount++; paidRevenue += parseFloat(o.total || "0"); }
+    }
+    if (rows.length < 200) break;
+    page++;
+  }
+  return { rows: Object.values(agg), paidCount, paidRevenue, totalCount, period: { since, until } };
+}
+
 // Raio-X · leitura da IA: resumo executivo + por que cada criativo ganha/perde (Vision) + o que separa os lados.
 async function raioxAI(m: any) {
   const sys = `Você é uma gestora de tráfego senior (nível Pedro Sobral) analisando o Raio-X de um cliente. Recebe: KPIs do período, o objetivo/modelo, o health score por dimensão, e os criativos vencedores e perdedores (com IMAGEM de cada um e a métrica do objetivo). Escreva uma análise afiada, específica e acionável, em português.
@@ -978,6 +1016,10 @@ Deno.serve(async (req) => {
     const analysis = body.analysis;
     const agent = body.agent;
 
+    if (body.nuvemshopOrders) {
+      const r = await nuvemshopOrders(body.nuvemshopOrders);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (body.raioxAI) {
       const r = await raioxAI(body.raioxAI);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

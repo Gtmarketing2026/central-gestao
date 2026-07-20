@@ -833,6 +833,12 @@
         <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Conecte a conta RD Station <b>deste cliente</b> pra puxar os eventos (conversões), leads por evento e o carrinho. Cada cliente autoriza a conta RD dele.</div>
       </div>
       <div id="cRdConnectRow"></div>
+      <hr class="budget-divider">
+      <div class="form-row" style="margin-bottom:6px">
+        <span style="font-size:13px;font-weight:600;color:var(--text)">🛒 Nuvemshop (loja / vendas reais)</span>
+        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Conecte a loja Nuvemshop <b>deste cliente</b> pra puxar os pedidos reais (venda/faturamento) automaticamente — substitui a planilha.</div>
+      </div>
+      <div id="cNuvemConnectRow"></div>
     </div>
 
     <div class="cpanel" data-panel="relatorios" style="display:none">
@@ -1656,7 +1662,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,siteUrl:r.site_url||'',minBalance:+r.min_balance||0});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,siteUrl:r.site_url||'',minBalance:+r.min_balance||0});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -1957,6 +1963,15 @@ async function loadConfiguracoes(){
         ${rd.client_id?`<button class="btn sm ghost" style="flex:none;color:var(--red)" onclick="clearRdStation()">Remover</button>`:''}
       </div>
       <div style="font-size:11px;color:var(--faint);margin-top:8px">Estas são as credenciais do <b>App</b> (uma vez só). Para conectar o RD de um cliente, vá no cadastro dele → aba <b>Mídia</b> → "Conectar RD Station" (cada cliente autoriza a conta RD dele).</div>`)}
+    ${(()=>{const ns=_acctCfg.nuvemshop||{};return integCard('nuvemshop','🛒','Nuvemshop (App)','Credenciais do App (nível conta). A loja de cada cliente conecta no cadastro dele.',
+      integStatusPill(ns.client_id&&ns.client_secret&&ns.app_id?'ok':'off',ns.client_id&&ns.client_secret&&ns.app_id?'✓ App configurado':'Faltam credenciais'),
+      `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        <div style="min-width:120px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">APP ID</label><input id="nsAppId" placeholder="${ns.app_id||'nº do app'}" style="width:120px;font-size:12px"></div>
+        <div style="flex:1;min-width:180px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CLIENT ID</label><input id="nsClientId" placeholder="${ns.client_id||'do app'}" style="width:100%;font-size:12px"></div>
+        <div style="flex:1;min-width:180px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CLIENT SECRET</label><input id="nsClientSecret" type="password" placeholder="${ns.client_secret?'•••••• (salvo)':'do app'}" style="width:100%;font-size:12px"></div>
+        <button class="btn sm primary" style="flex:none" onclick="saveNuvemApp()">Salvar</button>
+      </div>
+      <div style="font-size:11px;color:var(--faint);margin-top:8px">Crie um App de Parceiro na Nuvemshop com a URL de redirect <code style="background:var(--surface2);padding:1px 5px;border-radius:5px;word-break:break-all">${TRACK_BASE}/nuvemshop/callback</code>. Depois conecte a loja de cada cliente no cadastro dele (aba Mídia).</div>`);})()}
     ${integCard('whatsapp','💬','WhatsApp Cloud API',
       'Conectar o WhatsApp do cliente por QR code (Meta Cloud API) + CRM de conversas com origem por anúncio/UTM.',
       integStatusPill('warn','Em construção'),
@@ -2003,6 +2018,36 @@ async function clearRdStation(){
   if(!confirm('Remover as credenciais do App do RD? As conexões dos clientes deixam de funcionar.'))return;
   await saveAccountConfig({rd_station:{}});
   loadConfiguracoes();
+}
+async function saveNuvemApp(){
+  const cur=(await loadAccountConfig()).nuvemshop||{};
+  const app_id=(document.getElementById('nsAppId').value||'').trim()||cur.app_id||'';
+  const client_id=(document.getElementById('nsClientId').value||'').trim()||cur.client_id||'';
+  const secretIn=(document.getElementById('nsClientSecret').value||'').trim();
+  const client_secret=secretIn||cur.client_secret||'';
+  if(!app_id||!client_id||!client_secret){alert('Preencha App ID, Client ID e Client Secret.');return;}
+  await saveAccountConfig({nuvemshop:{app_id,client_id,client_secret}});
+  loadConfiguracoes();
+}
+// Conexão da Nuvemshop POR CLIENTE (state=clientId; o callback guarda o token no cliente)
+async function connectNuvemForClient(clientId){
+  const app=(await loadAccountConfig()).nuvemshop||{};
+  if(!app.app_id){alert('Primeiro configure o App da Nuvemshop em ⚙️ Configurações.');return;}
+  const url='https://www.tiendanube.com/apps/'+encodeURIComponent(app.app_id)+'/authorize?state='+encodeURIComponent(clientId);
+  window.open(url,'_blank','width=620,height=760');
+  alert('Abri a autorização da Nuvemshop numa aba nova. Faça login na loja DESTE cliente e autorize; depois recarregue o cadastro pra ver "Conectada".');
+}
+function renderNuvemConnect(clientId,cfg){
+  const el=document.getElementById('cNuvemConnectRow');if(!el)return;
+  if(!clientId){el.innerHTML='<div style="font-size:11px;color:var(--faint)">Salve o cliente primeiro pra conectar a loja.</div>';return;}
+  const connected=cfg&&cfg.access_token;
+  const when=connected&&cfg.connected_at?new Date(cfg.connected_at).toLocaleString('pt-BR'):'';
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="font-size:12px;font-weight:700;color:${connected?'#34d399':'var(--faint)'}">${connected?'✓ Loja conectada':'○ Loja não conectada'}${connected&&cfg.store_id?` <span style="color:var(--faint);font-weight:400">· loja #${cfg.store_id}</span>`:''}</span>
+    ${when?`<span style="font-size:11px;color:var(--faint)">desde ${when}</span>`:''}
+    <button type="button" class="btn sm ${connected?'ghost':'primary'}" onclick="connectNuvemForClient('${clientId}')">${connected?'Reconectar':'Conectar Nuvemshop'}</button>
+  </div>
+  <div style="font-size:11px;color:var(--faint);margin-top:6px">${connected?'Os pedidos da loja passam a alimentar as vendas deste cliente automaticamente (substitui a planilha).':'Faça login na conta Nuvemshop deste cliente antes de autorizar.'}</div>`;
 }
 function renderRdConnect(clientId,rdConfig){
   const el=document.getElementById('cRdConnectRow');if(!el)return;
@@ -3981,6 +4026,7 @@ function openClientModal(id){
   setGoogleSelection(c.googleAccountIds||[]);
   document.getElementById('cGoogleAccountHint').textContent='';
   renderRdConnect(id,c.rdConfig);
+  renderNuvemConnect(id,c.nuvemshopConfig);
   // templates do cliente (novo multi); migra na hora quem só tem o legado
   let tplIds=Array.isArray(c.reportTemplateIds)?c.reportTemplateIds.slice():null;
   if(!tplIds){tplIds=[];if(c.reportTemplateId)tplIds.push(c.reportTemplateId);(c.reportFocos||[]).forEach(f=>{const id='base_'+f;if(!tplIds.includes(id))tplIds.push(id)});}
