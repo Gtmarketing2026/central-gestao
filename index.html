@@ -34,6 +34,8 @@
   .tab{padding:10px 12px;border:none;background:transparent;color:var(--muted);font-size:.88rem;font-weight:600;border-radius:10px;cursor:pointer;font-family:inherit;transition:.18s;display:flex;align-items:center;gap:8px;justify-content:flex-start;width:100%;text-align:left}
   .tab:hover{color:var(--text)}
   .tab.active{background:var(--surface2);color:var(--text)}
+  .nav-group{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:700;padding:14px 12px 5px;margin-top:2px}
+  .nav-group:first-child{margin-top:0;padding-top:4px}
   .tab .badge{background:var(--accent);color:#0a0906;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700}
   .panel{display:none;animation:fade .35s ease}
   .panel.active{display:block}
@@ -218,28 +220,41 @@
       <select id="sidebarClient" onchange="selectSidebarClient(this.value)" style="width:100%;font-size:13px"></select>
     </div>
     <nav class="tabs">
-      <button class="tab active" data-tab="operacional">Operacional</button>
-      <button class="tab" data-tab="financeiro">Financeiro</button>
-      <button class="tab" data-tab="churn">⚠ Churn <span class="badge" id="churnBadge" style="background:var(--red)">0</span></button>
-      <button class="tab" data-tab="clients" style="position:relative">Clientes <span class="badge" id="cBadge">0</span><span id="clientsSubArrow" onclick="event.stopPropagation();toggleClientsSubmenu()" title="Configurações do cliente selecionado" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
+      <div class="nav-group">Principal</div>
+      <button class="tab" data-tab="iagestora">🤖 AndréIA</button>
+      <button class="tab" data-tab="clients" style="position:relative">👥 Clientes <span class="badge" id="cBadge">0</span><span id="clientsSubArrow" onclick="event.stopPropagation();toggleClientsSubmenu()" title="Configurações do cliente selecionado" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
       <div id="clientsSubmenu" style="display:none">
         <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('painel')">⚙ Painel de configuração</button>
         <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('dados')">✏️ Dados &amp; Verba</button>
-        <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('midia')">📱 Mídia &amp; Meta</button>
+        <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('midia')">📱 Mídia &amp; Integrações</button>
         <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('relatorios')">📊 Relatórios</button>
         <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('dna')">🧬 DNA &amp; Conhecimento</button>
       </div>
-      <button class="tab" data-tab="tasks">Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="relatorios">📊 Relatórios</button>
-      <button class="tab" data-tab="campanhas" style="position:relative">📣 Campanhas<span id="campSubArrow" onclick="event.stopPropagation();toggleCampSubmenu()" title="Canais (Meta / Google)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
+
+      <div class="nav-group">Gestor de Tráfego</div>
+      <button class="tab active" data-tab="operacional">📋 Visão Geral</button>
+      <button class="tab" data-tab="tasks">✅ Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
+      <button class="tab" onclick="showComingSoon('CRM','O CRM de conversas do WhatsApp — cada conversa marcada com a origem (anúncio/campanha/anúncio no Meta, ou campanha/palavra-chave no Google) ou UTM. Vem junto com a integração do WhatsApp Cloud API.')">💬 CRM</button>
+      <button class="tab" onclick="goToTab('relatorios')">🎯 Raio-X</button>
+      <button class="tab" onclick="showComingSoon('Orgânico','Resultados de canais orgânicos (Instagram Bio, tráfego direto, etc.) num só lugar. Em construção.')">🌱 Orgânico</button>
+      <button class="tab" data-tab="churn">⚠ Churn <span class="badge" id="churnBadge" style="background:var(--red)">0</span></button>
+      <button class="tab" data-tab="financeiro">💰 Financeiro</button>
+      <button class="tab" data-tab="campanhas" style="position:relative">📣 Campanha<span id="campSubArrow" onclick="event.stopPropagation();toggleCampSubmenu()" title="Canais (Meta / Google)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
       <div id="campSubmenu" style="display:none">
-        <button class="tab" id="campSubMeta" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('meta')">Ⓜ️ Meta Ads</button>
-        <button class="tab" id="campSubGoogle" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('google')">🔎 Google Ads</button>
+        <button class="tab" id="campSubMeta" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('meta')">Ⓜ️ Meta</button>
+        <button class="tab" style="padding-left:44px;font-size:12px" onclick="showComingSoon('Público (Meta)','Performance por público/segmentação do Meta (sexo, plataforma, posicionamento) como visão dedicada. Hoje já está no Dashboard → Performance por Segmentação.')">👥 Público</button>
+        <button class="tab" id="campSubGoogle" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('google')">🔎 Google</button>
       </div>
-      <button class="tab" data-tab="rastreamento">📡 Rastreamento</button>
-      <button class="tab" data-tab="modelos">📋 Modelos</button>
-      <button class="tab" data-tab="iagestora">🤖 AndréIA</button>
+
+      <div class="nav-group">Rastreamento</div>
+      <button class="tab" data-tab="rastreamento">📡 Pixel e Links</button>
+      <button class="tab" onclick="showComingSoon('WhatsApp','Conectar o WhatsApp do cliente por QR code (Cloud API da Meta) e receber as conversas com a origem. Fase 2 do rastreamento.')">💬 WhatsApp</button>
+
+      <div class="nav-group">Conta</div>
       <button class="tab" data-tab="configuracoes">⚙️ Configurações</button>
+      <button class="tab" data-tab="modelos">📋 Templates</button>
+      <button class="tab" onclick="goToTab('configuracoes')">🔌 Integrações</button>
     </nav>
   </aside>
   <main class="main">
@@ -614,6 +629,9 @@
     <div id="campBudgetWarn"></div>
     <div id="campBody"></div>
   </section>
+
+  <!-- PLACEHOLDER (itens em construção do menu) -->
+  <section class="panel" id="comingSoon"></section>
 
   <!-- CONFIGURAÇÕES DA CONTA (integrações) -->
   <section class="panel" id="configuracoes">
@@ -1784,6 +1802,18 @@ async function sendBroadcast(){
 }
 
 /* ---- TABS ---- */
+function showComingSoon(title,desc){
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+  const p=document.getElementById('comingSoon');if(!p)return;
+  p.innerHTML=`<div class="section-head" style="margin-top:0"><h2>${title}</h2></div>
+    <div class="card" style="text-align:center;padding:52px 24px">
+      <div style="font-size:42px">🚧</div>
+      <h3 style="margin:14px 0 8px">${title} — em construção</h3>
+      <div style="color:var(--muted);max-width:540px;margin:0 auto;line-height:1.6">${desc}</div>
+    </div>`;
+  p.classList.add('active');
+}
 function goToTab(tabId){
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
