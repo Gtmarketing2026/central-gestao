@@ -1978,8 +1978,8 @@ async function loadRdDetectedEvents(clientId){
     fromHook.forEach(h=>{if(!merged.some(x=>x.identifier===h.identifier))merged.push(h)});
     const avail=merged.filter(x=>!configured.has(x.identifier));
     if(!avail.length){box.innerHTML='<div style="font-size:11px;color:var(--faint)">Nenhum evento novo encontrado no RD (últimos 90 dias).</div>';return;}
-    box.innerHTML=`<div style="font-size:11px;color:var(--faint);margin-bottom:4px">Eventos no RD — clique pra adicionar (nº = conversões nos últimos 90 dias):</div>`
-      +avail.slice(0,40).map(x=>`<span style="display:inline-block;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:3px 9px;font-size:11.5px;margin:0 4px 4px 0;cursor:pointer" onclick="rdEventAdd('${clientId}','${String(x.identifier).replace(/'/g,"\\'")}')" title="${x.type||''}">+ ${String(x.identifier).replace(/</g,'&lt;')}${x.conversions!=null?` <b style="color:var(--accent)">${x.conversions.toLocaleString('pt-BR')}</b>`:''}</span>`).join('');
+    box.innerHTML=`<div style="font-size:11px;color:var(--faint);margin-bottom:4px">${avail.length} evento(s) no RD — clique pra adicionar (nº = conversões nos últimos 2 anos):</div>`
+      +avail.map(x=>`<span style="display:inline-block;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:3px 9px;font-size:11.5px;margin:0 4px 4px 0;cursor:pointer" onclick="rdEventAdd('${clientId}','${String(x.identifier).replace(/'/g,"\\'")}')" title="${x.type||''}">+ ${String(x.identifier).replace(/</g,'&lt;')}${x.conversions!=null?` <b style="color:var(--accent)">${x.conversions.toLocaleString('pt-BR')}</b>`:''}</span>`).join('');
   }catch(e){box.innerHTML='<div style="font-size:11px;color:var(--red)">Erro ao buscar eventos: '+(e.message||e)+'</div>';}
 }
 // Conexão do RD POR CLIENTE (abre a autorização passando state=clientId; o callback guarda o refresh_token no cliente)

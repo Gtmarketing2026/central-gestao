@@ -904,7 +904,7 @@ async function rdCatalog(m: any) {
   if (!clientId) throw new Error("clientId obrigatório");
   const at = await rdAccessToken(clientId);
   const until = m.until || new Date().toISOString().slice(0, 10);
-  const since = m.since || new Date(Date.now() - 89 * 864e5).toISOString().slice(0, 10);
+  const since = m.since || new Date(Date.now() - 730 * 864e5).toISOString().slice(0, 10); // 2 anos: pega o catálogo todo
   const r = await fetch(`https://api.rd.services/platform/analytics/conversions?start_date=${since}&end_date=${until}`, { headers: { Authorization: `Bearer ${at}` } });
   const j = await r.json();
   if (!r.ok) throw new Error("RD: " + (j.error_description || j.error || `HTTP ${r.status}`));
