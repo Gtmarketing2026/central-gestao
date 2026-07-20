@@ -875,6 +875,47 @@ async function googleBreakdowns(g: any) {
   return { conversoes: sorted(conv, "conversions"), keywords: sorted(kw), termos: sorted(st), errors: errors.length ? errors : undefined };
 }
 
+/* ================= RD STATION ================= */
+const _SB_URL = Deno.env.get("SUPABASE_URL") || "";
+const _SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+async function sbGet(table: string, query: string) {
+  const r = await fetch(`${_SB_URL}/rest/v1/${table}?${query}`, { headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
+  return r.ok ? await r.json() : [];
+}
+// Token de acesso do RD daquele cliente (refresh_token do cliente + credenciais do App na conta)
+async function rdAccessToken(clientId: string) {
+  const acc = await sbGet("account_config", "id=eq.main&select=data");
+  const app = (acc[0]?.data || {}).rd_station || {};
+  if (!app.client_id || !app.client_secret) throw new Error("Credenciais do App do RD não configuradas (aba Configurações).");
+  const cli = await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=rd_config`);
+  const rt = (cli[0]?.rd_config || {}).refresh_token;
+  if (!rt) throw new Error("Este cliente ainda não conectou o RD Station.");
+  const r = await fetch("https://api.rd.services/auth/token", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_id: app.client_id, client_secret: app.client_secret, refresh_token: rt }),
+  });
+  const j = await r.json();
+  if (!j.access_token) throw new Error("Falha ao renovar token do RD: " + (j.error_description || j.error || r.status));
+  return j.access_token as string;
+}
+// Catálogo de eventos/conversões do RD (landing pages, popups etc. com contagem no período)
+async function rdCatalog(m: any) {
+  const clientId = String(m.clientId || "");
+  if (!clientId) throw new Error("clientId obrigatório");
+  const at = await rdAccessToken(clientId);
+  const until = m.until || new Date().toISOString().slice(0, 10);
+  const since = m.since || new Date(Date.now() - 89 * 864e5).toISOString().slice(0, 10);
+  const r = await fetch(`https://api.rd.services/platform/analytics/conversions?start_date=${since}&end_date=${until}`, { headers: { Authorization: `Bearer ${at}` } });
+  const j = await r.json();
+  if (!r.ok) throw new Error("RD: " + (j.error_description || j.error || `HTTP ${r.status}`));
+  const list = (j.conversions || []).map((x: any) => ({
+    identifier: x.asset_identifier, type: x.assets_type,
+    conversions: Number(x.conversion_count) || 0, visits: Number(x.visits_count) || 0,
+  })).filter((x: any) => x.identifier);
+  list.sort((a: any, b: any) => b.conversions - a.conversions);
+  return { period: { since, until }, events: list };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -885,6 +926,10 @@ Deno.serve(async (req) => {
     const analysis = body.analysis;
     const agent = body.agent;
 
+    if (body.rdCatalog) {
+      const r = await rdCatalog(body.rdCatalog);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (body.metaBreakdowns) {
       const r = await metaBreakdowns(body.metaBreakdowns);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
