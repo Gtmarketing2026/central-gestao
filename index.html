@@ -2111,20 +2111,19 @@ function renderRaioX(){
   const ads=(rep.ads||[]).filter(a=>a.spend>0);
   const t=rep.total||{};
   const agg={spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:t.revenue||0,purchases:t.purchases||0,leads:t.leads||0,conversas:t.conversas||0,videoViews:t.videoViews||0,engajamentos:t.engajamentos||0};
-  // objetivo dominante (por gasto)
+  // Objetivo/KPIs DIRIGIDOS PELO TEMPLATE do cliente (igual dashboard/relatório); auto por gasto só se não houver template
+  const tpl=resolveClientTemplate(c,ads);
   const bySpend={};ads.forEach(a=>{const tp=(a.objetivo&&a.objetivo.tipo)||'conversao';bySpend[tp]=(bySpend[tp]||0)+(a.spend||0)});
-  const dominant=(Object.entries(bySpend).sort((a,b)=>b[1]-a[1])[0]||['conversao'])[0];
+  const domBySpend=(Object.entries(bySpend).sort((a,b)=>b[1]-a[1])[0]||['conversao'])[0];
+  const dominant=tpl.objectiveType||domBySpend;
   const hp=rxHealth(agg,c,dominant);
   const pt=prev.total||{};
   const delta=(cur,pv,lower)=>{if(!pv)return '';const v=((cur-pv)/pv)*100;const up=v>=0;const good=lower?!up:up;return `<span style="font-size:11px;font-weight:700;color:${good?'#34d399':'#f87171'}">${up?'▲':'▼'} ${Math.abs(v).toFixed(0)}%</span>`;};
-  // KPIs por objetivo
-  const d=deriveMeta({...agg});
-  let kpis=[['Valor Gasto',fmt(agg.spend),delta(agg.spend,pt.spend,true)]];
-  if(dominant==='mensagens')kpis.push(['Conversas',Math.round(agg.conversas).toLocaleString('pt-BR'),delta(agg.conversas,pt.conversas)],['Custo/conversa',agg.conversas?fmt(agg.spend/agg.conversas):'—','']);
-  else if(dominant==='leads')kpis.push(['Leads',Math.round(agg.leads).toLocaleString('pt-BR'),delta(agg.leads,pt.leads)],['CPL',agg.leads?fmt(agg.spend/agg.leads):'—','']);
-  else if(dominant==='trafego')kpis.push(['Cliques',Math.round(agg.clicks).toLocaleString('pt-BR'),delta(agg.clicks,pt.clicks)],['CPC',fmt(d.cpc),'']);
-  else kpis.push(['Faturamento',fmt(agg.revenue),delta(agg.revenue,pt.revenue)],['ROAS',d.roas.toFixed(2)+'x',''],['Compras',Math.round(agg.purchases).toLocaleString('pt-BR'),'']);
-  kpis.push(['CTR',d.ctr.toFixed(2)+'%',delta(d.ctr,pt.impressions?(pt.clicks/pt.impressions*100):0)],['CPM',fmt(d.cpm),'']);
+  // agg no formato do catálogo de métricas (mesmo do dashboard/relatório)
+  const mAgg={spend:agg.spend,impressions:agg.impressions,clicks:agg.clicks,reach:agg.reach,revenue:agg.revenue,compras:Math.round(agg.purchases),leads:agg.leads,conversas:agg.conversas,videoViews:agg.videoViews,engajamentos:agg.engajamentos,addCarrinho:0,checkout:0,frequencia:agg.reach?agg.impressions/agg.reach:0};
+  const pAgg={spend:pt.spend||0,impressions:pt.impressions||0,clicks:pt.clicks||0,reach:pt.reach||0,revenue:pt.revenue||0,compras:Math.round(pt.purchases||0),leads:pt.leads||0,conversas:pt.conversas||0,videoViews:pt.videoViews||0,engajamentos:pt.engajamentos||0,addCarrinho:0,checkout:0,frequencia:pt.reach?pt.impressions/pt.reach:0};
+  const kpiKeys=(tpl.metrics||[]).filter(k=>METRIC_CATALOG[k]).slice(0,7);
+  const kpis=kpiKeys.map(k=>{const mc=METRIC_CATALOG[k];const cur=mc.calc(mAgg);const pv=mc.calc(pAgg);const lower=/custo|cpc|cpm|cpa|cpl/i.test(k);return [mc.label+(k===tpl.keyMetric?' ★':''),fmtMetric(cur,mc.fmt),pv?delta(cur,pv,lower):''];});
   // gauge (conic)
   const gaugeCol=hp.cls[1];
   const gauge=`<div style="position:relative;width:150px;height:150px;flex:none">
@@ -2154,7 +2153,7 @@ function renderRaioX(){
     </div></div>`:'';
   body.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
-      <div style="font-size:11px;color:var(--faint)">RAIO-X · ${c.name.replace(/</g,'&lt;')} · ${dateBR(_rxSince)}–${dateBR(_rxUntil)} · ${(OBJETIVO_INFO[dominant]||{rotulo:dominant}).rotulo}</div>
+      <div style="font-size:11px;color:var(--faint)">RAIO-X · ${c.name.replace(/</g,'&lt;')} · ${dateBR(_rxSince)}–${dateBR(_rxUntil)} · modelo: <b>${(tpl.name||'').replace(/</g,'&lt;')}</b>${tpl.isBase?'':' (personalizado)'}</div>
       <div style="display:flex;gap:6px"><button class="btn sm ghost" onclick="loadRaioX('${c.id}')">↻ Refazer</button><button class="btn sm ghost" onclick="rxShareHTML()">📤 Exportar</button></div>
     </div>
     <div class="card" style="margin-bottom:16px"><div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
