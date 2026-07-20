@@ -825,16 +825,10 @@
     </div>
 
     <div class="cpanel" data-panel="relatorios" style="display:none">
-      <div class="form-row"><label>Modelo de relatório <span style="font-size:11px;color:var(--faint);font-weight:400">— define métrica-chave, KPIs e funil</span></label>
-        <div style="display:flex;gap:8px;align-items:center">
-          <select id="cReportTemplate" style="flex:1"></select>
-          <button type="button" class="btn sm ghost" onclick="openTemplatesModal()">⚙ Modelos</button>
-        </div>
-        <div style="font-size:11px;color:var(--faint);margin-top:3px">"Automático" usa o modelo-base do objetivo da campanha no Meta.</div>
-      </div>
-      <div class="form-row"><label>🎯 Objetivos do cliente <span style="font-size:11px;color:var(--faint);font-weight:400">— personalizam o relatório E o dashboard inteiros</span></label>
-        <div id="cReportFocos" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-        <div style="font-size:11px;color:var(--faint);margin-top:3px">Vazio = detecta automático pelas campanhas (objetivo + local de conversão do Meta). Marcando, o relatório, o semanal e o dashboard mostram só esses objetivos. Também dá pra ajustar pelos chips dentro do relatório.</div>
+      <div class="form-row"><label style="display:flex;justify-content:space-between;align-items:center">📋 Templates do cliente <button type="button" class="btn sm ghost" style="font-size:11px" onclick="openTemplatesModal()">⚙ Gerenciar modelos</button></label>
+        <div style="font-size:11px;color:var(--faint);margin:2px 0 8px">Cada template define objetivo, métrica-chave, KPIs e funil. <b>Marque um ou mais</b> — eles dirigem os defaults em Dashboard, Relatório e Raio-X. Vários = você escolhe "Todos" ou por template em cada tela.</div>
+        <div id="cReportTemplates" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        <div style="font-size:11px;color:var(--faint);margin-top:6px">Nenhum marcado = detecta automático pelo objetivo com mais gasto.</div>
       </div>
       <div class="form-row"><label>Fonte de vendas do funil <span style="font-size:11px;color:var(--faint);font-weight:400">— de onde vem o nº de vendas/conversões</span></label>
         <select id="cConversionSource">
@@ -1485,12 +1479,35 @@ function allTemplates(){return BASE_TEMPLATES.concat(DB.reportTemplates||[])}
 function templateById(id){return allTemplates().find(t=>t.id===id)||null}
 function baseTemplateForObjective(tipo){return BASE_TEMPLATES.find(t=>t.objectiveType===tipo)||BASE_TEMPLATES[0]}
 // Resolve o modelo do cliente: escolhido manualmente OU auto pelo objetivo dominante (do Meta)
-function resolveClientTemplate(c,metaAds){
-  if(c.reportTemplateId){const t=templateById(c.reportTemplateId);if(t)return t;}
-  // auto: objetivo dominante por investimento
-  const bySpend={};(metaAds||[]).forEach(a=>{const tp=(a.objetivo&&a.objetivo.tipo)||'conversao';bySpend[tp]=(bySpend[tp]||0)+(a.spend||0)});
-  const dom=Object.entries(bySpend).sort((a,b)=>b[1]-a[1])[0];
-  return baseTemplateForObjective(dom?dom[0]:'conversao');
+// Templates do cliente (multi): reportTemplateIds > legado (template único + focos) > auto por gasto.
+function clientTemplates(c,ads){
+  let ids=Array.isArray(c.reportTemplateIds)?c.reportTemplateIds.filter(Boolean):[];
+  if(!ids.length){
+    if(c.reportTemplateId)ids=[c.reportTemplateId];
+    else if(c.reportFocos&&c.reportFocos.length)ids=c.reportFocos.map(f=>'base_'+f);
+  }
+  let tpls=ids.map(id=>templateById(id)).filter(Boolean);
+  if(!tpls.length){
+    const bySpend={};(ads||[]).forEach(a=>{const tp=(a.objetivo&&a.objetivo.tipo)||'conversao';bySpend[tp]=(bySpend[tp]||0)+(a.spend||0)});
+    const dom=Object.entries(bySpend).sort((a,b)=>b[1]-a[1])[0];
+    tpls=[baseTemplateForObjective(dom?dom[0]:'conversao')];
+  }
+  return tpls;
+}
+// Combina vários templates num "Todos" (união de métricas e funil, na ordem certa)
+function templateCombined(tpls){
+  if(!tpls||!tpls.length)return baseTemplateForObjective('conversao');
+  if(tpls.length===1)return tpls[0];
+  const metrics=[],funnel=[];
+  tpls.forEach(t=>{(t.metrics||[]).forEach(m=>{if(!metrics.includes(m))metrics.push(m)});(t.funnel||[]).forEach(f=>{if(!funnel.includes(f))funnel.push(f)});});
+  funnel.sort((a,b)=>FUNNEL_ORDER.indexOf(a)-FUNNEL_ORDER.indexOf(b));
+  return {id:'__all__',name:'Todos',metrics,funnel,keyMetric:(tpls[0]||{}).keyMetric||'',objectiveType:'',isBase:true,_combined:true};
+}
+// Resolve o modelo do cliente. selId = template específico selecionado na tela (senão, "Todos" combinado).
+function resolveClientTemplate(c,ads,selId){
+  const tpls=clientTemplates(c,ads);
+  if(selId&&selId!=='__all__'){const t=tpls.find(x=>x.id===selId);if(t)return t;}
+  return templateCombined(tpls);
 }
 function fmtMetric(val,fmt){
   if(fmt==='money')return fmt$(val);
@@ -1513,6 +1530,16 @@ function fillReportFocos(sel){
   const s=new Set(sel||[]);
   box.innerHTML=Object.entries(OBJETIVO_INFO).map(([k,v])=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:5px 9px;cursor:pointer"><input type="checkbox" class="cFoco" value="${k}" ${s.has(k)?'checked':''} style="width:auto">${v.rotulo}</label>`).join('');
 }
+// Multi-seleção de templates do cliente (base + personalizados)
+function fillTemplatePicker(selectedIds){
+  const box=document.getElementById('cReportTemplates');if(!box)return;
+  const sel=new Set(selectedIds||[]);
+  const chip=t=>`<label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;background:${sel.has(t.id)?'rgba(240,192,64,.14)':'var(--surface2)'};border:1px solid ${sel.has(t.id)?'rgba(240,192,64,.5)':'var(--border)'};border-radius:8px;padding:5px 10px;cursor:pointer"><input type="checkbox" class="cTpl" value="${t.id}" ${sel.has(t.id)?'checked':''} style="width:auto" onchange="this.closest('label').style.background=this.checked?'rgba(240,192,64,.14)':'var(--surface2)';this.closest('label').style.borderColor=this.checked?'rgba(240,192,64,.5)':'var(--border)'">${t.name.replace(/</g,'&lt;')}</label>`;
+  const base=BASE_TEMPLATES.map(chip).join('');
+  const custom=(DB.reportTemplates||[]).map(chip).join('');
+  box.innerHTML=`<div style="width:100%;font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin:2px 0 4px">Modelos-base</div>${base}${custom?`<div style="width:100%;font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin:8px 0 4px">Personalizados</div>${custom}`:''}`;
+}
+function getSelectedTemplateIds(){return [...document.querySelectorAll('.cTpl:checked')].map(x=>x.value);}
 let _tplEditing=null;
 function openTemplatesModal(){_tplEditing=null;renderTemplatesList();openModal('templatesModal')}
 function renderTemplatesList(){
@@ -1591,14 +1618,14 @@ async function saveTemplateForm(){
   await sb.from('report_templates').upsert(dbTemplate(o));
   const i=(DB.reportTemplates||[]).findIndex(t=>t.id===o.id);
   if(i>=0)DB.reportTemplates[i]={...o,isBase:false};else{DB.reportTemplates=DB.reportTemplates||[];DB.reportTemplates.push({...o,isBase:false})}
-  if(document.getElementById('cReportTemplate'))fillTemplateSelect(document.getElementById('cReportTemplate').value);
+  if(document.getElementById('cReportTemplates'))fillTemplatePicker(getSelectedTemplateIds());
   renderTemplatesList();renderModelosPage();
 }
 async function deleteTemplate(id){
   if(!confirm('Excluir este modelo? Clientes que o usam voltam para "Automático".'))return;
   await sb.from('report_templates').delete().eq('id',id);
   DB.reportTemplates=(DB.reportTemplates||[]).filter(t=>t.id!==id);
-  if(document.getElementById('cReportTemplate'))fillTemplateSelect(document.getElementById('cReportTemplate').value);
+  if(document.getElementById('cReportTemplates'))fillTemplatePicker(getSelectedTemplateIds());
   renderTemplatesList();renderModelosPage();
 }
 // Retorna a próxima ocorrência da data de relatório mensal a partir de hoje
@@ -1615,8 +1642,8 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,minBalance:+r.min_balance||0});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,minBalance:+r.min_balance||0});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||'',category:r.category||'',fixedType:r.fixed_type||''});
@@ -2030,7 +2057,8 @@ async function connectRdForClient(clientId){
   alert('Abri a tela do RD Station numa aba nova. IMPORTANTE: esteja logado na conta RD DESTE cliente. Autorize por lá; depois recarregue o cadastro pra ver "Conectado".');
 }
 /* ================= RAIO-X DO CLIENTE (análise profunda) ================= */
-let _rxClientId='',_rxSince='',_rxUntil='',_rxPreset='90',_rxData=null,_rxCharts={};
+let _rxClientId='',_rxSince='',_rxUntil='',_rxPreset='90',_rxData=null,_rxCharts={},_rxTplId='';
+function setRxTpl(id){_rxTplId=id;renderRaioX();}
 function _rxDestroy(k){if(_rxCharts[k]){_rxCharts[k].destroy();_rxCharts[k]=null;}}
 function loadRaioX(clientId){
   const c=DB.clients.find(x=>x.id===(clientId||activeClientId||_rxClientId));
@@ -2112,7 +2140,9 @@ function renderRaioX(){
   const t=rep.total||{};
   const agg={spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:t.revenue||0,purchases:t.purchases||0,leads:t.leads||0,conversas:t.conversas||0,videoViews:t.videoViews||0,engajamentos:t.engajamentos||0};
   // Objetivo/KPIs DIRIGIDOS PELO TEMPLATE do cliente (igual dashboard/relatório); auto por gasto só se não houver template
-  const tpl=resolveClientTemplate(c,ads);
+  const _rxtpls=clientTemplates(c,ads);
+  if(_rxTplId&&_rxTplId!=='__all__'&&!_rxtpls.some(t=>t.id===_rxTplId))_rxTplId='';
+  const tpl=resolveClientTemplate(c,ads,_rxTplId);
   const bySpend={};ads.forEach(a=>{const tp=(a.objetivo&&a.objetivo.tipo)||'conversao';bySpend[tp]=(bySpend[tp]||0)+(a.spend||0)});
   const domBySpend=(Object.entries(bySpend).sort((a,b)=>b[1]-a[1])[0]||['conversao'])[0];
   const dominant=tpl.objectiveType||domBySpend;
@@ -2153,9 +2183,10 @@ function renderRaioX(){
     </div></div>`:'';
   body.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
-      <div style="font-size:11px;color:var(--faint)">RAIO-X · ${c.name.replace(/</g,'&lt;')} · ${dateBR(_rxSince)}–${dateBR(_rxUntil)} · modelo: <b>${(tpl.name||'').replace(/</g,'&lt;')}</b>${tpl.isBase?'':' (personalizado)'}</div>
+      <div style="font-size:11px;color:var(--faint)">RAIO-X · ${c.name.replace(/</g,'&lt;')} · ${dateBR(_rxSince)}–${dateBR(_rxUntil)} · modelo: <b>${(tpl.name||'').replace(/</g,'&lt;')}</b></div>
       <div style="display:flex;gap:6px"><button class="btn sm ghost" onclick="loadRaioX('${c.id}')">↻ Refazer</button><button class="btn sm ghost" onclick="rxShareHTML()">📤 Exportar</button></div>
     </div>
+    ${_rxtpls.length>1?`<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:14px"><span style="font-size:11px;color:var(--faint)">Template:</span><button class="btn sm ${(_rxTplId||'__all__')==='__all__'?'primary':'ghost'}" onclick="setRxTpl('')">Todos</button>${_rxtpls.map(t=>`<button class="btn sm ${_rxTplId===t.id?'primary':'ghost'}" onclick="setRxTpl('${t.id}')">${t.name.replace(/</g,'&lt;')}</button>`).join('')}</div>`:''}
     <div class="card" style="margin-bottom:16px"><div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
       ${gauge}
       <div style="flex:1;min-width:240px">${dimBars}</div>
@@ -3832,8 +3863,10 @@ function openClientModal(id){
   setGoogleSelection(c.googleAccountIds||[]);
   document.getElementById('cGoogleAccountHint').textContent='';
   renderRdConnect(id,c.rdConfig);
-  fillTemplateSelect(c.reportTemplateId||'');
-  fillReportFocos(c.reportFocos||[]);
+  // templates do cliente (novo multi); migra na hora quem só tem o legado
+  let tplIds=Array.isArray(c.reportTemplateIds)?c.reportTemplateIds.slice():null;
+  if(!tplIds){tplIds=[];if(c.reportTemplateId)tplIds.push(c.reportTemplateId);(c.reportFocos||[]).forEach(f=>{const id='base_'+f;if(!tplIds.includes(id))tplIds.push(id)});}
+  fillTemplatePicker(tplIds);
   document.getElementById('cConversionSource').value=c.conversionSource||'';
   {const bm=c.benchmarkMetas||{};const setM=(id,v)=>{document.getElementById(id).value=(v||v===0)?v:''};
    setM('cMetaCtr',bm.ctr);setM('cMetaCpc',bm.cpc);setM('cMetaCpm',bm.cpm);setM('cMetaRoas',bm.roas);setM('cMetaCpa',bm.cpa);setM('cMetaCpl',bm.cpl);setM('cMetaConversa',bm.custoConversa);setM('cMetaView',bm.custoView);
@@ -3978,7 +4011,7 @@ async function saveClient(){
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
   const reportWeekly=document.getElementById('cReportWeekly').checked;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),googleAccountIds:googleSelectedIds.slice(),reportTemplateId:document.getElementById('cReportTemplate').value||'',conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:(document.getElementById('cReportFocos')?[...document.querySelectorAll('.cFoco:checked')].map(x=>x.value):((DB.clients.find(x=>x.id===cId.value)||{}).reportFocos||[])),benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),googleAccountIds:googleSelectedIds.slice(),reportTemplateIds:getSelectedTemplateIds(),reportTemplateId:(getSelectedTemplateIds()[0]||''),conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:[...new Set(getSelectedTemplateIds().map(id=>(templateById(id)||{}).objectiveType).filter(Boolean))],benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
@@ -5436,7 +5469,15 @@ const DASH_METRICS={
 };
 const DASH_PAL=['#f0c040','#60a5fa','#34d399','#f472b6','#a78bfa','#fb923c','#22d3ee','#f87171','#94a3b8','#facc15'];
 let _dashRecs=[],_dashAds=[],_dashCharts={},_dashLineA='spend',_dashLineB='impressions',_dashLevel='campanha',_dashLevelMetric='spend',_dashSalesFromSheet=false,_dashSheetSales=null;
-let _dashCampRecs=[],_dashFAcc=[],_dashFObj=[],_dashFCamp=[],_dashFAdset=[],_dashAgg=null,_dashTpl=null,_dashNoSales=false;
+let _dashCampRecs=[],_dashFAcc=[],_dashFObj=[],_dashFCamp=[],_dashFAdset=[],_dashAgg=null,_dashTpl=null,_dashNoSales=false,_dashTplId='';
+function setDashTpl(id){_dashTplId=id;const c=DB.clients.find(x=>x.id===_dashClientId);if(c)loadMetaDashboard(c,++_tplLoadToken);}
+// Chips "Todos / por template" (só aparece quando o cliente tem >1 template)
+function dashTplChips(c){
+  const tpls=clientTemplates(c,_dashAds);
+  if(tpls.length<2)return '';
+  const chip=(id,l)=>`<button class="btn sm ${(_dashTplId||'__all__')===id?'primary':'ghost'}" onclick="setDashTpl('${id==='__all__'?'':id}')">${l}</button>`;
+  return `<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:12px"><span style="font-size:11px;color:var(--faint)">Template:</span>${chip('__all__','Todos')}${tpls.map(t=>chip(t.id,t.name.replace(/</g,'&lt;'))).join('')}</div>`;
+}
 function _dashObjTipo(a){return (a.objetivo&&a.objetivo.tipo)||'outro';}
 // Cadeia de filtros: Conta → Objetivo → Campanha → Conjunto. Objetivo combina com campanha (não é ou/ou).
 function _dashAdsAcc(){return _dashAds.filter(a=>a.spend>0&&(!_dashFAcc.length||_dashFAcc.includes(a.account)));}
@@ -5559,8 +5600,7 @@ function dashKpiKeys(){
   try{const s=JSON.parse(localStorage.getItem('dashKpis_'+_dashClientId)||'null');if(Array.isArray(s)&&s.length)return s.filter(k=>METRIC_CATALOG[k]);}catch(e){}
   const c=DB.clients.find(x=>x.id===_dashClientId);
   if(c&&Array.isArray(c.dashKpis)&&c.dashKpis.length)return c.dashKpis.filter(k=>METRIC_CATALOG[k]);
-  const foco=(c&&c.reportFocos&&c.reportFocos.length)?c.reportFocos[0]:null;
-  if(foco){const bt=BASE_TEMPLATES.find(t=>t.objectiveType===foco);if(bt)return bt.metrics.filter(k=>METRIC_CATALOG[k]);}
+  // padrão = métricas do template ativo do cliente (combinado "Todos" ou o selecionado)
   return ((_dashTpl&&_dashTpl.metrics)||[]).filter(k=>METRIC_CATALOG[k]);
 }
 function _dashKpiApply(keys){localStorage.setItem('dashKpis_'+_dashClientId,JSON.stringify(keys));applyDashFilters();renderDashKpiEditor();}
@@ -6055,7 +6095,9 @@ function renderMetaDashboard(c,rep,since,until){
   const body=document.getElementById('clientReportBody');
   const t=rep.total||{};
   const noSales=c.conversionSource==='none';
-  const tpl=resolveClientTemplate(c,rep.ads);
+  const _rxtpls=clientTemplates(c,rep.ads);
+  if(_dashTplId&&_dashTplId!=='__all__'&&!_rxtpls.some(t=>t.id===_dashTplId))_dashTplId='';
+  const tpl=resolveClientTemplate(c,rep.ads,_dashTplId);
   const agg={spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:noSales?0:(t.revenue||0),compras:noSales?0:Math.round(t.purchases||0),leads:t.leads||0,addCarrinho:t.addToCart||0,checkout:t.initiateCheckout||0,conversas:t.conversas||0,videoViews:t.videoViews||0,engajamentos:t.engajamentos||0,frequencia:t.reach?t.impressions/t.reach:0};
   // métricas-resultado atribuídas por objetivo (mídia continua no nível de conta) — KPI bate com os cards de foco
   {const objM=_objAttrib((rep.ads||[]).filter(a=>a.spend>0));
@@ -6087,8 +6129,9 @@ function renderMetaDashboard(c,rep,since,until){
       </div>
       ${(hasM&&hasG)?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${srcBar}</div>`:''}
       <div id="dashFilterBar" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
+      ${dashTplChips(c)}
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
-        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700">⭐ KPIs Principais</div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700">⭐ KPIs Principais${(_dashTplId&&_dashTplId!=='__all__')?' · '+(tpl.name||'').replace(/</g,'&lt;'):''}</div>
         <button class="btn sm ghost" type="button" onclick="toggleDashKpiEditor()" title="Escolher quais métricas aparecem aqui">✎ Editar métricas</button>
       </div>
       <div id="dashKpiEditor" style="display:none"></div>
@@ -6875,12 +6918,10 @@ const OBJETIVO_INFO={
   video:{rotulo:'Vídeo',metrica:'views, custo por view'},
   distribuicao:{rotulo:'Distribuição',metrica:'CPM, alcance, views'},
 };
-// Focos do relatório: escolha manual (reportFocos) → senão o objetivo do modelo → senão null (auto pelas campanhas)
+// Focos do relatório = objetivos dos templates do cliente (multi). Null = auto pelas campanhas.
 function resolveReportFocos(c){
-  if(c.reportFocos&&c.reportFocos.length)return c.reportFocos.slice();
-  const tpl=c.reportTemplateId?templateById(c.reportTemplateId):null;
-  if(tpl&&tpl.objectiveType)return [tpl.objectiveType];
-  return null; // auto
+  const focos=[...new Set(clientTemplates(c,[]).map(t=>t.objectiveType).filter(Boolean))];
+  return focos.length?focos:null;
 }
 // Remapeia os anúncios para um único foco (usa a métrica desse objetivo em tudo)
 function remapAdsToFoco(metaAds,tipo){
@@ -6954,8 +6995,7 @@ let _funnelAggs={},_funnelKeys=[],_funnelNoSales=false,_funnelClientId='',_funne
 function reportFunnelKeys(c,tpl){
   try{const s=JSON.parse(localStorage.getItem('rtFunnel_'+c.id)||'null');if(Array.isArray(s)&&s.length)return s.filter(k=>FUNNEL_CATALOG[k]);}catch(e){}
   if(Array.isArray(c.reportFunnel)&&c.reportFunnel.length)return c.reportFunnel.filter(k=>FUNNEL_CATALOG[k]);
-  const foco=(c.reportFocos&&c.reportFocos.length)?c.reportFocos[0]:null;
-  if(foco){const bt=BASE_TEMPLATES.find(t=>t.objectiveType===foco);if(bt)return bt.funnel.filter(k=>FUNNEL_CATALOG[k]);}
+  // padrão = funil do template ativo (combinado ou selecionado)
   return ((tpl&&tpl.funnel)||[]).filter(k=>FUNNEL_CATALOG[k]);
 }
 function funnelStagesFor(agg,keys,noSales){
