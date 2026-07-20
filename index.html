@@ -7575,9 +7575,9 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   }).join('');
   const dv='<div class="rt-div"></div>';
   const _tabs=[['geral','Visão Geral']];
-  if(secSemanal||secSemanaisFoco)_tabs.push(['semanal','Comparativo Semanal']);
+  if((secSemanal||secSemanaisFoco)&&rtTabOn(c,'semanal'))_tabs.push(['semanal','Comparativo Semanal']);
   objGroups.forEach(g=>_tabs.push(['foco_'+g.tipo,g.rotulo]));
-  _tabs.push(['criativos','Criativos']);
+  if(rtTabOn(c,'criativos'))_tabs.push(['criativos','Criativos']);
   const tabBtns=_tabs.map((t,i)=>`<button class="rtTabBtn ${i===0?'on':''}" data-rtab="${t[0]}" onclick="setReportTab('${t[0]}')">${t[1]}</button>`).join('');
   // ---- CONSTRUTOR DE LAYOUT: seções da Visão Geral montadas conforme o layout do cliente (ligar/desligar/ordenar + personalizadas) ----
   _rtLast={cid:c.id,ordersTab:c.reportOrdersTab,month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds,since,until};
@@ -7597,6 +7597,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   const layout=rtResolveLayout(c);
   const geralInner=layout.map(entry=>{
     if(entry.on===false)return '';
+    if(RT_TAB_CATALOG.some(t=>t.key===entry.key))return ''; // abas são controladas à parte, não entram na Visão Geral
     const isCustom=(entry.key||'').startsWith('custom_');
     const html=isCustom?rtRenderCustomSection(entry,chanAgg):(secMap[entry.key]||'');
     if(!html)return '';
@@ -7607,6 +7608,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   const rtEditToolbar=_rtLayoutEdit?`<div class="rt-no-print" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px;padding:12px 14px;background:var(--rbg2);border:1px dashed var(--accent);border-radius:12px">
       <b style="font-size:12.5px">✎ Editando layout</b>
       <button class="btn sm ghost" type="button" onclick="rtLayoutAddCustom('')">➕ Seção personalizada</button>
+      <span style="font-size:11px;color:var(--rtm)">Abas:</span>${RT_TAB_CATALOG.map(t=>`<button class="btn sm ${rtTabOn(c,t.key)?'primary':'ghost'}" type="button" onclick="rtLayoutToggleTab('${t.key}')">${rtTabOn(c,t.key)?'✓ ':''}${t.label}</button>`).join('')}
       ${offSecs.length?`<select onchange="rtLayoutToggleOn(this.value);this.value=''" style="width:auto;font-size:12px"><option value="">+ re-adicionar seção…</option>${offSecs.map(s=>`<option value="${s.key}">${s.label}</option>`).join('')}</select>`:''}
       <span style="flex:1"></span>
       <input id="rtLayoutName" placeholder="nome do layout" style="width:auto;font-size:12px">
@@ -7630,9 +7632,9 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
         ${rtEditToolbar}
         ${geralInner}
       </div>
-      ${(secSemanal||secSemanaisFoco)?`<div class="rtTab rtoff" data-rtab="semanal">${secSemanal}${secSemanal&&secSemanaisFoco?dv:''}${secSemanaisFoco}</div>`:''}
+      ${((secSemanal||secSemanaisFoco)&&rtTabOn(c,'semanal'))?`<div class="rtTab rtoff" data-rtab="semanal">${secSemanal}${secSemanal&&secSemanaisFoco?dv:''}${secSemanaisFoco}</div>`:''}
       ${focoTabs}
-      <div class="rtTab rtoff" data-rtab="criativos">${raioXSectionHTML(raioAds,c.id)||'<div class="empty">Sem criativos do Meta neste período.</div>'}</div>
+      ${rtTabOn(c,'criativos')?`<div class="rtTab rtoff" data-rtab="criativos">${raioXSectionHTML(raioAds,c.id)||'<div class="empty">Sem criativos do Meta neste período.</div>'}</div>`:''}
     </div>
     <div class="rt-ftr">Relatório gerado automaticamente · Central de Gestão · ${mesLabel}</div>
   </div>`;
@@ -7651,14 +7653,20 @@ const RT_SEC_CATALOG=[
   {key:'resumo',label:'Resumo Executivo'},
   {key:'analise',label:'Análise do Gestor'},
 ];
+// abas (fora da Visão Geral) que também podem ser ligadas/desligadas
+const RT_TAB_CATALOG=[
+  {key:'semanal',label:'Comparativo Semanal'},
+  {key:'criativos',label:'Criativos'},
+];
 let _rtLayoutEdit=false,_rtLayouts=[],_rtLast=null;
-// resolve o layout do cliente (ordem + on/off); default = tudo ligado; acrescenta seções novas do catálogo no fim
+// resolve o layout do cliente (ordem + on/off); default = tudo ligado; acrescenta seções/abas novas do catálogo no fim
 function rtResolveLayout(c){
   let secs=(c&&c.reportLayout&&Array.isArray(c.reportLayout.sections))?c.reportLayout.sections.map(s=>({...s})):null;
   if(!secs)secs=RT_SEC_CATALOG.map(s=>({key:s.key,on:true}));
-  RT_SEC_CATALOG.forEach(s=>{if(!secs.some(x=>x.key===s.key))secs.push({key:s.key,on:true});});
+  [...RT_SEC_CATALOG,...RT_TAB_CATALOG].forEach(s=>{if(!secs.some(x=>x.key===s.key))secs.push({key:s.key,on:true});});
   return secs;
 }
+function rtTabOn(c,key){const e=rtResolveLayout(c).find(s=>s.key===key);return !e||e.on!==false;}
 function rtSecEditBar(key,label){
   if(!_rtLayoutEdit)return '';
   const isCustom=(key||'').startsWith('custom_');
@@ -7674,10 +7682,18 @@ function rtRenderCustomSection(entry,chanAgg){
   const metrics=(entry.metrics||[]).filter(k=>METRIC_CATALOG[k]);
   if(!metrics.length)return '';
   const title=(entry.title||'Seção personalizada').replace(/</g,'&lt;');
-  const chLbl=entry.channel==='meta'?'Ⓜ️ META ADS':entry.channel==='google'?'🔎 GOOGLE ADS':'🌐 GERAL';
+  const chLbl=entry.format==='grafico'?'📊 COMPARATIVO DE CANAIS':entry.channel==='meta'?'Ⓜ️ META ADS':entry.channel==='google'?'🔎 GOOGLE ADS':'🌐 GERAL';
   const val=k=>{const mc=METRIC_CATALOG[k];return fmtMetric(mc.calc(agg),mc.fmt);};
   let bodyH;
-  if(entry.format==='tabela'){
+  if(entry.format==='grafico'){
+    // barras comparando os canais existentes por métrica (normaliza POR métrica → não mistura unidades)
+    const chans=[['geral','🌐 Geral'],['meta','Ⓜ️ Meta'],['google','🔎 Google']].filter(([ck])=>ck==='geral'||(((chanAgg&&chanAgg[ck])||{}).spend>0));
+    bodyH=`<div class="rt-tc" style="padding:16px 18px">${metrics.map(k=>{const mc=METRIC_CATALOG[k];
+      const vs=chans.map(([ck,cl])=>{const raw=mc.calc((chanAgg&&chanAgg[ck])||{})||0;return {cl,raw,f:fmtMetric(raw,mc.fmt)};});
+      const max=Math.max(...vs.map(v=>v.raw),0)||1;
+      return `<div style="margin-bottom:16px"><div style="font-size:12px;color:var(--rt2);font-weight:600;margin-bottom:6px">${mc.label}</div>${vs.map(v=>`<div class="rt-bar-row"><div class="rt-b-lbl" style="min-width:82px">${v.cl}</div><div class="rt-b-track"><div class="rt-b-fill" style="width:${Math.max(v.raw/max*100,2).toFixed(1)}%"></div></div><div class="rt-b-val">${v.f}</div></div>`).join('')}</div>`;
+    }).join('')}</div>`;
+  }else if(entry.format==='tabela'){
     bodyH=`<div class="rt-tc" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Indicador</th><th style="text-align:right;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Valor</th></tr>${metrics.map(k=>`<tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${METRIC_CATALOG[k].label}</td><td style="text-align:right;padding:8px 14px;font-size:12.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.035)">${val(k)}</td></tr>`).join('')}</table></div>`;
   }else if(entry.format==='destaque'){
     bodyH=`<div style="display:flex;flex-wrap:wrap;gap:26px">${metrics.map(k=>`<div><div style="font-size:11px;color:var(--rtm);text-transform:uppercase;letter-spacing:.05em">${METRIC_CATALOG[k].label}</div><div style="font-size:26px;font-weight:800;color:var(--rt1)">${val(k)}</div></div>`).join('')}</div>`;
@@ -7696,6 +7712,7 @@ function _rtSetLayout(secs){const c=_rtClient();if(!c)return;c.reportLayout={sec
 function rtLayoutMove(key,dir){const secs=rtResolveLayout(_rtClient());const i=secs.findIndex(s=>s.key===key);const j=i+dir;if(i<0||j<0||j>=secs.length)return;const t=secs[i];secs[i]=secs[j];secs[j]=t;_rtSetLayout(secs);}
 function rtLayoutToggle(key){const secs=rtResolveLayout(_rtClient());const e=secs.find(s=>s.key===key);if(e)e.on=false;_rtSetLayout(secs);}
 function rtLayoutToggleOn(key){if(!key)return;const secs=rtResolveLayout(_rtClient());const e=secs.find(s=>s.key===key);if(e)e.on=true;_rtSetLayout(secs);}
+function rtLayoutToggleTab(key){const secs=rtResolveLayout(_rtClient());const e=secs.find(s=>s.key===key);if(e)e.on=(e.on===false);_rtSetLayout(secs);}
 async function toggleRtLayoutEdit(){_rtLayoutEdit=!_rtLayoutEdit;if(_rtLayoutEdit&&!_rtLayouts.length)await rtLoadLayouts();rtRerender();}
 async function rtLoadLayouts(){try{const {data}=await sb.from('report_layouts').select('*').order('created_at',{ascending:false});_rtLayouts=data||[];}catch(e){_rtLayouts=[];}}
 async function rtLayoutSaveLibrary(){
@@ -7726,7 +7743,8 @@ function rtLayoutAddCustom(editKey){
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Métricas</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${metOpts}</div>
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Formato</div>
-    <select id="rtcFmt" style="width:auto;margin-bottom:18px">${fmtOpt('cards','Cards')}${fmtOpt('tabela','Tabela')}${fmtOpt('destaque','Destaque (números grandes)')}</select>
+    <select id="rtcFmt" style="width:auto;margin-bottom:18px">${fmtOpt('cards','Cards')}${fmtOpt('tabela','Tabela')}${fmtOpt('destaque','Destaque (números grandes)')}${fmtOpt('grafico','Gráfico (barras comparando canais)')}</select>
+    <div style="font-size:11px;color:var(--muted);margin:-12px 0 16px">No formato <b>Gráfico</b>, cada métrica vira barras comparando Geral × Meta × Google (o canal escolhido acima é ignorado).</div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn ghost" type="button" onclick="document.getElementById('rtCustomOverlay').remove()">Cancelar</button>
       <button class="btn primary" type="button" onclick="rtLayoutSaveCustom('${editKey||''}')">${editKey?'Salvar alterações':'Adicionar seção'}</button>
