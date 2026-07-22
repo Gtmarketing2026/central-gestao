@@ -609,7 +609,8 @@
         <span id="crmStatus" style="font-size:11.5px"></span>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <select id="crmInstSel" style="width:auto;font-size:12.5px" onchange="crmSetInst(this.value)"></select>
+        <span id="crmWho" style="font-size:12.5px;font-weight:600"></span>
+        <button class="btn sm ghost" id="crmAgencyBtn" style="display:none" onclick="crmToggleAgency()"></button>
         <button class="btn sm ghost" onclick="toggleCrmGuide()">📖 Guia</button>
         <button class="btn sm ghost" id="crmPollBtn" onclick="crmPoll(true)">🔄 Atualizar</button>
       </div>
@@ -1930,7 +1931,7 @@ const CRM_STAGES=[
   {key:'perdido',label:'Perdido',color:'#f87171'},
 ];
 let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
-let _crmSearch='',_crmFOrigin='',_crmFCampaign='';
+let _crmSearch='',_crmFOrigin='',_crmFCampaign='',_crmViewAgency=false;
 let _crmGuideOpen=(localStorage.getItem('crmGuide')!=='0');
 function toggleCrmGuide(){_crmGuideOpen=!_crmGuideOpen;localStorage.setItem('crmGuide',_crmGuideOpen?'1':'0');renderCrmGuide();}
 async function renderCrmGuide(){
@@ -1962,22 +1963,31 @@ async function renderCrmGuide(){
 function stopCrmPoll(){if(_crmPollTimer){clearInterval(_crmPollTimer);_crmPollTimer=null;}}
 function startCrmPoll(){stopCrmPoll();_crmPollTimer=setInterval(()=>{if(document.getElementById('crm').classList.contains('active'))crmPoll(false);else stopCrmPoll();},20000);}
 async function loadCrm(){
-  const sel=document.getElementById('crmInstSel');
+  if(typeof loadAccountConfig==='function'){try{await loadAccountConfig();}catch(e){}}
+  const showAgency=!!(_acctCfg&&_acctCfg.crm_show_agency);
   const {data}=await sb.from('wa_instances').select('*').order('created_at',{ascending:true});
   _crmInsts=data||[];
-  if(!_crmInsts.length){document.getElementById('crmFilters').innerHTML='';document.getElementById('crmBody').innerHTML='<div class="empty">Nenhum número de WhatsApp conectado. Siga o guia acima ou vá em ⚙️ Configurações → WhatsApp.</div>';sel.innerHTML='';document.getElementById('crmStatus').innerHTML='';document.getElementById('crmCount').textContent='';renderCrmGuide();return;}
-  // prioriza a instância do cliente ativo (CRM é do cliente); agência fica pra envio
-  if(!_crmInstId||!_crmInsts.some(i=>i.id===_crmInstId)){
-    const doCliente=activeClientId&&_crmInsts.find(i=>i.client_id===activeClientId);
-    _crmInstId=(doCliente&&doCliente.id)||_crmInsts[0].id;
+  const whoEl=document.getElementById('crmWho'),agBtn=document.getElementById('crmAgencyBtn'),statusEl=document.getElementById('crmStatus'),body=document.getElementById('crmBody'),countEl=document.getElementById('crmCount'),filt=document.getElementById('crmFilters');
+  if(showAgency){agBtn.style.display='';agBtn.textContent=_crmViewAgency?'👤 Ver cliente':'🏢 Ver agência';}else{agBtn.style.display='none';_crmViewAgency=false;}
+  const client=DB.clients.find(c=>c.id===activeClientId);
+  let inst=null;
+  if(_crmViewAgency&&showAgency){inst=_crmInsts.find(i=>!i.client_id);whoEl.textContent='🏢 Agência (envios)';}
+  else{
+    whoEl.textContent=client?('👤 '+client.name):'';
+    if(!activeClientId){statusEl.innerHTML='';countEl.textContent='';filt.innerHTML='';renderCrmGuide();body.innerHTML='<div class="empty">Selecione um cliente na barra lateral para ver o CRM dele.</div>';return;}
+    inst=_crmInsts.find(i=>i.client_id===activeClientId);
   }
-  sel.innerHTML=_crmInsts.map(i=>{const c=DB.clients.find(x=>x.id===i.client_id);const lbl=c?c.name:(i.client_id?i.name:'Agência (envios)');return `<option value="${i.id}" ${i.id===_crmInstId?'selected':''}>${(lbl||i.phone||'Número').replace(/</g,'&lt;')}${i.phone?' · '+i.phone:''}</option>`;}).join('');
-  const inst=_crmInsts.find(i=>i.id===_crmInstId);
-  document.getElementById('crmStatus').innerHTML=inst.status==='connected'?'<span style="color:#34d399">● conectado</span>':`<span style="color:#f59e0b">● ${inst.status||'desconectado'}</span>`;
+  if(!inst){
+    statusEl.innerHTML='<span style="color:#f59e0b">● sem WhatsApp</span>';countEl.textContent='';filt.innerHTML='';_crmInstId='';_crmConvs=[];renderCrmGuide();
+    body.innerHTML=`<div class="empty" style="padding:40px 20px">${_crmViewAgency?'A agência':'Este cliente'+(client?' ('+client.name.replace(/</g,'&lt;')+')':'')} ainda não tem WhatsApp conectado.<br><button class="btn sm primary" style="margin-top:12px" onclick="goToTab('configuracoes')">Conectar em Configurações → WhatsApp</button></div>`;
+    return;
+  }
+  _crmInstId=inst.id;
+  statusEl.innerHTML=inst.status==='connected'?'<span style="color:#34d399">● conectado</span>':`<span style="color:#f59e0b">● ${inst.status||'desconectado'}</span>`;
   await loadCrmConvs();
   crmPoll(false); startCrmPoll();
 }
-function crmSetInst(id){_crmInstId=id;_crmActive=null;_crmFCampaign='';loadCrm();}
+function crmToggleAgency(){_crmViewAgency=!_crmViewAgency;_crmActive=null;_crmFCampaign='';loadCrm();}
 async function crmPoll(manual){
   const btn=document.getElementById('crmPollBtn');if(manual&&btn){btn.textContent='…';btn.disabled=true;}
   try{await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,limit:80}}});if(manual)await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'resolveOrigins',instanceId:_crmInstId}}}).catch(()=>{});await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id);}catch(e){}
@@ -2031,11 +2041,14 @@ function renderCrm(){
 function crmCardHTML(cv){
   const o=cv.origin||{};
   const campaign=o.campaign?`<div style="font-size:10px;color:#93c5fd;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📣 ${String(o.campaign).replace(/</g,'&lt;')}</div>`:'';
+  const f=cv.fields||{};
+  const prod=f.produto?`<div style="font-size:11px;color:var(--text);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="color:var(--muted)">🎯</span> ${String(f.produto).replace(/</g,'&lt;')}</div>`:'';
+  const valor=f.valor?`<div style="font-size:11px;color:#34d399;font-weight:700;margin-top:3px">💰 ${String(f.valor).replace(/</g,'&lt;').replace(/^R?\$?\s*/,'R$ ')}</div>`:'';
   return `<div draggable="true" ondragstart="crmDragStart(event,'${cv.id}')" onclick="openCrmConv('${cv.id}')" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px;cursor:pointer">
     <div style="display:flex;justify-content:space-between;gap:6px;align-items:start"><b style="font-size:12.5px;line-height:1.3">${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b>${crmOriginBadge(cv.origin_type)}</div>
     <div style="font-size:11px;color:var(--muted);margin-top:2px">📞 ${cv.chat_id}</div>
     ${cv.last_text?`<div style="font-size:11px;color:var(--faint);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(cv.last_text||'').replace(/</g,'&lt;')}</div>`:''}
-    ${campaign}
+    ${prod}${valor}${campaign}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px"><span style="font-size:10px;color:var(--faint)">🕐 ${_crmTime(cv.last_at)}</span>${cv.unread?'<span style="font-size:9px;font-weight:800;color:#0a0906;background:var(--accent);border-radius:20px;padding:1px 6px">novo</span>':''}</div></div>`;
 }
 function crmDragStart(e,id){e.dataTransfer.setData('text/plain',id);e.dataTransfer.effectAllowed='move';}
@@ -2056,6 +2069,13 @@ async function openCrmConv(id){
   setTimeout(()=>{const th=document.getElementById('crmThread');if(th)th.scrollTop=th.scrollHeight;},30);
 }
 function crmCloseThread(){_crmActive=null;document.getElementById('crmDrawer').innerHTML='';renderCrm();}
+function crmFields(){return (_acctCfg&&Array.isArray(_acctCfg.crm_fields)&&_acctCfg.crm_fields.length)?_acctCfg.crm_fields:[
+  {key:'nome',label:'Nome',type:'texto',hint:'Nome próprio que o lead usou'},
+  {key:'email',label:'Email',type:'texto',hint:''},
+  {key:'produto',label:'Produto/Serviço de Interesse',type:'texto',hint:''},
+  {key:'valor',label:'Valor',type:'valor',hint:''}];}
+let _crmDrawerTab='conversa';
+function crmSetDrawerTab(t){_crmDrawerTab=t;renderCrmDrawer();}
 function renderCrmDrawer(){
   const cv=_crmActive;if(!cv){document.getElementById('crmDrawer').innerHTML='';return;}
   const o=cv.origin||{};let orig='';
@@ -2064,7 +2084,25 @@ function renderCrmDrawer(){
     orig=`<div style="font-size:11.5px;color:#93c5fd;margin-top:4px">📣 ${path?'<b>'+path+'</b>':('Anúncio'+(o.title?': <b>'+String(o.title).replace(/</g,'&lt;')+'</b>':'')+(o.source_id?' · ad '+o.source_id:''))}</div>`;
   }else if(cv.origin_type==='utm')orig=`<div style="font-size:11.5px;color:#c4b5fd;margin-top:4px">🔗 ${o.track_source||'UTM'}${o.track_id?' · '+o.track_id:''}</div>`;
   const stageBtns=CRM_STAGES.map(s=>`<button class="btn sm ${(cv.stage||'sem')===s.key?'primary':'ghost'}" style="font-size:10.5px;padding:2px 8px" onclick="crmSetStage('${cv.id}','${s.key}')">${s.label}</button>`).join('');
-  const msgs=_crmMsgs.map(m=>{const out=m.direction==='out';return `<div style="display:flex;justify-content:${out?'flex-end':'flex-start'};margin-bottom:6px"><div style="max-width:80%;background:${out?'var(--accent)':'var(--surface2)'};color:${out?'#0a0906':'var(--text)'};border:1px solid var(--border);border-radius:${out?'12px 12px 4px 12px':'12px 12px 12px 4px'};padding:7px 11px;font-size:13px;white-space:pre-wrap;word-break:break-word">${(m.text||'').replace(/</g,'&lt;')||'<i style="opacity:.6">['+(m.msg_type||'mídia')+']</i>'}<div style="font-size:9px;opacity:.6;text-align:right;margin-top:2px">${_crmTime(m.ts)}</div></div></div>`;}).join('')||'<div class="empty" style="padding:20px">Sem mensagens.</div>';
+  const tab=(id,l)=>`<button class="btn sm ${_crmDrawerTab===id?'primary':'ghost'}" style="font-size:11px" onclick="crmSetDrawerTab('${id}')">${l}</button>`;
+  let content;
+  if(_crmDrawerTab==='dados'){
+    const flds=crmFields();const fv=cv.fields||{};
+    const known=new Set(flds.map(f=>f.key));
+    const inputs=flds.map(f=>`<div style="margin-bottom:11px"><label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);display:block;margin-bottom:3px">${f.label.replace(/</g,'&lt;')}</label><input class="crmLeadField" data-key="${f.key}" value="${String(fv[f.key]||'').replace(/"/g,'&quot;')}" placeholder="${f.type==='valor'?'R$ 0,00':(f.hint||'').replace(/"/g,'&quot;')}" style="width:100%;font-size:12.5px"></div>`).join('');
+    const extras=Object.keys(fv).filter(k=>!known.has(k)&&fv[k]).map(k=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--muted)">${k.replace(/</g,'&lt;')}</span><b>${String(fv[k]).replace(/</g,'&lt;')}</b></div>`).join('');
+    content=`<div style="flex:1;overflow-y:auto;padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b style="font-size:12px;color:var(--muted)">CAMPOS DO LEAD</b><button class="btn sm ghost" id="crmExtractBtn" onclick="crmExtractLead('${cv.id}')">🪄 Extrair com IA</button></div>
+      <div id="crmStageSuggest"></div>
+      ${inputs}
+      ${extras?`<div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">Outros dados extraídos</div>${extras}`:''}
+      <button class="btn primary" style="width:100%;margin-top:14px" onclick="crmSaveFields('${cv.id}')">💾 Salvar dados</button>
+    </div>`;
+  }else{
+    const msgs=_crmMsgs.map(m=>{const out=m.direction==='out';return `<div style="display:flex;justify-content:${out?'flex-end':'flex-start'};margin-bottom:6px"><div style="max-width:80%;background:${out?'var(--accent)':'var(--surface2)'};color:${out?'#0a0906':'var(--text)'};border:1px solid var(--border);border-radius:${out?'12px 12px 4px 12px':'12px 12px 12px 4px'};padding:7px 11px;font-size:13px;white-space:pre-wrap;word-break:break-word">${(m.text||'').replace(/</g,'&lt;')||'<i style="opacity:.6">['+(m.msg_type||'mídia')+']</i>'}<div style="font-size:9px;opacity:.6;text-align:right;margin-top:2px">${_crmTime(m.ts)}</div></div></div>`;}).join('')||'<div class="empty" style="padding:20px">Sem mensagens.</div>';
+    content=`<div id="crmThread" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column">${msgs}</div>
+      <div style="display:flex;gap:8px;padding:10px;border-top:1px solid var(--border)"><input id="crmSendInput" placeholder="Escreva uma mensagem…" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();crmSend()}"><button class="btn primary" onclick="crmSend()">Enviar</button></div>`;
+  }
   document.getElementById('crmDrawer').innerHTML=`
     <div onclick="crmCloseThread()" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998"></div>
     <div style="position:fixed;top:0;right:0;bottom:0;width:min(440px,94vw);background:var(--bg);border-left:1px solid var(--border);z-index:9999;display:flex;flex-direction:column">
@@ -2072,11 +2110,27 @@ function renderCrmDrawer(){
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b><button class="btn sm ghost" onclick="crmCloseThread()">✕</button></div>
         <div style="font-size:11px;color:var(--faint)">📞 ${cv.chat_id}</div>${orig}
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px">${stageBtns}</div>
+        <div style="display:flex;gap:6px;margin-top:10px">${tab('conversa','💬 Conversa')}${tab('dados','📇 Dados do Lead')}</div>
       </div>
-      <div id="crmThread" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column">${msgs}</div>
-      <div style="display:flex;gap:8px;padding:10px;border-top:1px solid var(--border)"><input id="crmSendInput" placeholder="Escreva uma mensagem…" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();crmSend()}"><button class="btn primary" onclick="crmSend()">Enviar</button></div>
+      ${content}
     </div>`;
   const th=document.getElementById('crmThread');if(th)th.scrollTop=th.scrollHeight;
+}
+async function crmExtractLead(id){
+  const btn=document.getElementById('crmExtractBtn');if(btn){btn.textContent='🪄 lendo…';btn.disabled=true;}
+  const r=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'extract',convId:id}}});
+  const d=(r.data&&r.data.data)||{};
+  const cv=_crmConvs.find(x=>x.id===id);if(cv&&d.fields){cv.fields=d.fields;if(_crmActive&&_crmActive.id===id)_crmActive.fields=d.fields;}
+  renderCrmDrawer();
+  const sug=document.getElementById('crmStageSuggest');
+  if(sug&&d.stage&&d.stage!==(cv&&cv.stage)){const st=CRM_STAGES.find(s=>s.key===d.stage);if(st)sug.innerHTML=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:12px;font-size:12px">🤖 IA sugere etapa: <b style="color:${st.color}">${st.label}</b>${d.stageWhy?`<div style="color:var(--muted);font-size:11px;margin-top:3px">${String(d.stageWhy).replace(/</g,'&lt;')}</div>`:''}<button class="btn sm primary" style="margin-top:6px;font-size:11px" onclick="crmSetStage('${id}','${d.stage}');document.getElementById('crmStageSuggest').innerHTML=''">Aplicar</button></div>`;}
+}
+async function crmSaveFields(id){
+  const obj={};document.querySelectorAll('.crmLeadField').forEach(inp=>{const v=inp.value.trim();if(v)obj[inp.dataset.key]=v;});
+  const cv=_crmConvs.find(x=>x.id===id);const merged={...((cv&&cv.fields)||{}),...obj};
+  if(cv)cv.fields=merged;if(_crmActive&&_crmActive.id===id)_crmActive.fields=merged;
+  await sb.from('wa_conversations').update({fields:merged}).eq('id',id);
+  const btn=event&&event.target;if(btn){const t=btn.textContent;btn.textContent='✓ Salvo';setTimeout(()=>btn.textContent=t,1500);}
 }
 async function crmSetStage(id,stage){const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;cv.stage=stage;if(_crmActive&&_crmActive.id===id)_crmActive.stage=stage;renderCrmDrawer();renderCrm();await sb.from('wa_conversations').update({stage}).eq('id',id);}
 async function crmSend(){
@@ -2162,7 +2216,8 @@ async function loadConfiguracoes(){
       'Conecte números por QR: o da agência (para envios) e o de cada cliente. As conversas caem no CRM já com a origem (anúncio/UTM).',
       integStatusPill('ok','uazapi conectado'),
       `<div id="waInstList" style="font-size:12.5px;color:var(--muted)">Carregando números…</div>
-       <button class="btn sm primary" style="margin-top:10px" onclick="waConnectStart('')">➕ Conectar um número</button>`)}
+       <button class="btn sm primary" style="margin-top:10px" onclick="waConnectStart('')">➕ Conectar um número</button>
+       <label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);cursor:pointer"><input type="checkbox" ${_acctCfg.crm_show_agency?'checked':''} onchange="waToggleShowAgency(this.checked)"> Mostrar o CRM da agência (por padrão o CRM é só dos clientes; o número da agência é usado para envios)</label>`)}
     ${integCard('sheets','📊','Google Sheets','Leitura das planilhas de venda (contas conectadas por compartilhamento).',
       integStatusPill('ok','Ativo'),
       `<div style="font-size:12px;color:var(--muted)">Cada cliente compartilha a planilha dele como Leitor com <code style="background:var(--surface2);padding:1px 5px;border-radius:5px;word-break:break-all">leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com</code> (configurado por cliente na aba Relatórios).</div>`)}
@@ -2230,6 +2285,7 @@ async function waRenderQrStep(id){
 function waConnConnected(){const step=document.getElementById('waConnStep');if(step)step.innerHTML='<div style="text-align:center;color:#34d399;padding:24px;font-weight:600">✓ Número conectado!</div>';setTimeout(waConnClose,1500);}
 function waShowQr(id){waConnectStart('');const who=document.getElementById('waConnWho');if(who)who.parentElement.style.display='none';waRenderQrStep(id);}
 async function waRemoveInst(id){if(!confirm('Remover este número? As conversas já salvas permanecem, mas para de receber novas.'))return;await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'remove',instanceId:id}}});renderWaConfig();}
+async function waToggleShowAgency(v){await saveAccountConfig({crm_show_agency:!!v});}
 async function checkIntegMeta(){
   const el=document.getElementById('integRight_meta');if(!el)return;
   try{
@@ -2764,6 +2820,7 @@ function selectSidebarClient(id){
   if(active==='relatorios'){const s=document.getElementById('crClientSelect');if(s){s.value=id;loadClientReport(id)}}
   else if(active==='iagestora'){loadAgentProject(id);}
   else if(active==='campanhas'){loadCampanhas(id);}
+  else if(active==='crm'){_crmViewAgency=false;_crmActive=null;loadCrm();}
   else{openClientConfig(id);}
 }
 /* ===== CAMPANHAS (drill-down estilo gerenciador) ===== */

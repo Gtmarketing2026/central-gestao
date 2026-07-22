@@ -1054,7 +1054,32 @@ async function waResolveAd(adId: string): Promise<Record<string, string> | null>
   } catch { return null; }
 }
 async function waUzConfig() { const acc = await sbGet("account_config", "id=eq.main&select=data"); const uz = (acc[0]?.data || {}).uazapi || {}; if (!uz.server || !uz.admin_token) throw new Error("uazapi não configurado (aba Configurações → WhatsApp)."); return uz; }
+const CRM_DEFAULT_FIELDS = [
+  { key: "nome", label: "Nome", type: "texto", hint: "Nome próprio que o lead usou ao se apresentar" },
+  { key: "email", label: "Email", type: "texto", hint: "" },
+  { key: "produto", label: "Produto/Serviço de Interesse", type: "texto", hint: "O que o lead quer comprar ou contratar" },
+  { key: "valor", label: "Valor", type: "valor", hint: "Valor em R$ mencionado na negociação" },
+];
+// IA lê a conversa e extrai os campos configurados + sugere a etapa do funil
+async function waExtract(convId: string) {
+  const cv = (await sbGet("wa_conversations", `id=eq.${encodeURIComponent(convId)}&select=id,name,fields&limit=1`))[0];
+  if (!cv) throw new Error("Conversa não encontrada.");
+  const msgs = await sbGet("wa_messages", `conversation_id=eq.${encodeURIComponent(convId)}&order=ts.asc&select=direction,text&limit=200`);
+  const transcript = (msgs || []).filter((m: any) => m.text).map((m: any) => `${m.direction === "in" ? "LEAD" : "ATENDENTE"}: ${m.text}`).join("\n").slice(0, 6000);
+  if (!transcript) return { fields: cv.fields || {}, stage: "", stageWhy: "" };
+  const acc = await sbGet("account_config", "id=eq.main&select=data");
+  const fields = ((acc[0]?.data || {}).crm_fields) || CRM_DEFAULT_FIELDS;
+  const spec = fields.map((f: any) => `- ${f.key} (${f.label}${f.type ? ", tipo " + f.type : ""})${f.hint ? ": " + f.hint : ""}`).join("\n");
+  const sys = "Você extrai dados de um lead a partir de uma conversa de WhatsApp entre o LEAD e o ATENDENTE. Responda SOMENTE JSON. Extraia cada campo só se aparecer claramente; senão use string vazia. NÃO invente. Para tipo 'valor' devolva apenas o número (ex: 3000). Sugira a etapa do funil em 'stage' entre: novo (só chegou), mql (demonstrou interesse), sql (pediu algo específico/qualificado), comprou (fechou), posvenda, perdido (desistiu).";
+  const content = `CAMPOS A EXTRAIR:\n${spec}\n\nCONVERSA:\n${transcript}\n\nResponda JSON: {"fields":{"<key>":"<valor>"}, "stage":"<etapa>", "stageWhy":"<motivo curto>"}`;
+  const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content }], response_format: { type: "json_object" }, max_tokens: 600, temperature: 0.2 });
+  let parsed: any = {}; try { parsed = JSON.parse(j.choices[0].message.content || "{}"); } catch { parsed = {}; }
+  const outFields = { ...(cv.fields || {}), ...(parsed.fields || {}) };
+  await sbPatchD("wa_conversations", `id=eq.${encodeURIComponent(convId)}`, { fields: outFields });
+  return { fields: outFields, stage: parsed.stage || "", stageWhy: parsed.stageWhy || "" };
+}
 async function waHandler(w: any) {
+  if (w.op === "extract") return await waExtract(w.convId);
   // criar instância nova (número da agência ou de um cliente) — não precisa de instanceId
   if (w.op === "create") {
     const uz = await waUzConfig();
