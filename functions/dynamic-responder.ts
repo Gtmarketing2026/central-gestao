@@ -1092,10 +1092,43 @@ async function waExtract(convId: string, autoApply = false) {
   const applied = !!(autoApply && stage && conf >= minConf && stage !== cv.stage);
   if (applied) patch.stage = stage;
   await sbPatchD("wa_conversations", `id=eq.${encodeURIComponent(convId)}`, patch);
+  if (applied) { const stObj = stages.find((s: any) => s.key === stage); if (stObj && stObj.event) { try { await waCapi(convId, stObj.event); } catch (_e) {} } }
   return { fields: outFields, stage, confidence: conf, stageWhy: parsed.stageWhy || "", applied, minConf };
+}
+// ---- CAPI (Conversions API): manda o evento da etapa pro Meta, atribuindo ao anúncio via ctwa_clid ----
+const _pixelCache: Record<string, string | null> = {};
+async function _sha256hex(s: string) { const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join(""); }
+async function clientPixelId(clientId: string): Promise<string | null> {
+  if (_pixelCache[clientId] !== undefined) return _pixelCache[clientId];
+  const token = Deno.env.get("META_USER_TOKEN");
+  const cli = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=meta_account_id`))[0];
+  const acct = String(cli?.meta_account_id || "").split(",")[0].replace(/^act_/, "").trim();
+  let pid: string | null = null;
+  if (acct && token) { try { const r = await fetch(`https://graph.facebook.com/v21.0/act_${acct}/adspixels?fields=id&limit=1&access_token=${token}`); const j = await r.json(); pid = (j.data && j.data[0] && j.data[0].id) || null; } catch { pid = null; } }
+  _pixelCache[clientId] = pid; return pid;
+}
+async function waCapi(convId: string, eventName: string) {
+  const cv = (await sbGet("wa_conversations", `id=eq.${encodeURIComponent(convId)}&select=id,client_id,chat_id,origin`))[0];
+  if (!cv) throw new Error("Conversa não encontrada.");
+  const token = Deno.env.get("META_USER_TOKEN");
+  const pid = cv.client_id ? await clientPixelId(cv.client_id) : null;
+  const logId = _wuid();
+  if (!pid || !token) { await sbPost("capi_events", { id: logId, client_id: cv.client_id, conversation_id: convId, event_name: eventName, status: "failed", error: "Pixel do cliente ou token do Meta ausente." }); return { ok: false, error: "pixel/token" }; }
+  const o = cv.origin || {}; const phone = String(cv.chat_id || "").replace(/[^0-9]/g, "");
+  const user_data: any = {}; if (phone) user_data.ph = await _sha256hex(phone); if (o.ctwa_clid) user_data.ctwa_clid = o.ctwa_clid;
+  const ev: any = { event_name: eventName, event_time: Math.floor(Date.now() / 1000), action_source: o.ctwa_clid ? "business_messaging" : "website", user_data };
+  if (o.ctwa_clid) ev.messaging_channel = "whatsapp";
+  let status = "success", error = "", resp: any = null;
+  try {
+    const r = await fetch(`https://graph.facebook.com/v21.0/${pid}/events?access_token=${token}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: [ev] }) });
+    resp = await r.json(); if (!r.ok || resp.error) { status = "failed"; error = (resp.error && resp.error.message) || ("HTTP " + r.status); }
+  } catch (e) { status = "failed"; error = String(e); }
+  await sbPost("capi_events", { id: logId, client_id: cv.client_id, conversation_id: convId, event_name: eventName, status, error, response: resp });
+  return { ok: status === "success", status, error };
 }
 async function waHandler(w: any) {
   if (w.op === "extract") return await waExtract(w.convId);
+  if (w.op === "capi") return await waCapi(w.convId, w.event);
   // criar instância nova (número da agência ou de um cliente) — não precisa de instanceId
   if (w.op === "create") {
     const uz = await waUzConfig();

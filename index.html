@@ -611,6 +611,7 @@
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span id="crmWho" style="font-size:12.5px;font-weight:600"></span>
         <button class="btn sm ghost" id="crmAgencyBtn" style="display:none" onclick="crmToggleAgency()"></button>
+        <button class="btn sm ghost" onclick="crmAnalyticsOpen()">📊 Analytics</button>
         <button class="btn sm ghost" onclick="crmConfigOpen()">⚙️ Configurar</button>
         <button class="btn sm ghost" onclick="toggleCrmGuide()">📖 Guia</button>
         <button class="btn sm ghost" id="crmPollBtn" onclick="crmPoll(true)">🔄 Atualizar</button>
@@ -2060,7 +2061,7 @@ async function crmDrop(e,stage){
   const id=e.dataTransfer.getData('text/plain');if(!id)return;
   const cv=_crmConvs.find(x=>x.id===id);if(!cv||cv.stage===stage)return;
   cv.stage=stage;renderCrm();
-  await sb.from('wa_conversations').update({stage}).eq('id',id);
+  await sb.from('wa_conversations').update({stage}).eq('id',id);crmFireCapi(id,stage);
   if(_crmActive&&_crmActive.id===id){_crmActive.stage=stage;renderCrmDrawer();}
 }
 async function openCrmConv(id){
@@ -2131,6 +2132,73 @@ async function crmExtractLead(id){
   if(sug&&d.stage){const st=crmStages().find(s=>s.key===d.stage);if(st){const already=(cv&&cv.stage)===d.stage;
     sug.innerHTML=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:12px;font-size:12px">🤖 IA classificou: <b style="color:${st.color}">${st.label}</b> <span style="color:var(--muted)">· confiança ${d.confidence||0}%</span>${d.applied?' <span style="color:#34d399">✓ aplicado automático</span>':''}${d.stageWhy?`<div style="color:var(--muted);font-size:11px;margin-top:3px">${String(d.stageWhy).replace(/</g,'&lt;')}</div>`:''}${(!d.applied&&!already)?`<button class="btn sm primary" style="margin-top:6px;font-size:11px" onclick="crmSetStage('${id}','${d.stage}');document.getElementById('crmStageSuggest').innerHTML=''">Aplicar mesmo assim</button> <span style="font-size:10.5px;color:var(--faint)">(abaixo do mínimo de ${d.minConf||70}%)</span>`:''}</div>`;}}
 }
+/* ===== CRM Analytics: custo por conversa, funil, campanha × estágio (WhatsApp × Meta) ===== */
+let _crmAnaDays=30;
+async function crmAnalyticsOpen(days){
+  _crmAnaDays=days||_crmAnaDays;
+  const inst=_crmInsts.find(i=>i.id===_crmInstId);const body=document.getElementById('crmBody');
+  if(!inst){body.innerHTML='<div class="empty">Conecte um número primeiro.</div>';return;}
+  document.getElementById('crmFilters').innerHTML='';document.getElementById('crmGuide').innerHTML='';
+  body.innerHTML='<div class="empty">Carregando analytics…</div>';
+  const client=DB.clients.find(c=>c.id===inst.client_id);
+  const until=today(),since=daysAgoISO(_crmAnaDays);
+  let q=sb.from('wa_conversations').select('*').gte('last_at',since).limit(4000);
+  q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
+  const capiQ=sb.from('capi_events').select('status,event_name,error,created_at').eq('client_id',inst.client_id||'__none__').gte('created_at',since).order('created_at',{ascending:false}).limit(200);
+  const [{data:convs},{data:capi}]=await Promise.all([q,capiQ]);
+  let meta=null;try{if(client&&client.metaAccountIds&&client.metaAccountIds.length)meta=await fetchMetaReportRange(client,since,until);}catch(e){}
+  crmAnaRender(convs||[],meta,capi||[]);
+}
+function crmAnaRender(C,meta,capi){
+  const fmtR=v=>'R$ '+(Math.round((v||0)*100)/100).toLocaleString('pt-BR',{minimumFractionDigits:2});
+  const stages=crmStages().filter(s=>s.key!=='sem');
+  const total=C.length;
+  const anuncio=C.filter(c=>c.origin_type==='anuncio').length;
+  const utm=C.filter(c=>c.origin_type==='utm').length;
+  const organico=total-anuncio-utm;
+  const gasto=(meta&&meta.total&&meta.total.spend)||0;
+  const custoConv=anuncio?gasto/anuncio:0;
+  const pctAds=total?(anuncio/total*100):0;
+  const capiOk=(capi||[]).filter(x=>x.status==='success').length,capiFail=(capi||[]).filter(x=>x.status!=='success').length;
+  const per=(k,l)=>`<button class="btn sm ${_crmAnaDays===k?'primary':'ghost'}" onclick="crmAnalyticsOpen(${k})">${l}</button>`;
+  const kpi=(lbl,val,sub)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;flex:1;min-width:150px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">${lbl}</div><div style="font-size:22px;font-weight:800;margin-top:4px">${val}</div>${sub?`<div style="font-size:11px;color:var(--faint);margin-top:2px">${sub}</div>`:''}</div>`;
+  // funil
+  const byStage={};stages.forEach(s=>byStage[s.key]=0);C.forEach(c=>{const k=c.stage&&byStage[c.stage]!=null?c.stage:null;if(k)byStage[k]++;});
+  const maxF=Math.max(1,...stages.map(s=>byStage[s.key]));
+  const funil=stages.map(s=>`<div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>${(s.label||'').replace(/</g,'&lt;')}</span><b>${byStage[s.key]}</b></div><div style="height:22px;background:var(--surface2);border-radius:7px;overflow:hidden"><div style="height:100%;width:${Math.max(byStage[s.key]/maxF*100,2)}%;background:${s.color||'#60a5fa'};border-radius:7px"></div></div></div>`).join('');
+  // campanha × estágio
+  const spendByCamp={};((meta&&meta.campaigns)||[]).forEach(c=>{spendByCamp[c.campaign]=c.spend||0;});
+  const byCamp={};C.filter(c=>c.origin_type==='anuncio'&&(c.origin||{}).campaign).forEach(c=>{const cn=c.origin.campaign;if(!byCamp[cn])byCamp[cn]={n:0,st:{}};byCamp[cn].n++;const k=c.stage||'novo';byCamp[cn].st[k]=(byCamp[cn].st[k]||0)+1;});
+  const campRows=Object.entries(byCamp).sort((a,b)=>b[1].n-a[1].n).map(([cn,d])=>{
+    const sp=spendByCamp[cn]||0;const cpc=d.n?sp/d.n:0;
+    return `<tr><td style="padding:8px 10px;font-size:12px;border-bottom:1px solid var(--border);max-width:280px">${cn.replace(/</g,'&lt;')}</td><td style="padding:8px 10px;text-align:right;font-weight:700;border-bottom:1px solid var(--border)">${d.n}</td>${stages.map(s=>`<td style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);color:${d.st[s.key]?s.color:'var(--faint)'}">${d.st[s.key]||'–'}</td>`).join('')}<td style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">${sp?fmtR(sp):'–'}</td><td style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">${cpc?fmtR(cpc):'–'}</td></tr>`;
+  }).join('')||`<tr><td colspan="${stages.length+4}" style="padding:16px;text-align:center;color:var(--faint)">Sem conversas de anúncio no período.</td></tr>`;
+  document.getElementById('crmBody').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <button class="btn sm ghost" onclick="loadCrm()">← Voltar ao funil</button>
+      <div style="display:flex;gap:6px">${per(7,'7 dias')}${per(30,'30 dias')}${per(90,'90 dias')}</div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+      ${kpi('Custo por conversa',fmtR(custoConv),'gasto Meta ÷ conversas de anúncio')}
+      ${kpi('Conversas',total,`${anuncio} de anúncio · ${organico} orgânico`)}
+      ${kpi('Gasto total (Meta)',fmtR(gasto),`${pctAds.toFixed(0)}% das conversas vêm de ads`)}
+      ${kpi('Eventos CAPI',capiOk,capiFail?`<span style="color:#f87171">${capiFail} falha(s)</span> · <a onclick="crmCapiHistory()" style="cursor:pointer;color:var(--accent)">ver histórico</a>`:`<a onclick="crmCapiHistory()" style="cursor:pointer;color:var(--accent)">ver histórico</a>`)}
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:12px">🔻 Funil de Conversão</div>${funil}</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;overflow-x:auto">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:12px">📣 Conversas por Campanha × Estágio</div>
+      <table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Campanha</th><th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Conv.</th>${stages.map(s=>`<th style="text-align:center;padding:8px 10px;font-size:10px;text-transform:uppercase;color:${s.color};border-bottom:1px solid var(--border)">${(s.label||'').replace(/</g,'&lt;')}</th>`).join('')}<th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Gasto</th><th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Custo/conv</th></tr>${campRows}</table></div>`;
+}
+async function crmCapiHistory(){
+  const inst=_crmInsts.find(i=>i.id===_crmInstId);if(!inst)return;
+  const {data}=await sb.from('capi_events').select('*').eq('client_id',inst.client_id||'__none__').order('created_at',{ascending:false}).limit(80);
+  const rows=(data||[]).map(e=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px"><div><b>${(e.event_name||'').replace(/</g,'&lt;')}</b>${e.error?`<div style="color:#f87171;font-size:11px">${String(e.error).replace(/</g,'&lt;').slice(0,80)}</div>`:''}</div><div style="display:flex;gap:8px;align-items:center"><span style="font-size:9px;font-weight:800;color:${e.status==='success'?'#34d399':'#f87171'};background:${e.status==='success'?'rgba(52,211,153,.12)':'rgba(248,113,113,.12)'};border-radius:6px;padding:1px 7px">${e.status}</span><span style="font-size:10px;color:var(--faint)">${new Date(e.created_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span></div></div>`).join('')||'<div class="empty" style="padding:20px">Nenhum evento CAPI ainda.</div>';
+  let ov=document.getElementById('crmCapiOverlay');if(!ov){ov=document.createElement('div');ov.id='crmCapiOverlay';document.body.appendChild(ov);}
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;width:min(520px,94vw);max-height:82vh;display:flex;flex-direction:column"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="margin:0;font-size:16px">Histórico de Conversões (CAPI)</h3><button class="btn sm ghost" onclick="document.getElementById('crmCapiOverlay').remove()">✕</button></div><div style="overflow-y:auto">${rows}</div></div>`;
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+}
 /* ===== Configurar CRM: etapas do funil + campos do lead ===== */
 let _crmCfgStages=[],_crmCfgFields=[],_crmCfgTab='etapas',_crmCfgMinConf=70;
 function crmConfigOpen(){_crmCfgStages=crmStages().map(s=>({...s}));_crmCfgFields=crmFields().map(f=>({...f}));_crmCfgMinConf=(_acctCfg&&_acctCfg.crm_min_confidence!=null)?_acctCfg.crm_min_confidence:70;_crmCfgTab='etapas';crmCfgRender();}
@@ -2192,7 +2260,8 @@ async function crmSaveFields(id){
   await sb.from('wa_conversations').update({fields:merged}).eq('id',id);
   const btn=event&&event.target;if(btn){const t=btn.textContent;btn.textContent='✓ Salvo';setTimeout(()=>btn.textContent=t,1500);}
 }
-async function crmSetStage(id,stage){const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;cv.stage=stage;if(_crmActive&&_crmActive.id===id)_crmActive.stage=stage;renderCrmDrawer();renderCrm();await sb.from('wa_conversations').update({stage}).eq('id',id);}
+function crmFireCapi(convId,stageKey){const st=crmStages().find(s=>s.key===stageKey);if(st&&st.event)sb.functions.invoke('dynamic-responder',{body:{wa:{op:'capi',convId,event:st.event}}}).catch(()=>{});}
+async function crmSetStage(id,stage){const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;cv.stage=stage;if(_crmActive&&_crmActive.id===id)_crmActive.stage=stage;renderCrmDrawer();renderCrm();await sb.from('wa_conversations').update({stage}).eq('id',id);crmFireCapi(id,stage);}
 async function crmSend(){
   const inp=document.getElementById('crmSendInput');if(!inp||!_crmActive)return;
   const text=inp.value.trim();if(!text)return;inp.value='';
