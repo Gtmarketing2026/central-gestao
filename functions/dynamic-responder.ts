@@ -1127,15 +1127,25 @@ async function waCapi(convId: string, eventName: string) {
   return { ok: status === "success", status, error };
 }
 // ===== AndréIA no WhatsApp (grupo): entende a mensagem, analisa o cliente, cria tarefa (com confirmação) =====
+function _waResumoMeta(t: any) { return { gasto: Math.round(t.spend), impressoes: t.impressions, cliques: t.clicks, ctr: +(t.ctr || 0).toFixed(2), cpc: +(t.cpc || 0).toFixed(2), cpm: +(t.cpm || 0).toFixed(2), alcance: t.reach, conversas: t.conversas, custoPorConversa: t.conversas ? +(t.spend / t.conversas).toFixed(2) : null, leads: t.leads, compras: Math.round(t.purchases || 0), roas: +(t.roas || 0).toFixed(2) }; }
 async function waAgentSnapshot(clientId: string) {
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,benchmark_metas,meta_account_id`))[0];
   if (!c) return null;
   const out: any = { nome: c.name, metas: c.benchmark_metas || null };
   const ids = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
-  if (ids.length) { try {
-    const r = await metaAdsInsights({ accounts: ids.map((id: string) => ({ id, name: id })), since: new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10), until: new Date().toISOString().slice(0, 10) });
-    const t = r && r.total; if (t) out.meta30d = { gasto: Math.round(t.spend), impressoes: t.impressions, cliques: t.clicks, ctr: +(t.ctr || 0).toFixed(2), cpc: +(t.cpc || 0).toFixed(2), cpm: +(t.cpm || 0).toFixed(2), alcance: t.reach, conversas: t.conversas, leads: t.leads, compras: Math.round(t.purchases || 0), roas: +(t.roas || 0).toFixed(2) };
-  } catch (_e) {} }
+  if (!ids.length) { out.aviso = "Cliente sem conta Meta vinculada."; return out; }
+  const accounts = ids.map((id: string) => ({ id, name: id }));
+  const iso = (d: number) => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
+  const hoje = new Date().toISOString().slice(0, 10);
+  try {
+    const [r7, r30] = await Promise.all([
+      metaAdsInsights({ accounts, since: iso(7), until: hoje }).catch(() => null),
+      metaAdsInsights({ accounts, since: iso(30), until: hoje }).catch(() => null),
+    ]);
+    if (r7 && r7.total) out.ultimos7dias = _waResumoMeta(r7.total);
+    if (r30 && r30.total) out.ultimos30dias = _waResumoMeta(r30.total);
+    if (!out.ultimos7dias && !out.ultimos30dias) out.aviso = "Não consegui puxar os dados do Meta agora (pode ser token/conta).";
+  } catch (e) { out.aviso = "Falha ao buscar Meta: " + String((e as any)?.message || e); }
   return out;
 }
 async function waAgentLLM(text: string, history: any[], clientId: string | null, clients: any[]) {
@@ -1143,7 +1153,8 @@ async function waAgentLLM(text: string, history: any[], clientId: string | null,
   const names = clients.map((c) => c.name).slice(0, 250).join(" | ");
   const sys = `Você é a AndréIA, gestora de tráfego sênior, atendendo a EQUIPE da agência num grupo de WhatsApp. Respostas CURTAS e diretas (é WhatsApp, no máx ~6 linhas). Clientes: ${names}.
 - Se identificar de qual cliente é a mensagem, devolva o nome EXATO em "client". Se precisar do cliente e não der pra saber, deixe "client" vazio e pergunte no "reply".
-- Análise/perguntas: use o SNAPSHOT (não invente números; se faltar dado, diga).
+- O SNAPSHOT JÁ TRAZ os números reais (ultimos7dias / ultimos30dias). RESPONDA DIRETO com esses números — NÃO diga "preciso verificar" nem "vou checar". Se o gestor pedir "7 dias", use ultimos7dias; "30 dias" ou sem período, use ultimos30dias. Só diga que não tem o dado se o snapshot trouxer "aviso".
+- Não invente números que não estão no snapshot.
 - AÇÃO de alto impacto (criar tarefa, pausar/duplicar campanha, mexer orçamento, lançamento): NÃO execute. No "reply" descreva e peça confirmação (responder SIM) e preencha "action". Você só executa criar_tarefa; pausar/duplicar/orçamento/lançamento viram uma tarefa pro gestor (action tipo criar_tarefa com o texto da ação).
 Responda SOMENTE JSON: {"client":"<nome|vazio>","reply":"<texto>","action":{"tipo":"criar_tarefa","nome":"<título>","obs":"<detalhe>"}|null}`;
   const ctx = snap ? ("SNAPSHOT " + snap.nome + ": " + JSON.stringify(snap).slice(0, 2600)) : "(nenhum cliente selecionado ainda)";
