@@ -1168,19 +1168,70 @@ async function waAgentLLM(text: string, history: any[], clientId: string | null,
 - Se identificar de qual cliente é a mensagem, devolva o nome EXATO em "client". Se precisar do cliente e não der pra saber, deixe "client" vazio e pergunte no "reply".
 - Você TEM ACESSO A TUDO no SNAPSHOT: totais (ultimos7dias/ultimos30dias), metas vs realizado (metasVsReal_30d), TODAS as campanhas com gasto (campanhasComGasto_30d), as campanhas que estão RODANDO agora e seus orçamentos (campanhasAtivasAgora), conjuntos ativos com orçamento, e os principais anúncios (topAnuncios_30d). RESPONDA DIRETO com esses dados — NUNCA diga "não tenho acesso", "preciso verificar" ou "veja na plataforma". Ex: "quais campanhas estão rodando?" → liste campanhasAtivasAgora. "7 dias?" → ultimos7dias.
 - Só diga que falta o dado se o snapshot trouxer "aviso". Não invente números fora do snapshot.
-- AÇÃO de alto impacto (criar tarefa, pausar/duplicar campanha, mexer orçamento, lançamento): NÃO execute. No "reply" descreva e peça confirmação (responder SIM) e preencha "action". Você só executa criar_tarefa; pausar/duplicar/orçamento/lançamento viram uma tarefa pro gestor (action tipo criar_tarefa com o texto da ação).
-Responda SOMENTE JSON: {"client":"<nome|vazio>","reply":"<texto>","action":{"tipo":"criar_tarefa","nome":"<título>","obs":"<detalhe>"}|null}`;
+- AÇÕES: você EXECUTA (sempre pedindo confirmação antes — no "reply" resuma a ação e peça pra responder SIM, e preencha "action"). Tipos de action:
+  · criar_tarefa: {"tipo":"criar_tarefa","nome":"<título>","obs":"<detalhe>"}
+  · pausar_campanha / reativar_campanha: {"tipo":"pausar_campanha","campanha":"<nome exato da campanha>"}
+  · orcamento: {"tipo":"orcamento","campanha":"<nome>","novoValor":<novo orçamento diário em R$, número>}
+  · duplicar_campanha: {"tipo":"duplicar_campanha","campanha":"<nome>"}
+  · criar_lancamento (financeiro): {"tipo":"criar_lancamento","natureza":"receita"|"despesa","descricao":"<ex: Fee mensal>","valor":<número>,"vencimento":"AAAA-MM-DD"}
+  · dar_baixa (marcar lançamento como pago): {"tipo":"dar_baixa","descricao":"<parte da descrição do lançamento>"}
+  Use o nome EXATO da campanha (do snapshot). NUNCA execute sem confirmação.
+Responda SOMENTE JSON: {"client":"<nome|vazio>","reply":"<texto curto>","action":{...}|null}`;
   const ctx = snap ? ("SNAPSHOT COMPLETO de " + snap.nome + " (ultimos7dias, ultimos30dias, metasVsReal_30d, campanhasComGasto_30d, campanhasAtivasAgora com orçamento, conjuntosAtivosComOrcamento, topAnuncios_30d): " + JSON.stringify(snap).slice(0, 7000)) : "(nenhum cliente selecionado ainda)";
   const msgs = [{ role: "system", content: sys }, ...history.slice(-10).map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text })), { role: "user", content: ctx + "\n\nEQUIPE: " + text }];
   const j = await callOpenAI({ model: "gpt-4o-mini", messages: msgs, response_format: { type: "json_object" }, max_tokens: 700, temperature: 0.4 });
   try { return JSON.parse(j.choices[0].message.content || "{}"); } catch { return { reply: "Não entendi, pode repetir?", client: "", action: null }; }
 }
+async function waResolveCampaign(clientId: string, nome: string) {
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=meta_account_id`))[0];
+  const ids = String(c?.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+  if (!ids.length) return null;
+  const ent = await metaEntities({ accounts: ids.map((id: string) => ({ id, name: id })) }).catch(() => null);
+  if (!ent) return null;
+  const q = String(nome || "").toLowerCase().trim(); const cs = ent.campaigns || [];
+  return cs.find((c: any) => c.nome.toLowerCase() === q) || cs.find((c: any) => c.nome.toLowerCase().includes(q)) || cs.find((c: any) => q && q.includes(c.nome.toLowerCase())) || null;
+}
 async function waAgentExec(pending: any, clientId: string | null) {
-  if (pending && pending.tipo === "criar_tarefa") {
-    const sample = (await sbGet("tasks", "select=status,prio&limit=1"))[0] || {};
-    await sbPost("tasks", { id: _wuid(), name: pending.nome || "Tarefa (via AndréIA)", client: pending.client_id || clientId || null, owner: "eu", status: sample.status || "A fazer", prio: pending.prio || sample.prio || "media", notes: pending.obs || "", urgent: false });
-    return "✅ Tarefa criada: " + (pending.nome || "");
-  }
+  const cid = pending.client_id || clientId;
+  try {
+    if (pending.tipo === "criar_tarefa") {
+      const sample = (await sbGet("tasks", "select=status,prio&limit=1"))[0] || {};
+      await sbPost("tasks", { id: _wuid(), name: pending.nome || "Tarefa (via AndréIA)", client: cid || null, owner: "eu", status: sample.status || "A fazer", prio: pending.prio || sample.prio || "media", notes: pending.obs || "", urgent: false });
+      return "✅ Tarefa criada: " + (pending.nome || "");
+    }
+    if (pending.tipo === "pausar_campanha" || pending.tipo === "reativar_campanha") {
+      if (!cid) return "De qual cliente é a campanha?";
+      const camp = await waResolveCampaign(cid, pending.campanha); if (!camp) return `Não achei a campanha "${pending.campanha || ""}".`;
+      await metaAction({ action: pending.tipo === "pausar_campanha" ? "pause" : "activate", id: camp.id, nome: camp.nome });
+      return (pending.tipo === "pausar_campanha" ? "⏸ Pausei" : "▶ Reativei") + ": " + camp.nome;
+    }
+    if (pending.tipo === "orcamento") {
+      if (!cid) return "De qual cliente é a campanha?";
+      const camp = await waResolveCampaign(cid, pending.campanha); if (!camp) return `Não achei a campanha "${pending.campanha || ""}".`;
+      if (!camp.orcamentoDiario) return `A "${camp.nome}" não tem orçamento no nível da campanha (deve estar no conjunto). Quer que eu crie uma tarefa pra ajustar?`;
+      await metaAction({ action: "budget", id: camp.id, nome: camp.nome, novoOrcamentoDiario: pending.novoValor });
+      return `💰 Orçamento de "${camp.nome}" ajustado pra R$${Number(pending.novoValor).toFixed(2)}/dia.`;
+    }
+    if (pending.tipo === "duplicar_campanha") {
+      if (!cid) return "De qual cliente é a campanha?";
+      const camp = await waResolveCampaign(cid, pending.campanha); if (!camp) return `Não achei a campanha "${pending.campanha || ""}".`;
+      await metaAction({ action: "duplicate", id: camp.id, nome: camp.nome });
+      return `⧉ Dupliquei "${camp.nome}" (a cópia fica PAUSADA pra você revisar).`;
+    }
+    if (pending.tipo === "criar_lancamento") {
+      await sbPost("finance", { id: _wuid(), type: pending.natureza === "despesa" ? "despesa" : "receita", client: cid || null, description: pending.descricao || "Lançamento (via AndréIA)", val: Number(pending.valor) || 0, due: pending.vencimento || new Date().toISOString().slice(0, 10), status: "pendente", auto: false });
+      return `🧾 Lançamento criado: ${pending.natureza === "despesa" ? "despesa" : "receita"} R$${(Number(pending.valor) || 0).toFixed(2)} — ${pending.descricao || ""} (venc. ${pending.vencimento || "hoje"}).`;
+    }
+    if (pending.tipo === "dar_baixa") {
+      if (!cid) return "De qual cliente é o lançamento?";
+      const term = String(pending.descricao || "").trim();
+      const rows = await sbGet("finance", `client=eq.${encodeURIComponent(cid)}&status=eq.pendente${term ? `&description=ilike.*${encodeURIComponent(term)}*` : ""}&select=id,description,val&limit=6`);
+      if (!rows.length) return `Não achei lançamento pendente${term ? ` com "${term}"` : ""} desse cliente.`;
+      if (rows.length > 1) return `Achei ${rows.length} pendentes parecidos — seja mais específico: ${rows.map((r: any) => r.description).join(" / ")}`;
+      await sbPatchD("finance", `id=eq.${encodeURIComponent(rows[0].id)}`, { status: "pago" });
+      return `✅ Baixa dada: ${rows[0].description} (R$${Number(rows[0].val).toFixed(2)}).`;
+    }
+  } catch (e) { return "❌ Não consegui executar: " + String((e as any)?.message || e); }
   return "Feito 👍";
 }
 async function waAgentHandle(w: any) {
