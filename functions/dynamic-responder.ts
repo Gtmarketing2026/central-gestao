@@ -1060,23 +1060,39 @@ const CRM_DEFAULT_FIELDS = [
   { key: "produto", label: "Produto/Serviço de Interesse", type: "texto", hint: "O que o lead quer comprar ou contratar" },
   { key: "valor", label: "Valor", type: "valor", hint: "Valor em R$ mencionado na negociação" },
 ];
-// IA lê a conversa e extrai os campos configurados + sugere a etapa do funil
-async function waExtract(convId: string) {
-  const cv = (await sbGet("wa_conversations", `id=eq.${encodeURIComponent(convId)}&select=id,name,fields&limit=1`))[0];
+const CRM_DEFAULT_STAGES = [
+  { key: "sem", label: "Sem etapa", desc: "" }, { key: "novo", label: "Novo", desc: "Contato acabou de chegar; só a primeira mensagem." },
+  { key: "mql", label: "MQL", desc: "Demonstrou interesse inicial, mas ainda sem informações suficientes pra ser oportunidade forte." },
+  { key: "sql", label: "SQL", desc: "Pediu algo específico / qualificado / com intenção clara." }, { key: "comprou", label: "Comprou", desc: "Pagamento confirmado / fechou." },
+  { key: "posvenda", label: "Pós-Venda", desc: "Já é cliente; comunicação pós-compra." }, { key: "perdido", label: "Perdido", desc: "Desistiu / sem interesse." },
+];
+// IA lê a conversa: extrai os campos configurados + CLASSIFICA a etapa do funil com um nível de confiança.
+// autoApply: aplica a etapa automaticamente se a confiança >= mínimo configurado.
+async function waExtract(convId: string, autoApply = false) {
+  const cv = (await sbGet("wa_conversations", `id=eq.${encodeURIComponent(convId)}&select=id,name,fields,stage&limit=1`))[0];
   if (!cv) throw new Error("Conversa não encontrada.");
   const msgs = await sbGet("wa_messages", `conversation_id=eq.${encodeURIComponent(convId)}&order=ts.asc&select=direction,text&limit=200`);
   const transcript = (msgs || []).filter((m: any) => m.text).map((m: any) => `${m.direction === "in" ? "LEAD" : "ATENDENTE"}: ${m.text}`).join("\n").slice(0, 6000);
-  if (!transcript) return { fields: cv.fields || {}, stage: "", stageWhy: "" };
-  const acc = await sbGet("account_config", "id=eq.main&select=data");
-  const fields = ((acc[0]?.data || {}).crm_fields) || CRM_DEFAULT_FIELDS;
+  if (!transcript) return { fields: cv.fields || {}, stage: "", confidence: 0, stageWhy: "", applied: false };
+  const data = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
+  const fields = data.crm_fields || CRM_DEFAULT_FIELDS;
+  const stages = (Array.isArray(data.crm_stages) && data.crm_stages.length) ? data.crm_stages : CRM_DEFAULT_STAGES;
+  const minConf = Number(data.crm_min_confidence != null ? data.crm_min_confidence : 70);
   const spec = fields.map((f: any) => `- ${f.key} (${f.label}${f.type ? ", tipo " + f.type : ""})${f.hint ? ": " + f.hint : ""}`).join("\n");
-  const sys = "Você extrai dados de um lead a partir de uma conversa de WhatsApp entre o LEAD e o ATENDENTE. Responda SOMENTE JSON. Extraia cada campo só se aparecer claramente; senão use string vazia. NÃO invente. Para tipo 'valor' devolva apenas o número (ex: 3000). Sugira a etapa do funil em 'stage' entre: novo (só chegou), mql (demonstrou interesse), sql (pediu algo específico/qualificado), comprou (fechou), posvenda, perdido (desistiu).";
-  const content = `CAMPOS A EXTRAIR:\n${spec}\n\nCONVERSA:\n${transcript}\n\nResponda JSON: {"fields":{"<key>":"<valor>"}, "stage":"<etapa>", "stageWhy":"<motivo curto>"}`;
-  const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content }], response_format: { type: "json_object" }, max_tokens: 600, temperature: 0.2 });
+  const stageSpec = stages.filter((s: any) => s.key !== "sem").map((s: any) => `- ${s.key} = ${s.label}${s.desc ? ": " + s.desc : ""}`).join("\n");
+  const keys = stages.map((s: any) => s.key).join(", ");
+  const sys = "Você é um SDR que lê uma conversa de WhatsApp entre o LEAD e o ATENDENTE. Faça duas coisas: (1) extraia os campos do lead — só o que aparece claramente, NÃO invente; para tipo 'valor' devolva só o número; (2) CLASSIFIQUE a etapa do funil usando as descrições dadas, e dê um 'confidence' de 0 a 100 (quão certo você está). Responda SOMENTE JSON.";
+  const content = `CAMPOS A EXTRAIR:\n${spec}\n\nETAPAS DO FUNIL (escolha UMA key):\n${stageSpec}\n\nCONVERSA:\n${transcript}\n\nResponda JSON: {"fields":{"<key>":"<valor>"}, "stage":"<key entre: ${keys}>", "confidence":<0-100>, "stageWhy":"<motivo curto>"}`;
+  const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content }], response_format: { type: "json_object" }, max_tokens: 700, temperature: 0.2 });
   let parsed: any = {}; try { parsed = JSON.parse(j.choices[0].message.content || "{}"); } catch { parsed = {}; }
   const outFields = { ...(cv.fields || {}), ...(parsed.fields || {}) };
-  await sbPatchD("wa_conversations", `id=eq.${encodeURIComponent(convId)}`, { fields: outFields });
-  return { fields: outFields, stage: parsed.stage || "", stageWhy: parsed.stageWhy || "" };
+  const stage = (parsed.stage && stages.some((s: any) => s.key === parsed.stage)) ? parsed.stage : "";
+  const conf = Math.max(0, Math.min(100, Math.round(Number(parsed.confidence) || 0)));
+  const patch: Record<string, unknown> = { fields: outFields, ai_stage: stage, ai_conf: conf, ai_why: parsed.stageWhy || "", ai_at: new Date().toISOString() };
+  const applied = !!(autoApply && stage && conf >= minConf && stage !== cv.stage);
+  if (applied) patch.stage = stage;
+  await sbPatchD("wa_conversations", `id=eq.${encodeURIComponent(convId)}`, patch);
+  return { fields: outFields, stage, confidence: conf, stageWhy: parsed.stageWhy || "", applied, minConf };
 }
 async function waHandler(w: any) {
   if (w.op === "extract") return await waExtract(w.convId);
@@ -1136,6 +1152,7 @@ async function waHandler(w: any) {
     const known = new Set<string>();
     if (ids.length) { const ex = await sbGet("wa_messages", `wa_msgid=in.(${ids.map((x) => encodeURIComponent(x)).join(",")})&select=wa_msgid`); (ex || []).forEach((r: any) => known.add(r.wa_msgid)); }
     const adCache: Record<string, Record<string, string> | null> = {};
+    const newInbound = new Set<string>();
     let added = 0;
     for (const m of oneToOne) {
       const msgid = String(m.messageid || m.id || ""); if (!msgid || known.has(msgid)) continue;
@@ -1151,9 +1168,13 @@ async function waHandler(w: any) {
       if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: phone, name: m.senderName || phone, last_text: text, last_at: ts, unread: fromMe ? 0 : 1, origin_type: origin ? origin.type : "organico", origin: origin ? origin.data : null }); }
       else { const patch: Record<string, unknown> = { last_text: text, last_at: ts }; if (!fromMe) patch.unread = 1; if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; } await sbPatchD("wa_conversations", `id=eq.${convId}`, patch); }
       await sbPost("wa_messages", { id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: msgid, direction: fromMe ? "out" : "in", msg_type: m.messageType || "text", text, ts, raw: m });
+      if (!fromMe) newInbound.add(convId);
       added++;
     }
-    return { added, scanned: msgs.length };
+    // classificação AUTOMÁTICA por IA das conversas que receberam nova mensagem do lead (limita p/ controlar custo)
+    let classified = 0;
+    if (newInbound.size) { for (const cid of [...newInbound].slice(0, 6)) { try { await waExtract(cid, true); classified++; } catch (_e) {} } }
+    return { added, scanned: msgs.length, classified };
   }
   if (w.op === "resolveOrigins") {
     const convs = await sbGet("wa_conversations", `client_id=${clientFilter}&origin_type=eq.anuncio&select=id,origin`);

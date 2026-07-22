@@ -1923,13 +1923,13 @@ function goToTab(tabId){
 }
 /* ===== CRM de Conversas (WhatsApp via uazapi) — funil Kanban ===== */
 const CRM_STAGES=[
-  {key:'sem',label:'Sem etapa',color:'#94a3b8'},
-  {key:'novo',label:'Novo',color:'#60a5fa'},
-  {key:'mql',label:'MQL',color:'#f0c040'},
-  {key:'sql',label:'SQL',color:'#34d399'},
-  {key:'comprou',label:'Comprou',color:'#a78bfa'},
-  {key:'posvenda',label:'Pós-Venda',color:'#22d3ee'},
-  {key:'perdido',label:'Perdido',color:'#f87171'},
+  {key:'sem',label:'Sem etapa',color:'#94a3b8',desc:''},
+  {key:'novo',label:'Novo',color:'#60a5fa',desc:'Contato acabou de chegar; só a primeira mensagem.'},
+  {key:'mql',label:'MQL',color:'#f0c040',desc:'Demonstrou interesse inicial, mas ainda sem informações suficientes pra ser oportunidade forte.',event:'Lead'},
+  {key:'sql',label:'SQL',color:'#34d399',desc:'Pediu algo específico / qualificado / com intenção clara.',event:'QualifiedLead'},
+  {key:'comprou',label:'Comprou',color:'#a78bfa',desc:'Pagamento confirmado / fechou.',event:'Purchase'},
+  {key:'posvenda',label:'Pós-Venda',color:'#22d3ee',desc:'Já é cliente; comunicação pós-compra.'},
+  {key:'perdido',label:'Perdido',color:'#f87171',desc:'Desistiu / sem interesse.'},
 ];
 let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
 let _crmSearch='',_crmFOrigin='',_crmFCampaign='',_crmViewAgency=false;
@@ -2124,14 +2124,16 @@ async function crmExtractLead(id){
   const btn=document.getElementById('crmExtractBtn');if(btn){btn.textContent='🪄 lendo…';btn.disabled=true;}
   const r=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'extract',convId:id}}});
   const d=(r.data&&r.data.data)||{};
-  const cv=_crmConvs.find(x=>x.id===id);if(cv&&d.fields){cv.fields=d.fields;if(_crmActive&&_crmActive.id===id)_crmActive.fields=d.fields;}
+  const cv=_crmConvs.find(x=>x.id===id);
+  if(cv){if(d.fields)cv.fields=d.fields;cv.ai_stage=d.stage;cv.ai_conf=d.confidence;cv.ai_why=d.stageWhy;if(d.applied)cv.stage=d.stage;if(_crmActive&&_crmActive.id===id)_crmActive=cv;}
   renderCrmDrawer();
   const sug=document.getElementById('crmStageSuggest');
-  if(sug&&d.stage&&d.stage!==(cv&&cv.stage)){const st=crmStages().find(s=>s.key===d.stage);if(st)sug.innerHTML=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:12px;font-size:12px">🤖 IA sugere etapa: <b style="color:${st.color}">${st.label}</b>${d.stageWhy?`<div style="color:var(--muted);font-size:11px;margin-top:3px">${String(d.stageWhy).replace(/</g,'&lt;')}</div>`:''}<button class="btn sm primary" style="margin-top:6px;font-size:11px" onclick="crmSetStage('${id}','${d.stage}');document.getElementById('crmStageSuggest').innerHTML=''">Aplicar</button></div>`;}
+  if(sug&&d.stage){const st=crmStages().find(s=>s.key===d.stage);if(st){const already=(cv&&cv.stage)===d.stage;
+    sug.innerHTML=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:12px;font-size:12px">🤖 IA classificou: <b style="color:${st.color}">${st.label}</b> <span style="color:var(--muted)">· confiança ${d.confidence||0}%</span>${d.applied?' <span style="color:#34d399">✓ aplicado automático</span>':''}${d.stageWhy?`<div style="color:var(--muted);font-size:11px;margin-top:3px">${String(d.stageWhy).replace(/</g,'&lt;')}</div>`:''}${(!d.applied&&!already)?`<button class="btn sm primary" style="margin-top:6px;font-size:11px" onclick="crmSetStage('${id}','${d.stage}');document.getElementById('crmStageSuggest').innerHTML=''">Aplicar mesmo assim</button> <span style="font-size:10.5px;color:var(--faint)">(abaixo do mínimo de ${d.minConf||70}%)</span>`:''}</div>`;}}
 }
 /* ===== Configurar CRM: etapas do funil + campos do lead ===== */
-let _crmCfgStages=[],_crmCfgFields=[],_crmCfgTab='etapas';
-function crmConfigOpen(){_crmCfgStages=crmStages().map(s=>({...s}));_crmCfgFields=crmFields().map(f=>({...f}));_crmCfgTab='etapas';crmCfgRender();}
+let _crmCfgStages=[],_crmCfgFields=[],_crmCfgTab='etapas',_crmCfgMinConf=70;
+function crmConfigOpen(){_crmCfgStages=crmStages().map(s=>({...s}));_crmCfgFields=crmFields().map(f=>({...f}));_crmCfgMinConf=(_acctCfg&&_acctCfg.crm_min_confidence!=null)?_acctCfg.crm_min_confidence:70;_crmCfgTab='etapas';crmCfgRender();}
 function crmCfgClose(){const o=document.getElementById('crmCfgOverlay');if(o)o.remove();}
 function crmCfgTab(t){_crmCfgTab=t;crmCfgRender();}
 function crmCfgStageAdd(){_crmCfgStages.push({key:'s'+Math.random().toString(36).slice(2,8),label:'Nova etapa',color:'#94a3b8',event:''});crmCfgRender();}
@@ -2142,7 +2144,7 @@ function crmCfgFieldDel(i){_crmCfgFields.splice(i,1);crmCfgRender();}
 async function crmCfgSave(){
   _crmCfgStages=_crmCfgStages.filter(s=>(s.label||'').trim());_crmCfgFields=_crmCfgFields.filter(f=>(f.label||'').trim());
   _crmCfgFields.forEach(f=>{if(!f.key)f.key=(f.label||'campo').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')||('f'+Math.random().toString(36).slice(2,6));});
-  await saveAccountConfig({crm_stages:_crmCfgStages,crm_fields:_crmCfgFields});
+  await saveAccountConfig({crm_stages:_crmCfgStages,crm_fields:_crmCfgFields,crm_min_confidence:Number(_crmCfgMinConf)});
   crmCfgClose();
   if(document.getElementById('crm').classList.contains('active'))loadCrm();
 }
@@ -2150,13 +2152,20 @@ function crmCfgRender(){
   const tabBtn=(id,l)=>`<button class="btn sm ${_crmCfgTab===id?'primary':'ghost'}" onclick="crmCfgTab('${id}')">${l}</button>`;
   let bodyH;
   if(_crmCfgTab==='etapas'){
-    bodyH=_crmCfgStages.map((s,i)=>`<div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin-bottom:8px">
-      <input type="color" value="${s.color||'#94a3b8'}" onchange="_crmCfgStages[${i}].color=this.value" style="width:30px;height:30px;padding:0;border:none;background:none;cursor:pointer;flex:none">
-      <input value="${(s.label||'').replace(/"/g,'&quot;')}" onchange="_crmCfgStages[${i}].label=this.value" style="flex:1;font-size:12.5px" placeholder="Nome da etapa">
-      <input value="${(s.event||'').replace(/"/g,'&quot;')}" onchange="_crmCfgStages[${i}].event=this.value" style="width:150px;font-size:11.5px" placeholder="Evento Meta (opcional)" title="Ex: Lead, QualifiedLead, Purchase — para o CAPI no futuro">
-      <button class="btn sm ghost" onclick="crmCfgStageMove(${i},-1)" title="subir">▲</button><button class="btn sm ghost" onclick="crmCfgStageMove(${i},1)" title="descer">▼</button>
-      <button class="btn sm ghost" style="color:#f87171" onclick="crmCfgStageDel(${i})">✕</button></div>`).join('')
+    bodyH=_crmCfgStages.map((s,i)=>`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="color" value="${s.color||'#94a3b8'}" onchange="_crmCfgStages[${i}].color=this.value" style="width:30px;height:30px;padding:0;border:none;background:none;cursor:pointer;flex:none">
+        <input value="${(s.label||'').replace(/"/g,'&quot;')}" onchange="_crmCfgStages[${i}].label=this.value" style="flex:1;font-size:12.5px" placeholder="Nome da etapa">
+        <input value="${(s.event||'').replace(/"/g,'&quot;')}" onchange="_crmCfgStages[${i}].event=this.value" style="width:140px;font-size:11.5px" placeholder="Evento Meta" title="Ex: Lead, QualifiedLead, Purchase — para o CAPI">
+        <button class="btn sm ghost" onclick="crmCfgStageMove(${i},-1)" title="subir">▲</button><button class="btn sm ghost" onclick="crmCfgStageMove(${i},1)" title="descer">▼</button>
+        <button class="btn sm ghost" style="color:#f87171" onclick="crmCfgStageDel(${i})">✕</button></div>
+      <textarea onchange="_crmCfgStages[${i}].desc=this.value" style="width:100%;font-size:11.5px;margin-top:7px;min-height:40px;line-height:1.5" placeholder="Regra pra IA classificar nesta etapa (ex: 'Classifique como MQL quando o lead demonstrar interesse inicial mas ainda sem qualificação')">${(s.desc||'').replace(/</g,'&lt;')}</textarea></div>`).join('')
       +`<button class="btn sm ghost" onclick="crmCfgStageAdd()">+ Nova etapa</button>`;
+  }else if(_crmCfgTab==='confianca'){
+    bodyH=`<div style="font-size:12px;color:var(--muted);margin-bottom:14px">A IA classifica cada conversa automaticamente e dá um nível de <b>confiança</b>. A etapa só é <b>aplicada sozinha</b> quando a confiança fica <b>≥ o mínimo</b> abaixo. Abaixo disso, a IA só sugere (você aplica na mão).</div>
+      <label style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Confiança mínima pra aplicar automático</label>
+      <div style="display:flex;align-items:center;gap:14px;margin-top:8px"><input type="range" min="0" max="100" step="5" value="${_crmCfgMinConf}" oninput="_crmCfgMinConf=+this.value;document.getElementById('crmConfVal').textContent=this.value+'%'" style="flex:1"><b id="crmConfVal" style="font-size:18px;min-width:52px;text-align:right">${_crmCfgMinConf}%</b></div>
+      <div style="font-size:11px;color:var(--faint);margin-top:8px">💡 70% é um bom equilíbrio. Mais alto = a IA só move quando tem muita certeza (mais seguro, move menos). Mais baixo = move mais, com mais risco de errar.</div>`;
   }else{
     bodyH=`<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px">Campos que a <b>IA extrai automaticamente</b> das conversas. O botão "🪄 Extrair com IA" no lead usa esta lista.</div>`+
     _crmCfgFields.map((f,i)=>`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
@@ -2170,7 +2179,7 @@ function crmCfgRender(){
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
   ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;width:min(580px,94vw);max-height:88vh;display:flex;flex-direction:column">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0;font-size:17px">⚙️ Configurar CRM</h3><button class="btn sm ghost" onclick="crmCfgClose()">✕</button></div>
-    <div style="display:flex;gap:6px;margin-bottom:14px">${tabBtn('etapas','Etapas do Funil')}${tabBtn('campos','Campos do Lead')}</div>
+    <div style="display:flex;gap:6px;margin-bottom:14px">${tabBtn('etapas','Etapas do Funil')}${tabBtn('campos','Campos do Lead')}${tabBtn('confianca','Confiança IA')}</div>
     <div style="flex:1;overflow-y:auto">${bodyH}</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn ghost" onclick="crmCfgClose()">Cancelar</button><button class="btn primary" onclick="crmCfgSave()">💾 Salvar</button></div>
   </div>`;
@@ -2290,7 +2299,7 @@ async function renderWaConfig(){
     const st=i.status==='connected'?'<span style="color:#34d399">● conectado</span>':`<span style="color:#f59e0b">● ${i.status||'desconectado'}</span>`;
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
       <div><b style="font-size:12.5px">${who.replace(/</g,'&lt;')}</b> <span style="color:var(--faint);font-size:11px">${i.phone||'—'}</span><div style="font-size:11px">${st}</div></div>
-      <div style="display:flex;gap:6px">${i.status==='connected'?'':`<button class="btn sm ghost" onclick="waShowQr('${i.id}')">📷 Ver QR</button>`}<button class="btn sm ghost" style="color:var(--red)" onclick="waRemoveInst('${i.id}')">Remover</button></div></div>`;
+      <div style="display:flex;gap:6px">${i.status==='connected'?'':`<button class="btn sm ghost" onclick="waShowQr('${i.id}')">📷 Ver QR</button><button class="btn sm ghost" title="Copiar link QR WhatsApp pro cliente" onclick="waCopyLink('${i.id}',this)">🔗 Link</button>`}<button class="btn sm ghost" style="color:var(--red)" onclick="waRemoveInst('${i.id}')">Remover</button></div></div>`;
   }).join('');
 }
 function waConnectStart(clientId){
@@ -2342,6 +2351,7 @@ function waConnConnected(){const step=document.getElementById('waConnStep');if(s
 function waShowQr(id){waConnectStart('');const who=document.getElementById('waConnWho');if(who)who.parentElement.style.display='none';waRenderQrStep(id);}
 async function waRemoveInst(id){if(!confirm('Remover este número? As conversas já salvas permanecem, mas para de receber novas.'))return;await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'remove',instanceId:id}}});renderWaConfig();}
 async function waToggleShowAgency(v){await saveAccountConfig({crm_show_agency:!!v});}
+function waCopyLink(id,btn){const link=new URL('connect.html',location.href).href+'?i='+id;navigator.clipboard.writeText(link).then(()=>{if(btn){const t=btn.textContent;btn.textContent='✓ Copiado';setTimeout(()=>btn.textContent=t,1600);}}).catch(()=>{prompt('Copie o link:',link);});}
 async function checkIntegMeta(){
   const el=document.getElementById('integRight_meta');if(!el)return;
   try{
