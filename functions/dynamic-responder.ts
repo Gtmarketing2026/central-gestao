@@ -1053,12 +1053,43 @@ async function waResolveAd(adId: string): Promise<Record<string, string> | null>
     return { ad: j.name || "", adset: (j.adset && j.adset.name) || "", campaign: (j.campaign && j.campaign.name) || "" };
   } catch { return null; }
 }
+async function waUzConfig() { const acc = await sbGet("account_config", "id=eq.main&select=data"); const uz = (acc[0]?.data || {}).uazapi || {}; if (!uz.server || !uz.admin_token) throw new Error("uazapi não configurado (aba Configurações → WhatsApp)."); return uz; }
 async function waHandler(w: any) {
+  // criar instância nova (número da agência ou de um cliente) — não precisa de instanceId
+  if (w.op === "create") {
+    const uz = await waUzConfig();
+    const name = String(w.name || ("num-" + _wuid())).replace(/[^a-zA-Z0-9-]/g, "-").slice(0, 40);
+    const init = await fetch(uz.server.replace(/\/$/, "") + "/instance/init", { method: "POST", headers: { admintoken: uz.admin_token, "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    const ij = await init.json().catch(() => ({}));
+    const itoken = ij.token || (ij.instance && ij.instance.token);
+    if (!itoken) throw new Error("uazapi não devolveu token da instância: " + JSON.stringify(ij).slice(0, 160));
+    const id = _wuid();
+    await sbPost("wa_instances", { id, client_id: w.clientId || null, name, uaz_token: itoken, uaz_host: uz.server, status: "connecting" });
+    const hook = `${_SB_URL}/functions/v1/tracking/wa/webhook/${id}`;
+    try { await waCall(uz.server, itoken, "/webhook", "POST", { enabled: true, url: hook, events: ["messages", "connection"], excludeMessages: ["wasSentByApi", "isGroupYes"] }); } catch (_e) {}
+    return { id };
+  }
   const inst = (await sbGet("wa_instances", `id=eq.${encodeURIComponent(w.instanceId)}&select=id,client_id,uaz_host,uaz_token,phone`))[0];
   if (!inst) throw new Error("Instância WhatsApp não encontrada.");
   const host = inst.uaz_host, token = inst.uaz_token, clientId = inst.client_id || null;
   const clientFilter = clientId ? "eq." + encodeURIComponent(clientId) : "is.null";
-  if (w.op === "status") { const { j } = await waCall(host, token, "/instance/status"); return { status: (j?.instance?.status) || "unknown", instance: j?.instance || null }; }
+  if (w.op === "status") {
+    const { j } = await waCall(host, token, "/instance/status"); const ins = (j && j.instance) || {};
+    if (ins.status) { const patch: Record<string, unknown> = { status: ins.status, updated_at: new Date().toISOString() }; if (ins.owner) patch.phone = String(ins.owner).replace(/@.*$/, ""); if (ins.status === "connected") patch.connected_at = new Date().toISOString(); await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, patch); }
+    return { status: ins.status || "unknown", phone: ins.owner || inst.phone || "", instance: ins };
+  }
+  if (w.op === "qr") {
+    const { j } = await waCall(host, token, "/instance/connect", "POST", w.phone ? { phone: String(w.phone).replace(/[^0-9]/g, "") } : {});
+    const ins = (j && j.instance) ? j.instance : (j || {});
+    return { qrcode: ins.qrcode || "", paircode: ins.paircode || "", status: ins.status || "connecting" };
+  }
+  if (w.op === "remove") {
+    const uz = await waUzConfig().catch(() => null);
+    try { await waCall(host, token, "/instance/logout", "POST", {}); } catch (_e) {}
+    if (uz) try { await fetch(host.replace(/\/$/, "") + "/instance", { method: "DELETE", headers: { admintoken: uz.admin_token, token } }); } catch (_e) {}
+    await fetch(`${_SB_URL}/rest/v1/wa_instances?id=eq.${encodeURIComponent(inst.id)}`, { method: "DELETE", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
+    return { removed: true };
+  }
   if (w.op === "send") {
     const number = String(w.number).replace(/[^0-9]/g, "");
     const { status, j } = await waCall(host, token, "/send/text", "POST", { number, text: w.text });

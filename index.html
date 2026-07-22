@@ -600,17 +600,22 @@
     </div>
   </section>
 
-  <!-- CRM DE CONVERSAS (WhatsApp) -->
+  <!-- CRM DE CONVERSAS (WhatsApp) — funil Kanban -->
   <section class="panel" id="crm">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px">
-      <div><h2 style="margin:0">💬 CRM de Conversas</h2><div style="font-size:12.5px;color:var(--muted)">Conversas do WhatsApp com a origem marcada — de anúncio (campanha › conjunto › anúncio) ou de UTM/tráfego.</div></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+        <h2 style="margin:0">💬 CRM</h2>
+        <span id="crmCount" style="font-size:12px;color:var(--muted)"></span>
+        <span id="crmStatus" style="font-size:11.5px"></span>
+      </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <select id="crmInstSel" style="width:auto;font-size:12.5px" onchange="crmSetInst(this.value)"></select>
-        <span id="crmStatus" style="font-size:11px"></span>
         <button class="btn sm ghost" id="crmPollBtn" onclick="crmPoll(true)">🔄 Atualizar</button>
       </div>
     </div>
+    <div id="crmFilters" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
     <div id="crmBody"><div class="empty">Carregando…</div></div>
+    <div id="crmDrawer"></div>
   </section>
 
   <!-- MODELOS DE RELATÓRIO -->
@@ -1912,76 +1917,138 @@ function goToTab(tabId){
   if(tabId==='crm')loadCrm();
   else stopCrmPoll();
 }
-/* ===== CRM de Conversas (WhatsApp via uazapi) ===== */
+/* ===== CRM de Conversas (WhatsApp via uazapi) — funil Kanban ===== */
+const CRM_STAGES=[
+  {key:'sem',label:'Sem etapa',color:'#94a3b8'},
+  {key:'novo',label:'Novo',color:'#60a5fa'},
+  {key:'mql',label:'MQL',color:'#f0c040'},
+  {key:'sql',label:'SQL',color:'#34d399'},
+  {key:'comprou',label:'Comprou',color:'#a78bfa'},
+  {key:'posvenda',label:'Pós-Venda',color:'#22d3ee'},
+  {key:'perdido',label:'Perdido',color:'#f87171'},
+];
 let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
+let _crmSearch='',_crmFOrigin='',_crmFCampaign='';
 function stopCrmPoll(){if(_crmPollTimer){clearInterval(_crmPollTimer);_crmPollTimer=null;}}
 function startCrmPoll(){stopCrmPoll();_crmPollTimer=setInterval(()=>{if(document.getElementById('crm').classList.contains('active'))crmPoll(false);else stopCrmPoll();},20000);}
 async function loadCrm(){
   const sel=document.getElementById('crmInstSel');
   const {data}=await sb.from('wa_instances').select('*').order('created_at',{ascending:true});
   _crmInsts=data||[];
-  if(!_crmInsts.length){document.getElementById('crmBody').innerHTML='<div class="empty">Nenhum número de WhatsApp conectado ainda. Conecte a agência em ⚙️ Configurações ou um cliente no cadastro dele.</div>';sel.innerHTML='';return;}
-  if(!_crmInstId||!_crmInsts.some(i=>i.id===_crmInstId))_crmInstId=_crmInsts[0].id;
-  sel.innerHTML=_crmInsts.map(i=>`<option value="${i.id}" ${i.id===_crmInstId?'selected':''}>${(i.name||i.phone||'Instância').replace(/</g,'&lt;')}${i.phone?' · '+i.phone:''}</option>`).join('');
+  if(!_crmInsts.length){document.getElementById('crmFilters').innerHTML='';document.getElementById('crmBody').innerHTML='<div class="empty">Nenhum número de WhatsApp conectado. Conecte um número em ⚙️ Configurações → WhatsApp.</div>';sel.innerHTML='';document.getElementById('crmStatus').innerHTML='';document.getElementById('crmCount').textContent='';return;}
+  // prioriza a instância do cliente ativo (CRM é do cliente); agência fica pra envio
+  if(!_crmInstId||!_crmInsts.some(i=>i.id===_crmInstId)){
+    const doCliente=activeClientId&&_crmInsts.find(i=>i.client_id===activeClientId);
+    _crmInstId=(doCliente&&doCliente.id)||_crmInsts[0].id;
+  }
+  sel.innerHTML=_crmInsts.map(i=>{const c=DB.clients.find(x=>x.id===i.client_id);const lbl=c?c.name:(i.client_id?i.name:'Agência (envios)');return `<option value="${i.id}" ${i.id===_crmInstId?'selected':''}>${(lbl||i.phone||'Número').replace(/</g,'&lt;')}${i.phone?' · '+i.phone:''}</option>`;}).join('');
   const inst=_crmInsts.find(i=>i.id===_crmInstId);
-  document.getElementById('crmStatus').innerHTML=inst.status==='connected'?'<span style="color:#34d399">● conectado</span>':`<span style="color:#f59e0b">● ${inst.status||'—'}</span>`;
+  document.getElementById('crmStatus').innerHTML=inst.status==='connected'?'<span style="color:#34d399">● conectado</span>':`<span style="color:#f59e0b">● ${inst.status||'desconectado'}</span>`;
   await loadCrmConvs();
   crmPoll(false); startCrmPoll();
 }
-function crmSetInst(id){_crmInstId=id;_crmActive=null;loadCrm();}
+function crmSetInst(id){_crmInstId=id;_crmActive=null;_crmFCampaign='';loadCrm();}
 async function crmPoll(manual){
   const btn=document.getElementById('crmPollBtn');if(manual&&btn){btn.textContent='…';btn.disabled=true;}
-  try{await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,limit:80}}});if(manual)await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'resolveOrigins',instanceId:_crmInstId}}}).catch(()=>{});await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id,true);}catch(e){}
+  try{await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,limit:80}}});if(manual)await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'resolveOrigins',instanceId:_crmInstId}}}).catch(()=>{});await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id);}catch(e){}
   if(manual&&btn){btn.textContent='🔄 Atualizar';btn.disabled=false;}
 }
 async function loadCrmConvs(){
   const inst=_crmInsts.find(i=>i.id===_crmInstId);if(!inst)return;
-  let q=sb.from('wa_conversations').select('*').order('last_at',{ascending:false}).limit(300);
+  let q=sb.from('wa_conversations').select('*').order('last_at',{ascending:false}).limit(500);
   q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
-  const {data}=await q;_crmConvs=data||[];renderCrm();
+  const {data}=await q;_crmConvs=data||[];renderCrmFilters();renderCrm();
 }
 function crmOriginBadge(t){
-  if(t==='anuncio')return '<span style="font-size:9.5px;font-weight:700;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.35);border-radius:6px;padding:1px 6px">📣 ANÚNCIO</span>';
-  if(t==='utm')return '<span style="font-size:9.5px;font-weight:700;color:#c4b5fd;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.35);border-radius:6px;padding:1px 6px">🔗 UTM</span>';
-  return '<span style="font-size:9.5px;font-weight:700;color:var(--faint);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:1px 6px">💬 ORGÂNICO</span>';
+  if(t==='anuncio')return '<span style="font-size:9px;font-weight:800;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.35);border-radius:6px;padding:1px 5px">📣 ANÚNCIO</span>';
+  if(t==='utm')return '<span style="font-size:9px;font-weight:800;color:#c4b5fd;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.35);border-radius:6px;padding:1px 5px">🔗 UTM</span>';
+  return '<span style="font-size:9px;font-weight:800;color:var(--faint);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:1px 5px">💬 ORG</span>';
 }
 function _crmTime(ts){if(!ts)return '';const d=new Date(ts),n=new Date();const sameDay=d.toDateString()===n.toDateString();return sameDay?d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});}
+function _crmCampaigns(){const s=new Set();_crmConvs.forEach(cv=>{const c=(cv.origin||{}).campaign;if(c)s.add(c);});return [...s];}
+function renderCrmFilters(){
+  const camps=_crmCampaigns();
+  document.getElementById('crmFilters').innerHTML=`
+    <input id="crmSearch" placeholder="🔎 Buscar nome ou telefone…" value="${_crmSearch.replace(/"/g,'&quot;')}" oninput="_crmSearch=this.value;renderCrm()" style="width:auto;min-width:200px;font-size:12.5px">
+    <select style="width:auto;font-size:12.5px" onchange="_crmFOrigin=this.value;renderCrm()">
+      <option value="">Todas origens</option><option value="anuncio" ${_crmFOrigin==='anuncio'?'selected':''}>📣 Anúncio</option><option value="utm" ${_crmFOrigin==='utm'?'selected':''}>🔗 UTM</option><option value="organico" ${_crmFOrigin==='organico'?'selected':''}>💬 Orgânico</option>
+    </select>
+    ${camps.length?`<select style="width:auto;font-size:12.5px;max-width:220px" onchange="_crmFCampaign=this.value;renderCrm()"><option value="">Todas campanhas</option>${camps.map(c=>`<option value="${c.replace(/"/g,'&quot;')}" ${_crmFCampaign===c?'selected':''}>${c.replace(/</g,'&lt;')}</option>`).join('')}</select>`:''}`;
+}
+function _crmFiltered(){
+  const s=_crmSearch.trim().toLowerCase();
+  return _crmConvs.filter(cv=>{
+    if(_crmFOrigin&&(cv.origin_type||'organico')!==_crmFOrigin)return false;
+    if(_crmFCampaign&&(cv.origin||{}).campaign!==_crmFCampaign)return false;
+    if(s&&!((cv.name||'').toLowerCase().includes(s)||(cv.chat_id||'').includes(s)))return false;
+    return true;
+  });
+}
 function renderCrm(){
-  const listRows=_crmConvs.map(cv=>{
-    const on=_crmActive&&_crmActive.id===cv.id;
-    return `<div onclick="openCrmConv('${cv.id}')" style="padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;background:${on?'var(--surface2)':'transparent'}">
-      <div style="display:flex;justify-content:space-between;gap:6px;align-items:center"><b style="font-size:13px">${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b><span style="font-size:10px;color:var(--faint)">${_crmTime(cv.last_at)}</span></div>
-      <div style="display:flex;justify-content:space-between;gap:6px;align-items:center;margin-top:3px"><span style="font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px">${(cv.last_text||'').replace(/</g,'&lt;')}</span>${crmOriginBadge(cv.origin_type)}</div></div>`;
-  }).join('')||'<div class="empty" style="padding:20px">Sem conversas ainda. Clique em 🔄 Atualizar.</div>';
-  const right=_crmActive?crmThreadHTML():'<div class="empty" style="padding:40px 20px">Selecione uma conversa à esquerda.</div>';
-  document.getElementById('crmBody').innerHTML=`<div style="display:flex;gap:0;border:1px solid var(--border);border-radius:14px;overflow:hidden;height:calc(100vh - 210px);min-height:440px">
-    <div style="width:320px;border-right:1px solid var(--border);overflow-y:auto;flex:none">${listRows}</div>
-    <div style="flex:1;display:flex;flex-direction:column;min-width:0">${right}</div></div>`;
+  const list=_crmFiltered();
+  document.getElementById('crmCount').textContent=`${list.length} conversa${list.length===1?'':'s'} no funil`;
+  const byStage={};CRM_STAGES.forEach(s=>byStage[s.key]=[]);
+  list.forEach(cv=>{const k=cv.stage&&byStage[cv.stage]?cv.stage:'sem';byStage[k].push(cv);});
+  const cols=CRM_STAGES.map(st=>{
+    const items=byStage[st.key];
+    const cards=items.map(cv=>crmCardHTML(cv)).join('')||'<div style="font-size:11px;color:var(--faint);text-align:center;padding:16px 0">—</div>';
+    return `<div class="crmCol" ondragover="event.preventDefault();this.style.background='var(--surface2)'" ondragleave="this.style.background=''" ondrop="crmDrop(event,'${st.key}')" style="width:250px;flex:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;max-height:calc(100vh - 250px)">
+      <div style="padding:10px 12px;border-bottom:2px solid ${st.color};display:flex;justify-content:space-between;align-items:center"><b style="font-size:12.5px">${st.label}</b><span style="font-size:11px;color:var(--muted);background:var(--surface2);border-radius:20px;padding:1px 8px">${items.length}</span></div>
+      <div style="padding:8px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">${cards}</div></div>`;
+  }).join('');
+  document.getElementById('crmBody').innerHTML=`<div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px">${cols}</div>`;
 }
-function crmThreadHTML(){
-  const cv=_crmActive;const o=cv.origin||{};
-  let orig='';
-  if(cv.origin_type==='anuncio'){
-    const path=[o.campaign,o.adset,o.ad].filter(Boolean).map(s=>String(s).replace(/</g,'&lt;')).join(' <span style="color:var(--faint)">›</span> ');
-    orig=`<div style="font-size:11.5px;color:#93c5fd;margin-top:2px">📣 ${path?'<b>'+path+'</b>':('Veio de anúncio'+(o.title?': <b>'+String(o.title).replace(/</g,'&lt;')+'</b>':'')+(o.source_id?' · ad '+o.source_id:''))}${o.ctwa_clid?' <span style="color:var(--faint)">· clid '+String(o.ctwa_clid).slice(0,10)+'</span>':''}</div>`;
-  }
-  else if(cv.origin_type==='utm')orig=`<div style="font-size:11.5px;color:#c4b5fd;margin-top:2px">🔗 ${o.track_source||'UTM'}${o.track_id?' · '+o.track_id:''}</div>`;
-  const msgs=_crmMsgs.map(m=>{
-    const out=m.direction==='out';
-    return `<div style="display:flex;justify-content:${out?'flex-end':'flex-start'};margin-bottom:6px"><div style="max-width:72%;background:${out?'var(--accent)':'var(--surface2)'};color:${out?'#0a0906':'var(--text)'};border:1px solid var(--border);border-radius:${out?'12px 12px 4px 12px':'12px 12px 12px 4px'};padding:7px 11px;font-size:13px;white-space:pre-wrap;word-break:break-word">${(m.text||'').replace(/</g,'&lt;')||'<i style="opacity:.6">['+(m.msg_type||'mídia')+']</i>'}<div style="font-size:9px;opacity:.6;text-align:right;margin-top:2px">${_crmTime(m.ts)}</div></div></div>`;
-  }).join('')||'<div class="empty" style="padding:20px">Sem mensagens.</div>';
-  return `<div style="padding:11px 14px;border-bottom:1px solid var(--border)"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b>${crmOriginBadge(cv.origin_type)}</div><div style="font-size:11px;color:var(--faint)">${cv.chat_id}</div>${orig}</div>
-    <div id="crmThread" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column">${msgs}</div>
-    <div style="display:flex;gap:8px;padding:10px;border-top:1px solid var(--border)"><input id="crmSendInput" placeholder="Escreva uma mensagem…" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();crmSend()}"><button class="btn primary" onclick="crmSend()">Enviar</button></div>`;
+function crmCardHTML(cv){
+  const o=cv.origin||{};
+  const campaign=o.campaign?`<div style="font-size:10px;color:#93c5fd;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📣 ${String(o.campaign).replace(/</g,'&lt;')}</div>`:'';
+  return `<div draggable="true" ondragstart="crmDragStart(event,'${cv.id}')" onclick="openCrmConv('${cv.id}')" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px;cursor:pointer">
+    <div style="display:flex;justify-content:space-between;gap:6px;align-items:start"><b style="font-size:12.5px;line-height:1.3">${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b>${crmOriginBadge(cv.origin_type)}</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">📞 ${cv.chat_id}</div>
+    ${cv.last_text?`<div style="font-size:11px;color:var(--faint);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(cv.last_text||'').replace(/</g,'&lt;')}</div>`:''}
+    ${campaign}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px"><span style="font-size:10px;color:var(--faint)">🕐 ${_crmTime(cv.last_at)}</span>${cv.unread?'<span style="font-size:9px;font-weight:800;color:#0a0906;background:var(--accent);border-radius:20px;padding:1px 6px">novo</span>':''}</div></div>`;
 }
-async function openCrmConv(id,keepScroll){
+function crmDragStart(e,id){e.dataTransfer.setData('text/plain',id);e.dataTransfer.effectAllowed='move';}
+async function crmDrop(e,stage){
+  e.preventDefault();const col=e.currentTarget;if(col)col.style.background='';
+  const id=e.dataTransfer.getData('text/plain');if(!id)return;
+  const cv=_crmConvs.find(x=>x.id===id);if(!cv||cv.stage===stage)return;
+  cv.stage=stage;renderCrm();
+  await sb.from('wa_conversations').update({stage}).eq('id',id);
+  if(_crmActive&&_crmActive.id===id){_crmActive.stage=stage;renderCrmDrawer();}
+}
+async function openCrmConv(id){
   const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;_crmActive=cv;
   const {data}=await sb.from('wa_messages').select('*').eq('conversation_id',id).order('ts',{ascending:true}).limit(500);
   _crmMsgs=data||[];
   if(cv.unread){sb.from('wa_conversations').update({unread:0}).eq('id',id).then(()=>{});cv.unread=0;}
-  renderCrm();
+  renderCrmDrawer();renderCrm();
+  setTimeout(()=>{const th=document.getElementById('crmThread');if(th)th.scrollTop=th.scrollHeight;},30);
+}
+function crmCloseThread(){_crmActive=null;document.getElementById('crmDrawer').innerHTML='';renderCrm();}
+function renderCrmDrawer(){
+  const cv=_crmActive;if(!cv){document.getElementById('crmDrawer').innerHTML='';return;}
+  const o=cv.origin||{};let orig='';
+  if(cv.origin_type==='anuncio'){
+    const path=[o.campaign,o.adset,o.ad].filter(Boolean).map(s=>String(s).replace(/</g,'&lt;')).join(' <span style="color:var(--faint)">›</span> ');
+    orig=`<div style="font-size:11.5px;color:#93c5fd;margin-top:4px">📣 ${path?'<b>'+path+'</b>':('Anúncio'+(o.title?': <b>'+String(o.title).replace(/</g,'&lt;')+'</b>':'')+(o.source_id?' · ad '+o.source_id:''))}</div>`;
+  }else if(cv.origin_type==='utm')orig=`<div style="font-size:11.5px;color:#c4b5fd;margin-top:4px">🔗 ${o.track_source||'UTM'}${o.track_id?' · '+o.track_id:''}</div>`;
+  const stageBtns=CRM_STAGES.map(s=>`<button class="btn sm ${(cv.stage||'sem')===s.key?'primary':'ghost'}" style="font-size:10.5px;padding:2px 8px" onclick="crmSetStage('${cv.id}','${s.key}')">${s.label}</button>`).join('');
+  const msgs=_crmMsgs.map(m=>{const out=m.direction==='out';return `<div style="display:flex;justify-content:${out?'flex-end':'flex-start'};margin-bottom:6px"><div style="max-width:80%;background:${out?'var(--accent)':'var(--surface2)'};color:${out?'#0a0906':'var(--text)'};border:1px solid var(--border);border-radius:${out?'12px 12px 4px 12px':'12px 12px 12px 4px'};padding:7px 11px;font-size:13px;white-space:pre-wrap;word-break:break-word">${(m.text||'').replace(/</g,'&lt;')||'<i style="opacity:.6">['+(m.msg_type||'mídia')+']</i>'}<div style="font-size:9px;opacity:.6;text-align:right;margin-top:2px">${_crmTime(m.ts)}</div></div></div>`;}).join('')||'<div class="empty" style="padding:20px">Sem mensagens.</div>';
+  document.getElementById('crmDrawer').innerHTML=`
+    <div onclick="crmCloseThread()" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998"></div>
+    <div style="position:fixed;top:0;right:0;bottom:0;width:min(440px,94vw);background:var(--bg);border-left:1px solid var(--border);z-index:9999;display:flex;flex-direction:column">
+      <div style="padding:12px 14px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b><button class="btn sm ghost" onclick="crmCloseThread()">✕</button></div>
+        <div style="font-size:11px;color:var(--faint)">📞 ${cv.chat_id}</div>${orig}
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px">${stageBtns}</div>
+      </div>
+      <div id="crmThread" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column">${msgs}</div>
+      <div style="display:flex;gap:8px;padding:10px;border-top:1px solid var(--border)"><input id="crmSendInput" placeholder="Escreva uma mensagem…" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();crmSend()}"><button class="btn primary" onclick="crmSend()">Enviar</button></div>
+    </div>`;
   const th=document.getElementById('crmThread');if(th)th.scrollTop=th.scrollHeight;
 }
+async function crmSetStage(id,stage){const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;cv.stage=stage;if(_crmActive&&_crmActive.id===id)_crmActive.stage=stage;renderCrmDrawer();renderCrm();await sb.from('wa_conversations').update({stage}).eq('id',id);}
 async function crmSend(){
   const inp=document.getElementById('crmSendInput');if(!inp||!_crmActive)return;
   const text=inp.value.trim();if(!text)return;inp.value='';
@@ -2061,17 +2128,78 @@ async function loadConfiguracoes(){
         <button class="btn sm primary" style="flex:none" onclick="saveNuvemApp()">Salvar</button>
       </div>
       <div style="font-size:11px;color:var(--faint);margin-top:8px">Crie um App de Parceiro na Nuvemshop com a URL de redirect <code style="background:var(--surface2);padding:1px 5px;border-radius:5px;word-break:break-all">${TRACK_BASE}/nuvemshop/callback</code>. Depois conecte a loja de cada cliente no cadastro dele (aba Mídia).</div>`);})()}
-    ${integCard('whatsapp','💬','WhatsApp Cloud API',
-      'Conectar o WhatsApp do cliente por QR code (Meta Cloud API) + CRM de conversas com origem por anúncio/UTM.',
-      integStatusPill('warn','Em construção'),
-      `<div style="font-size:12.5px;color:var(--muted);line-height:1.6">Fase 2 do rastreamento. Vai precisar de um <b>App no Meta for Developers com o produto WhatsApp</b> (hoje só temos o de Meta Ads). Quando ativarmos, o cliente escaneia o QR aqui e as conversas passam a chegar marcadas com a campanha/anúncio (Meta) ou campanha/palavra-chave (Google) de origem.</div>`)}
+    ${integCard('whatsapp','💬','WhatsApp (uazapi)',
+      'Conecte números por QR: o da agência (para envios) e o de cada cliente. As conversas caem no CRM já com a origem (anúncio/UTM).',
+      integStatusPill('ok','uazapi conectado'),
+      `<div id="waInstList" style="font-size:12.5px;color:var(--muted)">Carregando números…</div>
+       <button class="btn sm primary" style="margin-top:10px" onclick="waConnectStart('')">➕ Conectar um número</button>`)}
     ${integCard('sheets','📊','Google Sheets','Leitura das planilhas de venda (contas conectadas por compartilhamento).',
       integStatusPill('ok','Ativo'),
       `<div style="font-size:12px;color:var(--muted)">Cada cliente compartilha a planilha dele como Leitor com <code style="background:var(--surface2);padding:1px 5px;border-radius:5px;word-break:break-all">leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com</code> (configurado por cliente na aba Relatórios).</div>`)}
     <div style="font-size:11px;color:var(--faint);margin-top:6px">O status de Meta e Google é verificado ao vivo. Se aparecer "reconectar", o token expirou — me avise que renovamos.</div>`;
   // status ao vivo Meta + Google
   checkIntegMeta();checkIntegGoogle();
+  renderWaConfig();
 }
+/* ===== WhatsApp: conectar números por QR (uazapi) ===== */
+let _waConnectPoll=null;
+async function renderWaConfig(){
+  const el=document.getElementById('waInstList');if(!el)return;
+  const {data}=await sb.from('wa_instances').select('*').order('created_at',{ascending:true});
+  const insts=data||[];
+  if(!insts.length){el.innerHTML='<div style="color:var(--faint)">Nenhum número conectado ainda.</div>';return;}
+  el.innerHTML=insts.map(i=>{
+    const c=DB.clients.find(x=>x.id===i.client_id);
+    const who=c?('👤 '+c.name):(i.client_id?i.name:'🏢 Agência (envios)');
+    const st=i.status==='connected'?'<span style="color:#34d399">● conectado</span>':`<span style="color:#f59e0b">● ${i.status||'desconectado'}</span>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
+      <div><b style="font-size:12.5px">${who.replace(/</g,'&lt;')}</b> <span style="color:var(--faint);font-size:11px">${i.phone||'—'}</span><div style="font-size:11px">${st}</div></div>
+      <div style="display:flex;gap:6px">${i.status==='connected'?'':`<button class="btn sm ghost" onclick="waShowQr('${i.id}')">📷 Ver QR</button>`}<button class="btn sm ghost" style="color:var(--red)" onclick="waRemoveInst('${i.id}')">Remover</button></div></div>`;
+  }).join('');
+}
+function waConnectStart(clientId){
+  const clientOpts=DB.clients.filter(c=>c.status!=='Encerrado').sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}" ${c.id===clientId?'selected':''}>${c.name.replace(/</g,'&lt;')}</option>`).join('');
+  let ov=document.getElementById('waConnOverlay');if(!ov){ov=document.createElement('div');ov.id='waConnOverlay';document.body.appendChild(ov);}
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;width:min(420px,92vw)">
+    <h3 style="margin:0 0 12px;font-size:17px">📷 Conectar número no WhatsApp</h3>
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">De quem é este número?</div>
+    <select id="waConnWho" style="width:100%;margin-bottom:14px"><option value="">🏢 Agência (só para envios)</option>${clientOpts}</select>
+    <div id="waConnStep"><button class="btn primary" style="width:100%" onclick="waConnCreate()">Gerar QR Code</button></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn ghost" onclick="waConnClose()">Fechar</button></div>
+  </div>`;
+  ov.onclick=e=>{if(e.target===ov)waConnClose();};
+}
+function waConnClose(){if(_waConnectPoll){clearInterval(_waConnectPoll);_waConnectPoll=null;}const ov=document.getElementById('waConnOverlay');if(ov)ov.remove();renderWaConfig();}
+async function waConnCreate(){
+  const clientId=document.getElementById('waConnWho').value||null;
+  const step=document.getElementById('waConnStep');step.innerHTML='<div style="text-align:center;color:var(--muted);padding:20px">Criando instância…</div>';
+  const name=(clientId?(DB.clients.find(c=>c.id===clientId)||{}).name:'agencia')||'num';
+  const r=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'create',clientId,name}}});
+  const id=r.data&&r.data.data&&r.data.data.id;
+  if(!id){step.innerHTML='<div style="color:var(--red);padding:12px">Falha ao criar instância. '+((r.data&&r.data.error)||'')+'</div>';return;}
+  waRenderQrStep(id);
+}
+async function waRenderQrStep(id){
+  const step=document.getElementById('waConnStep');step.innerHTML='<div style="text-align:center;color:var(--muted);padding:20px">Gerando QR…</div>';
+  const r=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'qr',instanceId:id}}});
+  const d=(r.data&&r.data.data)||{};
+  if(d.status==='connected'){waConnConnected();return;}
+  const qr=d.qrcode||'';const img=qr?(qr.startsWith('data:')?qr:'data:image/png;base64,'+qr):'';
+  step.innerHTML=`${img?`<img src="${img}" style="width:220px;height:220px;display:block;margin:0 auto;border-radius:10px;background:#fff;padding:6px">`:'<div style="color:var(--muted);text-align:center;padding:20px">QR indisponível — tente de novo.</div>'}
+    ${d.paircode?`<div style="text-align:center;font-size:12px;color:var(--muted);margin-top:8px">ou código: <b style="letter-spacing:2px">${d.paircode}</b></div>`:''}
+    <div style="font-size:12px;color:var(--muted);text-align:center;margin-top:10px">No WhatsApp do número → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b> → escaneie.</div>
+    <div id="waConnWait" style="font-size:11px;color:var(--faint);text-align:center;margin-top:8px">Aguardando leitura…</div>`;
+  if(_waConnectPoll)clearInterval(_waConnectPoll);
+  _waConnectPoll=setInterval(async()=>{
+    const s=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'status',instanceId:id}}});
+    const st=(s.data&&s.data.data&&s.data.data.status)||'';
+    if(st==='connected'){clearInterval(_waConnectPoll);_waConnectPoll=null;waConnConnected();}
+  },3000);
+}
+function waConnConnected(){const step=document.getElementById('waConnStep');if(step)step.innerHTML='<div style="text-align:center;color:#34d399;padding:24px;font-weight:600">✓ Número conectado!</div>';setTimeout(waConnClose,1500);}
+function waShowQr(id){waConnectStart('');const who=document.getElementById('waConnWho');if(who)who.parentElement.style.display='none';waRenderQrStep(id);}
+async function waRemoveInst(id){if(!confirm('Remover este número? As conversas já salvas permanecem, mas para de receber novas.'))return;await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'remove',instanceId:id}}});renderWaConfig();}
 async function checkIntegMeta(){
   const el=document.getElementById('integRight_meta');if(!el)return;
   try{
