@@ -1931,7 +1931,7 @@ async function loadCrm(){
 function crmSetInst(id){_crmInstId=id;_crmActive=null;loadCrm();}
 async function crmPoll(manual){
   const btn=document.getElementById('crmPollBtn');if(manual&&btn){btn.textContent='…';btn.disabled=true;}
-  try{await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,limit:80}}});await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id,true);}catch(e){}
+  try{await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,limit:80}}});if(manual)await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'resolveOrigins',instanceId:_crmInstId}}}).catch(()=>{});await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id,true);}catch(e){}
   if(manual&&btn){btn.textContent='🔄 Atualizar';btn.disabled=false;}
 }
 async function loadCrmConvs(){
@@ -1961,7 +1961,10 @@ function renderCrm(){
 function crmThreadHTML(){
   const cv=_crmActive;const o=cv.origin||{};
   let orig='';
-  if(cv.origin_type==='anuncio')orig=`<div style="font-size:11.5px;color:#93c5fd;margin-top:2px">📣 Veio de anúncio${o.title?': <b>'+String(o.title).replace(/</g,'&lt;')+'</b>':''}${o.source_id?' · ad '+o.source_id:''}${o.ctwa_clid?' · clid '+String(o.ctwa_clid).slice(0,10):''}</div>`;
+  if(cv.origin_type==='anuncio'){
+    const path=[o.campaign,o.adset,o.ad].filter(Boolean).map(s=>String(s).replace(/</g,'&lt;')).join(' <span style="color:var(--faint)">›</span> ');
+    orig=`<div style="font-size:11.5px;color:#93c5fd;margin-top:2px">📣 ${path?'<b>'+path+'</b>':('Veio de anúncio'+(o.title?': <b>'+String(o.title).replace(/</g,'&lt;')+'</b>':'')+(o.source_id?' · ad '+o.source_id:''))}${o.ctwa_clid?' <span style="color:var(--faint)">· clid '+String(o.ctwa_clid).slice(0,10)+'</span>':''}</div>`;
+  }
   else if(cv.origin_type==='utm')orig=`<div style="font-size:11.5px;color:#c4b5fd;margin-top:2px">🔗 ${o.track_source||'UTM'}${o.track_id?' · '+o.track_id:''}</div>`;
   const msgs=_crmMsgs.map(m=>{
     const out=m.direction==='out';

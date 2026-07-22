@@ -1044,6 +1044,15 @@ async function waCall(host: string, token: string, path: string, method = "GET",
   const t = await r.text(); let j: any; try { j = JSON.parse(t); } catch { j = t; }
   return { status: r.status, j };
 }
+// Resolve o ad_id do CTWA (source_id da conversa) em nomes: campanha › conjunto › anúncio (Graph API)
+async function waResolveAd(adId: string): Promise<Record<string, string> | null> {
+  const token = Deno.env.get("META_USER_TOKEN"); if (!token || !adId) return null;
+  try {
+    const r = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(adId)}?fields=name,adset{name},campaign{name}&access_token=${token}`);
+    const j = await r.json(); if (!j || j.error) return null;
+    return { ad: j.name || "", adset: (j.adset && j.adset.name) || "", campaign: (j.campaign && j.campaign.name) || "" };
+  } catch { return null; }
+}
 async function waHandler(w: any) {
   const inst = (await sbGet("wa_instances", `id=eq.${encodeURIComponent(w.instanceId)}&select=id,client_id,uaz_host,uaz_token,phone`))[0];
   if (!inst) throw new Error("Instância WhatsApp não encontrada.");
@@ -1070,6 +1079,7 @@ async function waHandler(w: any) {
     const ids = oneToOne.map((m) => String(m.messageid || m.id || "")).filter(Boolean);
     const known = new Set<string>();
     if (ids.length) { const ex = await sbGet("wa_messages", `wa_msgid=in.(${ids.map((x) => encodeURIComponent(x)).join(",")})&select=wa_msgid`); (ex || []).forEach((r: any) => known.add(r.wa_msgid)); }
+    const adCache: Record<string, Record<string, string> | null> = {};
     let added = 0;
     for (const m of oneToOne) {
       const msgid = String(m.messageid || m.id || ""); if (!msgid || known.has(msgid)) continue;
@@ -1077,12 +1087,27 @@ async function waHandler(w: any) {
       const fromMe = !!m.fromMe; const text = waText(m); const ts = waTs(m.messageTimestamp);
       const existing = (await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=eq.${phone}&select=id,origin_type&limit=1`))[0];
       let convId = existing?.id; const origin = fromMe ? null : waOrigin(m);
+      if (origin && origin.type === "anuncio" && origin.data.source_id && !origin.data.campaign) {
+        const key = String(origin.data.source_id);
+        if (adCache[key] === undefined) adCache[key] = await waResolveAd(key);
+        if (adCache[key]) Object.assign(origin.data, adCache[key]);
+      }
       if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: phone, name: m.senderName || phone, last_text: text, last_at: ts, unread: fromMe ? 0 : 1, origin_type: origin ? origin.type : "organico", origin: origin ? origin.data : null }); }
       else { const patch: Record<string, unknown> = { last_text: text, last_at: ts }; if (!fromMe) patch.unread = 1; if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; } await sbPatchD("wa_conversations", `id=eq.${convId}`, patch); }
       await sbPost("wa_messages", { id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: msgid, direction: fromMe ? "out" : "in", msg_type: m.messageType || "text", text, ts, raw: m });
       added++;
     }
     return { added, scanned: msgs.length };
+  }
+  if (w.op === "resolveOrigins") {
+    const convs = await sbGet("wa_conversations", `client_id=${clientFilter}&origin_type=eq.anuncio&select=id,origin`);
+    const cache: Record<string, Record<string, string> | null> = {}; let done = 0;
+    for (const cv of (convs || [])) {
+      const o = cv.origin || {}; if (o.campaign || !o.source_id) continue;
+      const key = String(o.source_id); if (cache[key] === undefined) cache[key] = await waResolveAd(key);
+      if (cache[key]) { await sbPatchD("wa_conversations", `id=eq.${cv.id}`, { origin: { ...o, ...cache[key] } }); done++; }
+    }
+    return { resolved: done };
   }
   throw new Error("op inválida");
 }
