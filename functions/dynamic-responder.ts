@@ -1404,8 +1404,9 @@ async function waAgentHandle(w: any) {
   const sys = `Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com a equipe da agência. Fale CURTO, direto e natural (é WhatsApp).
 - Você CONSULTA os dados reais do sistema com as ferramentas: consultar_banco (qualquer tabela: financeiro, tarefas, CRM, RD, pedidos, clientes…), meta_insights e google_insights (métricas ao vivo), resumo_todos_clientes. SEMPRE busque o dado real antes de responder — NUNCA invente número nem use placeholders (X, Y, Z). Se não houver dado, diga que não há.
 - Traga SÓ o que tem dado, e a métrica que faz sentido pro OBJETIVO do cliente (venda→ROAS; lead→CPL; mensagem→custo por conversa; tráfego→CPC/CTR). Não recite dados que não foram pedidos.
-- Para AÇÕES (criar tarefa, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria.
-- Datas: hoje é ${new Date().toISOString().slice(0, 10)}. Ao filtrar por cliente use o id dele (consulte a tabela clients se precisar do id pelo nome). Clientes: ${nomes}.`;
+- Para AÇÕES (criar tarefa, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
+- FINANCEIRO (tabela finance): "a receber" = receita pendente; "a pagar" = despesa pendente; "recebido/pago" = pago. Campos: type='receita'|'despesa', status='pendente'|'pago', val (número), due (texto AAAA-MM-DD), client (id), description. Pra um MÊS use o filtro de texto: due=like.2026-07*. Ex: a receber em julho → consultar_banco{tabela:'finance', filtro:"type=eq.receita&status=eq.pendente&due=like.2026-07*"} e SOME os val. Se pedirem "a receber este mês" e você achar linhas, responda o total e liste; só diga que não há se a consulta voltar VAZIA de verdade.
+- Datas: hoje é ${new Date().toISOString().slice(0, 10)}. Ao filtrar por um cliente específico use o id dele (está na lista abaixo entre colchetes, ou consulte a tabela clients). Clientes: ${clients.slice(0, 150).map((c: any) => `${c.name}[${c.id}]`).join(" | ")}.`;
   const hist0 = ((sess && sess.history) || []).slice(-8).map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text }));
   const messages: any[] = [{ role: "system", content: sys }, ...hist0, { role: "user", content: text }];
   let clientId = (sess && sess.client_id) || null;
@@ -1418,11 +1419,15 @@ async function waAgentHandle(w: any) {
       for (const tc of msg.tool_calls) {
         let args: any = {}; try { args = JSON.parse(tc.function.arguments || "{}"); } catch { args = {}; }
         if (tc.function.name === "preparar_acao") {
-          const cid = (_waResolveClient(args.cliente, clients) || {}).id || clientId;
-          const pending = { ...args, client_id: cid };
-          const reply = _waConfirmText(pending, clients);
-          const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16);
-          await saveSess({ client_id: cid, pending, last_msgid: w.msgid, history: hist });
+          let cid = clientId; let reply = "";
+          if (args.cliente) {
+            const rc = _waResolveClient(args.cliente, clients);
+            if (rc) cid = rc.id;
+            else reply = `🤔 Não achei o cliente "${args.cliente}" no sistema. Confere o nome pra mim? (se quiser, peço a lista de clientes)`;
+          }
+          if (!reply && !cid) reply = "De qual cliente é essa ação? Me diz o nome do cliente.";
+          if (!reply) { const pending = { ...args, client_id: cid }; reply = _waConfirmText(pending, clients); const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16); await saveSess({ client_id: cid, pending, last_msgid: w.msgid, history: hist }); }
+          else { const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16); await saveSess({ pending: null, last_msgid: w.msgid, history: hist }); }
           await send(reply); acted = true; break;
         }
         const result = await waExecTool(tc.function.name, args, clients);
