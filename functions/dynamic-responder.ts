@@ -1258,6 +1258,54 @@ async function waAgentExec(pending: any, clientId: string | null) {
   } catch (e) { return "❌ Não consegui executar: " + String((e as any)?.message || e); }
   return "Feito 👍";
 }
+function _fmtR(v: number) { return "R$" + (Math.round((v || 0) * 100) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 }); }
+// métrica do OBJETIVO do cliente (deriva do que teve resultado): venda>lead>conversa>tráfego
+function _objMetric(t: any, google: boolean) {
+  const spend = t.spend || 0;
+  if ((t.purchases || 0) > 0) { const roas = t.roas != null ? t.roas : (spend ? (t.revenue || 0) / spend : 0); return `Compras ${Math.round(t.purchases)} · ROAS ${(roas || 0).toFixed(2)}`; }
+  if (!google && (t.leads || 0) > 0) return `Leads ${t.leads} · CPL ${_fmtR(t.leads ? spend / t.leads : 0)}`;
+  if (!google && (t.conversas || 0) > 0) return `Conversas ${t.conversas} · Custo/conversa ${_fmtR(t.conversas ? spend / t.conversas : 0)}`;
+  const ctr = t.ctr != null ? t.ctr : (t.impressions ? (t.clicks / t.impressions * 100) : 0);
+  const cpc = t.cpc != null ? t.cpc : (t.clicks ? spend / t.clicks : 0);
+  return `Cliques ${t.clicks || 0} · CTR ${(ctr || 0).toFixed(2)}% · CPC ${_fmtR(cpc)}`;
+}
+// Resumo de TODOS os clientes no período — por cliente, Meta/Google separados + total; pula quem não teve gasto. Retorna mensagens (chunked).
+async function waAgentAllClientsSummary(days: number): Promise<string[]> {
+  const since = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
+  const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,status&limit=500");
+  const active = clients.filter((c: any) => c.status !== "Encerrado" && (String(c.meta_account_id || "").trim() || String(c.google_account_id || "").trim()));
+  const results: any[] = [];
+  for (let i = 0; i < active.length; i += 8) {
+    const ch = active.slice(i, i + 8);
+    const rs = await Promise.all(ch.map(async (c: any) => {
+      const mIds = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+      const gIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+      const [m, g] = await Promise.all([
+        mIds.length ? metaAdsInsights({ accounts: mIds.map((id: string) => ({ id, name: id })), since, until }).catch(() => null) : Promise.resolve(null),
+        gIds.length ? googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until }).catch(() => null) : Promise.resolve(null),
+      ]);
+      const mt = (m && m.total && (m.total.spend || 0) > 0) ? m.total : null;
+      const gt = (g && g.total && (g.total.spend || 0) > 0) ? g.total : null;
+      return { nome: c.name, meta: mt, google: gt };
+    }));
+    results.push(...rs);
+  }
+  results.sort((a, b) => ((b.meta?.spend || 0) + (b.google?.spend || 0)) - ((a.meta?.spend || 0) + (a.google?.spend || 0)));
+  const blocks: string[] = [];
+  for (const r of results) {
+    if (!r.meta && !r.google) continue;
+    let b = `*${r.nome}*`;
+    if (r.meta) b += `\n📘 Meta — Gasto ${_fmtR(r.meta.spend)} · ${_objMetric(r.meta, false)}`;
+    if (r.google) b += `\n🔎 Google — Gasto ${_fmtR(r.google.spend)} · ${_objMetric(r.google, true)}`;
+    if (r.meta && r.google) b += `\n➕ Total — Gasto ${_fmtR((r.meta.spend || 0) + (r.google.spend || 0))}`;
+    blocks.push(b);
+  }
+  if (!blocks.length) return [`Nenhum cliente com investimento nos últimos ${days} dias.`];
+  const msgs: string[] = []; let cur = `📊 Resumo dos últimos ${days} dias por cliente:\n`;
+  for (const b of blocks) { if ((cur + "\n\n" + b).length > 3000) { msgs.push(cur); cur = b; } else cur += "\n\n" + b; }
+  if (cur.trim()) msgs.push(cur);
+  return msgs;
+}
 async function waAgentHandle(w: any) {
   const data = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
   const cfg = data.andreia_wa || {};
@@ -1281,6 +1329,16 @@ async function waAgentHandle(w: any) {
     const isNo = /^(nao|n|cancela|cancelar|deixa|esquece|para|negativo|nem|melhor nao)$/.test(tl);
     if (isYes) { const msg = await waAgentExec(sess.pending, sess.client_id); await saveSess({ pending: null, last_msgid: w.msgid }); await send(msg); return { ok: true }; }
     if (isNo) { await saveSess({ pending: null, last_msgid: w.msgid }); await send("Ok, cancelei 👍"); return { ok: true }; }
+  }
+  // pedido de RESUMO GERAL de todos os clientes → monta determinístico (sem alucinar placeholders)
+  const low = text.toLowerCase();
+  if (/\b(cada cliente|todos os clientes|todos clientes|resumo geral|de todos|geral dos clientes|resumo dos clientes|panorama|de cada cliente)\b/.test(low) || (/resumo/.test(low) && /clientes/.test(low))) {
+    const days = /\b90\b/.test(text) ? 90 : (/\b30\b/.test(text) ? 30 : 7);
+    await send(`⏳ Montando o resumo de todos os clientes (${days} dias)… um instante.`);
+    const msgs = await waAgentAllClientsSummary(days);
+    for (const mm of msgs) await send(mm);
+    await saveSess({ pending: null, last_msgid: w.msgid, history: [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: "[resumo geral de clientes enviado]" }].slice(-16) });
+    return { ok: true };
   }
   const clients = await sbGet("clients", "select=id,name&limit=500");
   const out = await waAgentLLM(text, (sess && sess.history) || [], (sess && sess.client_id) || null, clients);
