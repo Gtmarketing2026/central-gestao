@@ -1286,8 +1286,13 @@ async function waAgentHandle(w: any) {
   const out = await waAgentLLM(text, (sess && sess.history) || [], (sess && sess.client_id) || null, clients);
   let clientId = (sess && sess.client_id) || null;
   if (out.client) { const q = String(out.client).toLowerCase(); const m = clients.find((c: any) => c.name.toLowerCase() === q) || clients.find((c: any) => c.name.toLowerCase().includes(q)); if (m) clientId = m.id; }
-  const reply = out.reply || "Ok.";
+  let reply = out.reply || "Ok.";
   const pending = out.action ? { ...out.action, client_id: clientId } : null;
+  // garante que a confirmação SEMPRE mostra o cliente (o modelo às vezes esquece)
+  if (pending && clientId) {
+    const cn = (clients.find((c: any) => c.id === clientId) || {}).name || "";
+    if (cn && !reply.toLowerCase().includes(cn.toLowerCase())) reply = `📌 Cliente: ${cn}\n` + reply;
+  }
   const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16);
   await saveSess({ client_id: clientId, history: hist, pending, last_msgid: w.msgid });
   await send(reply);
