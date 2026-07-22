@@ -1128,7 +1128,14 @@ async function waCapi(convId: string, eventName: string) {
 }
 // ===== AndréIA no WhatsApp (grupo): entende a mensagem, analisa o cliente, cria tarefa (com confirmação) =====
 function _waResumoMeta(t: any) { return { gasto: Math.round(t.spend), impressoes: t.impressions, cliques: t.clicks, ctr: +(t.ctr || 0).toFixed(2), cpc: +(t.cpc || 0).toFixed(2), cpm: +(t.cpm || 0).toFixed(2), alcance: t.reach, conversas: t.conversas, custoPorConversa: t.conversas ? +(t.spend / t.conversas).toFixed(2) : null, leads: t.leads, compras: Math.round(t.purchases || 0), roas: +(t.roas || 0).toFixed(2) }; }
+const _snapCache: Record<string, { t: number; v: any }> = {};
 async function waAgentSnapshot(clientId: string) {
+  const cached = _snapCache[clientId]; if (cached && Date.now() - cached.t < 180000) return cached.v;
+  const v = await _waBuildSnapshot(clientId);
+  if (v) _snapCache[clientId] = { t: Date.now(), v };
+  return v;
+}
+async function _waBuildSnapshot(clientId: string) {
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,benchmark_metas,meta_account_id,conversion_source`))[0];
   if (!c) return null;
   const out: any = { nome: c.name };
@@ -1164,11 +1171,16 @@ async function waAgentSnapshot(clientId: string) {
 async function waAgentLLM(text: string, history: any[], clientId: string | null, clients: any[]) {
   let snap = null; if (clientId) snap = await waAgentSnapshot(clientId);
   const names = clients.map((c) => c.name).slice(0, 250).join(" | ");
-  const sys = `Você é a AndréIA, gestora de tráfego sênior, atendendo a EQUIPE da agência num grupo de WhatsApp. Respostas CURTAS e diretas (é WhatsApp, no máx ~6 linhas). Clientes: ${names}.
-- Se identificar de qual cliente é a mensagem, devolva o nome EXATO em "client". Se precisar do cliente e não der pra saber, deixe "client" vazio e pergunte no "reply".
-- Você TEM ACESSO A TUDO no SNAPSHOT: totais (ultimos7dias/ultimos30dias), metas vs realizado (metasVsReal_30d), TODAS as campanhas com gasto (campanhasComGasto_30d), as campanhas que estão RODANDO agora e seus orçamentos (campanhasAtivasAgora), conjuntos ativos com orçamento, e os principais anúncios (topAnuncios_30d). RESPONDA DIRETO com esses dados — NUNCA diga "não tenho acesso", "preciso verificar" ou "veja na plataforma". Ex: "quais campanhas estão rodando?" → liste campanhasAtivasAgora. "7 dias?" → ultimos7dias.
-- Só diga que falta o dado se o snapshot trouxer "aviso". Não invente números fora do snapshot.
-- AÇÕES: você EXECUTA (sempre pedindo confirmação antes — no "reply" resuma a ação e peça pra responder SIM, e preencha "action"). Tipos de action:
+  const sys = `Você é a AndréIA, gestora de tráfego sênior, num grupo de WhatsApp com a EQUIPE da agência. Fale como gente: CURTO, direto, natural. Clientes: ${names}.
+
+REGRA DE OURO — responda EXATAMENTE o que foi pedido, nada além:
+- O SNAPSHOT é só seu conhecimento de fundo. NUNCA o recite/despeje. NÃO liste métricas a não ser que a pessoa PEÇA explicitamente análise/números/resultado/"como está".
+- Se a pessoa pede uma AÇÃO (criar tarefa, pausar campanha, orçamento, lançamento...): responda em 1 linha confirmando SÓ a ação e pedindo SIM. NADA de métricas.
+- Se pede análise/resultado: aí sim use os números do snapshot (curto, só o que importa).
+- Se for conversa/dúvida: responda normal, curto.
+- Identifique o cliente e devolva o nome EXATO em "client"; se não der, deixe vazio e pergunte. Um nome de PESSOA na frase (ex: "para o Dionathan") é o responsável da tarefa, não o cliente.
+
+AÇÕES (execução real; sempre confirme com SIM antes — resuma no "reply" e preencha "action"). Tipos:
   · criar_tarefa: {"tipo":"criar_tarefa","nome":"<título>","obs":"<detalhe>"}
   · pausar_campanha / reativar_campanha: {"tipo":"pausar_campanha","campanha":"<nome exato da campanha>"}
   · orcamento: {"tipo":"orcamento","campanha":"<nome>","novoValor":<novo orçamento diário em R$, número>}
@@ -1252,8 +1264,9 @@ async function waAgentHandle(w: any) {
   const text = (w.text || "").trim(); if (!text) return { skip: true };
   const saveSess = async (patch: any) => { const row = { phone: skey, updated_at: new Date().toISOString(), ...patch }; if (sess) await sbPatchD("wa_agent_sessions", `phone=eq.${encodeURIComponent(skey)}`, row); else await sbPost("wa_agent_sessions", row); };
   if (sess && sess.pending) {
-    if (/^\s*(sim|s|confirmo?|pode|isso|ok|manda|faz|vai)\b/i.test(text)) { const msg = await waAgentExec(sess.pending, sess.client_id); await saveSess({ pending: null, last_msgid: w.msgid }); await send(msg); return { ok: true }; }
-    if (/^\s*(n|nao|não|cancela|deixa|para)\b/i.test(text)) { await saveSess({ pending: null, last_msgid: w.msgid }); await send("Ok, cancelei 👍"); return { ok: true }; }
+    // só confirma/cancela se a mensagem for CURTA e claramente sim/não (senão trata como nova instrução)
+    if (/^(sim|s|ok|pode|isso|confirmo|confirmado|manda|faz|vai|pode sim|isso mesmo|👍|✅)[\s.!]*$/i.test(text)) { const msg = await waAgentExec(sess.pending, sess.client_id); await saveSess({ pending: null, last_msgid: w.msgid }); await send(msg); return { ok: true }; }
+    if (/^(n[aã]o|cancela|cancelar|deixa|para|esquece|nao)[\s.!]*$/i.test(text)) { await saveSess({ pending: null, last_msgid: w.msgid }); await send("Ok, cancelei 👍"); return { ok: true }; }
   }
   const clients = await sbGet("clients", "select=id,name&limit=500");
   const out = await waAgentLLM(text, (sess && sess.history) || [], (sess && sess.client_id) || null, clients);
