@@ -1129,23 +1129,36 @@ async function waCapi(convId: string, eventName: string) {
 // ===== AndréIA no WhatsApp (grupo): entende a mensagem, analisa o cliente, cria tarefa (com confirmação) =====
 function _waResumoMeta(t: any) { return { gasto: Math.round(t.spend), impressoes: t.impressions, cliques: t.clicks, ctr: +(t.ctr || 0).toFixed(2), cpc: +(t.cpc || 0).toFixed(2), cpm: +(t.cpm || 0).toFixed(2), alcance: t.reach, conversas: t.conversas, custoPorConversa: t.conversas ? +(t.spend / t.conversas).toFixed(2) : null, leads: t.leads, compras: Math.round(t.purchases || 0), roas: +(t.roas || 0).toFixed(2) }; }
 async function waAgentSnapshot(clientId: string) {
-  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,benchmark_metas,meta_account_id`))[0];
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,benchmark_metas,meta_account_id,conversion_source`))[0];
   if (!c) return null;
-  const out: any = { nome: c.name, metas: c.benchmark_metas || null };
+  const out: any = { nome: c.name };
   const ids = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
-  if (!ids.length) { out.aviso = "Cliente sem conta Meta vinculada."; return out; }
+  if (!ids.length) { out.aviso = "Cliente sem conta Meta vinculada no sistema."; return out; }
   const accounts = ids.map((id: string) => ({ id, name: id }));
   const iso = (d: number) => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
   const hoje = new Date().toISOString().slice(0, 10);
-  try {
-    const [r7, r30] = await Promise.all([
-      metaAdsInsights({ accounts, since: iso(7), until: hoje }).catch(() => null),
-      metaAdsInsights({ accounts, since: iso(30), until: hoje }).catch(() => null),
-    ]);
-    if (r7 && r7.total) out.ultimos7dias = _waResumoMeta(r7.total);
-    if (r30 && r30.total) out.ultimos30dias = _waResumoMeta(r30.total);
-    if (!out.ultimos7dias && !out.ultimos30dias) out.aviso = "Não consegui puxar os dados do Meta agora (pode ser token/conta).";
-  } catch (e) { out.aviso = "Falha ao buscar Meta: " + String((e as any)?.message || e); }
+  const [r7, r30, ent] = await Promise.all([
+    metaAdsInsights({ accounts, since: iso(7), until: hoje }).catch(() => null),
+    metaAdsInsights({ accounts, since: iso(30), until: hoje, byCampaign: true, byAd: true }).catch(() => null),
+    metaEntities({ accounts }).catch(() => null),
+  ]);
+  if (r7 && r7.total) out.ultimos7dias = _waResumoMeta(r7.total);
+  if (r30 && r30.total) out.ultimos30dias = _waResumoMeta(r30.total);
+  const bm = c.benchmark_metas || {}; const t = (r30 && r30.total) || null;
+  if (t && Object.values(bm).some((v) => v != null)) {
+    const cpConv = t.conversas ? t.spend / t.conversas : null, cpl = t.leads ? t.spend / t.leads : null, cpa = t.purchases ? t.spend / t.purchases : null;
+    const cmp = (meta: any, atual: any, menorMelhor: boolean) => (meta == null || atual == null) ? null : { meta, atual: +atual.toFixed(2), atingida: menorMelhor ? atual <= meta : atual >= meta };
+    const mvr: any = { ctr: cmp(bm.ctr, t.ctr, false), cpc: cmp(bm.cpc, t.cpc, true), cpm: cmp(bm.cpm, t.cpm, true), roas: cmp(bm.roas, t.roas, false), custoConversa: cmp(bm.custoConversa, cpConv, true), cpl: cmp(bm.cpl, cpl, true), cpa: cmp(bm.cpa, cpa, true) };
+    Object.keys(mvr).forEach((k) => { if (!mvr[k]) delete mvr[k]; }); if (Object.keys(mvr).length) out.metasVsReal_30d = mvr;
+  }
+  if (r30 && r30.campaigns && r30.campaigns.length) out.campanhasComGasto_30d = r30.campaigns.slice(0, 25).map((x: any) => ({ nome: x.campaign, gasto: Math.round(x.spend), objetivo: (x.objetivo && x.objetivo.rotulo) || "", ctr: +(x.ctr || 0).toFixed(2), conversas: x.conversas || undefined, leads: x.leads || undefined, compras: x.purchases ? Math.round(x.purchases) : undefined }));
+  if (ent) {
+    const ativa = (x: any) => x.status === "ACTIVE" || x.entrega === "ACTIVE";
+    out.campanhasAtivasAgora = (ent.campaigns || []).filter(ativa).slice(0, 30).map((x: any) => ({ nome: x.nome, objetivo: (x.objetivo && x.objetivo.rotulo) || "", orcamentoDiario: x.orcamentoDiario || undefined }));
+    out.conjuntosAtivosComOrcamento = (ent.adsets || []).filter((x: any) => ativa(x) && x.orcamentoDiario).slice(0, 25).map((x: any) => ({ nome: x.nome, orcamentoDiario: x.orcamentoDiario }));
+  }
+  if (r30 && r30.ads && r30.ads.length) out.topAnuncios_30d = r30.ads.slice(0, 12).map((a: any) => ({ nome: a.adName, campanha: a.campaign, gasto: Math.round(a.spend), objetivo: (a.objetivo && a.objetivo.rotulo) || "", ctr: +(a.ctr || 0).toFixed(2), cpc: +(a.cpc || 0).toFixed(2), conversas: a.conversas || undefined, leads: a.leads || undefined }));
+  if (!out.ultimos30dias && !out.campanhasComGasto_30d && !out.campanhasAtivasAgora) out.aviso = "Não consegui puxar os dados do Meta agora (token/conta).";
   return out;
 }
 async function waAgentLLM(text: string, history: any[], clientId: string | null, clients: any[]) {
@@ -1153,11 +1166,11 @@ async function waAgentLLM(text: string, history: any[], clientId: string | null,
   const names = clients.map((c) => c.name).slice(0, 250).join(" | ");
   const sys = `Você é a AndréIA, gestora de tráfego sênior, atendendo a EQUIPE da agência num grupo de WhatsApp. Respostas CURTAS e diretas (é WhatsApp, no máx ~6 linhas). Clientes: ${names}.
 - Se identificar de qual cliente é a mensagem, devolva o nome EXATO em "client". Se precisar do cliente e não der pra saber, deixe "client" vazio e pergunte no "reply".
-- O SNAPSHOT JÁ TRAZ os números reais (ultimos7dias / ultimos30dias). RESPONDA DIRETO com esses números — NÃO diga "preciso verificar" nem "vou checar". Se o gestor pedir "7 dias", use ultimos7dias; "30 dias" ou sem período, use ultimos30dias. Só diga que não tem o dado se o snapshot trouxer "aviso".
-- Não invente números que não estão no snapshot.
+- Você TEM ACESSO A TUDO no SNAPSHOT: totais (ultimos7dias/ultimos30dias), metas vs realizado (metasVsReal_30d), TODAS as campanhas com gasto (campanhasComGasto_30d), as campanhas que estão RODANDO agora e seus orçamentos (campanhasAtivasAgora), conjuntos ativos com orçamento, e os principais anúncios (topAnuncios_30d). RESPONDA DIRETO com esses dados — NUNCA diga "não tenho acesso", "preciso verificar" ou "veja na plataforma". Ex: "quais campanhas estão rodando?" → liste campanhasAtivasAgora. "7 dias?" → ultimos7dias.
+- Só diga que falta o dado se o snapshot trouxer "aviso". Não invente números fora do snapshot.
 - AÇÃO de alto impacto (criar tarefa, pausar/duplicar campanha, mexer orçamento, lançamento): NÃO execute. No "reply" descreva e peça confirmação (responder SIM) e preencha "action". Você só executa criar_tarefa; pausar/duplicar/orçamento/lançamento viram uma tarefa pro gestor (action tipo criar_tarefa com o texto da ação).
 Responda SOMENTE JSON: {"client":"<nome|vazio>","reply":"<texto>","action":{"tipo":"criar_tarefa","nome":"<título>","obs":"<detalhe>"}|null}`;
-  const ctx = snap ? ("SNAPSHOT " + snap.nome + ": " + JSON.stringify(snap).slice(0, 2600)) : "(nenhum cliente selecionado ainda)";
+  const ctx = snap ? ("SNAPSHOT COMPLETO de " + snap.nome + " (ultimos7dias, ultimos30dias, metasVsReal_30d, campanhasComGasto_30d, campanhasAtivasAgora com orçamento, conjuntosAtivosComOrcamento, topAnuncios_30d): " + JSON.stringify(snap).slice(0, 7000)) : "(nenhum cliente selecionado ainda)";
   const msgs = [{ role: "system", content: sys }, ...history.slice(-10).map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text })), { role: "user", content: ctx + "\n\nEQUIPE: " + text }];
   const j = await callOpenAI({ model: "gpt-4o-mini", messages: msgs, response_format: { type: "json_object" }, max_tokens: 700, temperature: 0.4 });
   try { return JSON.parse(j.choices[0].message.content || "{}"); } catch { return { reply: "Não entendi, pode repetir?", client: "", action: null }; }
