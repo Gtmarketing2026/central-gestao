@@ -1020,10 +1020,79 @@ async function siteAudit(m: any) {
   return { url, psi, psiErr, ai };
 }
 
+/* ===== WhatsApp (uazapi) — polling, envio, status ===== */
+async function sbPost(table: string, row: Record<string, unknown>) {
+  await fetch(`${_SB_URL}/rest/v1/${table}`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify(row) });
+}
+async function sbPatchD(table: string, query: string, row: Record<string, unknown>) {
+  await fetch(`${_SB_URL}/rest/v1/${table}?${query}`, { method: "PATCH", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify(row) });
+}
+function _wuid() { return crypto.randomUUID().replace(/-/g, "").slice(0, 20); }
+function waTs(v: any): string { const n = Number(v) || 0; if (!n) return new Date().toISOString(); return new Date(n > 1e12 ? n : n * 1000).toISOString(); }
+function waText(m: any): string { const c = m.content || {}; return m.text || c.text || c.conversation || c.extendedTextMessage?.text || c.imageMessage?.caption || c.videoMessage?.caption || ""; }
+function waOrigin(m: any): { type: string; data: Record<string, unknown> } | null {
+  const c = m.content || {}; const ci = c.contextInfo || c.extendedTextMessage?.contextInfo || m.contextInfo || {};
+  const ad = ci.externalAdReply || c.externalAdReply || null;
+  if (ad && (ad.sourceId || ad.sourceUrl || ad.ctwaClid || ad.title)) return { type: "anuncio", data: { source_id: ad.sourceId || "", source_type: ad.sourceType || "", source_url: ad.sourceUrl || "", ctwa_clid: ad.ctwaClid || ci.ctwaClid || "", title: ad.title || "", body: ad.body || "", thumbnail: ad.thumbnailUrl || ad.thumbnail || "" } };
+  if (m.track_source || m.track_id) return { type: m.track_source === "ad" ? "anuncio" : "utm", data: { track_source: m.track_source || "", track_id: m.track_id || "" } };
+  return null;
+}
+async function waCall(host: string, token: string, path: string, method = "GET", payload?: any) {
+  const r = await fetch(host.replace(/\/$/, "") + path, { method, headers: { token, "Content-Type": "application/json" }, body: payload ? JSON.stringify(payload) : undefined });
+  const t = await r.text(); let j: any; try { j = JSON.parse(t); } catch { j = t; }
+  return { status: r.status, j };
+}
+async function waHandler(w: any) {
+  const inst = (await sbGet("wa_instances", `id=eq.${encodeURIComponent(w.instanceId)}&select=id,client_id,uaz_host,uaz_token,phone`))[0];
+  if (!inst) throw new Error("Instância WhatsApp não encontrada.");
+  const host = inst.uaz_host, token = inst.uaz_token, clientId = inst.client_id || null;
+  const clientFilter = clientId ? "eq." + encodeURIComponent(clientId) : "is.null";
+  if (w.op === "status") { const { j } = await waCall(host, token, "/instance/status"); return { status: (j?.instance?.status) || "unknown", instance: j?.instance || null }; }
+  if (w.op === "send") {
+    const number = String(w.number).replace(/[^0-9]/g, "");
+    const { status, j } = await waCall(host, token, "/send/text", "POST", { number, text: w.text });
+    if (status >= 200 && status < 300) {
+      const ts = new Date().toISOString();
+      const conv = (await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=eq.${number}&select=id&limit=1`))[0];
+      let convId = conv?.id;
+      if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: number, name: number, last_text: w.text, last_at: ts, origin_type: "organico" }); }
+      else await sbPatchD("wa_conversations", `id=eq.${convId}`, { last_text: w.text, last_at: ts });
+      await sbPost("wa_messages", { id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: number, wa_msgid: String((j && (j.id || j.messageid)) || _wuid()), direction: "out", msg_type: "text", text: w.text, ts, raw: j });
+    }
+    return { ok: status >= 200 && status < 300, status, resp: j };
+  }
+  if (w.op === "poll") {
+    const { j } = await waCall(host, token, "/message/find", "POST", { limit: w.limit || 60 });
+    const msgs: any[] = (j && j.messages) || [];
+    const oneToOne = msgs.filter((m) => !(m.isGroup || String(m.chatid || "").endsWith("@g.us")));
+    const ids = oneToOne.map((m) => String(m.messageid || m.id || "")).filter(Boolean);
+    const known = new Set<string>();
+    if (ids.length) { const ex = await sbGet("wa_messages", `wa_msgid=in.(${ids.map((x) => encodeURIComponent(x)).join(",")})&select=wa_msgid`); (ex || []).forEach((r: any) => known.add(r.wa_msgid)); }
+    let added = 0;
+    for (const m of oneToOne) {
+      const msgid = String(m.messageid || m.id || ""); if (!msgid || known.has(msgid)) continue;
+      const phone = String(m.chatid || m.sender_pn || m.sender || "").replace(/@.*$/, "").replace(/[^0-9]/g, ""); if (!phone) continue;
+      const fromMe = !!m.fromMe; const text = waText(m); const ts = waTs(m.messageTimestamp);
+      const existing = (await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=eq.${phone}&select=id,origin_type&limit=1`))[0];
+      let convId = existing?.id; const origin = fromMe ? null : waOrigin(m);
+      if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: phone, name: m.senderName || phone, last_text: text, last_at: ts, unread: fromMe ? 0 : 1, origin_type: origin ? origin.type : "organico", origin: origin ? origin.data : null }); }
+      else { const patch: Record<string, unknown> = { last_text: text, last_at: ts }; if (!fromMe) patch.unread = 1; if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; } await sbPatchD("wa_conversations", `id=eq.${convId}`, patch); }
+      await sbPost("wa_messages", { id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: msgid, direction: fromMe ? "out" : "in", msg_type: m.messageType || "text", text, ts, raw: m });
+      added++;
+    }
+    return { added, scanned: msgs.length };
+  }
+  throw new Error("op inválida");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
     const body = await req.json();
+    if (body.wa) {
+      const r = await waHandler(body.wa);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     const spreadsheetId = body.spreadsheetId;
     const tabs = body.tabs;
     const orders = body.orders;

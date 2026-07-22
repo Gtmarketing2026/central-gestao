@@ -182,6 +182,92 @@ async function handleRedirect(cid: string, slug: string, url: URL, ref: string |
   return new Response(null, { status: 302, headers: { ...cors, Location: dest } });
 }
 
+// Extrai a atribuição de anúncio (Click-to-WhatsApp) de uma mensagem do uazapi
+function waExtractOrigin(m: any): { type: string; data: Record<string, unknown> } | null {
+  const c = m.content || {};
+  const ci = c.contextInfo || c.extendedTextMessage?.contextInfo || m.contextInfo || {};
+  const ad = ci.externalAdReply || c.externalAdReply || null;
+  if (ad && (ad.sourceId || ad.sourceUrl || ad.ctwaClid || ad.title)) {
+    return { type: "anuncio", data: {
+      source_id: ad.sourceId || "", source_type: ad.sourceType || "", source_url: ad.sourceUrl || "",
+      ctwa_clid: ad.ctwaClid || ci.ctwaClid || "", title: ad.title || "", body: ad.body || "",
+      thumbnail: ad.thumbnailUrl || ad.thumbnail || "", media_type: ad.mediaType || "",
+    } };
+  }
+  // uazapi às vezes já traz origem em track_source/track_id ou source
+  if (m.track_source || m.track_id) {
+    return { type: (m.track_source === "ad" ? "anuncio" : "utm"), data: { track_source: m.track_source || "", track_id: m.track_id || "" } };
+  }
+  if (m.source && m.source !== "unknown" && m.source !== "app") {
+    return { type: "anuncio", data: { source: m.source } };
+  }
+  return null;
+}
+function waMsgText(m: any): string {
+  const c = m.content || {};
+  return m.text || c.text || c.conversation || c.extendedTextMessage?.text || c.imageMessage?.caption || c.videoMessage?.caption || "";
+}
+// uazapi manda messageTimestamp em MILISSEGUNDOS (13 dígitos); alguns em segundos (10). Normaliza.
+function waTs(v: any): string { const n = Number(v) || 0; if (!n) return new Date().toISOString(); return new Date(n > 1e12 ? n : n * 1000).toISOString(); }
+// Recebe eventos do uazapi (verify_jwt=false). Guarda cru + normaliza conversa/mensagem/atribuição.
+async function handleWaWebhook(instId: string, req: Request): Promise<Response> {
+  const ok = () => new Response("ok", { headers: { ...cors, "Content-Type": "text/plain" } });
+  let body: any;
+  try { body = await req.json(); } catch { return ok(); }
+  const inst = (await sbSelect("wa_instances", `id=eq.${encodeURIComponent(instId)}&select=id,client_id,phone`))[0];
+  if (!inst) return ok(); // instância desconhecida: ignora silenciosamente
+  const clientId = inst.client_id || null;
+  const evt = body.EventType || body.event || body.type || "";
+  // conexão: atualiza status
+  if (String(evt).toLowerCase().includes("connect") || body.connection || body.status) {
+    const st = body.status || body.connection || (body.instance && body.instance.status);
+    if (st) await sbPatch("wa_instances", `id=eq.${encodeURIComponent(instId)}`, { status: String(st), updated_at: new Date().toISOString() });
+    return ok();
+  }
+  // mensagens: pode vir 1 ou várias
+  let msgs: any[] = [];
+  if (Array.isArray(body.messages)) msgs = body.messages;
+  else if (body.message) msgs = [body.message];
+  else if (body.data && Array.isArray(body.data)) msgs = body.data;
+  else if (body.data && body.data.message) msgs = [body.data.message];
+  else if (body.chatid || body.messageid) msgs = [body];
+  for (const m of msgs) {
+    const isGroup = m.isGroup || String(m.chatid || "").endsWith("@g.us");
+    if (isGroup) continue; // CRM é só 1:1
+    const chatJid = String(m.chatid || m.sender_pn || m.sender || "");
+    const phone = chatJid.replace(/@.*$/, "").replace(/[^0-9]/g, "");
+    if (!phone) continue;
+    const fromMe = !!m.fromMe;
+    const text = waMsgText(m);
+    const ts = waTs(m.messageTimestamp);
+    const msgid = m.messageid || m.id || uid();
+    // conversa (upsert por client_id + chat_id)
+    const existing = (await sbSelect("wa_conversations", `client_id=${clientId ? "eq." + encodeURIComponent(clientId) : "is.null"}&chat_id=eq.${encodeURIComponent(phone)}&select=id,origin_type&limit=1`))[0];
+    let convId = existing?.id;
+    const origin = fromMe ? null : waExtractOrigin(m);
+    if (!convId) {
+      convId = uid();
+      await sbInsert("wa_conversations", {
+        id: convId, client_id: clientId, chat_id: phone, name: m.senderName || m.pushName || phone,
+        last_text: text, last_at: ts, unread: fromMe ? 0 : 1,
+        origin_type: origin ? origin.type : "organico", origin: origin ? origin.data : null,
+      });
+    } else {
+      const patch: Record<string, unknown> = { last_text: text, last_at: ts };
+      if (!fromMe) patch.unread = 1;
+      if (m.senderName) patch.name = m.senderName;
+      // grava atribuição só se ainda não tiver (primeira toca ganha)
+      if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; }
+      await sbPatch("wa_conversations", `id=eq.${convId}`, patch);
+    }
+    await sbInsert("wa_messages", {
+      id: uid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: String(msgid),
+      direction: fromMe ? "out" : "in", msg_type: m.messageType || "text", text, ts, raw: m,
+    });
+  }
+  return ok();
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const url = new URL(req.url);
@@ -208,6 +294,13 @@ Deno.serve(async (req) => {
   if (p === "/rd/webhook") return new Response("rd webhook ok", { headers: { ...cors, "Content-Type": "text/plain" } });
 
   if (p === "/nuvemshop/callback") return handleNuvemshopCallback(url);
+
+  // POST /wa/webhook/<instanceId>  -> ingere eventos do uazapi (mensagens/conexão) da instância
+  const mWa = p.match(/^\/wa\/webhook\/([^/]+)$/);
+  if (mWa) {
+    if (req.method !== "POST") return new Response("wa webhook ok", { headers: { ...cors, "Content-Type": "text/plain" } });
+    return handleWaWebhook(mWa[1], req);
+  }
 
   // GET /l/<client_id>/<slug>
   const mLink = p.match(/^\/l\/([^/]+)\/([^/]+)$/);

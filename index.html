@@ -241,7 +241,7 @@
       <div class="nav-sec">
       <button class="tab active" data-tab="operacional">📋 Visão Geral</button>
       <button class="tab" data-tab="tasks">✅ Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
-      <button class="tab" onclick="showComingSoon('CRM','O CRM de conversas do WhatsApp — cada conversa marcada com a origem (anúncio/campanha/anúncio no Meta, ou campanha/palavra-chave no Google) ou UTM. Vem junto com a integração do WhatsApp Cloud API.')">💬 CRM</button>
+      <button class="tab" data-tab="crm">💬 CRM</button>
       <button class="tab" data-tab="raiox">🎯 Raio-X</button>
       <button class="tab" onclick="showComingSoon('Orgânico','Resultados de canais orgânicos (Instagram Bio, tráfego direto, etc.) num só lugar. Em construção.')">🌱 Orgânico</button>
       <button class="tab" data-tab="campanhas" style="position:relative">📣 Campanha<span id="campSubArrow" onclick="event.stopPropagation();toggleCampSubmenu()" title="Canais (Meta / Google)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
@@ -598,6 +598,19 @@
       <div class="filterbar" id="crtRangeBar" style="margin-bottom:14px;flex-wrap:wrap;gap:6px"></div>
       <div id="crTemplateBody"><div class="empty">Selecione um cliente com planilha de pedidos configurada.</div></div>
     </div>
+  </section>
+
+  <!-- CRM DE CONVERSAS (WhatsApp) -->
+  <section class="panel" id="crm">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px">
+      <div><h2 style="margin:0">💬 CRM de Conversas</h2><div style="font-size:12.5px;color:var(--muted)">Conversas do WhatsApp com a origem marcada — de anúncio (campanha › conjunto › anúncio) ou de UTM/tráfego.</div></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="crmInstSel" style="width:auto;font-size:12.5px" onchange="crmSetInst(this.value)"></select>
+        <span id="crmStatus" style="font-size:11px"></span>
+        <button class="btn sm ghost" id="crmPollBtn" onclick="crmPoll(true)">🔄 Atualizar</button>
+      </div>
+    </div>
+    <div id="crmBody"><div class="empty">Carregando…</div></div>
   </section>
 
   <!-- MODELOS DE RELATÓRIO -->
@@ -1896,6 +1909,82 @@ function goToTab(tabId){
   if(tabId==='rastreamento')loadRastreamento(activeClientId);
   if(tabId==='configuracoes')loadConfiguracoes();
   if(tabId==='raiox')loadRaioX(activeClientId);
+  if(tabId==='crm')loadCrm();
+  else stopCrmPoll();
+}
+/* ===== CRM de Conversas (WhatsApp via uazapi) ===== */
+let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
+function stopCrmPoll(){if(_crmPollTimer){clearInterval(_crmPollTimer);_crmPollTimer=null;}}
+function startCrmPoll(){stopCrmPoll();_crmPollTimer=setInterval(()=>{if(document.getElementById('crm').classList.contains('active'))crmPoll(false);else stopCrmPoll();},20000);}
+async function loadCrm(){
+  const sel=document.getElementById('crmInstSel');
+  const {data}=await sb.from('wa_instances').select('*').order('created_at',{ascending:true});
+  _crmInsts=data||[];
+  if(!_crmInsts.length){document.getElementById('crmBody').innerHTML='<div class="empty">Nenhum número de WhatsApp conectado ainda. Conecte a agência em ⚙️ Configurações ou um cliente no cadastro dele.</div>';sel.innerHTML='';return;}
+  if(!_crmInstId||!_crmInsts.some(i=>i.id===_crmInstId))_crmInstId=_crmInsts[0].id;
+  sel.innerHTML=_crmInsts.map(i=>`<option value="${i.id}" ${i.id===_crmInstId?'selected':''}>${(i.name||i.phone||'Instância').replace(/</g,'&lt;')}${i.phone?' · '+i.phone:''}</option>`).join('');
+  const inst=_crmInsts.find(i=>i.id===_crmInstId);
+  document.getElementById('crmStatus').innerHTML=inst.status==='connected'?'<span style="color:#34d399">● conectado</span>':`<span style="color:#f59e0b">● ${inst.status||'—'}</span>`;
+  await loadCrmConvs();
+  crmPoll(false); startCrmPoll();
+}
+function crmSetInst(id){_crmInstId=id;_crmActive=null;loadCrm();}
+async function crmPoll(manual){
+  const btn=document.getElementById('crmPollBtn');if(manual&&btn){btn.textContent='…';btn.disabled=true;}
+  try{await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,limit:80}}});await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id,true);}catch(e){}
+  if(manual&&btn){btn.textContent='🔄 Atualizar';btn.disabled=false;}
+}
+async function loadCrmConvs(){
+  const inst=_crmInsts.find(i=>i.id===_crmInstId);if(!inst)return;
+  let q=sb.from('wa_conversations').select('*').order('last_at',{ascending:false}).limit(300);
+  q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
+  const {data}=await q;_crmConvs=data||[];renderCrm();
+}
+function crmOriginBadge(t){
+  if(t==='anuncio')return '<span style="font-size:9.5px;font-weight:700;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.35);border-radius:6px;padding:1px 6px">📣 ANÚNCIO</span>';
+  if(t==='utm')return '<span style="font-size:9.5px;font-weight:700;color:#c4b5fd;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.35);border-radius:6px;padding:1px 6px">🔗 UTM</span>';
+  return '<span style="font-size:9.5px;font-weight:700;color:var(--faint);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:1px 6px">💬 ORGÂNICO</span>';
+}
+function _crmTime(ts){if(!ts)return '';const d=new Date(ts),n=new Date();const sameDay=d.toDateString()===n.toDateString();return sameDay?d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});}
+function renderCrm(){
+  const listRows=_crmConvs.map(cv=>{
+    const on=_crmActive&&_crmActive.id===cv.id;
+    return `<div onclick="openCrmConv('${cv.id}')" style="padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;background:${on?'var(--surface2)':'transparent'}">
+      <div style="display:flex;justify-content:space-between;gap:6px;align-items:center"><b style="font-size:13px">${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b><span style="font-size:10px;color:var(--faint)">${_crmTime(cv.last_at)}</span></div>
+      <div style="display:flex;justify-content:space-between;gap:6px;align-items:center;margin-top:3px"><span style="font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px">${(cv.last_text||'').replace(/</g,'&lt;')}</span>${crmOriginBadge(cv.origin_type)}</div></div>`;
+  }).join('')||'<div class="empty" style="padding:20px">Sem conversas ainda. Clique em 🔄 Atualizar.</div>';
+  const right=_crmActive?crmThreadHTML():'<div class="empty" style="padding:40px 20px">Selecione uma conversa à esquerda.</div>';
+  document.getElementById('crmBody').innerHTML=`<div style="display:flex;gap:0;border:1px solid var(--border);border-radius:14px;overflow:hidden;height:calc(100vh - 210px);min-height:440px">
+    <div style="width:320px;border-right:1px solid var(--border);overflow-y:auto;flex:none">${listRows}</div>
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0">${right}</div></div>`;
+}
+function crmThreadHTML(){
+  const cv=_crmActive;const o=cv.origin||{};
+  let orig='';
+  if(cv.origin_type==='anuncio')orig=`<div style="font-size:11.5px;color:#93c5fd;margin-top:2px">📣 Veio de anúncio${o.title?': <b>'+String(o.title).replace(/</g,'&lt;')+'</b>':''}${o.source_id?' · ad '+o.source_id:''}${o.ctwa_clid?' · clid '+String(o.ctwa_clid).slice(0,10):''}</div>`;
+  else if(cv.origin_type==='utm')orig=`<div style="font-size:11.5px;color:#c4b5fd;margin-top:2px">🔗 ${o.track_source||'UTM'}${o.track_id?' · '+o.track_id:''}</div>`;
+  const msgs=_crmMsgs.map(m=>{
+    const out=m.direction==='out';
+    return `<div style="display:flex;justify-content:${out?'flex-end':'flex-start'};margin-bottom:6px"><div style="max-width:72%;background:${out?'var(--accent)':'var(--surface2)'};color:${out?'#0a0906':'var(--text)'};border:1px solid var(--border);border-radius:${out?'12px 12px 4px 12px':'12px 12px 12px 4px'};padding:7px 11px;font-size:13px;white-space:pre-wrap;word-break:break-word">${(m.text||'').replace(/</g,'&lt;')||'<i style="opacity:.6">['+(m.msg_type||'mídia')+']</i>'}<div style="font-size:9px;opacity:.6;text-align:right;margin-top:2px">${_crmTime(m.ts)}</div></div></div>`;
+  }).join('')||'<div class="empty" style="padding:20px">Sem mensagens.</div>';
+  return `<div style="padding:11px 14px;border-bottom:1px solid var(--border)"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b>${crmOriginBadge(cv.origin_type)}</div><div style="font-size:11px;color:var(--faint)">${cv.chat_id}</div>${orig}</div>
+    <div id="crmThread" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column">${msgs}</div>
+    <div style="display:flex;gap:8px;padding:10px;border-top:1px solid var(--border)"><input id="crmSendInput" placeholder="Escreva uma mensagem…" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();crmSend()}"><button class="btn primary" onclick="crmSend()">Enviar</button></div>`;
+}
+async function openCrmConv(id,keepScroll){
+  const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;_crmActive=cv;
+  const {data}=await sb.from('wa_messages').select('*').eq('conversation_id',id).order('ts',{ascending:true}).limit(500);
+  _crmMsgs=data||[];
+  if(cv.unread){sb.from('wa_conversations').update({unread:0}).eq('id',id).then(()=>{});cv.unread=0;}
+  renderCrm();
+  const th=document.getElementById('crmThread');if(th)th.scrollTop=th.scrollHeight;
+}
+async function crmSend(){
+  const inp=document.getElementById('crmSendInput');if(!inp||!_crmActive)return;
+  const text=inp.value.trim();if(!text)return;inp.value='';
+  const r=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'send',instanceId:_crmInstId,number:_crmActive.chat_id,text}}});
+  if(r.error||(r.data&&r.data.data&&r.data.data.ok===false)){alert('Falha ao enviar. Verifique a conexão do número.');inp.value=text;return;}
+  await openCrmConv(_crmActive.id);await loadCrmConvs();
 }
 function setClientsSub(v){
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
