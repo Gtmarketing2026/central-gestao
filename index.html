@@ -1968,7 +1968,7 @@ async function loadCrm(){
   if(typeof loadAccountConfig==='function'){try{await loadAccountConfig();}catch(e){}}
   const showAgency=!!(_acctCfg&&_acctCfg.crm_show_agency);
   const {data}=await sb.from('wa_instances').select('*').order('created_at',{ascending:true});
-  _crmInsts=data||[];
+  _crmInsts=(data||[]).filter(i=>i.id!==_andreiaInstId());
   const whoEl=document.getElementById('crmWho'),agBtn=document.getElementById('crmAgencyBtn'),statusEl=document.getElementById('crmStatus'),body=document.getElementById('crmBody'),countEl=document.getElementById('crmCount'),filt=document.getElementById('crmFilters');
   if(showAgency){agBtn.style.display='';agBtn.textContent=_crmViewAgency?'👤 Ver cliente':'🏢 Ver agência';}else{agBtn.style.display='none';_crmViewAgency=false;}
   const client=DB.clients.find(c=>c.id===activeClientId);
@@ -2347,20 +2347,70 @@ async function loadConfiguracoes(){
       `<div id="waInstList" style="font-size:12.5px;color:var(--muted)">Carregando números…</div>
        <button class="btn sm primary" style="margin-top:10px" onclick="waConnectStart('')">➕ Conectar um número</button>
        <label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);cursor:pointer"><input type="checkbox" ${_acctCfg.crm_show_agency?'checked':''} onchange="waToggleShowAgency(this.checked)"> Mostrar o CRM da agência (por padrão o CRM é só dos clientes; o número da agência é usado para envios)</label>`)}
+    <div class="card" style="margin-top:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><span style="font-size:20px">🤖</span><b style="font-size:14px">AndréIA no WhatsApp</b></div>
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">Fale com a AndréIA num grupo do WhatsApp: peça análises dos clientes e crie tarefas. Ela pede confirmação antes de ações de alto impacto.</div>
+      <div id="andreiaWaBody" style="font-size:12.5px;color:var(--muted)">Carregando…</div>
+    </div>
     ${integCard('sheets','📊','Google Sheets','Leitura das planilhas de venda (contas conectadas por compartilhamento).',
       integStatusPill('ok','Ativo'),
       `<div style="font-size:12px;color:var(--muted)">Cada cliente compartilha a planilha dele como Leitor com <code style="background:var(--surface2);padding:1px 5px;border-radius:5px;word-break:break-all">leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com</code> (configurado por cliente na aba Relatórios).</div>`)}
     <div style="font-size:11px;color:var(--faint);margin-top:6px">O status de Meta e Google é verificado ao vivo. Se aparecer "reconectar", o token expirou — me avise que renovamos.</div>`;
   // status ao vivo Meta + Google
   checkIntegMeta();checkIntegGoogle();
-  renderWaConfig();
+  renderWaConfig();renderAndreiaWa();
 }
+/* ===== AndréIA no WhatsApp (grupo) ===== */
+function _andreiaInstId(){return (_acctCfg&&_acctCfg.andreia_wa&&_acctCfg.andreia_wa.instance_id)||'';}
+async function renderAndreiaWa(){
+  const el=document.getElementById('andreiaWaBody');if(!el)return;
+  const aw=(_acctCfg&&_acctCfg.andreia_wa)||{};
+  let inst=null;
+  if(aw.instance_id){const {data}=await sb.from('wa_instances').select('*').eq('id',aw.instance_id).maybeSingle();inst=data;}
+  if(!inst){el.innerHTML=`<button class="btn sm primary" onclick="andreiaConnect()">📷 Conectar número da AndréIA</button>
+    <div style="font-size:11.5px;color:var(--faint);margin-top:8px">Conecte um número (recomendado: dedicado) por QR. Depois crie um grupo só pra IA, adicione esse número e selecione o grupo aqui.</div>`;return;}
+  const st=inst.status==='connected'?'<span style="color:#34d399">● conectado</span>':`<span style="color:#f59e0b">● ${inst.status||'desconectado'}</span>`;
+  const wl=(aw.allowed||[]).join(', ');
+  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
+      <div><b>Número:</b> ${inst.phone||'—'} · ${st}</div>
+      <div style="display:flex;gap:6px">${inst.status!=='connected'?`<button class="btn sm ghost" onclick="waShowQr('${inst.id}')">📷 QR</button><button class="btn sm ghost" onclick="waCopyLink('${inst.id}',this)">🔗 Link</button>`:''}<button class="btn sm ghost" style="color:var(--red)" onclick="andreiaRemove('${inst.id}')">Remover</button></div></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--border)">
+      <div><b>Grupo da IA:</b> ${aw.group_name?aw.group_name.replace(/</g,'&lt;'):'<span style="color:#f59e0b">não selecionado</span>'}</div>
+      <button class="btn sm ${aw.group_jid?'ghost':'primary'}" onclick="andreiaPickGroup()">${aw.group_jid?'Trocar grupo':'Escolher grupo'}</button></div>
+    <div style="margin-top:10px"><label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Telefones autorizados (opcional — separados por vírgula; vazio = qualquer um do grupo)</label>
+      <div style="display:flex;gap:6px;margin-top:5px"><input id="andreiaWl" value="${wl.replace(/"/g,'&quot;')}" placeholder="5521999998888, 5524988887777" style="flex:1;font-size:12px"><button class="btn sm primary" onclick="andreiaSaveWhitelist()">Salvar</button></div></div>
+    <div style="font-size:11.5px;color:var(--faint);margin-top:10px">💡 No grupo, fale: "como está a Fernanda hoje?", "cria uma tarefa pra revisar o criativo da campanha X". Ela pede confirmação (responda SIM) antes de criar/pausar.</div>`;
+}
+async function andreiaConnect(){
+  let ov=document.getElementById('waConnOverlay');if(!ov){ov=document.createElement('div');ov.id='waConnOverlay';document.body.appendChild(ov);}
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;width:min(420px,92vw)"><h3 style="margin:0 0 12px;font-size:17px">🤖 Conectar número da AndréIA</h3><div id="waConnStep"><div style="text-align:center;color:var(--muted);padding:20px">Criando instância…</div></div><div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn ghost" onclick="waConnClose()">Fechar</button></div></div>`;
+  ov.onclick=e=>{if(e.target===ov)waConnClose();};
+  const r=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'create',clientId:null,name:'andreia-ia',includeGroups:true}}});
+  const id=r.data&&r.data.data&&r.data.data.id;
+  if(!id){document.getElementById('waConnStep').innerHTML='<div style="color:var(--red);padding:12px">Falha ao criar instância. '+((r.data&&r.data.error)||'')+'</div>';return;}
+  await saveAccountConfig({andreia_wa:{...((_acctCfg&&_acctCfg.andreia_wa)||{}),instance_id:id}});
+  waRenderQrStep(id);
+}
+async function andreiaPickGroup(){
+  const aw=(_acctCfg&&_acctCfg.andreia_wa)||{};if(!aw.instance_id){alert('Conecte o número primeiro.');return;}
+  const r=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'groups',instanceId:aw.instance_id}}});
+  const groups=(r.data&&r.data.data&&r.data.data.groups)||[];
+  if(!groups.length){alert('Nenhum grupo encontrado. Crie o grupo no WhatsApp, adicione o número da AndréIA e tente de novo.');return;}
+  let ov=document.getElementById('andreiaGrpOverlay');if(!ov){ov=document.createElement('div');ov.id='andreiaGrpOverlay';document.body.appendChild(ov);}
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;width:min(440px,92vw);max-height:80vh;display:flex;flex-direction:column"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 style="margin:0;font-size:16px">Escolha o grupo da AndréIA</h3><button class="btn sm ghost" onclick="document.getElementById('andreiaGrpOverlay').remove()">✕</button></div><div style="overflow-y:auto">${groups.map(g=>`<div onclick="andreiaSetGroup('${g.jid}','${(g.name||'').replace(/'/g,'').replace(/"/g,'&quot;')}')" style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:7px;cursor:pointer;font-size:13px">${(g.name||g.jid).replace(/</g,'&lt;')}</div>`).join('')}</div></div>`;
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+}
+async function andreiaSetGroup(jid,name){await saveAccountConfig({andreia_wa:{...((_acctCfg&&_acctCfg.andreia_wa)||{}),group_jid:jid,group_name:name}});const o=document.getElementById('andreiaGrpOverlay');if(o)o.remove();renderAndreiaWa();}
+async function andreiaSaveWhitelist(){const v=(document.getElementById('andreiaWl').value||'').split(',').map(x=>x.replace(/[^0-9]/g,'')).filter(Boolean);await saveAccountConfig({andreia_wa:{...((_acctCfg&&_acctCfg.andreia_wa)||{}),allowed:v}});renderAndreiaWa();}
+async function andreiaRemove(id){if(!confirm('Remover o número da AndréIA?'))return;await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'remove',instanceId:id}}});await saveAccountConfig({andreia_wa:{...((_acctCfg&&_acctCfg.andreia_wa)||{}),instance_id:null,group_jid:null,group_name:null}});renderAndreiaWa();}
 /* ===== WhatsApp: conectar números por QR (uazapi) ===== */
 let _waConnectPoll=null;
 async function renderWaConfig(){
   const el=document.getElementById('waInstList');if(!el)return;
   const {data}=await sb.from('wa_instances').select('*').order('created_at',{ascending:true});
-  const insts=data||[];
+  const insts=(data||[]).filter(i=>i.id!==_andreiaInstId());
   if(!insts.length){el.innerHTML='<div style="color:var(--faint)">Nenhum número conectado ainda.</div>';return;}
   el.innerHTML=insts.map(i=>{
     const c=DB.clients.find(x=>x.id===i.client_id);
@@ -2384,7 +2434,7 @@ function waConnectStart(clientId){
   </div>`;
   ov.onclick=e=>{if(e.target===ov)waConnClose();};
 }
-function waConnClose(){if(_waConnectPoll){clearInterval(_waConnectPoll);_waConnectPoll=null;}const ov=document.getElementById('waConnOverlay');if(ov)ov.remove();renderWaConfig();}
+function waConnClose(){if(_waConnectPoll){clearInterval(_waConnectPoll);_waConnectPoll=null;}const ov=document.getElementById('waConnOverlay');if(ov)ov.remove();renderWaConfig();renderAndreiaWa();}
 async function waConnCreate(){
   const clientId=document.getElementById('waConnWho').value||null;
   const step=document.getElementById('waConnStep');step.innerHTML='<div style="text-align:center;color:var(--muted);padding:20px">Criando instância…</div>';

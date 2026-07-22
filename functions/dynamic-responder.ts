@@ -1126,6 +1126,71 @@ async function waCapi(convId: string, eventName: string) {
   await sbPost("capi_events", { id: logId, client_id: cv.client_id, conversation_id: convId, event_name: eventName, status, error, response: resp });
   return { ok: status === "success", status, error };
 }
+// ===== AndréIA no WhatsApp (grupo): entende a mensagem, analisa o cliente, cria tarefa (com confirmação) =====
+async function waAgentSnapshot(clientId: string) {
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,benchmark_metas,meta_account_id`))[0];
+  if (!c) return null;
+  const out: any = { nome: c.name, metas: c.benchmark_metas || null };
+  const ids = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+  if (ids.length) { try {
+    const r = await metaAdsInsights({ accounts: ids.map((id: string) => ({ id, name: id })), since: new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10), until: new Date().toISOString().slice(0, 10) });
+    const t = r && r.total; if (t) out.meta30d = { gasto: Math.round(t.spend), impressoes: t.impressions, cliques: t.clicks, ctr: +(t.ctr || 0).toFixed(2), cpc: +(t.cpc || 0).toFixed(2), cpm: +(t.cpm || 0).toFixed(2), alcance: t.reach, conversas: t.conversas, leads: t.leads, compras: Math.round(t.purchases || 0), roas: +(t.roas || 0).toFixed(2) };
+  } catch (_e) {} }
+  return out;
+}
+async function waAgentLLM(text: string, history: any[], clientId: string | null, clients: any[]) {
+  let snap = null; if (clientId) snap = await waAgentSnapshot(clientId);
+  const names = clients.map((c) => c.name).slice(0, 250).join(" | ");
+  const sys = `Você é a AndréIA, gestora de tráfego sênior, atendendo a EQUIPE da agência num grupo de WhatsApp. Respostas CURTAS e diretas (é WhatsApp, no máx ~6 linhas). Clientes: ${names}.
+- Se identificar de qual cliente é a mensagem, devolva o nome EXATO em "client". Se precisar do cliente e não der pra saber, deixe "client" vazio e pergunte no "reply".
+- Análise/perguntas: use o SNAPSHOT (não invente números; se faltar dado, diga).
+- AÇÃO de alto impacto (criar tarefa, pausar/duplicar campanha, mexer orçamento, lançamento): NÃO execute. No "reply" descreva e peça confirmação (responder SIM) e preencha "action". Você só executa criar_tarefa; pausar/duplicar/orçamento/lançamento viram uma tarefa pro gestor (action tipo criar_tarefa com o texto da ação).
+Responda SOMENTE JSON: {"client":"<nome|vazio>","reply":"<texto>","action":{"tipo":"criar_tarefa","nome":"<título>","obs":"<detalhe>"}|null}`;
+  const ctx = snap ? ("SNAPSHOT " + snap.nome + ": " + JSON.stringify(snap).slice(0, 2600)) : "(nenhum cliente selecionado ainda)";
+  const msgs = [{ role: "system", content: sys }, ...history.slice(-10).map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text })), { role: "user", content: ctx + "\n\nEQUIPE: " + text }];
+  const j = await callOpenAI({ model: "gpt-4o-mini", messages: msgs, response_format: { type: "json_object" }, max_tokens: 700, temperature: 0.4 });
+  try { return JSON.parse(j.choices[0].message.content || "{}"); } catch { return { reply: "Não entendi, pode repetir?", client: "", action: null }; }
+}
+async function waAgentExec(pending: any, clientId: string | null) {
+  if (pending && pending.tipo === "criar_tarefa") {
+    const sample = (await sbGet("tasks", "select=status,prio&limit=1"))[0] || {};
+    await sbPost("tasks", { id: _wuid(), name: pending.nome || "Tarefa (via AndréIA)", client: pending.client_id || clientId || null, owner: "eu", status: sample.status || "A fazer", prio: pending.prio || sample.prio || "media", notes: pending.obs || "", urgent: false });
+    return "✅ Tarefa criada: " + (pending.nome || "");
+  }
+  return "Feito 👍";
+}
+async function waAgentHandle(w: any) {
+  const data = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
+  const cfg = data.andreia_wa || {};
+  if (!cfg.instance_id || cfg.instance_id !== w.instanceId) return { skip: true };
+  if (cfg.group_jid && w.chatid !== cfg.group_jid) return { skip: true };
+  const allowed = (cfg.allowed || []).map((x: string) => String(x).replace(/[^0-9]/g, ""));
+  const sender = String(w.sender || "").replace(/[^0-9]/g, "");
+  if (allowed.length && !allowed.includes(sender)) return { skip: true };
+  const inst = (await sbGet("wa_instances", `id=eq.${encodeURIComponent(w.instanceId)}&select=uaz_host,uaz_token`))[0];
+  if (!inst) return { skip: true };
+  const dest = w.chatid;
+  const send = (t: string) => waCall(inst.uaz_host, inst.uaz_token, "/send/text", "POST", { number: dest, text: t });
+  const skey = sender || w.chatid;
+  let sess = (await sbGet("wa_agent_sessions", `phone=eq.${encodeURIComponent(skey)}&select=*`))[0];
+  if (sess && sess.last_msgid === w.msgid) return { dup: true };
+  const text = (w.text || "").trim(); if (!text) return { skip: true };
+  const saveSess = async (patch: any) => { const row = { phone: skey, updated_at: new Date().toISOString(), ...patch }; if (sess) await sbPatchD("wa_agent_sessions", `phone=eq.${encodeURIComponent(skey)}`, row); else await sbPost("wa_agent_sessions", row); };
+  if (sess && sess.pending) {
+    if (/^\s*(sim|s|confirmo?|pode|isso|ok|manda|faz|vai)\b/i.test(text)) { const msg = await waAgentExec(sess.pending, sess.client_id); await saveSess({ pending: null, last_msgid: w.msgid }); await send(msg); return { ok: true }; }
+    if (/^\s*(n|nao|não|cancela|deixa|para)\b/i.test(text)) { await saveSess({ pending: null, last_msgid: w.msgid }); await send("Ok, cancelei 👍"); return { ok: true }; }
+  }
+  const clients = await sbGet("clients", "select=id,name&limit=500");
+  const out = await waAgentLLM(text, (sess && sess.history) || [], (sess && sess.client_id) || null, clients);
+  let clientId = (sess && sess.client_id) || null;
+  if (out.client) { const q = String(out.client).toLowerCase(); const m = clients.find((c: any) => c.name.toLowerCase() === q) || clients.find((c: any) => c.name.toLowerCase().includes(q)); if (m) clientId = m.id; }
+  const reply = out.reply || "Ok.";
+  const pending = out.action ? { ...out.action, client_id: clientId } : null;
+  const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16);
+  await saveSess({ client_id: clientId, history: hist, pending, last_msgid: w.msgid });
+  await send(reply);
+  return { ok: true };
+}
 async function waHandler(w: any) {
   if (w.op === "extract") return await waExtract(w.convId);
   if (w.op === "capi") return await waCapi(w.convId, w.event);
@@ -1140,7 +1205,9 @@ async function waHandler(w: any) {
     const id = _wuid();
     await sbPost("wa_instances", { id, client_id: w.clientId || null, name, uaz_token: itoken, uaz_host: uz.server, status: "connecting" });
     const hook = `${_SB_URL}/functions/v1/tracking/wa/webhook/${id}`;
-    try { await waCall(uz.server, itoken, "/webhook", "POST", { enabled: true, url: hook, events: ["messages", "connection"], excludeMessages: ["wasSentByApi", "isGroupYes"] }); } catch (_e) {}
+    // AndréIA precisa RECEBER mensagens de grupo; o CRM não (isGroupYes)
+    const excl = w.includeGroups ? ["wasSentByApi"] : ["wasSentByApi", "isGroupYes"];
+    try { await waCall(uz.server, itoken, "/webhook", "POST", { enabled: true, url: hook, events: ["messages", "connection"], excludeMessages: excl }); } catch (_e) {}
     return { id };
   }
   const inst = (await sbGet("wa_instances", `id=eq.${encodeURIComponent(w.instanceId)}&select=id,client_id,uaz_host,uaz_token,phone`))[0];
@@ -1156,6 +1223,11 @@ async function waHandler(w: any) {
     const { j } = await waCall(host, token, "/instance/connect", "POST", w.phone ? { phone: String(w.phone).replace(/[^0-9]/g, "") } : {});
     const ins = (j && j.instance) ? j.instance : (j || {});
     return { qrcode: ins.qrcode || "", paircode: ins.paircode || "", status: ins.status || "connecting" };
+  }
+  if (w.op === "groups") {
+    const { j } = await waCall(host, token, "/group/list");
+    const gs = (j && j.groups) || [];
+    return { groups: gs.map((g: any) => ({ jid: g.JID || g.jid || "", name: g.Name || g.name || g.JID || "" })).filter((g: any) => g.jid) };
   }
   if (w.op === "remove") {
     const uz = await waUzConfig().catch(() => null);
@@ -1228,6 +1300,10 @@ Deno.serve(async (req) => {
     const body = await req.json();
     if (body.wa) {
       const r = await waHandler(body.wa);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.waAgent) {
+      const r = await waAgentHandle(body.waAgent);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const spreadsheetId = body.spreadsheetId;

@@ -231,6 +231,19 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
   else if (body.data && Array.isArray(body.data)) msgs = body.data;
   else if (body.data && body.data.message) msgs = [body.data.message];
   else if (body.chatid || body.messageid) msgs = [body];
+  // Instância da AndréIA: encaminha as mensagens do grupo configurado pro cérebro dela (não vai pro CRM)
+  const aw = (((await sbSelect("account_config", "id=eq.main&select=data"))[0]?.data) || {}).andreia_wa || {};
+  if (aw.instance_id === instId) {
+    for (const m of msgs) {
+      if (m.fromMe) continue;
+      const chatid = String(m.chatid || "");
+      if (aw.group_jid && chatid !== aw.group_jid) continue;
+      const sender = String(m.sender_pn || m.sender || "").replace(/@.*$/, "");
+      const payload = { waAgent: { instanceId: instId, chatid, sender, text: waMsgText(m), msgid: String(m.messageid || m.id || "") } };
+      try { await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify(payload) }); } catch (_e) {}
+    }
+    return ok();
+  }
   for (const m of msgs) {
     const isGroup = m.isGroup || String(m.chatid || "").endsWith("@g.us");
     if (isGroup) continue; // CRM é só 1:1
