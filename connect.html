@@ -1,0 +1,70 @@
+<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conectar WhatsApp · GT Marketing</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;background:#0f0f13;color:#e8eaf0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{background:#15151c;border:1px solid #2a2a35;border-radius:18px;max-width:420px;width:100%;padding:26px;text-align:center}
+  .brand{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#c8a04e;font-weight:700}
+  h1{font-size:20px;margin:8px 0 4px}
+  .sub{font-size:13px;color:#9aa0aa;margin-bottom:18px}
+  .qrbox{background:#fff;border-radius:14px;padding:14px;display:inline-block;min-height:240px;min-width:240px;display:flex;align-items:center;justify-content:center}
+  .qrbox img{width:230px;height:230px;display:block}
+  .muted{color:#9aa0aa;font-size:13px}
+  .steps{text-align:left;font-size:13px;color:#c7ccd4;line-height:1.7;margin:16px 0;background:#191922;border-radius:12px;padding:14px}
+  .steps b{color:#fff}
+  .pair{margin-top:14px;font-size:13px;color:#9aa0aa}
+  .pair .code{font-size:26px;font-weight:800;letter-spacing:6px;color:#fff;background:#191922;border:1px solid #2a2a35;border-radius:10px;padding:8px 12px;display:inline-block;margin-top:6px}
+  input{background:#191922;border:1px solid #2a2a35;border-radius:10px;padding:9px 12px;color:#fff;font-size:14px;width:100%}
+  button{background:#c8a04e;color:#0a0906;border:none;border-radius:10px;padding:10px 14px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit}
+  .ok{color:#34d399;font-weight:700;font-size:18px}
+  .row{display:flex;gap:8px;margin-top:10px}
+  a{color:#c8a04e}
+</style></head><body>
+<div class="card" id="card">
+  <div class="brand">GT Marketing</div>
+  <h1>Conectar seu WhatsApp</h1>
+  <div class="sub" id="sub">Escaneie o QR Code com o WhatsApp do número que você quer conectar.</div>
+  <div class="qrbox" id="qrbox"><span class="muted">Carregando…</span></div>
+  <div class="steps">
+    <b>Como conectar:</b><br>
+    1. Abra o <b>WhatsApp</b> no celular do número.<br>
+    2. Toque em <b>⋮ (menu)</b> → <b>Aparelhos conectados</b>.<br>
+    3. Toque em <b>Conectar um aparelho</b> e aponte a câmera para o QR acima.
+  </div>
+  <div class="pair" id="pairbox">
+    <div>Não consegue escanear? Conecte pelo <b>número de telefone</b>:</div>
+    <div class="row"><input id="phone" placeholder="DDD + número, ex: 5521999998888" inputmode="numeric"><button onclick="genPair()">Gerar código</button></div>
+    <div id="paircode"></div>
+  </div>
+</div>
+<script>
+  var BASE="https://mocrfqmdjwvyhqvdpimm.supabase.co/functions/v1/tracking";
+  var params=new URLSearchParams(location.search);
+  var id=params.get("i")||"";
+  var timer=null;
+  function esc(s){return String(s||"").replace(/[<>&]/g,function(c){return {"<":"&lt;",">":"&gt;","&":"&amp;"}[c];});}
+  async function poll(phone){
+    if(!id){document.getElementById("qrbox").innerHTML='<span class="muted">Link inválido.</span>';return;}
+    try{
+      var r=await fetch(BASE+"/wa/connect/"+encodeURIComponent(id)+(phone?"?phone="+encodeURIComponent(phone):""));
+      var d=await r.json();
+      if(d.status==="connected"){
+        if(timer)clearInterval(timer);
+        document.getElementById("qrbox").innerHTML='<div class="ok">✓ Conectado!</div>';
+        document.getElementById("sub").textContent="Tudo certo — seu WhatsApp está conectado. Pode fechar esta página.";
+        document.getElementById("pairbox").style.display="none";
+        return;
+      }
+      var qr=d.qrcode||"";
+      var img=qr?(qr.indexOf("data:")===0?qr:"data:image/png;base64,"+qr):"";
+      document.getElementById("qrbox").innerHTML=img?('<img src="'+img+'" alt="QR Code">'):'<span class="muted">Gerando QR…</span>';
+      if(d.paircode)document.getElementById("paircode").innerHTML='<div class="code">'+esc(d.paircode)+'</div><div style="margin-top:6px">No WhatsApp: Aparelhos conectados → Conectar com número → digite este código.</div>';
+    }catch(e){document.getElementById("qrbox").innerHTML='<span class="muted">Erro ao carregar. Recarregue a página.</span>';}
+  }
+  function genPair(){var p=(document.getElementById("phone").value||"").replace(/[^0-9]/g,"");if(!p){alert("Digite o número com DDD.");return;}poll(p);}
+  poll();
+  timer=setInterval(function(){poll();},3500);
+</script>
+</body></html>

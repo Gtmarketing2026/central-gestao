@@ -268,6 +268,25 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
   return ok();
 }
 
+// Página/endpoint público de conexão: devolve o QR + código de pareamento de uma instância (id não-adivinhável)
+async function handleWaConnect(id: string, url: URL): Promise<Response> {
+  const j = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
+  const inst = (await sbSelect("wa_instances", `id=eq.${encodeURIComponent(id)}&select=id,name,uaz_host,uaz_token,status`))[0];
+  if (!inst) return j({ error: "not_found" }, 404);
+  const host = String(inst.uaz_host || "").replace(/\/$/, ""); const token = inst.uaz_token;
+  const call = async (path: string, method = "GET", body?: any) => {
+    try { const r = await fetch(host + path, { method, headers: { token, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); return await r.json(); } catch { return {}; }
+  };
+  const phone = (url.searchParams.get("phone") || "").replace(/[^0-9]/g, "");
+  let ins: any = ((await call("/instance/status")) || {}).instance || {};
+  if (ins.status !== "connected" && (!ins.qrcode || phone)) {
+    const conn = await call("/instance/connect", "POST", phone ? { phone } : {});
+    ins = (conn && conn.instance) ? conn.instance : (conn || ins);
+  }
+  if (ins.status) { const patch: Record<string, unknown> = { status: ins.status, updated_at: new Date().toISOString() }; if (ins.owner) patch.phone = String(ins.owner).replace(/@.*$/, ""); if (ins.status === "connected") patch.connected_at = new Date().toISOString(); await sbPatch("wa_instances", `id=eq.${encodeURIComponent(id)}`, patch); }
+  return j({ status: ins.status || "connecting", qrcode: ins.qrcode || "", paircode: ins.paircode || "", name: inst.name || "" });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const url = new URL(req.url);
@@ -294,6 +313,10 @@ Deno.serve(async (req) => {
   if (p === "/rd/webhook") return new Response("rd webhook ok", { headers: { ...cors, "Content-Type": "text/plain" } });
 
   if (p === "/nuvemshop/callback") return handleNuvemshopCallback(url);
+
+  // GET /wa/connect/<instanceId> -> JSON com qrcode/paircode/status (usado pela página pública de conexão)
+  const mWaC = p.match(/^\/wa\/connect\/([^/]+)$/);
+  if (mWaC) return handleWaConnect(mWaC[1], url);
 
   // POST /wa/webhook/<instanceId>  -> ingere eventos do uazapi (mensagens/conexão) da instância
   const mWa = p.match(/^\/wa\/webhook\/([^/]+)$/);

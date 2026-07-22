@@ -611,6 +611,7 @@
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span id="crmWho" style="font-size:12.5px;font-weight:600"></span>
         <button class="btn sm ghost" id="crmAgencyBtn" style="display:none" onclick="crmToggleAgency()"></button>
+        <button class="btn sm ghost" onclick="crmConfigOpen()">⚙️ Configurar</button>
         <button class="btn sm ghost" onclick="toggleCrmGuide()">📖 Guia</button>
         <button class="btn sm ghost" id="crmPollBtn" onclick="crmPoll(true)">🔄 Atualizar</button>
       </div>
@@ -2024,12 +2025,14 @@ function _crmFiltered(){
     return true;
   });
 }
+function crmStages(){return (_acctCfg&&Array.isArray(_acctCfg.crm_stages)&&_acctCfg.crm_stages.length)?_acctCfg.crm_stages:CRM_STAGES;}
 function renderCrm(){
   const list=_crmFiltered();
   document.getElementById('crmCount').textContent=`${list.length} conversa${list.length===1?'':'s'} no funil`;
-  const byStage={};CRM_STAGES.forEach(s=>byStage[s.key]=[]);
-  list.forEach(cv=>{const k=cv.stage&&byStage[cv.stage]?cv.stage:'sem';byStage[k].push(cv);});
-  const cols=CRM_STAGES.map(st=>{
+  const STAGES=crmStages();const firstKey=STAGES[0]?STAGES[0].key:'sem';
+  const byStage={};STAGES.forEach(s=>byStage[s.key]=[]);
+  list.forEach(cv=>{const k=cv.stage&&byStage[cv.stage]?cv.stage:firstKey;byStage[k].push(cv);});
+  const cols=STAGES.map(st=>{
     const items=byStage[st.key];
     const cards=items.map(cv=>crmCardHTML(cv)).join('')||'<div style="font-size:11px;color:var(--faint);text-align:center;padding:16px 0">—</div>';
     return `<div class="crmCol" ondragover="event.preventDefault();this.style.background='var(--surface2)'" ondragleave="this.style.background=''" ondrop="crmDrop(event,'${st.key}')" style="width:250px;flex:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;max-height:calc(100vh - 250px)">
@@ -2083,7 +2086,8 @@ function renderCrmDrawer(){
     const path=[o.campaign,o.adset,o.ad].filter(Boolean).map(s=>String(s).replace(/</g,'&lt;')).join(' <span style="color:var(--faint)">›</span> ');
     orig=`<div style="font-size:11.5px;color:#93c5fd;margin-top:4px">📣 ${path?'<b>'+path+'</b>':('Anúncio'+(o.title?': <b>'+String(o.title).replace(/</g,'&lt;')+'</b>':'')+(o.source_id?' · ad '+o.source_id:''))}</div>`;
   }else if(cv.origin_type==='utm')orig=`<div style="font-size:11.5px;color:#c4b5fd;margin-top:4px">🔗 ${o.track_source||'UTM'}${o.track_id?' · '+o.track_id:''}</div>`;
-  const stageBtns=CRM_STAGES.map(s=>`<button class="btn sm ${(cv.stage||'sem')===s.key?'primary':'ghost'}" style="font-size:10.5px;padding:2px 8px" onclick="crmSetStage('${cv.id}','${s.key}')">${s.label}</button>`).join('');
+  const _st=crmStages();const _fk=_st[0]?_st[0].key:'sem';
+  const stageBtns=_st.map(s=>`<button class="btn sm ${(cv.stage||_fk)===s.key?'primary':'ghost'}" style="font-size:10.5px;padding:2px 8px" onclick="crmSetStage('${cv.id}','${s.key}')">${(s.label||'').replace(/</g,'&lt;')}</button>`).join('');
   const tab=(id,l)=>`<button class="btn sm ${_crmDrawerTab===id?'primary':'ghost'}" style="font-size:11px" onclick="crmSetDrawerTab('${id}')">${l}</button>`;
   let content;
   if(_crmDrawerTab==='dados'){
@@ -2123,7 +2127,54 @@ async function crmExtractLead(id){
   const cv=_crmConvs.find(x=>x.id===id);if(cv&&d.fields){cv.fields=d.fields;if(_crmActive&&_crmActive.id===id)_crmActive.fields=d.fields;}
   renderCrmDrawer();
   const sug=document.getElementById('crmStageSuggest');
-  if(sug&&d.stage&&d.stage!==(cv&&cv.stage)){const st=CRM_STAGES.find(s=>s.key===d.stage);if(st)sug.innerHTML=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:12px;font-size:12px">🤖 IA sugere etapa: <b style="color:${st.color}">${st.label}</b>${d.stageWhy?`<div style="color:var(--muted);font-size:11px;margin-top:3px">${String(d.stageWhy).replace(/</g,'&lt;')}</div>`:''}<button class="btn sm primary" style="margin-top:6px;font-size:11px" onclick="crmSetStage('${id}','${d.stage}');document.getElementById('crmStageSuggest').innerHTML=''">Aplicar</button></div>`;}
+  if(sug&&d.stage&&d.stage!==(cv&&cv.stage)){const st=crmStages().find(s=>s.key===d.stage);if(st)sug.innerHTML=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:12px;font-size:12px">🤖 IA sugere etapa: <b style="color:${st.color}">${st.label}</b>${d.stageWhy?`<div style="color:var(--muted);font-size:11px;margin-top:3px">${String(d.stageWhy).replace(/</g,'&lt;')}</div>`:''}<button class="btn sm primary" style="margin-top:6px;font-size:11px" onclick="crmSetStage('${id}','${d.stage}');document.getElementById('crmStageSuggest').innerHTML=''">Aplicar</button></div>`;}
+}
+/* ===== Configurar CRM: etapas do funil + campos do lead ===== */
+let _crmCfgStages=[],_crmCfgFields=[],_crmCfgTab='etapas';
+function crmConfigOpen(){_crmCfgStages=crmStages().map(s=>({...s}));_crmCfgFields=crmFields().map(f=>({...f}));_crmCfgTab='etapas';crmCfgRender();}
+function crmCfgClose(){const o=document.getElementById('crmCfgOverlay');if(o)o.remove();}
+function crmCfgTab(t){_crmCfgTab=t;crmCfgRender();}
+function crmCfgStageAdd(){_crmCfgStages.push({key:'s'+Math.random().toString(36).slice(2,8),label:'Nova etapa',color:'#94a3b8',event:''});crmCfgRender();}
+function crmCfgStageDel(i){_crmCfgStages.splice(i,1);crmCfgRender();}
+function crmCfgStageMove(i,d){const j=i+d;if(j<0||j>=_crmCfgStages.length)return;const t=_crmCfgStages[i];_crmCfgStages[i]=_crmCfgStages[j];_crmCfgStages[j]=t;crmCfgRender();}
+function crmCfgFieldAdd(){_crmCfgFields.push({key:'f'+Math.random().toString(36).slice(2,8),label:'Novo campo',type:'texto',hint:''});crmCfgRender();}
+function crmCfgFieldDel(i){_crmCfgFields.splice(i,1);crmCfgRender();}
+async function crmCfgSave(){
+  _crmCfgStages=_crmCfgStages.filter(s=>(s.label||'').trim());_crmCfgFields=_crmCfgFields.filter(f=>(f.label||'').trim());
+  _crmCfgFields.forEach(f=>{if(!f.key)f.key=(f.label||'campo').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')||('f'+Math.random().toString(36).slice(2,6));});
+  await saveAccountConfig({crm_stages:_crmCfgStages,crm_fields:_crmCfgFields});
+  crmCfgClose();
+  if(document.getElementById('crm').classList.contains('active'))loadCrm();
+}
+function crmCfgRender(){
+  const tabBtn=(id,l)=>`<button class="btn sm ${_crmCfgTab===id?'primary':'ghost'}" onclick="crmCfgTab('${id}')">${l}</button>`;
+  let bodyH;
+  if(_crmCfgTab==='etapas'){
+    bodyH=_crmCfgStages.map((s,i)=>`<div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin-bottom:8px">
+      <input type="color" value="${s.color||'#94a3b8'}" onchange="_crmCfgStages[${i}].color=this.value" style="width:30px;height:30px;padding:0;border:none;background:none;cursor:pointer;flex:none">
+      <input value="${(s.label||'').replace(/"/g,'&quot;')}" onchange="_crmCfgStages[${i}].label=this.value" style="flex:1;font-size:12.5px" placeholder="Nome da etapa">
+      <input value="${(s.event||'').replace(/"/g,'&quot;')}" onchange="_crmCfgStages[${i}].event=this.value" style="width:150px;font-size:11.5px" placeholder="Evento Meta (opcional)" title="Ex: Lead, QualifiedLead, Purchase — para o CAPI no futuro">
+      <button class="btn sm ghost" onclick="crmCfgStageMove(${i},-1)" title="subir">▲</button><button class="btn sm ghost" onclick="crmCfgStageMove(${i},1)" title="descer">▼</button>
+      <button class="btn sm ghost" style="color:#f87171" onclick="crmCfgStageDel(${i})">✕</button></div>`).join('')
+      +`<button class="btn sm ghost" onclick="crmCfgStageAdd()">+ Nova etapa</button>`;
+  }else{
+    bodyH=`<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px">Campos que a <b>IA extrai automaticamente</b> das conversas. O botão "🪄 Extrair com IA" no lead usa esta lista.</div>`+
+    _crmCfgFields.map((f,i)=>`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;gap:8px;align-items:center"><input value="${(f.label||'').replace(/"/g,'&quot;')}" onchange="_crmCfgFields[${i}].label=this.value" style="flex:1;font-size:12.5px" placeholder="Nome do campo">
+      <select onchange="_crmCfgFields[${i}].type=this.value" style="width:auto;font-size:12px"><option value="texto" ${f.type==='texto'?'selected':''}>Texto</option><option value="valor" ${f.type==='valor'?'selected':''}>Valor (R$)</option><option value="numero" ${f.type==='numero'?'selected':''}>Número</option><option value="data" ${f.type==='data'?'selected':''}>Data</option></select>
+      <button class="btn sm ghost" style="color:#f87171" onclick="crmCfgFieldDel(${i})">✕</button></div>
+      <input value="${(f.hint||'').replace(/"/g,'&quot;')}" onchange="_crmCfgFields[${i}].hint=this.value" style="width:100%;font-size:11.5px;margin-top:6px" placeholder="Dica pra IA extrair (ex: valor total mencionado da compra)"></div>`).join('')
+      +`<button class="btn sm ghost" onclick="crmCfgFieldAdd()">+ Novo campo</button>`;
+  }
+  let ov=document.getElementById('crmCfgOverlay');if(!ov){ov=document.createElement('div');ov.id='crmCfgOverlay';document.body.appendChild(ov);}
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;width:min(580px,94vw);max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0;font-size:17px">⚙️ Configurar CRM</h3><button class="btn sm ghost" onclick="crmCfgClose()">✕</button></div>
+    <div style="display:flex;gap:6px;margin-bottom:14px">${tabBtn('etapas','Etapas do Funil')}${tabBtn('campos','Campos do Lead')}</div>
+    <div style="flex:1;overflow-y:auto">${bodyH}</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn ghost" onclick="crmCfgClose()">Cancelar</button><button class="btn primary" onclick="crmCfgSave()">💾 Salvar</button></div>
+  </div>`;
+  ov.onclick=e=>{if(e.target===ov)crmCfgClose();};
 }
 async function crmSaveFields(id){
   const obj={};document.querySelectorAll('.crmLeadField').forEach(inp=>{const v=inp.value.trim();if(v)obj[inp.dataset.key]=v;});
@@ -2271,10 +2322,15 @@ async function waRenderQrStep(id){
   const d=(r.data&&r.data.data)||{};
   if(d.status==='connected'){waConnConnected();return;}
   const qr=d.qrcode||'';const img=qr?(qr.startsWith('data:')?qr:'data:image/png;base64,'+qr):'';
+  const link=new URL('connect.html',location.href).href+'?i='+id;
   step.innerHTML=`${img?`<img src="${img}" style="width:220px;height:220px;display:block;margin:0 auto;border-radius:10px;background:#fff;padding:6px">`:'<div style="color:var(--muted);text-align:center;padding:20px">QR indisponível — tente de novo.</div>'}
     ${d.paircode?`<div style="text-align:center;font-size:12px;color:var(--muted);margin-top:8px">ou código: <b style="letter-spacing:2px">${d.paircode}</b></div>`:''}
     <div style="font-size:12px;color:var(--muted);text-align:center;margin-top:10px">No WhatsApp do número → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b> → escaneie.</div>
-    <div id="waConnWait" style="font-size:11px;color:var(--faint);text-align:center;margin-top:8px">Aguardando leitura…</div>`;
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:12px">
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">📲 O cliente vai conectar de longe? Mande este link pra ele abrir e escanear no aparelho dele:</div>
+      <div style="display:flex;gap:6px"><input id="waConnLink" readonly value="${link}" style="flex:1;font-size:11px" onclick="this.select()"><button class="btn sm primary" onclick="navigator.clipboard.writeText('${link}').then(()=>{this.textContent='✓'})">Copiar</button></div>
+    </div>
+    <div id="waConnWait" style="font-size:11px;color:var(--faint);text-align:center;margin-top:10px">Aguardando leitura…</div>`;
   if(_waConnectPoll)clearInterval(_waConnectPoll);
   _waConnectPoll=setInterval(async()=>{
     const s=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'status',instanceId:id}}});
