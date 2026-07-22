@@ -1026,6 +1026,13 @@ async function siteAudit(m: any) {
 async function sbPost(table: string, row: Record<string, unknown>) {
   await fetch(`${_SB_URL}/rest/v1/${table}`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify(row) });
 }
+// insert que CHECA o resultado (pra confirmar de verdade que gravou)
+async function sbInsertOk(table: string, row: Record<string, unknown>): Promise<{ ok: boolean; err: string }> {
+  const r = await fetch(`${_SB_URL}/rest/v1/${table}`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify(row) });
+  if (r.ok) return { ok: true, err: "" };
+  const t = await r.text().catch(() => "");
+  return { ok: false, err: (t || `HTTP ${r.status}`).slice(0, 160) };
+}
 async function sbPatchD(table: string, query: string, row: Record<string, unknown>) {
   await fetch(`${_SB_URL}/rest/v1/${table}?${query}`, { method: "PATCH", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify(row) });
 }
@@ -1187,7 +1194,7 @@ AÇÕES (execução real; sempre confirme com SIM antes — resuma no "reply" e 
   · duplicar_campanha: {"tipo":"duplicar_campanha","campanha":"<nome>"}
   · criar_lancamento (financeiro): {"tipo":"criar_lancamento","natureza":"receita"|"despesa","descricao":"<ex: Fee mensal>","valor":<número>,"vencimento":"AAAA-MM-DD"}
   · dar_baixa (marcar lançamento como pago): {"tipo":"dar_baixa","descricao":"<parte da descrição do lançamento>"}
-  Use o nome EXATO da campanha (do snapshot). NUNCA execute sem confirmação.
+  Use o nome EXATO da campanha (do snapshot). NUNCA execute sem confirmação — e ao pedir confirmação SEMPRE diga o CLIENTE a que se refere (ex: "Crio a tarefa 'montar criativo' pro cliente MFlorImoveis (resp. Dionathan). Confirma?"). NUNCA diga que criou/fez algo por conta própria — quem executa é o sistema DEPOIS do SIM.
 Responda SOMENTE JSON: {"client":"<nome|vazio>","reply":"<texto curto>","action":{...}|null}`;
   const ctx = snap ? ("SNAPSHOT COMPLETO de " + snap.nome + " (ultimos7dias, ultimos30dias, metasVsReal_30d, campanhasComGasto_30d, campanhasAtivasAgora com orçamento, conjuntosAtivosComOrcamento, topAnuncios_30d): " + JSON.stringify(snap).slice(0, 7000)) : "(nenhum cliente selecionado ainda)";
   const msgs = [{ role: "system", content: sys }, ...history.slice(-10).map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text })), { role: "user", content: ctx + "\n\nEQUIPE: " + text }];
@@ -1203,13 +1210,16 @@ async function waResolveCampaign(clientId: string, nome: string) {
   const q = String(nome || "").toLowerCase().trim(); const cs = ent.campaigns || [];
   return cs.find((c: any) => c.nome.toLowerCase() === q) || cs.find((c: any) => c.nome.toLowerCase().includes(q)) || cs.find((c: any) => q && q.includes(c.nome.toLowerCase())) || null;
 }
+async function _waClientNome(cid: string | null) { if (!cid) return ""; const c = (await sbGet("clients", `id=eq.${encodeURIComponent(cid)}&select=name`))[0]; return c?.name || ""; }
 async function waAgentExec(pending: any, clientId: string | null) {
   const cid = pending.client_id || clientId;
   try {
     if (pending.tipo === "criar_tarefa") {
-      const sample = (await sbGet("tasks", "select=status,prio&limit=1"))[0] || {};
-      await sbPost("tasks", { id: _wuid(), name: pending.nome || "Tarefa (via AndréIA)", client: cid || null, owner: "eu", status: sample.status || "A fazer", prio: pending.prio || sample.prio || "media", notes: pending.obs || "", urgent: false });
-      return "✅ Tarefa criada: " + (pending.nome || "");
+      const nome = pending.nome || "Tarefa (via AndréIA)";
+      const res = await sbInsertOk("tasks", { id: _wuid(), name: nome, client: cid || null, owner: "eu", status: "todo", prio: pending.prio || "media", notes: pending.obs || "", urgent: false });
+      if (!res.ok) return "❌ Não consegui salvar a tarefa: " + res.err;
+      const cn = await _waClientNome(cid);
+      return `✅ Tarefa criada${cn ? ` pro cliente ${cn}` : ""}: ${nome}`;
     }
     if (pending.tipo === "pausar_campanha" || pending.tipo === "reativar_campanha") {
       if (!cid) return "De qual cliente é a campanha?";
@@ -1231,8 +1241,10 @@ async function waAgentExec(pending: any, clientId: string | null) {
       return `⧉ Dupliquei "${camp.nome}" (a cópia fica PAUSADA pra você revisar).`;
     }
     if (pending.tipo === "criar_lancamento") {
-      await sbPost("finance", { id: _wuid(), type: pending.natureza === "despesa" ? "despesa" : "receita", client: cid || null, description: pending.descricao || "Lançamento (via AndréIA)", val: Number(pending.valor) || 0, due: pending.vencimento || new Date().toISOString().slice(0, 10), status: "pendente", auto: false });
-      return `🧾 Lançamento criado: ${pending.natureza === "despesa" ? "despesa" : "receita"} R$${(Number(pending.valor) || 0).toFixed(2)} — ${pending.descricao || ""} (venc. ${pending.vencimento || "hoje"}).`;
+      const res = await sbInsertOk("finance", { id: _wuid(), type: pending.natureza === "despesa" ? "despesa" : "receita", client: cid || null, description: pending.descricao || "Lançamento (via AndréIA)", val: Number(pending.valor) || 0, due: pending.vencimento || new Date().toISOString().slice(0, 10), status: "pendente", auto: false });
+      if (!res.ok) return "❌ Não consegui salvar o lançamento: " + res.err;
+      const cn = await _waClientNome(cid);
+      return `🧾 Lançamento criado${cn ? ` (cliente ${cn})` : ""}: ${pending.natureza === "despesa" ? "despesa" : "receita"} R$${(Number(pending.valor) || 0).toFixed(2)} — ${pending.descricao || ""} (venc. ${pending.vencimento || "hoje"}).`;
     }
     if (pending.tipo === "dar_baixa") {
       if (!cid) return "De qual cliente é o lançamento?";
@@ -1264,9 +1276,11 @@ async function waAgentHandle(w: any) {
   const text = (w.text || "").trim(); if (!text) return { skip: true };
   const saveSess = async (patch: any) => { const row = { phone: skey, updated_at: new Date().toISOString(), ...patch }; if (sess) await sbPatchD("wa_agent_sessions", `phone=eq.${encodeURIComponent(skey)}`, row); else await sbPost("wa_agent_sessions", row); };
   if (sess && sess.pending) {
-    // só confirma/cancela se a mensagem for CURTA e claramente sim/não (senão trata como nova instrução)
-    if (/^(sim|s|ok|pode|isso|confirmo|confirmado|manda|faz|vai|pode sim|isso mesmo|👍|✅)[\s.!]*$/i.test(text)) { const msg = await waAgentExec(sess.pending, sess.client_id); await saveSess({ pending: null, last_msgid: w.msgid }); await send(msg); return { ok: true }; }
-    if (/^(n[aã]o|cancela|cancelar|deixa|para|esquece|nao)[\s.!]*$/i.test(text)) { await saveSess({ pending: null, last_msgid: w.msgid }); await send("Ok, cancelei 👍"); return { ok: true }; }
+    const tl = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[\s.!,]+/g, " ").trim();
+    const isYes = /^(sim|s|ss|isso|isso mesmo|pode|pode sim|confirmo|confirmado|confirmar|ok|okay|blz|beleza|claro|positivo|certo|faz|fazer|manda|manda ver|vai|bora|com certeza|👍|✅)$/.test(tl);
+    const isNo = /^(nao|n|cancela|cancelar|deixa|esquece|para|negativo|nem|melhor nao)$/.test(tl);
+    if (isYes) { const msg = await waAgentExec(sess.pending, sess.client_id); await saveSess({ pending: null, last_msgid: w.msgid }); await send(msg); return { ok: true }; }
+    if (isNo) { await saveSess({ pending: null, last_msgid: w.msgid }); await send("Ok, cancelei 👍"); return { ok: true }; }
   }
   const clients = await sbGet("clients", "select=id,name&limit=500");
   const out = await waAgentLLM(text, (sess && sess.history) || [], (sess && sess.client_id) || null, clients);
