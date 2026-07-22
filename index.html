@@ -6695,19 +6695,40 @@ async function fetchClientReportMetrics(c,month){
       };
     }catch(e){}
   }
+  // Objetivos do cliente (dos templates) — a IA deve analisar SÓ pelas métricas do objetivo dele
+  const focos=resolveReportFocos(c); // array de tipos ou null (auto)
+  const focoSet=focos?new Set(focos):null;
+  let hasSales=focoSet?(focoSet.has('conversao')||focoSet.has('app')):(totalPedidos>0);
   const out={mesReferencia:month,pedidos:{total:totalPedidos,aprovados:aprovadosCount,faturamentoAprovado:Math.round(aprovadosVal),ticketMedio:Math.round(ticketMedio),porStatus:statusB},canaisDeAnuncio:canais};
+  if(focos)out.objetivosDoCliente=focos.map(t=>({tipo:t,rotulo:(OBJETIVO_INFO[t]||{}).rotulo||t,metricaChave:(OBJETIVO_INFO[t]||{}).metrica||''}));
+  out.temVenda=hasSales;
+  if(!hasSales){ // cliente sem objetivo de venda: não faz sentido ROAS/faturamento zerados nos canais
+    out.canaisDeAnuncio=canais.map(x=>{const y={...x};delete y.roas;delete y.faturamento;delete y.vendas;return y;});
+    out.notaObjetivo='Este cliente NÃO tem objetivo de venda/conversão. NÃO cite ROAS, faturamento, CPA nem "nenhuma venda registrada" — avalie pelas métricas do objetivo (ex: custo por conversa, CPL, custo por view, CTR/CPC/CPM).';
+  }
   if(metaEntidades)out.metaEntidades=metaEntidades;
   // Períodos (7d/30d) + benchmark do próprio cliente (30d vs 30d anteriores) — só Meta
   if(c.metaAccountIds&&c.metaAccountIds.length){
     try{
       const tdy=today();
       const [t7,t30,tPrev30]=await Promise.all([fetchMetaTotals(c,daysAgoISO(7),tdy),fetchMetaTotals(c,daysAgoISO(30),tdy),fetchMetaTotals(c,daysAgoISO(60),daysAgoISO(31))]);
-      out.periodos={ultimos7dias:metaTotalResumo(t7),ultimos30dias:metaTotalResumo(t30)};
+      if(!focoSet&&t30&&t30.purchases>0)hasSales=true; // objetivo auto: se teve compra, considera venda
+      out.temVenda=hasSales;
+      const trimResumo=r=>{if(r&&!hasSales){delete r.roas;delete r.compras;}return r;};
+      out.periodos={ultimos7dias:trimResumo(metaTotalResumo(t7)),ultimos30dias:trimResumo(metaTotalResumo(t30))};
       if(c.benchmarkMetas&&t30){
         const bm=c.benchmarkMetas,cpa=t30.purchases?t30.spend/t30.purchases:null,cpl=t30.leads?t30.spend/t30.leads:null,cpConv=t30.conversas?t30.spend/t30.conversas:null,cpView=t30.videoViews?t30.spend/t30.videoViews:null;
-        const cmp=(meta,atual,menorMelhor)=>meta==null||atual==null?null:{meta,atual:+atual.toFixed(2),status:(menorMelhor?atual<=meta:atual>=meta)?'atingida':'abaixo'};
-        out.metasCliente={nota:'Metas definidas pelo gestor vs desempenho real dos últimos 30 dias. menorMelhor = quanto menor melhor.',
-          ctr:cmp(bm.ctr,t30.ctr,false),cpc:cmp(bm.cpc,t30.cpc,true),cpm:cmp(bm.cpm,t30.cpm,true),roas:cmp(bm.roas,t30.roas,false),cpa:cmp(bm.cpa,cpa,true),cpl:cmp(bm.cpl,cpl,true),custoConversa:cmp(bm.custoConversa,cpConv,true),custoView:cmp(bm.custoView,cpView,true)};
+        const cmp=(meta,atual,menorMelhor)=>meta==null||atual==null?null:{meta,atual:+atual.toFixed(2),status:(menorMelhor?atual<=meta:atual>=meta)?'atingida':(menorMelhor?'acima_do_alvo_ruim':'abaixo_do_alvo_ruim')};
+        const inFoco=t=>!focoSet||focoSet.has(t);
+        // só as métricas que fazem sentido pro objetivo do cliente
+        const mc={nota:'Metas do gestor vs real (30d). status atingida=ok; abaixo_do_alvo_ruim=ficou pior (métrica onde MAIOR é melhor); acima_do_alvo_ruim=ficou pior (métrica onde MENOR é melhor, ex: custos).',
+          ctr:cmp(bm.ctr,t30.ctr,false),cpc:cmp(bm.cpc,t30.cpc,true),cpm:cmp(bm.cpm,t30.cpm,true)};
+        if(hasSales){mc.roas=cmp(bm.roas,t30.roas,false);mc.cpa=cmp(bm.cpa,cpa,true);}
+        if(inFoco('leads'))mc.cpl=cmp(bm.cpl,cpl,true);
+        if(inFoco('mensagens'))mc.custoConversa=cmp(bm.custoConversa,cpConv,true);
+        if(inFoco('video'))mc.custoView=cmp(bm.custoView,cpView,true);
+        Object.keys(mc).forEach(k=>{if(mc[k]===null)delete mc[k];}); // tira metas não definidas
+        out.metasCliente=mc;
       }
       if(t30&&tPrev30){
         out.benchmarkProprioCliente={
