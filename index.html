@@ -610,9 +610,11 @@
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <select id="crmInstSel" style="width:auto;font-size:12.5px" onchange="crmSetInst(this.value)"></select>
+        <button class="btn sm ghost" onclick="toggleCrmGuide()">📖 Guia</button>
         <button class="btn sm ghost" id="crmPollBtn" onclick="crmPoll(true)">🔄 Atualizar</button>
       </div>
     </div>
+    <div id="crmGuide"></div>
     <div id="crmFilters" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
     <div id="crmBody"><div class="empty">Carregando…</div></div>
     <div id="crmDrawer"></div>
@@ -1929,13 +1931,41 @@ const CRM_STAGES=[
 ];
 let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
 let _crmSearch='',_crmFOrigin='',_crmFCampaign='';
+let _crmGuideOpen=(localStorage.getItem('crmGuide')!=='0');
+function toggleCrmGuide(){_crmGuideOpen=!_crmGuideOpen;localStorage.setItem('crmGuide',_crmGuideOpen?'1':'0');renderCrmGuide();}
+async function renderCrmGuide(){
+  const box=document.getElementById('crmGuide');if(!box)return;
+  if(!_crmGuideOpen){box.innerHTML='';return;}
+  const inst=_crmInsts.find(i=>i.id===_crmInstId);
+  const cid=inst&&inst.client_id;const waOk=!!(inst&&inst.status==='connected');
+  let pixelOk=false,linksOk=false,eventsOk=false;
+  if(cid){try{const [tc,tl,te]=await Promise.all([
+      sb.from('tracking_config').select('token').eq('client_id',cid).limit(1),
+      sb.from('track_links').select('id',{count:'exact',head:true}).eq('client_id',cid),
+      sb.from('track_events').select('id',{count:'exact',head:true}).eq('client_id',cid)]);
+    pixelOk=!!(tc.data&&tc.data.length);linksOk=(tl.count||0)>0;eventsOk=(te.count||0)>0;}catch(e){}}
+  const step=(ok,title,desc,label,fn)=>`<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border)">
+    <span style="font-size:15px;flex:none;line-height:1.4">${ok?'✅':'⬜'}</span>
+    <div style="flex:1"><div style="font-size:12.5px;font-weight:600">${title}</div><div style="font-size:11.5px;color:var(--muted);line-height:1.5">${desc}</div></div>
+    ${fn?`<button class="btn sm ghost" style="flex:none;font-size:11px" onclick="${fn}">${label}</button>`:''}</div>`;
+  box.innerHTML=`<div style="background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:14px 16px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:13px">📖 Guia — o que fazer pro rastreamento funcionar</b><button class="btn sm ghost" onclick="toggleCrmGuide()">ocultar</button></div>
+    <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">A jornada fecha por dois caminhos: <b>(A)</b> anúncio <b>Click-to-WhatsApp</b> traz a conversa já com a campanha; <b>(B)</b> <b>site/bio com pixel + link rastreável</b> grava a origem antes do clique no WhatsApp.</div>
+    ${step(waOk,'1. Conectar o WhatsApp'+(cid?' do cliente':' da agência'),'⚙️ Configurações → WhatsApp → conectar o número por QR. Sem isso, nenhuma conversa chega.','Conectar',"goToTab('configuracoes')")}
+    ${step(false,'2. Anúncios com destino WhatsApp (Click-to-WhatsApp)','No Meta, objetivo Mensagens/WhatsApp. Aí cada conversa chega marcada com campanha › conjunto › anúncio, automático.','',null)}
+    ${step(pixelOk,'3. Instalar o pixel no site do cliente','Captura origem (UTM/anúncio), páginas e cliques de WhatsApp — pra quem passa pelo site/bio.','Pixel',"goToTab('rastreamento')")}
+    ${step(linksOk,'4. Criar links rastreáveis (bio/site)','Links pra bio do Instagram e botões — o clique grava a origem antes de ir pro WhatsApp.','Links',"goToTab('rastreamento')")}
+    ${cid?step(eventsOk,'5. Confirmar que o pixel está recebendo eventos','Verifica que o site já manda dados (visitas/cliques). Se ⬜, revise a instalação do pixel.','',null):''}
+    <div style="font-size:11px;color:var(--faint);margin-top:8px">💡 Pro cruzamento WhatsApp × anúncio, o essencial são os passos <b>1</b> e <b>2</b>. Os passos 3 e 4 cobrem quem chega pelo site/bio.</div>
+  </div>`;
+}
 function stopCrmPoll(){if(_crmPollTimer){clearInterval(_crmPollTimer);_crmPollTimer=null;}}
 function startCrmPoll(){stopCrmPoll();_crmPollTimer=setInterval(()=>{if(document.getElementById('crm').classList.contains('active'))crmPoll(false);else stopCrmPoll();},20000);}
 async function loadCrm(){
   const sel=document.getElementById('crmInstSel');
   const {data}=await sb.from('wa_instances').select('*').order('created_at',{ascending:true});
   _crmInsts=data||[];
-  if(!_crmInsts.length){document.getElementById('crmFilters').innerHTML='';document.getElementById('crmBody').innerHTML='<div class="empty">Nenhum número de WhatsApp conectado. Conecte um número em ⚙️ Configurações → WhatsApp.</div>';sel.innerHTML='';document.getElementById('crmStatus').innerHTML='';document.getElementById('crmCount').textContent='';return;}
+  if(!_crmInsts.length){document.getElementById('crmFilters').innerHTML='';document.getElementById('crmBody').innerHTML='<div class="empty">Nenhum número de WhatsApp conectado. Siga o guia acima ou vá em ⚙️ Configurações → WhatsApp.</div>';sel.innerHTML='';document.getElementById('crmStatus').innerHTML='';document.getElementById('crmCount').textContent='';renderCrmGuide();return;}
   // prioriza a instância do cliente ativo (CRM é do cliente); agência fica pra envio
   if(!_crmInstId||!_crmInsts.some(i=>i.id===_crmInstId)){
     const doCliente=activeClientId&&_crmInsts.find(i=>i.client_id===activeClientId);
@@ -1957,7 +1987,7 @@ async function loadCrmConvs(){
   const inst=_crmInsts.find(i=>i.id===_crmInstId);if(!inst)return;
   let q=sb.from('wa_conversations').select('*').order('last_at',{ascending:false}).limit(500);
   q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
-  const {data}=await q;_crmConvs=data||[];renderCrmFilters();renderCrm();
+  const {data}=await q;_crmConvs=data||[];renderCrmFilters();renderCrm();renderCrmGuide();
 }
 function crmOriginBadge(t){
   if(t==='anuncio')return '<span style="font-size:9px;font-weight:800;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.35);border-radius:6px;padding:1px 5px">📣 ANÚNCIO</span>';
