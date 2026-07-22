@@ -1306,6 +1306,64 @@ async function waAgentAllClientsSummary(days: number): Promise<string[]> {
   if (cur.trim()) msgs.push(cur);
   return msgs;
 }
+// Tabelas que a AndréIA pode CONSULTAR (só leitura) + o que cada uma guarda
+const WA_TABLES: Record<string, string> = {
+  clients: "clientes (id, name, seg, status, fee, billing, category, meta_account_id, google_account_id, conversion_source, day)",
+  finance: "lançamentos financeiros — aba Financeiro (type=receita|despesa, client=id do cliente, description, val, due=YYYY-MM-DD, status=pendente|pago, category, creditor)",
+  tasks: "tarefas (name, client=id, owner, status=todo|doing|done, due, prio, notes)",
+  wa_conversations: "conversas do CRM WhatsApp (client_id, chat_id=telefone, name, stage, origin_type, origin jsonb, fields jsonb, last_at, last_text)",
+  wa_messages: "mensagens do WhatsApp (conversation_id, chat_id, direction=in|out, text, ts)",
+  rd_conversions: "conversões RD Station (client, email, source, medium, campaign, converted_at)",
+  order_aggregates: "pedidos por dia (client_id, date, status, count, total)",
+  capi_events: "eventos CAPI enviados pro Meta (client_id, event_name, status, error, created_at)",
+  track_events: "eventos do pixel de rastreamento (client_id, type)",
+  track_links: "links rastreáveis (client_id, slug, kind)",
+  report_analysis: "análises de relatório salvas (client_id, month, text)",
+  creditors: "credores/fornecedores (id, name)",
+  wallet: "carteira (client, type, description, val, date)",
+  checkout_events: "checkouts (client_id, event_date)",
+  notifications: "notificações internas da equipe (to_team, task_name, comment_text, read, type, created_at)",
+};
+const WA_TOOLS = [
+  { type: "function", function: { name: "consultar_banco", description: "Consulta SOMENTE LEITURA de qualquer tabela do sistema pra buscar dados reais (cliente, financeiro, tarefas, conversas do CRM, RD, pedidos etc). SEMPRE use antes de responder sobre dados guardados.", parameters: { type: "object", properties: { tabela: { type: "string", enum: Object.keys(WA_TABLES) }, colunas: { type: "string", description: "colunas separadas por vírgula ou '*'" }, filtro: { type: "string", description: "filtro no formato PostgREST, ex: 'client=eq.<id>&status=eq.pendente'; datas: 'due=gte.2026-07-01&due=lte.2026-07-31'; texto: 'description=ilike.*fee*'. Vazio = sem filtro." }, ordenar: { type: "string", description: "ex: 'created_at.desc' ou 'due.asc'" }, limite: { type: "integer" } }, required: ["tabela"] } } },
+  { type: "function", function: { name: "meta_insights", description: "Métricas de Meta Ads AO VIVO de UM cliente (totais 7/30d + campanhas ativas com orçamento) no período.", parameters: { type: "object", properties: { cliente: { type: "string", description: "nome do cliente" }, dias: { type: "integer" } }, required: ["cliente"] } } },
+  { type: "function", function: { name: "google_insights", description: "Métricas de Google Ads AO VIVO de UM cliente no período.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer" } }, required: ["cliente"] } } },
+  { type: "function", function: { name: "resumo_todos_clientes", description: "Resumo de TODOS os clientes no período (gasto + métrica do objetivo, Meta/Google separados). Use quando pedirem panorama/todos os clientes.", parameters: { type: "object", properties: { dias: { type: "integer" } } } } },
+  { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"] }, cliente: { type: "string" }, nome: { type: "string" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
+];
+function _waResolveClient(nomeOuId: string, clients: any[]) { if (!nomeOuId) return null; const q = String(nomeOuId).toLowerCase().trim(); return clients.find((c) => c.id === nomeOuId) || clients.find((c) => c.name.toLowerCase() === q) || clients.find((c) => c.name.toLowerCase().includes(q)) || null; }
+async function waQueryTable(args: any) {
+  const t = args.tabela; if (!WA_TABLES[t]) return { erro: "tabela não permitida" };
+  const p = ["select=" + encodeURIComponent(args.colunas && String(args.colunas).trim() ? args.colunas : "*")];
+  if (args.filtro && String(args.filtro).trim()) p.push(String(args.filtro).trim());
+  if (args.ordenar) p.push("order=" + encodeURIComponent(args.ordenar));
+  p.push("limit=" + Math.min(Number(args.limite) || 30, 100));
+  try { const rows = await sbGet(t, p.join("&")); return { linhas: rows, total: rows.length }; } catch (e) { return { erro: String((e as any)?.message || e) }; }
+}
+async function waExecTool(name: string, args: any, clients: any[]) {
+  if (name === "consultar_banco") return await waQueryTable(args);
+  if (name === "resumo_todos_clientes") { const msgs = await waAgentAllClientsSummary(Number(args.dias) || 7); return { texto: msgs.join("\n\n") }; }
+  if (name === "meta_insights") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const snap = await waAgentSnapshot(c.id); return { cliente: c.name, _cid: c.id, dados: snap }; }
+  if (name === "google_insights") {
+    const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" };
+    const gIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean); if (!gIds.length) return { cliente: c.name, aviso: "cliente sem Google Ads vinculado" };
+    const d = Number(args.dias) || 30; const since = new Date(Date.now() - d * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
+    const r = await googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until }).catch((e: any) => ({ erro: String(e?.message || e) }));
+    return { cliente: c.name, _cid: c.id, dias: d, total: r && (r as any).total };
+  }
+  return { erro: "ferramenta desconhecida" };
+}
+function _waConfirmText(p: any, clients: any[]) {
+  const cn = (clients.find((c) => c.id === p.client_id) || {}).name || ""; const cli = cn ? `📌 Cliente: ${cn}\n` : "";
+  if (p.tipo === "criar_tarefa") return `${cli}Crio a tarefa "${p.nome || ""}"${p.obs ? ` (${p.obs})` : ""}. Confirma? (responda SIM)`;
+  if (p.tipo === "pausar_campanha") return `${cli}Pausar a campanha "${p.campanha || ""}". Confirma?`;
+  if (p.tipo === "reativar_campanha") return `${cli}Reativar a campanha "${p.campanha || ""}". Confirma?`;
+  if (p.tipo === "orcamento") return `${cli}Ajustar o orçamento diário da "${p.campanha || ""}" pra R$${p.novoValor}. Confirma?`;
+  if (p.tipo === "duplicar_campanha") return `${cli}Duplicar a campanha "${p.campanha || ""}" (cópia pausada). Confirma?`;
+  if (p.tipo === "criar_lancamento") return `${cli}Criar lançamento ${p.natureza || "receita"} de R$${p.valor} — ${p.descricao || ""} (venc. ${p.vencimento || "hoje"}). Confirma?`;
+  if (p.tipo === "dar_baixa") return `${cli}Dar baixa (marcar como pago) no lançamento "${p.descricao || ""}". Confirma?`;
+  return `${cli}Confirma a ação?`;
+}
 async function waAgentHandle(w: any) {
   const data = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
   const cfg = data.andreia_wa || {};
@@ -1340,20 +1398,46 @@ async function waAgentHandle(w: any) {
     await saveSess({ pending: null, last_msgid: w.msgid, history: [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: "[resumo geral de clientes enviado]" }].slice(-16) });
     return { ok: true };
   }
-  const clients = await sbGet("clients", "select=id,name&limit=500");
-  const out = await waAgentLLM(text, (sess && sess.history) || [], (sess && sess.client_id) || null, clients);
+  // ===== Agente com FERRAMENTAS: consulta qualquer banco do sistema + Meta/Google ao vivo =====
+  const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id&limit=500");
+  const nomes = clients.slice(0, 150).map((c: any) => c.name).join(" | ");
+  const sys = `Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com a equipe da agência. Fale CURTO, direto e natural (é WhatsApp).
+- Você CONSULTA os dados reais do sistema com as ferramentas: consultar_banco (qualquer tabela: financeiro, tarefas, CRM, RD, pedidos, clientes…), meta_insights e google_insights (métricas ao vivo), resumo_todos_clientes. SEMPRE busque o dado real antes de responder — NUNCA invente número nem use placeholders (X, Y, Z). Se não houver dado, diga que não há.
+- Traga SÓ o que tem dado, e a métrica que faz sentido pro OBJETIVO do cliente (venda→ROAS; lead→CPL; mensagem→custo por conversa; tráfego→CPC/CTR). Não recite dados que não foram pedidos.
+- Para AÇÕES (criar tarefa, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria.
+- Datas: hoje é ${new Date().toISOString().slice(0, 10)}. Ao filtrar por cliente use o id dele (consulte a tabela clients se precisar do id pelo nome). Clientes: ${nomes}.`;
+  const hist0 = ((sess && sess.history) || []).slice(-8).map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text }));
+  const messages: any[] = [{ role: "system", content: sys }, ...hist0, { role: "user", content: text }];
   let clientId = (sess && sess.client_id) || null;
-  if (out.client) { const q = String(out.client).toLowerCase(); const m = clients.find((c: any) => c.name.toLowerCase() === q) || clients.find((c: any) => c.name.toLowerCase().includes(q)); if (m) clientId = m.id; }
-  let reply = out.reply || "Ok.";
-  const pending = out.action ? { ...out.action, client_id: clientId } : null;
-  // garante que a confirmação SEMPRE mostra o cliente (o modelo às vezes esquece)
-  if (pending && clientId) {
-    const cn = (clients.find((c: any) => c.id === clientId) || {}).name || "";
-    if (cn && !reply.toLowerCase().includes(cn.toLowerCase())) reply = `📌 Cliente: ${cn}\n` + reply;
+  for (let it = 0; it < 6; it++) {
+    const j = await callOpenAI({ model: "gpt-4o-mini", messages, tools: WA_TOOLS, tool_choice: "auto", max_tokens: 900, temperature: 0.3 });
+    const msg = j.choices[0].message;
+    if (msg.tool_calls && msg.tool_calls.length) {
+      messages.push(msg);
+      let acted = false;
+      for (const tc of msg.tool_calls) {
+        let args: any = {}; try { args = JSON.parse(tc.function.arguments || "{}"); } catch { args = {}; }
+        if (tc.function.name === "preparar_acao") {
+          const cid = (_waResolveClient(args.cliente, clients) || {}).id || clientId;
+          const pending = { ...args, client_id: cid };
+          const reply = _waConfirmText(pending, clients);
+          const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16);
+          await saveSess({ client_id: cid, pending, last_msgid: w.msgid, history: hist });
+          await send(reply); acted = true; break;
+        }
+        const result = await waExecTool(tc.function.name, args, clients);
+        if (result && (result as any)._cid) clientId = (result as any)._cid;
+        messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result).slice(0, 7000) });
+      }
+      if (acted) return { ok: true };
+      continue;
+    }
+    const reply = msg.content || "Ok.";
+    const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16);
+    await saveSess({ client_id: clientId, pending: null, last_msgid: w.msgid, history: hist });
+    await send(reply); return { ok: true };
   }
-  const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16);
-  await saveSess({ client_id: clientId, history: hist, pending, last_msgid: w.msgid });
-  await send(reply);
+  await send("Me embananei aqui 😅 pode reformular?");
   return { ok: true };
 }
 async function waHandler(w: any) {
