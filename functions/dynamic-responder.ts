@@ -1394,6 +1394,37 @@ function _clientRestrictions(c: any, restr: any): any[] {
   String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean).forEach((id: string) => { const r = restr.g[id.replace(/-/g, "")]; if (r) out.push(r); });
   return out;
 }
+// ===== REGRA DURA: venda/faturamento vêm da PLANILHA (aba VENDAS do canal), não do pixel. Espelha o dashboard. =====
+const REPORT_SYN: Record<string, string[]> = { date: ["data", "day"], sales: ["venda", "vendas"], revenue: ["faturamento"] };
+function _normH(h: any) { return String(h || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
+function _numBR(v: any) { if (v == null) return 0; let s = String(v).replace(/R\$/gi, "").trim(); if (!s || s === "-") return 0; s = s.replace(/\s/g, ""); if (s.includes(",") && s.includes(".")) s = s.replace(/\./g, "").replace(",", "."); else if (s.includes(",")) s = s.replace(",", "."); const n = parseFloat(s); return isNaN(n) ? 0 : n; }
+function _dateFlex(v: any) { if (!v) return null; const s = String(v).trim(); let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${m[1]}-${m[2]}-${m[3]}`; m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/); if (m) return `${m[3]}-${m[2]}-${m[1]}`; return null; }
+function _chanPlat(tab: string) { const t = String(tab || "").replace(/^GERAL\s+/i, "").trim().toUpperCase(); const m = t.match(/^[A-ZÀ-Ú0-9]+(?:-[A-ZÀ-Ú0-9]+)?/); return m ? m[0] : t; }
+let _sheetsClient: any = null;
+function _getSheets() { if (_sheetsClient) return _sheetsClient; const keyJson = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY"); if (!keyJson) return null; const auth = new google.auth.GoogleAuth({ credentials: JSON.parse(keyJson), scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"] }); _sheetsClient = google.sheets({ version: "v4", auth }); return _sheetsClient; }
+// Venda REAL do canal (source: 'meta'|'google') vinda da planilha do cliente, no período. null = cliente não usa planilha p/ esse canal.
+async function _waSheetSales(c: any, source: string, since: string, until: string): Promise<{ sales: number; revenue: number } | null> {
+  const cs = c.conversion_source || ""; if (cs === "meta" || cs === "none") return null;
+  const url = c.report_sheet_url || ""; if (!url) return null;
+  const mm = String(url).match(/\/d\/([a-zA-Z0-9_-]+)/); const sid = mm ? mm[1] : null; if (!sid) return null;
+  const tabs = String(c.report_tabs || "").split(",").map((s: string) => s.trim()).filter(Boolean); if (!tabs.length) return null;
+  const want = source === "google" ? "GOOGLE" : "META";
+  const matchTabs = tabs.filter((t: string) => _chanPlat(t) === want); if (!matchTabs.length) return null;
+  const sheets = _getSheets(); if (!sheets) return null;
+  let sales = 0, revenue = 0, any = false;
+  for (const tab of matchTabs) {
+    try {
+      const res = await sheets.spreadsheets.values.get({ spreadsheetId: sid, range: `'${tab}'!A1:Z5000` });
+      const rows = res.data.values || []; if (rows.length < 2) continue;
+      const header = rows[0].map(_normH); const idx: Record<string, number> = {};
+      for (const f in REPORT_SYN) { const i = header.findIndex((h: string) => REPORT_SYN[f].includes(h)); if (i !== -1) idx[f] = i; }
+      if (idx.sales == null && idx.revenue == null) continue; any = true;
+      for (const row of rows.slice(1)) { const dt = idx.date != null ? _dateFlex(row[idx.date]) : null; if (!dt || dt < since || dt > until) continue; if (idx.sales != null) sales += _numBR(row[idx.sales]); if (idx.revenue != null) revenue += _numBR(row[idx.revenue]); }
+    } catch (_e) { /* aba sem acesso/erro: ignora */ }
+  }
+  return any ? { sales, revenue } : null;
+}
+function _applySheet(t: any, sheet: any) { if (!t || !sheet) return t; return { ...t, purchases: sheet.sales, revenue: sheet.revenue, roas: t.spend ? sheet.revenue / t.spend : 0 }; }
 const ESCOPO_LABEL: Record<string, string> = { padrao: "clientes com investimento", todos: "todos os clientes", ativos: "clientes ativos", ativos_sem_restricao: "ativos sem restrição", rodaram: "só os que rodaram", com_restricao: "com restrição de conta" };
 // KPIs COMPLETOS de um canal (relatório "completo") — 1 por linha. A métrica de RESULTADO segue o OBJETIVO (obj), não a presença de valor.
 function _waKpiFull(t: any, google: boolean, obj?: string | null): string[] {
@@ -1429,7 +1460,7 @@ async function _waAnalises(items: any[]): Promise<Record<string, string>> {
 // Resumo de clientes no período (por cliente, Meta/Google separados). `escopo` filtra QUEM entra; `nivel` = resumido|completo. Retorna mensagens (chunked).
 async function waAgentAllClientsSummary(days: number, escopo = "padrao", nivel = "resumido"): Promise<string[]> {
   const since = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
-  const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,status&limit=500");
+  const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,status,conversion_source,report_sheet_url,report_tabs&limit=500");
   const withAcct = clients.filter((c: any) => String(c.meta_account_id || "").trim() || String(c.google_account_id || "").trim());
   const needRestr = escopo === "ativos_sem_restricao" || escopo === "com_restricao";
   const restr = needRestr ? await _waAccountRestrictions() : { m: {}, g: {} };
@@ -1449,7 +1480,12 @@ async function waAgentAllClientsSummary(days: number, escopo = "padrao", nivel =
         mIds.length ? metaAdsInsights({ accounts: mIds.map((id: string) => ({ id, name: id })), since, until, byCampaign: true }).catch(() => null) : Promise.resolve(null),
         gIds.length ? googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until, byCampaign: true }).catch(() => null) : Promise.resolve(null),
       ]);
-      return { nome: c.name, meta: (m && m.total) || null, google: (g && g.total) || null, objMeta: _domObj(m), objGoogle: _domObj(g), restr: escopo === "com_restricao" ? _clientRestrictions(c, restr) : [] };
+      let mt = (m && m.total) || null, gt = (g && g.total) || null;
+      let objMeta = _domObj(m), objGoogle = _domObj(g);
+      // REGRA: venda vem da planilha (se o canal tem aba VENDAS). Sobrepõe o pixel e força a métrica de venda.
+      if (mt) { const sh = await _waSheetSales(c, "meta", since, until); if (sh) { mt = _applySheet(mt, sh); objMeta = "conversao"; } }
+      if (gt) { const sh = await _waSheetSales(c, "google", since, until); if (sh) { gt = _applySheet(gt, sh); objGoogle = "conversao"; } }
+      return { nome: c.name, meta: mt, google: gt, objMeta, objGoogle, restr: escopo === "com_restricao" ? _clientRestrictions(c, restr) : [] };
     }));
     results.push(...rs);
   }
@@ -1482,7 +1518,7 @@ async function waAgentAllClientsSummary(days: number, escopo = "padrao", nivel =
   }
   const escLbl = ESCOPO_LABEL[escopo] || ESCOPO_LABEL.padrao;
   if (!blocks.length) return [escopo === "com_restricao" ? `✅ Nenhum cliente com restrição de conta.` : `Nenhum cliente (${escLbl}) com dados nos últimos ${days} dias.`];
-  const cab = escopo === "com_restricao" ? `🚫 Clientes com restrição de conta (últimos ${days} dias):\n` : `📊 Resumo ${completo ? "completo " : ""}dos últimos ${days} dias — ${escLbl}:\n`;
+  const cab = escopo === "com_restricao" ? `🚫 *Clientes com restrição de conta*\n_últimos ${days} dias_\n${WA_DIV}\n` : `📊 *Resumo ${completo ? "completo " : ""}— últimos ${days} dias*\n_${escLbl}_\n${WA_DIV}\n`;
   const msgs: string[] = []; let cur = cab;
   for (const b of blocks) { if ((cur + "\n\n" + b).length > 3000) { msgs.push(cur); cur = b; } else cur += "\n\n" + b; }
   if (cur.trim()) msgs.push(cur);
@@ -1646,9 +1682,12 @@ async function waRelatorioCliente(c: any, dias: number, comAnalise = true): Prom
     mIds.length ? metaAdsInsights({ accounts: mIds.map((id: string) => ({ id, name: id })), since, until, byCampaign: true }).catch(() => null) : Promise.resolve(null),
     gIds.length ? googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until, byCampaign: true }).catch(() => null) : Promise.resolve(null),
   ]);
-  const mt = m && m.total && (m.total.spend || 0) > 0 ? m.total : null;
-  const gt = g && g.total && (g.total.spend || 0) > 0 ? g.total : null;
-  const objM = _domObj(m), objG = _domObj(g);
+  let mt = m && m.total && (m.total.spend || 0) > 0 ? m.total : null;
+  let gt = g && g.total && (g.total.spend || 0) > 0 ? g.total : null;
+  let objM = _domObj(m), objG = _domObj(g);
+  // REGRA: venda/faturamento da PLANILHA (aba VENDAS do canal) sobrepõem o pixel.
+  if (mt) { const sh = await _waSheetSales(c, "meta", since, until); if (sh) { mt = _applySheet(mt, sh); objM = "conversao"; } }
+  if (gt) { const sh = await _waSheetSales(c, "google", since, until); if (sh) { gt = _applySheet(gt, sh); objG = "conversao"; } }
   // objetivo dominante do cliente (canal que mais gastou decide)
   const obj = ((mt?.spend || 0) >= (gt?.spend || 0)) ? (objM || objG) : (objG || objM);
   const DIV = "━━━━━━━━━━━━━━━";
@@ -1763,7 +1802,7 @@ async function waAgentHandle(w: any) {
   }
   // relatório de UM cliente pra enviar — atalho (garante o layout limpo verbatim)
   if (/\brelat[óo]rio/.test(low) && !/clientes/.test(low)) {
-    const clientsR = await sbGet("clients", "select=id,name,meta_account_id,google_account_id&limit=1000");
+    const clientsR = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,conversion_source,report_sheet_url,report_tabs&limit=1000");
     const hit = clientsR.filter((c: any) => c.name && String(c.name).length >= 4 && low.includes(String(c.name).toLowerCase()));
     if (hit.length === 1) {
       const days = /\b90\b/.test(text) ? 90 : (/\b30\b/.test(text) ? 30 : 7);
@@ -1775,7 +1814,7 @@ async function waAgentHandle(w: any) {
     }
   }
   // ===== Agente com FERRAMENTAS: consulta qualquer banco do sistema + Meta/Google ao vivo =====
-  const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id&limit=500");
+  const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,conversion_source,report_sheet_url,report_tabs&limit=500");
   const nomes = clients.slice(0, 150).map((c: any) => c.name).join(" | ");
   const sys = `Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com a equipe da agência. Fale CURTO, direto e natural (é WhatsApp).
 - Você CONSULTA os dados reais do sistema com as ferramentas: consultar_banco (qualquer tabela: financeiro, tarefas, CRM, RD, pedidos, clientes…), meta_insights e google_insights (métricas ao vivo), resumo_todos_clientes. SEMPRE busque o dado real antes de responder — NUNCA invente número nem use placeholders (X, Y, Z). Se não houver dado, diga que não há.
@@ -1955,26 +1994,35 @@ async function waHandler(w: any) {
 function _brDate(s: any) { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}` : (s || ""); }
 function _spNow() { return new Date(Date.now() - 3 * 3600e3); } // America/Sao_Paulo (UTC-3)
 function _mesAtual() { return _spNow().toISOString().slice(0, 7); }
+// Padrão visual dos avisos/relatórios no WhatsApp: cabeçalho + divisória + bullets + negrito nos destaques.
+const WA_DIV = "━━━━━━━━━━━━━━━";
 function _waFmtFinanceiro(res: any, titulo: string) {
-  if (!res || res.erro) return `${titulo}: ${(res && res.erro) || "sem dados"}`;
-  if (!res.itens || !res.itens.length) return `${titulo}: nada pendente 🎉`;
+  if (!res || res.erro) return `${titulo}\n${WA_DIV}\n${(res && res.erro) || "sem dados"}`;
+  if (!res.itens || !res.itens.length) return `${titulo}\n${WA_DIV}\nNada pendente 🎉`;
   const linhas = res.itens.slice().sort((a: any, b: any) => String(a.vencimento || "").localeCompare(String(b.vencimento || "")))
-    .map((i: any) => `• *${i.cliente}*: ${_fmtR(i.valor)} (venc. ${_brDate(i.vencimento)})`).join("\n");
-  return `${titulo} — total *${_fmtR(res.total)}*\n\n${linhas}`;
+    .map((i: any) => `• *${i.cliente}* — ${_fmtR(i.valor)}  _(venc. ${_brDate(i.vencimento)})_`).join("\n");
+  return `${titulo}\n${WA_DIV}\n${linhas}\n\n💰 *Total: ${_fmtR(res.total)}*`;
 }
 async function waPendenciasText() {
   const rows = await sbGet("tasks", "status=neq.done&select=name,client,owner,due,prio&order=due.asc&limit=40");
-  if (!rows.length) return "✅ Nenhuma tarefa em aberto.";
+  if (!rows.length) return `✅ *Tarefas em aberto*\n${WA_DIV}\nNenhuma tarefa pendente 🎉`;
   const map = await _waClientsMap();
   const team = await sbGet("team", "select=id,name"); const tm: Record<string, string> = {}; team.forEach((t: any) => { tm[t.id] = t.name; });
-  const linhas = rows.slice(0, 25).map((r: any) => `• ${r.name}${r.client && map[r.client] ? ` (${map[r.client]})` : ""}${r.owner && tm[r.owner] ? ` — ${tm[r.owner]}` : ""}${r.due ? ` · ${_brDate(r.due)}` : ""}`).join("\n");
-  return `✅ *Tarefas em aberto* (${rows.length})\n\n${linhas}`;
+  const linhas = rows.slice(0, 25).map((r: any) => `• *${r.name}*${r.client && map[r.client] ? ` — ${map[r.client]}` : ""}${r.owner && tm[r.owner] ? `\n   👤 ${tm[r.owner]}` : ""}${r.due ? `${r.owner && tm[r.owner] ? " · " : "\n   "}📅 ${_brDate(r.due)}` : ""}`).join("\n");
+  return `✅ *Tarefas em aberto* (${rows.length})\n${WA_DIV}\n${linhas}`;
 }
 // Runner só-leitura (sem ações) pra gerar texto de análise/recomendações
 async function waAgentOneShot(prompt: string): Promise<string> {
-  const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id&limit=1000");
+  const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,conversion_source,report_sheet_url,report_tabs&limit=1000");
   const nomes = clients.slice(0, 200).map((c: any) => c.name).join(" | ");
-  const sys = `Você é a AndréIA, gestora de tráfego da GT Marketing, mandando um aviso automático no grupo de WhatsApp da equipe. Consulte os dados REAIS com as ferramentas antes de afirmar qualquer número. Analise cada cliente pelo OBJETIVO dele (venda→ROAS/CPA; leads→CPL; mensagens→custo por conversa; tráfego→CPC) — nunca mostre ROAS pra quem não é venda. Responda CURTO e direto pro WhatsApp: sem markdown de título (nada de # ou **), negrito é *asterisco simples*, use bullets •. Hoje é ${_spNow().toISOString().slice(0, 10)}. Clientes: ${nomes}.`;
+  const sys = `Você é a AndréIA, gestora de tráfego da GT Marketing, mandando um aviso automático no grupo de WhatsApp da equipe. Consulte os dados REAIS com as ferramentas antes de afirmar qualquer número. Analise cada cliente pelo OBJETIVO dele (venda→ROAS/CPA; leads→CPL; mensagens→custo por conversa; tráfego→CPC) — nunca mostre ROAS pra quem não é venda. Hoje é ${_spNow().toISOString().slice(0, 10)}. Clientes: ${nomes}.
+
+FORMATAÇÃO (padrão dos avisos — siga SEMPRE, deixe visualmente limpo e organizado):
+- 1ª linha: título com emoji + *negrito*. Logo abaixo, uma linha divisória: ${WA_DIV}
+- Um bloco por cliente/item: nome em *negrito*, e cada informação numa linha própria começando com "• ".
+- Números-chave (ROAS, gasto, CPL, custo) em *negrito*.
+- Uma linha em branco entre um cliente/bloco e outro.
+- Negrito é *asterisco simples*; itálico _underline_. NUNCA use # nem ** nem tabelas.`;
   const tools = WA_TOOLS.filter((t: any) => t.function.name !== "preparar_acao");
   const messages: any[] = [{ role: "system", content: sys }, { role: "user", content: prompt }];
   for (let it = 0; it < 5; it++) {
