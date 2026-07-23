@@ -1156,6 +1156,24 @@ async function waResolveAd(adId: string): Promise<Record<string, string> | null>
     return { ad: j.name || "", adset: (j.adset && j.adset.name) || "", campaign: (j.campaign && j.campaign.name) || "" };
   } catch { return null; }
 }
+// Fallback (via C): resolve o anúncio pelo TÍTULO/corpo do criativo, procurando nos ad accounts do cliente.
+function _adNorm(s: any) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim(); }
+async function waResolveAdByTitle(title: string, accountIds: string[]): Promise<Record<string, string> | null> {
+  const token = Deno.env.get("META_USER_TOKEN"); const target = _adNorm(title); if (!token || !target || !accountIds.length) return null;
+  for (const acc of accountIds) {
+    try {
+      const r = await fetch(`https://graph.facebook.com/v21.0/act_${acc}/ads?fields=name,adset{name},campaign{name},creative{title,body}&limit=400&access_token=${token}`);
+      const j = await r.json(); if (j.error || !Array.isArray(j.data)) continue;
+      for (const ad of j.data) {
+        const ct = _adNorm(ad.creative?.title), cb = _adNorm(ad.creative?.body);
+        if ((ct && ct === target) || (cb && cb.includes(target)) || (ct && ct.length > 8 && (target.includes(ct) || ct.includes(target)))) {
+          return { ad: ad.name || "", adset: (ad.adset && ad.adset.name) || "", campaign: (ad.campaign && ad.campaign.name) || "" };
+        }
+      }
+    } catch { /* segue pra próxima conta */ }
+  }
+  return null;
+}
 async function waUzConfig() { const acc = await sbGet("account_config", "id=eq.main&select=data"); const uz = (acc[0]?.data || {}).uazapi || {}; if (!uz.server || !uz.admin_token) throw new Error("uazapi não configurado (aba Configurações → WhatsApp)."); return uz; }
 const CRM_DEFAULT_FIELDS = [
   { key: "nome", label: "Nome", type: "texto", hint: "Nome próprio que o lead usou ao se apresentar" },
@@ -1175,7 +1193,7 @@ const CRM_DEFAULT_STAGES = [
 // IA lê a conversa: extrai os campos configurados + CLASSIFICA a etapa do funil com um nível de confiança.
 // autoApply: aplica a etapa automaticamente se a confiança >= mínimo configurado.
 async function waExtract(convId: string, autoApply = false) {
-  const cv = (await sbGet("wa_conversations", `id=eq.${encodeURIComponent(convId)}&select=id,name,fields,stage&limit=1`))[0];
+  const cv = (await sbGet("wa_conversations", `id=eq.${encodeURIComponent(convId)}&select=id,name,fields,stage,client_id&limit=1`))[0];
   if (!cv) throw new Error("Conversa não encontrada.");
   const msgs = await sbGet("wa_messages", `conversation_id=eq.${encodeURIComponent(convId)}&order=ts.asc&select=direction,text&limit=200`);
   const transcript = (msgs || []).filter((m: any) => m.text).map((m: any) => `${m.direction === "in" ? "LEAD" : "ATENDENTE"}: ${m.text}`).join("\n").slice(0, 6000);
@@ -1187,14 +1205,17 @@ async function waExtract(convId: string, autoApply = false) {
   const spec = fields.map((f: any) => `- ${f.key} (${f.label}${f.type ? ", tipo " + f.type : ""})${f.hint ? ": " + f.hint : ""}`).join("\n");
   const stageSpec = stages.filter((s: any) => s.key !== "sem").map((s: any) => `- ${s.key} = ${s.label}${s.desc ? ": " + s.desc : ""}`).join("\n");
   const keys = stages.map((s: any) => s.key).join(", ");
-  const sys = "Você é um SDR que lê uma conversa de WhatsApp entre o LEAD e o ATENDENTE. Faça duas coisas: (1) extraia os campos do lead — só o que aparece claramente, NÃO invente; para tipo 'valor' devolva só o número; (2) CLASSIFIQUE a etapa do funil usando as descrições dadas, e dê um 'confidence' de 0 a 100 (quão certo você está). Responda SOMENTE JSON.";
-  const content = `CAMPOS A EXTRAIR:\n${spec}\n\nETAPAS DO FUNIL (escolha UMA key):\n${stageSpec}\n\nCONVERSA:\n${transcript}\n\nResponda JSON: {"fields":{"<key>":"<valor>"}, "stage":"<key entre: ${keys}>", "confidence":<0-100>, "stageWhy":"<motivo curto>"}`;
-  const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content }], response_format: { type: "json_object" }, max_tokens: 700, temperature: 0.2 });
+  // DNA do cliente pra avaliar relevância
+  let dnaCtx = "";
+  if (cv.client_id) { const cl = (await sbGet("clients", `id=eq.${encodeURIComponent(cv.client_id)}&select=name,dna,seg`))[0]; const dna = cl?.dna || {}; dnaCtx = `\n\nNEGÓCIO DO CLIENTE (pra avaliar relevância): ${cl?.name || ""} · segmento ${cl?.seg || ""}. Vende: ${(dna?.produtos || []).map((p: any) => p.nome).filter(Boolean).join(", ") || dna?.identidade?.marca || "—"}. Personas: ${(dna?.personas || []).map((p: any) => p.titulo).filter(Boolean).join(", ") || "—"}.`; }
+  const sys = "Você é um SDR que lê uma conversa de WhatsApp entre o LEAD e o ATENDENTE. Faça: (1) extraia os campos do lead — só o que aparece claramente, NÃO invente; para tipo 'valor' devolva só o número; (2) CLASSIFIQUE a etapa do funil usando as descrições, com 'confidence' 0-100; (3) 'numeroErrado'=true se ficar claro que o número está ERRADO (a pessoa diz que não é quem procuramos, ligou/mandou errado, não conhece, pediu pra parar); (4) 'irrelevante'=true se o lead está claramente FORA do público/produto do negócio (curioso, vendedor, spam, quer algo que o cliente não faz) — use o negócio do cliente. Responda SOMENTE JSON.";
+  const content = `CAMPOS A EXTRAIR:\n${spec}\n\nETAPAS DO FUNIL (escolha UMA key):\n${stageSpec}${dnaCtx}\n\nCONVERSA:\n${transcript}\n\nResponda JSON: {"fields":{"<key>":"<valor>"}, "stage":"<key entre: ${keys}>", "confidence":<0-100>, "stageWhy":"<motivo curto>", "numeroErrado":<bool>, "irrelevante":<bool>, "irrelevanteMotivo":"<curto se irrelevante>"}`;
+  const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content }], response_format: { type: "json_object" }, max_tokens: 800, temperature: 0.2 });
   let parsed: any = {}; try { parsed = JSON.parse(j.choices[0].message.content || "{}"); } catch { parsed = {}; }
   const outFields = { ...(cv.fields || {}), ...(parsed.fields || {}) };
   const stage = (parsed.stage && stages.some((s: any) => s.key === parsed.stage)) ? parsed.stage : "";
   const conf = Math.max(0, Math.min(100, Math.round(Number(parsed.confidence) || 0)));
-  const patch: Record<string, unknown> = { fields: outFields, ai_stage: stage, ai_conf: conf, ai_why: parsed.stageWhy || "", ai_at: new Date().toISOString() };
+  const patch: Record<string, unknown> = { fields: outFields, ai_stage: stage, ai_conf: conf, ai_why: parsed.stageWhy || "", ai_at: new Date().toISOString(), num_errado: !!parsed.numeroErrado, irrelevante: !!parsed.irrelevante, irrelevante_motivo: parsed.irrelevante ? (parsed.irrelevanteMotivo || "") : null };
   const applied = !!(autoApply && stage && conf >= minConf && stage !== cv.stage);
   if (applied) patch.stage = stage;
   await sbPatchD("wa_conversations", `id=eq.${encodeURIComponent(convId)}`, patch);
@@ -2069,11 +2090,17 @@ async function waHandler(w: any) {
   }
   if (w.op === "resolveOrigins") {
     const convs = await sbGet("wa_conversations", `client_id=${clientFilter}&origin_type=eq.anuncio&select=id,origin`);
-    const cache: Record<string, Record<string, string> | null> = {}; let done = 0;
+    // contas Meta pra busca por título (via C): do cliente da instância OU passadas pelo front (cliente ativo no CRM)
+    const accIds: string[] = (Array.isArray(w.metaAccountIds) && w.metaAccountIds.length) ? w.metaAccountIds.map((x: any) => String(x).replace(/[^0-9]/g, "")).filter(Boolean) : [];
+    const cache: Record<string, Record<string, string> | null> = {}; const titleCache: Record<string, Record<string, string> | null> = {}; let done = 0;
     for (const cv of (convs || [])) {
-      const o = cv.origin || {}; if (o.campaign || !o.source_id) continue;
-      const key = String(o.source_id); if (cache[key] === undefined) cache[key] = await waResolveAd(key);
-      if (cache[key]) { await sbPatchD("wa_conversations", `id=eq.${cv.id}`, { origin: { ...o, ...cache[key] } }); done++; }
+      const o = cv.origin || {}; if (o.campaign) continue;
+      let res: Record<string, string> | null = null;
+      // (A) id do anúncio (source_id) → Graph direto
+      if (o.source_id) { const key = String(o.source_id); if (cache[key] === undefined) cache[key] = await waResolveAd(key); res = cache[key]; }
+      // (C) fallback: casar pelo TÍTULO do criativo nas contas do cliente
+      if (!res && o.title && accIds.length) { const tk = String(o.title); if (titleCache[tk] === undefined) titleCache[tk] = await waResolveAdByTitle(o.title, accIds); res = titleCache[tk]; }
+      if (res) { await sbPatchD("wa_conversations", `id=eq.${cv.id}`, { origin: { ...o, ...res } }); done++; }
     }
     return { resolved: done };
   }

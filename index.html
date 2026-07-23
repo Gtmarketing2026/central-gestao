@@ -2342,15 +2342,21 @@ async function loadCrm(){
 function crmToggleAgency(){_crmViewAgency=!_crmViewAgency;_crmActive=null;_crmFCampaign='';loadCrm();}
 async function crmPoll(manual){
   const btn=document.getElementById('crmPollBtn');if(manual&&btn){btn.textContent='…';btn.disabled=true;}
-  try{await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,limit:80}}});if(manual)await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'resolveOrigins',instanceId:_crmInstId}}}).catch(()=>{});await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id);}catch(e){}
+  const _inst=_crmInsts.find(i=>i.id===_crmInstId);const _cli=DB.clients.find(c=>c.id===((_inst&&_inst.client_id)||activeClientId));const _metaAcc=(_cli&&_cli.metaAccountIds)||[];
+  try{await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,limit:80}}});if(manual)await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'resolveOrigins',instanceId:_crmInstId,metaAccountIds:_metaAcc}}}).catch(()=>{});await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id);}catch(e){}
   if(manual&&btn){btn.textContent='🔄 Atualizar';btn.disabled=false;}
 }
 async function loadCrmConvs(){
   const inst=_crmInsts.find(i=>i.id===_crmInstId);if(!inst)return;
   let q=sb.from('wa_conversations').select('*').order('last_at',{ascending:false}).limit(500);
   q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
-  const {data}=await q;_crmConvs=data||[];renderCrmFilters();renderCrm();renderCrmGuide();
+  const {data}=await q;_crmConvs=data||[];
+  // estatísticas por conversa (nº de msgs, primeiro contato, direção da última) via RPC
+  try{const {data:st}=await sb.rpc('crm_stats');const m={};(st||[]).forEach(s=>{m[s.conversation_id]=s;});_crmConvs.forEach(cv=>{const s=m[cv.id];if(s){cv._cnt=s.cnt;cv._first=s.first_ts;cv._lastdir=s.last_dir;}});}catch(e){}
+  renderCrmFilters();renderCrm();renderCrmGuide();
 }
+function _crmDur(ms){if(!ms||ms<0)return '';const s=Math.floor(ms/1000);if(s<60)return s+'s';const min=Math.floor(s/60);if(min<60)return min+'min';const h=Math.floor(min/60);if(h<24)return h+'h';const dd=Math.floor(h/24);return dd+'d';}
+function _crmDH(ts){if(!ts)return '';const d=new Date(ts);return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}
 function _crmSrcLabel(s){s=String(s||'').toLowerCase();const map={bio:'BIO',site:'SITE',organico:'ORG','wa':'WHATSAPP',whatsapp:'WHATSAPP',ad:'ANÚNCIO',anuncio:'ANÚNCIO'};return map[s]||s.toUpperCase()||'LINK';}
 // chave de origem granular: anuncio, organico, ou 'utm:<track_source>' (bio, site, etc.)
 function _crmOriginKey(cv){const t=cv.origin_type||'organico';if(t==='utm')return 'utm:'+(((cv.origin||{}).track_source||'link').toLowerCase());return t;}
@@ -2401,19 +2407,37 @@ function renderCrm(){
   document.getElementById('crmBody').innerHTML=`<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px">${cols}</div>`;
 }
 function crmCardHTML(cv){
-  const o=cv.origin||{};
-  const adPath=[o.campaign,o.adset,o.ad].filter(Boolean).join(' › ');
-  const adInfo=cv.origin_type==='anuncio'?(adPath||o.title||''):'';
-  const campaign=adInfo?`<div style="font-size:10px;color:#93c5fd;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${String(adInfo).replace(/"/g,'&quot;')}">📣 ${String(adInfo).replace(/</g,'&lt;')}</div>`:'';
-  const f=cv.fields||{};
-  const prod=f.produto?`<div style="font-size:11px;color:var(--text);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="color:var(--muted)">🎯</span> ${String(f.produto).replace(/</g,'&lt;')}</div>`:'';
+  const o=cv.origin||{};const f=cv.fields||{};
+  const div='<div style="height:1px;background:var(--border);margin:8px 0;opacity:.6"></div>';
+  // linha 1: nome + selo de origem
+  const head=`<div style="display:flex;justify-content:space-between;gap:6px;align-items:center"><b style="font-size:13px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b>${crmOriginBadge(cv)}</div>`;
+  const fone=`<div style="font-size:11px;color:var(--muted);margin-top:2px">📞 ${cv.chat_id}</div>`;
+  // flags: número errado / irrelevante
+  const flags=[];
+  if(cv.num_errado)flags.push('<span style="font-size:8.5px;font-weight:800;color:#f87171;background:rgba(248,113,113,.13);border:1px solid rgba(248,113,113,.4);border-radius:5px;padding:1px 5px">⚠ NÚM. ERRADO</span>');
+  if(cv.irrelevante)flags.push(`<span title="${String(cv.irrelevante_motivo||'').replace(/"/g,'&quot;')}" style="font-size:8.5px;font-weight:800;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.4);border-radius:5px;padding:1px 5px">⚑ IRRELEVANTE</span>`);
+  const flagsRow=flags.length?`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${flags.join('')}</div>`:'';
+  // origem detalhada (campanha › conjunto › anúncio, ou título, ou link)
+  const adPath=[o.campaign,o.adset,o.ad].filter(Boolean);
+  let origem='';
+  if(cv.origin_type==='anuncio'){const lines=adPath.length?adPath:(o.title?[o.title]:[]);if(lines.length)origem=`<div style="margin-top:6px;font-size:10px;color:#93c5fd;line-height:1.5">${lines.map(l=>`<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${String(l).replace(/"/g,'&quot;')}">📣 ${String(l).replace(/</g,'&lt;')}</div>`).join('')}</div>`;}
+  // métricas: nº msgs · tempo de conversa · direção última + espera
+  const dur=(cv._first&&cv.last_at)?_crmDur(new Date(cv.last_at)-new Date(cv._first)):'';
+  const arrow=cv._lastdir==='in'?'<span style="color:#34d399" title="última recebida">↙</span>':(cv._lastdir==='out'?'<span style="color:#93c5fd" title="última enviada">↗</span>':'');
+  let espera='';
+  if(cv._lastdir==='in'&&cv.last_at){const dd=Math.floor((Date.now()-new Date(cv.last_at))/86400000);espera=`<span title="lead aguardando resposta" style="color:${dd>=1?'#f59e0b':'var(--muted)'};font-weight:${dd>=1?700:400}">⏳ ${dd>=1?dd+'d s/ resposta':'aguardando'}</span>`;}
+  const met=`<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:10px;color:var(--muted);margin-top:2px">${cv._cnt!=null?`<span>💬 ${cv._cnt}</span>`:''}${dur?`<span>⏱ ${dur}</span>`:''}${arrow?`<span>${arrow}</span>`:''}${espera}</div>`;
+  // dados do lead
+  const prod=f.produto?`<div style="font-size:11px;color:var(--text);margin-top:6px;line-height:1.35"><span style="color:var(--muted)">🎯</span> ${String(f.produto).replace(/</g,'&lt;')}</div>`:'';
   const valor=f.valor?`<div style="font-size:11px;color:#34d399;font-weight:700;margin-top:3px">💰 ${String(f.valor).replace(/</g,'&lt;').replace(/^R?\$?\s*/,'R$ ')}</div>`:'';
-  return `<div draggable="true" ondragstart="crmDragStart(event,'${cv.id}')" onclick="openCrmConv('${cv.id}')" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px;cursor:pointer">
-    <div style="display:flex;justify-content:space-between;gap:6px;align-items:start"><b style="font-size:12.5px;line-height:1.3">${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b>${crmOriginBadge(cv)}</div>
-    <div style="font-size:11px;color:var(--muted);margin-top:2px">📞 ${cv.chat_id}</div>
-    ${cv.last_text?`<div style="font-size:11px;color:var(--faint);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(cv.last_text||'').replace(/</g,'&lt;')}</div>`:''}
-    ${prod}${valor}${campaign}
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px"><span style="font-size:10px;color:var(--faint)">🕐 ${_crmTime(cv.last_at)}</span>${cv.unread?'<span style="font-size:9px;font-weight:800;color:#0a0906;background:var(--accent);border-radius:20px;padding:1px 6px">novo</span>':''}</div></div>`;
+  const email=f.email?`<div style="font-size:10.5px;color:var(--muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">✉️ ${String(f.email).replace(/</g,'&lt;')}</div>`:'';
+  // rodapé: primeiro → último contato
+  const datas=`<div style="display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:var(--faint);margin-top:2px">${cv._first?`<span title="primeiro contato">🕐 ${_crmDH(cv._first)}</span>`:'<span></span>'}${cv.last_at?`<span title="último contato" style="text-align:right">↳ ${_crmDH(cv.last_at)}</span>`:''}</div>`;
+  const novo=cv.unread?'<div style="text-align:right;margin-top:4px"><span style="font-size:9px;font-weight:800;color:#0a0906;background:var(--accent);border-radius:20px;padding:1px 6px">novo</span></div>':'';
+  return `<div draggable="true" ondragstart="crmDragStart(event,'${cv.id}')" onclick="openCrmConv('${cv.id}')" style="background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:11px 12px;cursor:pointer">
+    ${head}${fone}${flagsRow}${origem}
+    ${div}${met}${prod}${valor}${email}
+    ${div}${datas}${novo}</div>`;
 }
 function crmDragStart(e,id){e.dataTransfer.setData('text/plain',id);e.dataTransfer.effectAllowed='move';}
 async function crmDrop(e,stage){
