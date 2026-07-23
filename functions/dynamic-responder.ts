@@ -1395,26 +1395,26 @@ function _clientRestrictions(c: any, restr: any): any[] {
   return out;
 }
 const ESCOPO_LABEL: Record<string, string> = { padrao: "clientes com investimento", todos: "todos os clientes", ativos: "clientes ativos", ativos_sem_restricao: "ativos sem restrição", rodaram: "só os que rodaram", com_restricao: "com restrição de conta" };
-// Linha de KPIs COMPLETA de um canal (usada no relatório "completo"). A métrica de RESULTADO segue o OBJETIVO (obj), não a presença de valor.
-function _waKpiFull(t: any, google: boolean, obj?: string | null) {
+// KPIs COMPLETOS de um canal (relatório "completo") — 1 por linha. A métrica de RESULTADO segue o OBJETIVO (obj), não a presença de valor.
+function _waKpiFull(t: any, google: boolean, obj?: string | null): string[] {
   const L: string[] = [];
-  L.push(`Gasto ${_fmtR(t.spend || 0)}`);
-  L.push(`Impr. ${Math.round(t.impressions || 0).toLocaleString("pt-BR")}`);
-  if (!google && (t.reach || 0) > 0) L.push(`Alcance ${Math.round(t.reach).toLocaleString("pt-BR")}`);
-  L.push(`Cliques ${Math.round(t.clicks || 0).toLocaleString("pt-BR")}`);
+  L.push(`Gasto: ${_fmtR(t.spend || 0)}`);
+  L.push(`Impressões: ${Math.round(t.impressions || 0).toLocaleString("pt-BR")}`);
+  if (!google && (t.reach || 0) > 0) L.push(`Alcance: ${Math.round(t.reach).toLocaleString("pt-BR")}`);
+  L.push(`Cliques: ${Math.round(t.clicks || 0).toLocaleString("pt-BR")}`);
   const ctr = t.ctr != null ? t.ctr : (t.impressions ? t.clicks / t.impressions * 100 : 0);
   const cpc = t.cpc != null ? t.cpc : (t.clicks ? t.spend / t.clicks : 0);
   const cpm = t.cpm != null ? t.cpm : (t.impressions ? t.spend / t.impressions * 1000 : 0);
-  L.push(`CTR ${(ctr || 0).toFixed(2)}%`); L.push(`CPC ${_fmtR(cpc)}`); L.push(`CPM ${_fmtR(cpm)}`);
+  L.push(`CTR: ${(ctr || 0).toFixed(2)}%`); L.push(`CPC: ${_fmtR(cpc)}`); L.push(`CPM: ${_fmtR(cpm)}`);
   const isVenda = obj === "conversao" || obj === "app" || (!obj && (t.purchases || 0) > 0);
   const isLead = obj === "leads" || (!obj && !google && (t.leads || 0) > 0);
   const isMsg = obj === "mensagens" || (!obj && !google && (t.conversas || 0) > 0);
   const isVideo = obj === "video" || (!obj && (t.videoViews || 0) > 0);
-  if (isVenda) { const roas = t.roas != null ? t.roas : (t.spend ? (t.revenue || 0) / t.spend : 0); L.push(`Compras ${Math.round(t.purchases || 0)}`); L.push(`ROAS ${(roas || 0).toFixed(2)}`); L.push(`CPA ${_fmtR(t.purchases ? t.spend / t.purchases : 0)}`); if (t.revenue) L.push(`Receita ${_fmtR(t.revenue)}`); }
-  else if (isLead) { L.push(`Leads ${t.leads || 0}`); L.push(`CPL ${_fmtR(t.leads ? t.spend / t.leads : 0)}`); }
-  else if (isMsg) { L.push(`Conversas ${t.conversas || 0}`); L.push(`Custo/conversa ${_fmtR(t.conversas ? t.spend / t.conversas : 0)}`); }
-  else if (isVideo) { L.push(`Views ${Math.round(t.videoViews || 0).toLocaleString("pt-BR")}`); }
-  return L.join(" · ");
+  if (isVenda) { const roas = t.roas != null ? t.roas : (t.spend ? (t.revenue || 0) / t.spend : 0); L.push(`Compras: ${Math.round(t.purchases || 0)}`); L.push(`ROAS: ${(roas || 0).toFixed(2)}x`); L.push(`CPA: ${t.purchases ? _fmtR(t.spend / t.purchases) : "—"}`); if (t.revenue) L.push(`Receita: ${_fmtR(t.revenue)}`); }
+  else if (isLead) { L.push(`Leads: ${t.leads || 0}`); L.push(`CPL: ${t.leads ? _fmtR(t.spend / t.leads) : "—"}`); }
+  else if (isMsg) { L.push(`Conversas: ${t.conversas || 0}`); L.push(`Custo/conversa: ${t.conversas ? _fmtR(t.spend / t.conversas) : "—"}`); }
+  else if (isVideo) { L.push(`Visualizações: ${Math.round(t.videoViews || 0).toLocaleString("pt-BR")}`); }
+  return L;
 }
 // Uma frase de análise do gestor por cliente (1 chamada LLM sobre os dados compilados)
 async function _waAnalises(items: any[]): Promise<Record<string, string>> {
@@ -1469,10 +1469,10 @@ async function waAgentAllClientsSummary(days: number, escopo = "padrao", nivel =
     if (!ran) { if (!showNon) continue; blocks.push(`*${r.nome}* — ⏸ não rodou no período`); continue; }
     let b = `*${r.nome}*`;
     if (completo) {
-      if (mS > 0) b += `\n📘 Meta — ${_waKpiFull(r.meta, false, r.objMeta)}`;
-      if (gS > 0) b += `\n🔎 Google — ${_waKpiFull(r.google, true, r.objGoogle)}`;
-      if (mS > 0 && gS > 0) b += `\n➕ Total — Gasto ${_fmtR(mS + gS)}`;
-      if (analises[r.nome]) b += `\n💬 _${analises[r.nome]}_`;
+      if (mS > 0) b += `\n\n📘 *Meta*\n${_waKpiFull(r.meta, false, r.objMeta).map((l: string) => `• ${l}`).join("\n")}`;
+      if (gS > 0) b += `\n\n🔎 *Google*\n${_waKpiFull(r.google, true, r.objGoogle).map((l: string) => `• ${l}`).join("\n")}`;
+      if (mS > 0 && gS > 0) b += `\n\n➕ *Total investido:* ${_fmtR(mS + gS)}`;
+      if (analises[r.nome]) b += `\n\n💬 _${analises[r.nome]}_`;
     } else {
       if (mS > 0) b += `\n📘 Meta — Gasto ${_fmtR(mS)} · ${_objMetric(r.meta, false, r.objMeta)}`;
       if (gS > 0) b += `\n🔎 Google — Gasto ${_fmtR(gS)} · ${_objMetric(r.google, true, r.objGoogle)}`;
