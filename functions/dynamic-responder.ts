@@ -1216,6 +1216,7 @@ REGRA DE OURO — responda EXATAMENTE o que foi pedido, nada além:
 - Se a pessoa pede uma AÇÃO (criar tarefa, pausar campanha, orçamento, lançamento...): responda em 1 linha confirmando SÓ a ação e pedindo SIM. NADA de métricas.
 - Se pede análise/resultado: aí sim use os números do snapshot (curto, só o que importa).
 - Se for conversa/dúvida: responda normal, curto.
+- REUNIÃO ≠ TAREFA: se pedirem "reuniões/agenda/compromissos/calls", use a ferramenta *reunioes* e liste SÓ reuniões — NUNCA misture tarefas operacionais. Se não houver reunião, diga que não há reunião no período (não caia pra tarefas).
 - Identifique o cliente e devolva o nome EXATO em "client"; se não der, deixe vazio e pergunte. Um nome de PESSOA na frase (ex: "para o Dionathan") é o responsável da tarefa, não o cliente.
 
 AÇÕES (execução real; sempre confirme com SIM antes — resuma no "reply" e preencha "action"). Tipos:
@@ -1393,6 +1394,7 @@ const WA_TOOLS = [
   { type: "function", function: { name: "google_insights", description: "Métricas de Google Ads AO VIVO de UM cliente no período.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "google_keywords", description: "Palavras-chave e termos de busca do Google Ads de UM cliente no período (por palavra: gasto, cliques, conversões, CPC). USE isto quando perguntarem 'como está cada palavra-chave', keywords, termos de busca ou o que as pessoas pesquisaram.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "resumo_todos_clientes", description: "Resumo de TODOS os clientes no período (gasto + métrica do objetivo, Meta/Google separados). Use quando pedirem panorama/todos os clientes.", parameters: { type: "object", properties: { dias: { type: "integer" } } } } },
+  { type: "function", function: { name: "reunioes", description: "REUNIÕES/compromissos da AGENDA (Google Agenda), que é DIFERENTE de tarefa operacional. USE isto quando perguntarem sobre reuniões, agenda, compromissos, calls. NÃO liste tarefas comuns aqui.", parameters: { type: "object", properties: { quando: { type: "string", description: "'hoje', 'amanha', 'semana' ou vazio (padrão hoje)" }, data: { type: "string", description: "data específica AAAA-MM-DD (opcional)" } } } } },
   { type: "function", function: { name: "financeiro", description: "Consulta financeira com TOTAL e itens já com o nome do cliente resolvido e a soma correta. USE ISSO pra qualquer pergunta de dinheiro (a receber, a pagar, recebido, pago, fluxo do mês).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["receita", "despesa"] }, status: { type: "string", enum: ["pendente", "pago"] }, mes: { type: "string", description: "AAAA-MM, ex: 2026-07" }, cliente: { type: "string" } } } } },
   { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM). Para criar_tarefa, o RESPONSÁVEL (quem faz) e o QUANDO (data) são obrigatórios — se o usuário não disser, PERGUNTE antes.", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"] }, cliente: { type: "string" }, nome: { type: "string", description: "título da tarefa" }, responsavel: { type: "string", description: "nome de quem vai fazer a tarefa (membro da equipe)" }, quando: { type: "string", description: "data da tarefa em AAAA-MM-DD (calcule 'amanhã', 'sexta' etc. a partir de hoje)" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
 ];
@@ -1439,6 +1441,24 @@ async function waQueryTable(args: any) {
     return { linhas: rows, total: rows.length };
   } catch (e) { return { erro: String((e as any)?.message || e) }; }
 }
+// Reuniões da agenda (Google Agenda) — tarefas sincronizadas (id 'cal*', nota "Reunião (Google Agenda)"). Diferente de tarefa operacional.
+async function waReunioes(args: any) {
+  const now = new Date(Date.now() - 3 * 3600e3); const ymd = (d: Date) => d.toISOString().slice(0, 10);
+  let since: string, until: string;
+  const q = String(args?.quando || "").toLowerCase();
+  if (args?.data) { since = until = String(args.data).slice(0, 10); }
+  else if (q.includes("amanh")) { const d = new Date(now.getTime() + 864e5); since = until = ymd(d); }
+  else if (q.includes("semana")) { since = ymd(now); until = ymd(new Date(now.getTime() + 7 * 864e5)); }
+  else { since = until = ymd(now); }
+  const rows = await sbGet("tasks", `id=like.cal*&status=neq.done&due=gte.${since}&due=lte.${until}&select=name,client,due,notes,link&order=due.asc&limit=100`);
+  const map = await _waClientsMap();
+  const reunioes = rows.map((r: any) => {
+    const hm = (String(r.notes || "").match(/(\d{2}:\d{2})/) || [])[1] || "";
+    const link = (String(r.notes || "").match(/https?:\/\/\S+/) || [])[0] || r.link || "";
+    return { titulo: r.name, data: r.due, hora: hm, cliente: (r.client && map[r.client]) ? map[r.client] : null, link: link || null };
+  });
+  return { de: since, ate: until, quantidade: reunioes.length, reunioes };
+}
 // Financeiro determinístico: total + itens (com nome do cliente já resolvido). Evita o modelo errar nome/soma.
 async function waFinanceiro(args: any) {
   const p = ["select=type,status,client,description,val,due", "limit=1000"];
@@ -1484,6 +1504,7 @@ async function waMetaResumo(clientId: string, dias: number) {
 async function waExecTool(name: string, args: any, clients: any[]) {
   if (name === "consultar_banco") return await waQueryTable(args);
   if (name === "financeiro") return await waFinanceiro(args);
+  if (name === "reunioes") return await waReunioes(args);
   if (name === "resumo_todos_clientes") { const msgs = await waAgentAllClientsSummary(Number(args.dias) || 7); return { texto: msgs.join("\n\n") }; }
   if (name === "meta_insights") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const r = await waMetaResumo(c.id, Number(args.dias) || 7); return { _cid: c.id, ...r }; }
   if (name === "google_insights") {
