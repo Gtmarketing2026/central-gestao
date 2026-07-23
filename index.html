@@ -1791,7 +1791,7 @@ async function doLogout(){
 /* ---- LOAD ---- */
 async function loadAll(){
   const [c,t,f,s,tm,cr,w,rt]=await Promise.all([sb.from('clients').select('*'),sb.from('tasks').select('*'),sb.from('finance').select('*'),sb.from('shows').select('*'),sb.from('team').select('*'),sb.from('creditors').select('*').order('name'),sb.from('wallet').select('*').order('date'),sb.from('report_templates').select('*').order('created_at')]);
-  DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask);DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];DB.creditors=cr.data||[];DB.wallet=w.data||[];DB.reportTemplates=(rt.data||[]).map(mapTemplate);
+  DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask).filter(x=>!String(x.id).startsWith('cal'));DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];DB.creditors=cr.data||[];DB.wallet=w.data||[];DB.reportTemplates=(rt.data||[]).map(mapTemplate);
   if(!DB.team.length){const dt=[{id:'eu',name:'Andreia'},{id:'col1',name:'Dionathan'}];await sb.from('team').insert(dt);DB.team=dt;}
   setFinSub(finSub);
   renderWhoAmI();loadNotifications();
@@ -1808,8 +1808,9 @@ function setupRealtime(){
   realtimeChannel=sb.channel('tasks-rt')
     .on('postgres_changes',{event:'*',schema:'public',table:'tasks'},async()=>{
       const {data}=await sb.from('tasks').select('*');
-      DB.tasks=(data||[]).map(mapTask);renderTasks();
+      DB.tasks=(data||[]).map(mapTask).filter(x=>!String(x.id).startsWith('cal'));renderTasks();
       document.getElementById('tBadge').textContent=DB.tasks.filter(t=>t.status!=='done').length;
+      if(document.getElementById('reunioes')&&document.getElementById('reunioes').classList.contains('active'))loadReunioes();
     }).subscribe();
   if(notifChannel)sb.removeChannel(notifChannel);
   notifChannel=sb.channel('notif-rt')
@@ -1992,7 +1993,7 @@ async function reunLoadData(){
 }
 function reunMonth(delta){if(delta===0)_reunRef=new Date();else _reunRef=new Date(_reunRef.getFullYear(),_reunRef.getMonth()+delta,1);renderReun();}
 async function reunSync(btn){const o=btn.textContent;btn.textContent='…';btn.disabled=true;try{const r=await fetch(TRACK_BASE+'/calendar/sync');const d=await r.json();await reunLoadData();renderReun();}catch(e){}btn.textContent=o;btn.disabled=false;}
-function reunOpen(id){const t=_reunTasks.find(x=>x.id===id);if(t&&t.link){window.open(t.link,'_blank');return;}if(typeof openTaskModal==='function')openTaskModal(id);}
+function reunOpen(id){const t=_reunTasks.find(x=>x.id===id);if(!t)return;if(t.link){window.open(t.link,'_blank');return;}const cn=(DB.clients.find(c=>c.id===t.client)||{}).name||'';alert(`📅 ${t.name}\n${t.hora?('🕐 '+t.hora+'\n'):''}${cn?('👤 '+cn+'\n'):''}${t.due?('📆 '+t.due.split('-').reverse().join('/')):''}`);}
 function renderReun(){
   const lbl=document.getElementById('reunMonthLbl'),cal=document.getElementById('reunCal'),list=document.getElementById('reunList');if(!cal)return;
   const ref=_reunRef||new Date();const y=ref.getFullYear(),m=ref.getMonth();
