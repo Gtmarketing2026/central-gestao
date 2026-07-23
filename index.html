@@ -2341,7 +2341,8 @@ async function loadCrm(){
     return;
   }
   _crmInstId=inst.id;
-  statusEl.innerHTML=inst.status==='connected'?'<span style="color:#34d399">● conectado</span>':`<span style="color:#f59e0b">● ${inst.status||'desconectado'}</span>`;
+  const _fone=_crmFmtFone(inst.phone);
+  statusEl.innerHTML=inst.status==='connected'?`<span style="color:#34d399">● conectado</span>${_fone?`<span style="color:var(--muted);margin-left:6px">📱 ${_fone}</span>`:''}`:`<span style="color:#f59e0b">● ${inst.status||'desconectado'}</span>`;
   await loadCrmConvs();
   crmPoll(false); startCrmPoll();
 }
@@ -2365,6 +2366,7 @@ async function loadCrmConvs(){
 let _crmAnaMode=false,_crmAnaFOrigin='',_crmAnaFCampaign='',_crmAnaRaw=null,_crmAnaCh=null;
 function _crmDur(ms){if(!ms||ms<0)return '';const s=Math.floor(ms/1000);if(s<60)return s+'s';const min=Math.floor(s/60);if(min<60)return min+'min';const h=Math.floor(min/60);if(h<24)return h+'h';const dd=Math.floor(h/24);return dd+'d';}
 function _crmDH(ts){if(!ts)return '';const d=new Date(ts);return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}
+function _crmFmtFone(p){p=String(p||'').replace(/[^0-9]/g,'');if(!p)return '';const m=p.match(/^(\d{2})(\d{2})(\d{4,5})(\d{4})$/);return m?`+${m[1]} (${m[2]}) ${m[3]}-${m[4]}`:p;}
 function _crmSrcLabel(s){s=String(s||'').toLowerCase();const map={bio:'BIO',site:'SITE',organico:'ORG','wa':'WHATSAPP',whatsapp:'WHATSAPP',ad:'ANÚNCIO',anuncio:'ANÚNCIO'};return map[s]||s.toUpperCase()||'LINK';}
 // chave de origem granular: anuncio, organico, ou 'utm:<track_source>' (bio, site, etc.)
 function _crmOriginKey(cv){const t=cv.origin_type||'organico';if(t==='utm')return 'utm:'+(((cv.origin||{}).track_source||'link').toLowerCase());return t;}
