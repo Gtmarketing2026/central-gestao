@@ -1732,8 +1732,9 @@ async function waAgentOneShot(prompt: string): Promise<string> {
   }
   return "";
 }
-async function waAutoText(tipo: string, escopo = "padrao"): Promise<string[]> {
+async function waAutoText(tipo: string, escopo = "padrao", prompt = ""): Promise<string[]> {
   const escNota = escopo && escopo !== "padrao" ? ` Considere apenas os clientes do escopo "${ESCOPO_LABEL[escopo] || escopo}".` : "";
+  if (tipo === "custom") { const p = String(prompt || "").trim(); if (!p) return []; const t = await waAgentOneShot(p + escNota); return t ? [t] : ["Não consegui montar esse aviso agora."]; }
   if (tipo === "resumo7") return await waAgentAllClientsSummary(7, escopo);
   if (tipo === "resumo30") return await waAgentAllClientsSummary(30, escopo);
   if (tipo === "restricoes") return await waAgentAllClientsSummary(7, "com_restricao");
@@ -1759,7 +1760,7 @@ async function waAutomationRunNow(id: string) {
   const a = (await sbGet("andreia_automations", `id=eq.${encodeURIComponent(id)}&select=*`))[0];
   if (!a) return { erro: "automação não encontrada" };
   const g = await _andreiaGroupInst(); if ((g as any).erro) return g;
-  const msgs = await waAutoText(a.tipo, a.escopo || "padrao"); if (!msgs.length) return { erro: "tipo desconhecido" };
+  const msgs = await waAutoText(a.tipo, a.escopo || "padrao", a.prompt || ""); if (!msgs.length) return { erro: "tipo desconhecido ou aviso vazio" };
   await _sendGroup(g, msgs);
   await sbPatchD("andreia_automations", `id=eq.${encodeURIComponent(id)}`, { last_run: _spNow().toISOString().slice(0, 10) });
   return { ok: true, enviados: msgs.length };
@@ -1777,7 +1778,7 @@ async function waAutomationsTick() {
     const diaOk = dias.includes("todos") || (dias.includes("uteis") && day >= 1 && day <= 5) || dias.includes(String(day));
     if (!diaOk) continue;
     if ((a.hora || "08:00") > hhmm) continue; // ainda não chegou a hora hoje
-    try { const msgs = await waAutoText(a.tipo, a.escopo || "padrao"); await _sendGroup(g, msgs); await sbPatchD("andreia_automations", `id=eq.${encodeURIComponent(a.id)}`, { last_run: today }); ran++; feitas.push(a.titulo || a.tipo); } catch (e) { /* segue as demais */ }
+    try { const msgs = await waAutoText(a.tipo, a.escopo || "padrao", a.prompt || ""); await _sendGroup(g, msgs); await sbPatchD("andreia_automations", `id=eq.${encodeURIComponent(a.id)}`, { last_run: today }); ran++; feitas.push(a.titulo || a.tipo); } catch (e) { /* segue as demais */ }
   }
   return { ran, feitas, hhmm, day, today };
 }
