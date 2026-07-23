@@ -264,7 +264,14 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
       const chatid = String(m.chatid || "");
       if (aw.group_jid && chatid !== aw.group_jid) continue;
       const sender = String(m.sender_pn || m.sender || "").replace(/@.*$/, "");
-      const payload = { waAgent: { instanceId: instId, chatid, sender, text: waMsgText(m), msgid: String(m.messageid || m.id || "") } };
+      // mídia: áudio (ptt/audio), imagem, documento (pdf) → a AndréIA baixa e processa
+      const _mt = String(m.mediaType || "").toLowerCase();
+      const _mime = String((m.content && m.content.mimetype) || "");
+      let _mkind = "";
+      if (_mt === "ptt" || _mt === "audio" || /audio/.test(_mime)) _mkind = "audio";
+      else if (_mt === "image" || /image/.test(_mime)) _mkind = "image";
+      else if (_mt === "document" || /pdf/.test(_mime)) _mkind = "document";
+      const payload = { waAgent: { instanceId: instId, chatid, sender, text: waMsgText(m), msgid: String(m.messageid || m.id || ""), mtype: _mkind, mime: _mime, fname: String((m.content && (m.content.fileName || m.content.title)) || "") } };
       try { await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify(payload) }); } catch (_e) {}
     }
     return ok();

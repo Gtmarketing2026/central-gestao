@@ -1975,6 +1975,35 @@ function _waConfirmText(p: any, clients: any[]) {
   if (p.tipo === "dar_baixa") return `${cli}Dar baixa (marcar como pago) no lançamento "${p.descricao || ""}". Confirma?`;
   return `${cli}Confirma a ação?`;
 }
+// baixa uma URL e devolve base64 (para anexar PDF à IA)
+async function waFetchB64(url: string): Promise<string> {
+  try {
+    const r = await fetch(url); if (!r.ok) return "";
+    const buf = new Uint8Array(await r.arrayBuffer());
+    let bin = ""; const chunk = 0x8000;
+    for (let i = 0; i < buf.length; i += chunk) bin += String.fromCharCode.apply(null, buf.subarray(i, i + chunk) as any);
+    return btoa(bin);
+  } catch { return ""; }
+}
+// transcreve um áudio (URL) via Whisper
+async function waTranscribe(url: string): Promise<string> {
+  const key = Deno.env.get("OPENAI_API_KEY"); if (!key) return "";
+  try {
+    const a = await fetch(url); if (!a.ok) return "";
+    const blob = await a.blob();
+    const fd = new FormData(); fd.append("file", blob, "audio.mp3"); fd.append("model", "whisper-1");
+    const r = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: fd });
+    const j = await r.json(); return (j && j.text) ? String(j.text).trim() : "";
+  } catch { return ""; }
+}
+// baixa (descriptografa) a mídia de uma mensagem no uazapi → { url, mime }
+async function waMediaUrl(host: string, token: string, msgid: string): Promise<{ url: string; mime: string } | null> {
+  try {
+    const d = await waCall(host, token, "/message/download", "POST", { id: msgid });
+    const url = d && (d.fileURL || d.url); if (!url) return null;
+    return { url: String(url), mime: String((d && d.mimetype) || "") };
+  } catch { return null; }
+}
 async function waAgentHandle(w: any) {
   const data = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
   const cfg = data.andreia_wa || {};
@@ -1990,7 +2019,28 @@ async function waAgentHandle(w: any) {
   const skey = sender || w.chatid;
   let sess = (await sbGet("wa_agent_sessions", `phone=eq.${encodeURIComponent(skey)}&select=*`))[0];
   if (sess && sess.last_msgid === w.msgid) return { dup: true };
-  const text = (w.text || "").trim(); if (!text) return { skip: true };
+  // ===== Mídia: áudio (transcreve), imagem (visão) e PDF (leitura) =====
+  const visionParts: any[] = [];
+  if (w.mtype && w.msgid) {
+    const media = await waMediaUrl(inst.uaz_host, inst.uaz_token, w.msgid);
+    if (media && media.url) {
+      const mime = media.mime || w.mime || "";
+      if (w.mtype === "audio") {
+        const tr = await waTranscribe(media.url);
+        if (tr) w.text = ((w.text || "") + " " + tr).trim();
+        else { await send("🎧 Recebi seu áudio, mas não consegui transcrever agora. Pode mandar por texto?"); return { ok: true }; }
+      } else if (w.mtype === "image") {
+        visionParts.push({ type: "image_url", image_url: { url: media.url } });
+        if (!(w.text || "").trim()) w.text = "O usuário enviou uma imagem. Analise o que há nela e responda de forma útil.";
+      } else if (w.mtype === "document") {
+        const b64 = await waFetchB64(media.url);
+        if (b64) visionParts.push({ type: "file", file: { filename: w.fname || "documento.pdf", file_data: `data:${mime || "application/pdf"};base64,${b64}` } });
+        else { await send(`📄 Recebi o documento${w.fname ? ` "${w.fname}"` : ""}, mas não consegui abrir agora.`); return { ok: true }; }
+        if (!(w.text || "").trim()) w.text = `O usuário enviou um documento${w.fname ? ` ("${w.fname}")` : ""}. Leia e responda/resuma o que for útil.`;
+      }
+    }
+  }
+  const text = (w.text || "").trim(); if (!text && !visionParts.length) return { skip: true };
   const saveSess = async (patch: any) => { const row = { phone: skey, updated_at: new Date().toISOString(), ...patch }; if (sess) await sbPatchD("wa_agent_sessions", `phone=eq.${encodeURIComponent(skey)}`, row); else await sbPost("wa_agent_sessions", row); };
   if (sess && sess.pending) {
     const tl = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[\s.!,]+/g, " ").trim();
@@ -2046,10 +2096,12 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
 - DINHEIRO/FINANCEIRO: para QUALQUER pergunta de valores (a receber, a pagar, recebido, pago, fluxo do mês) use a ferramenta **financeiro** — ela já devolve o TOTAL correto e os ITENS com o nome certo do cliente. "a receber" = {tipo:'receita',status:'pendente'}; "a pagar" = {tipo:'despesa',status:'pendente'}; "este mês" = mes:'${new Date().toISOString().slice(0, 7)}'. NUNCA some você mesma nem adivinhe o nome do cliente — use os campos 'total' e 'itens' que a ferramenta retorna, exatamente.
 - Datas: hoje é ${new Date().toISOString().slice(0, 10)}. Ao filtrar por um cliente específico use o id dele (está na lista abaixo entre colchetes, ou consulte a tabela clients). Clientes: ${clients.slice(0, 150).map((c: any) => `${c.name}[${c.id}]`).join(" | ")}.`;
   const hist0 = ((sess && sess.history) || []).slice(-8).map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text }));
-  const messages: any[] = [{ role: "system", content: sys }, ...hist0, { role: "user", content: text }];
+  const userContent: any = visionParts.length ? [{ type: "text", text: text || "" }, ...visionParts] : text;
+  const messages: any[] = [{ role: "system", content: sys }, ...hist0, { role: "user", content: userContent }];
+  const agentModel = visionParts.length ? "gpt-4o" : "gpt-4o-mini"; // gpt-4o lê imagem/PDF + usa ferramentas
   let clientId = (sess && sess.client_id) || null;
   for (let it = 0; it < 6; it++) {
-    const j = await callOpenAI({ model: "gpt-4o-mini", messages, tools: WA_TOOLS, tool_choice: "auto", max_tokens: 900, temperature: 0.3 });
+    const j = await callOpenAI({ model: agentModel, messages, tools: WA_TOOLS, tool_choice: "auto", max_tokens: 900, temperature: 0.3 });
     const msg = j.choices[0].message;
     if (msg.tool_calls && msg.tool_calls.length) {
       messages.push(msg);
