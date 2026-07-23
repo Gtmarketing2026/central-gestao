@@ -6519,6 +6519,7 @@ async function loadClientTemplate(){
   const c=DB.clients.find(x=>x.id===clientId);
   const body=document.getElementById('crTemplateBody');
   if(!c){body.innerHTML='<div class="empty">Selecione um cliente.</div>';return}
+  if(!_rtLast||_rtLast.cid!==clientId){_rtFAcc=[];_rtFCamp=[];} // troca de cliente zera o filtro de conta/campanha
   const isLocal=c.reportOrdersMode==='local';
   const hasMeta=!!(c.metaAccountIds&&c.metaAccountIds.length)||!!(c.googleAccountIds&&c.googleAccountIds.length);
   const noSales=c.conversionSource==='none';
@@ -8614,6 +8615,16 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   const body=document.getElementById('crTemplateBody');
   const rangeStart=since||(month+'-01'),rangeEnd=until||(month+'-31');
   metaAds=refineCampAds((metaAds||[]).slice()); // mesmos focos do menu Campanhas (Mensagem/Distribuição pelo nome)
+  // opções do filtro (conta/campanha) a partir do universo COMPLETO, antes de filtrar
+  const _rtAccOpts=[...new Set(metaAds.map(a=>a.account).filter(Boolean))].sort();
+  const _rtCampOpts=[...new Set(metaAds.filter(a=>!_rtFAcc.length||_rtFAcc.includes(a.account)).map(a=>a.campaign).filter(Boolean))].sort();
+  // aplica o filtro conta/campanha (multi) ao Meta/Google — reconstrói os agregados de canal
+  let _tplCampsView=(_tplMetaCampaigns||[]).slice();
+  if(_rtFilterActive()){
+    metaAds=metaAds.filter(a=>(!_rtFAcc.length||_rtFAcc.includes(a.account))&&(!_rtFCamp.length||_rtFCamp.includes(a.campaign)));
+    _tplCampsView=_tplCampsView.filter(cp=>(!_rtFAcc.length||_rtFAcc.includes(cp.account))&&(!_rtFCamp.length||_rtFCamp.includes(cp.campaign)));
+    metaChStats=_rtRebuildChStats(metaAds,metaChStats);
+  }
   const hasMetaData=!!(metaChStats&&Object.keys(metaChStats).length)||!!(metaAds&&metaAds.length);
   const ordersResult=dataByTab[c.reportOrdersTab]||{aggregated:true,rows:[]};
   if(ordersResult.error&&!hasMetaData){
@@ -8697,7 +8708,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   const _tdW=(s,b)=>`<td style="padding:8px 14px;font-size:12.5px;${b?'font-weight:700;':''}border-bottom:1px solid rgba(255,255,255,.035)">${s}</td>`;
   const secSemanaisFoco=objGroups.map(g=>{
     const mm=METRIC_BY_TIPO[g.tipo];if(!mm)return '';
-    const camps=(_tplMetaCampaigns||[]).filter(cp=>cp.objetivo&&cp.objetivo.tipo===g.tipo&&cp.records&&cp.records.length);
+    const camps=(_tplCampsView||[]).filter(cp=>cp.objetivo&&cp.objetivo.tipo===g.tipo&&cp.records&&cp.records.length);
     if(!camps.length)return '';
     const [mk,ml]=mm;
     const rowFor=(label,recs,bold)=>{
@@ -8845,7 +8856,14 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
       ${_rtLayouts.length?`<select onchange="rtLayoutApply(this.value);this.value=''" style="width:auto;font-size:12px"><option value="">📂 aplicar layout…</option>${_rtLayouts.map(l=>`<option value="${l.id}">${(l.name||'').replace(/</g,'&lt;')}</option>`).join('')}</select>`:''}
       <button class="btn sm primary" type="button" onclick="toggleRtLayoutEdit()">✓ Concluir</button>
     </div>`:'';
-  body.innerHTML=`<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px" class="rt-no-print">
+  const _accNm=(typeof metaAccName==='function')?metaAccName:(x=>x);
+  const rtFilterBar=(_rtAccOpts.length||_rtCampOpts.length)?`<div class="rt-no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <span style="font-size:11.5px;color:var(--rtm)">🔎 Filtrar:</span>
+      ${_rtAccOpts.length>1?rtMulti('acc','Conta',_rtAccOpts,_rtFAcc,_accNm):''}
+      ${rtMulti('camp','Campanha',_rtCampOpts,_rtFCamp)}
+      ${_rtFilterActive()?`<button class="btn sm ghost" type="button" onclick="_rtFAcc=[];_rtFCamp=[];rtRerender()" style="color:var(--red)">✕ limpar filtro</button><span style="font-size:11px;color:var(--rtm)">mostrando só o selecionado · venda de planilha não é dividida por campanha</span>`:''}
+    </div>`:'';
+  body.innerHTML=rtFilterBar+`<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px" class="rt-no-print">
       <button class="btn sm ${_rtLayoutEdit?'primary':'ghost'}" onclick="toggleRtLayoutEdit()" title="Monte o relatório: ligue/desligue seções, reordene e crie seções personalizadas">✎ Editar layout</button>
       <button class="btn sm ghost" onclick="exportReportHTML()">⬇ Exportar HTML</button>
       <button class="btn sm primary" onclick="exportReportTemplate()">🖨 Imprimir / PDF</button>
@@ -8887,7 +8905,36 @@ const RT_TAB_CATALOG=[
   {key:'semanal',label:'Comparativo Semanal'},
   {key:'criativos',label:'Criativos'},
 ];
-let _rtLayoutEdit=false,_rtLayouts=[],_rtLast=null;
+let _rtLayoutEdit=false,_rtLayouts=[],_rtLast=null,_rtFAcc=[],_rtFCamp=[];
+function _rtFilterActive(){return !!(_rtFAcc.length||_rtFCamp.length);}
+// Agrega métricas de uma lista de anúncios; alcance NÃO é somável → dedup por campanha (mesma regra do dash).
+function _rtChAgg(list,capReach){
+  const g={spend:0,impressions:0,clicks:0,revenue:0,purchases:0,leads:0,addToCart:0,initiateCheckout:0,conversas:0,videoViews:0,engajamentos:0};
+  list.forEach(a=>Object.keys(g).forEach(k=>g[k]+=(a[k]||0)));
+  let reach=0;const camps=[...new Set(list.map(a=>a.campaign||'—'))];
+  camps.forEach(cn=>{reach+=list.filter(a=>(a.campaign||'—')===cn).reduce((s,a)=>s+(a.reach||0),0);});
+  if(capReach)reach=Math.min(reach,capReach);
+  return {g,reach};
+}
+// Reconstrói channelStats (META/GOOGLE) a partir dos anúncios filtrados, preservando o formato do backend.
+function _rtRebuildChStats(ads,orig){
+  const out={};const oM=orig&&orig.META,oG=orig&&orig.GOOGLE;
+  if(oM){const {g,reach}=_rtChAgg(ads.filter(a=>!a._google),oM.reach||0);out.META={...oM,spend:g.spend,impressions:g.impressions,clicks:g.clicks,reach,revenue:g.revenue,sales:Math.round(g.purchases),leads:g.leads,addToCart:g.addToCart,initiateCheckout:g.initiateCheckout,conversas:g.conversas,videoViews:g.videoViews,engajamentos:g.engajamentos,records:[]};}
+  if(oG){const {g}=_rtChAgg(ads.filter(a=>a._google),0);out.GOOGLE={...oG,spend:g.spend,impressions:g.impressions,clicks:g.clicks,reach:0,revenue:g.revenue,sales:Math.round(g.purchases),videoViews:g.videoViews,engajamentos:g.engajamentos,records:[]};}
+  return out;
+}
+function rtToggleFilter(id,val){const arr=id==='acc'?_rtFAcc:_rtFCamp;const i=arr.indexOf(val);if(i>=0)arr.splice(i,1);else arr.push(val);if(id==='acc')_rtFCamp=[];rtRerender();}
+function rtClearFilter(id){if(id==='acc'){_rtFAcc=[];_rtFCamp=[];}else _rtFCamp=[];rtRerender();}
+function rtTogglePanel(id){const p=document.getElementById('rtfp_'+id);if(!p)return;const open=p.style.display==='none';document.querySelectorAll('[id^=rtfp_]').forEach(x=>x.style.display='none');p.style.display=open?'block':'none';}
+function rtMulti(id,label,opts,sel,labelFn){
+  const cnt=sel.length?`${sel.length} sel.`:'todas';
+  const lbl=o=>((labelFn?labelFn(o):o)||'—').replace(/</g,'&lt;');
+  const items=opts.length?opts.map(o=>`<label style="display:flex;gap:6px;align-items:center;padding:3px 4px;font-size:12px;cursor:pointer"><input type="checkbox" ${sel.includes(o)?'checked':''} onchange="rtToggleFilter('${id}',this.getAttribute('data-v'))" data-v="${String(o||'').replace(/"/g,'&quot;')}" style="width:auto">${lbl(o)}</label>`).join(''):'<div style="font-size:11px;color:var(--rtm);padding:4px">sem opções</div>';
+  return `<div style="position:relative">
+    <button class="btn sm ${sel.length?'primary':'ghost'}" type="button" onclick="rtTogglePanel('${id}')">${label}: ${cnt} ▾</button>
+    <div id="rtfp_${id}" style="display:none;position:absolute;z-index:40;top:110%;right:0;min-width:250px;max-height:300px;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.45)">
+      <div style="text-align:right;padding:0 4px 4px"><a onclick="rtClearFilter('${id}')" style="font-size:11px;color:var(--accent);cursor:pointer">limpar</a></div>${items}</div></div>`;
+}
 // resolve o layout do cliente (ordem + on/off); default = tudo ligado; acrescenta seções/abas novas do catálogo no fim
 function rtResolveLayout(c){
   let secs=(c&&c.reportLayout&&Array.isArray(c.reportLayout.sections))?c.reportLayout.sections.map(s=>({...s})):null;
