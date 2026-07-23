@@ -328,8 +328,9 @@ function icsDate(val: string) {
   return { ymd, hm, time: isNaN(d.getTime()) ? Date.parse(ymd) : d.getTime() };
 }
 // ===== Google Agenda via OAuth (Calendar API) — modo preferido; iCal segue como fallback =====
-const GOOGLE_CID = Deno.env.get("GOOGLE_ADS_CLIENT_ID") || "";
-const GOOGLE_CSEC = Deno.env.get("GOOGLE_ADS_CLIENT_SECRET") || "";
+// Prefere um cliente OAuth dedicado (GOOGLE_CAL_*) se existir; senão reaproveita o do Google Ads.
+const GOOGLE_CID = Deno.env.get("GOOGLE_CAL_CLIENT_ID") || Deno.env.get("GOOGLE_ADS_CLIENT_ID") || "";
+const GOOGLE_CSEC = Deno.env.get("GOOGLE_CAL_CLIENT_SECRET") || Deno.env.get("GOOGLE_ADS_CLIENT_SECRET") || "";
 function googleRedirectUri() { return `${SB_URL}/functions/v1/tracking/google/callback`; }
 async function saveAcctData(patch: Record<string, unknown>) {
   const cur = ((await sbSelect("account_config", "id=eq.main&select=data"))[0]?.data || {}) as any;
