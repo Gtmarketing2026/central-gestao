@@ -2115,6 +2115,42 @@ async function _andreiaGroupInst() {
 async function _sendGroup(g: any, msgs: string[]) {
   for (const mm of msgs) { if (mm && String(mm).trim()) await waCall(g.inst.uaz_host, g.inst.uaz_token, "/send/text", "POST", { number: g.group, text: String(mm) }); }
 }
+// Access token do Google Agenda a partir do refresh_token guardado (mesmos secrets do OAuth).
+async function _googleCalToken(): Promise<string | null> {
+  const data = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
+  const rt = data.google_cal?.refresh_token; if (!rt) return null;
+  const cid = Deno.env.get("GOOGLE_CAL_CLIENT_ID") || Deno.env.get("GOOGLE_ADS_CLIENT_ID") || "";
+  const cs = Deno.env.get("GOOGLE_CAL_CLIENT_SECRET") || Deno.env.get("GOOGLE_ADS_CLIENT_SECRET") || "";
+  try {
+    const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: cid, client_secret: cs, refresh_token: rt, grant_type: "refresh_token" }) });
+    const j = await r.json(); return j.access_token || null;
+  } catch (_e) { return null; }
+}
+// Lembra X min antes de cada reunião do Google Agenda. Roda a cada ~5 min (cron). Dedup via wa_reminded.
+async function waMeetingRemindersTick() {
+  const autos = await sbGet("andreia_automations", "enabled=eq.true&tipo=eq.lembrete_reuniao&select=*");
+  if (!autos.length) return { skip: "nenhum lembrete de reunião ativo" };
+  const g: any = await _andreiaGroupInst(); if (g.erro) return { skip: g.erro };
+  const tok = await _googleCalToken(); if (!tok) return { skip: "Google Agenda não conectado" };
+  const now = Date.now();
+  const maxAnt = Math.max(...autos.map((a: any) => Number(a.antecedencia) || 15));
+  const p = new URLSearchParams({ singleEvents: "true", orderBy: "startTime", maxResults: "50", timeMin: new Date(now - 60000).toISOString(), timeMax: new Date(now + (maxAnt + 6) * 60000).toISOString() });
+  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${p}`, { headers: { Authorization: `Bearer ${tok}` } });
+  const gj = await r.json(); if (gj.error) return { skip: "calendar: " + (gj.error.message || "") };
+  const items = (gj.items || []).filter((e: any) => e.status !== "cancelled" && e.start && e.start.dateTime);
+  let sent = 0;
+  for (const ev of items) {
+    const minsUntil = (new Date(ev.start.dateTime).getTime() - now) / 60000;
+    const match = autos.find((a: any) => { const ant = Number(a.antecedencia) || 15; return minsUntil <= ant + 0.5 && minsUntil > ant - 5.5; });
+    if (!match) continue;
+    if ((await sbGet("wa_reminded", `event_id=eq.${encodeURIComponent(ev.id)}&select=event_id&limit=1`)).length) continue;
+    const hm = String(ev.start.dateTime).slice(11, 16);
+    const meet = ev.hangoutLink || (ev.conferenceData?.entryPoints || []).map((x: any) => x.uri).find(Boolean) || "";
+    const txt = `⏰ *Lembrete de reunião*\n${WA_DIV}\nComeça em ~${Math.max(1, Math.round(minsUntil))} min (${hm})\n*${ev.summary || "Reunião"}*${ev.location ? `\n📍 ${ev.location}` : ""}${meet ? `\n🔗 ${meet}` : ""}`;
+    try { await waCall(g.inst.uaz_host, g.inst.uaz_token, "/send/text", "POST", { number: g.group, text: txt }); await sbPost("wa_reminded", { event_id: ev.id, reminded_at: new Date().toISOString() }); sent++; } catch (_e) { /* */ }
+  }
+  return { sent };
+}
 async function waAutomationRunNow(id: string) {
   const a = (await sbGet("andreia_automations", `id=eq.${encodeURIComponent(id)}&select=*`))[0];
   if (!a) return { erro: "automação não encontrada" };
@@ -2156,6 +2192,10 @@ Deno.serve(async (req) => {
     }
     if (body.automationsTick) {
       const r = await waAutomationsTick();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.reminderTick) {
+      const r = await waMeetingRemindersTick();
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.automationRunNow) {

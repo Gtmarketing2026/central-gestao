@@ -2111,6 +2111,7 @@ const AUTO_TIPOS=[
   {tipo:'atencao',label:'Quem precisa de atenção',emoji:'🚨',escopo:true},
   {tipo:'recomendacoes',label:'Recomendações da semana',emoji:'💡',escopo:true},
   {tipo:'restricoes',label:'Clientes com restrição de conta',emoji:'🚫'},
+  {tipo:'lembrete_reuniao',label:'Lembrete antes das reuniões',emoji:'⏰'},
   {tipo:'receber',label:'A receber este mês',emoji:'💰'},
   {tipo:'pagar',label:'A pagar este mês',emoji:'💸'},
   {tipo:'pendencias',label:'Tarefas em aberto',emoji:'✅'},
@@ -2131,6 +2132,7 @@ const AUTO_SUGGESTIONS=[
   {label:'🚨 Quem precisa de atenção',tipo:'atencao'},
   {label:'💡 Recomendações da semana',tipo:'recomendacoes'},
   {label:'🚫 Clientes com restrição de conta',tipo:'restricoes'},
+  {label:'⏰ Lembrete antes das reuniões',tipo:'lembrete_reuniao'},
   {label:'💰 A receber este mês',tipo:'receber'},
   {label:'💸 A pagar este mês',tipo:'pagar'},
   {label:'✅ Tarefas em aberto',tipo:'pendencias'},
@@ -2146,6 +2148,7 @@ function _autoTipoLabel(t){const x=AUTO_TIPOS.find(a=>a.tipo===t);return x?(x.em
 function _autoEscopoLabel(e){const x=AUTO_ESCOPOS.find(a=>a[0]===e);return x?x[1]:'';}
 function _autoTemEscopo(t){if(t==='custom')return true;const x=AUTO_TIPOS.find(a=>a.tipo===t);return!!(x&&x.escopo);}
 function _autoTemNivel(t){return t==='resumo7'||t==='resumo30';}
+function _autoEhLembrete(t){return t==='lembrete_reuniao';}
 function _autoDiasLabel(d){const arr=Array.isArray(d)?d.map(String):['todos'];if(arr.includes('todos'))return'Todos os dias';if(arr.includes('uteis'))return'Dias úteis';return arr.map(x=>{const f=AUTO_DIAS.find(y=>y[0]===x);return f?f[1].slice(0,3):x;}).join(', ');}
 async function renderAutomations(){
   const el=document.getElementById('autoList');if(!el)return;
@@ -2159,9 +2162,9 @@ async function renderAutomations(){
       <label class="switch" style="flex:none"><input type="checkbox" ${a.enabled?'checked':''} onchange="autoToggle('${a.id}',this.checked)"><span class="slider"></span></label>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:13px">${a.titulo||(a.tipo==='custom'?(a.prompt||'✍️ Personalizado'):_autoTipoLabel(a.tipo))}</div>
-        <div style="font-size:11.5px;color:var(--muted)">${a.tipo==='custom'?'✍️ Personalizado':_autoTipoLabel(a.tipo)}${_autoTemEscopo(a.tipo)&&a.escopo&&a.escopo!=='padrao'?` · <span style="color:var(--accent)">${_autoEscopoLabel(a.escopo)}</span>`:''}${_autoTemNivel(a.tipo)&&a.nivel==='completo'?` · <span style="color:var(--accent)">completo</span>`:''} · ${_autoDiasLabel(a.dias)} às ${a.hora||'08:00'}${a.last_run?` · último envio ${_brDateJs(a.last_run)}`:''}</div>
+        <div style="font-size:11.5px;color:var(--muted)">${a.tipo==='custom'?'✍️ Personalizado':_autoTipoLabel(a.tipo)}${_autoEhLembrete(a.tipo)?` · <span style="color:var(--accent)">${a.antecedencia||15} min antes de cada reunião</span>`:`${_autoTemEscopo(a.tipo)&&a.escopo&&a.escopo!=='padrao'?` · <span style="color:var(--accent)">${_autoEscopoLabel(a.escopo)}</span>`:''}${_autoTemNivel(a.tipo)&&a.nivel==='completo'?` · <span style="color:var(--accent)">completo</span>`:''} · ${_autoDiasLabel(a.dias)} às ${a.hora||'08:00'}`}${a.last_run?` · último envio ${_brDateJs(a.last_run)}`:''}</div>
       </div>
-      <button class="btn xs ghost" title="Enviar agora" onclick="autoRunNow('${a.id}',this)">Testar</button>
+      ${_autoEhLembrete(a.tipo)?'':`<button class="btn xs ghost" title="Enviar agora" onclick="autoRunNow('${a.id}',this)">Testar</button>`}
       <button class="btn xs ghost" onclick="autoEdit('${a.id}')">Editar</button>
       <button class="btn xs ghost" style="color:var(--danger)" onclick="autoDel('${a.id}')">🗑</button>
     </div>`).join('');
@@ -2195,7 +2198,12 @@ async function autoEdit(id){
         <option value="completo" ${a.nivel==='completo'?'selected':''}>Completo — todos os KPIs + análise do gestor</option>
       </select>
     </div>
-    <details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:12px;color:var(--muted)">Quando: <b id="autoDiasSum" style="color:var(--text)">${_autoDiasLabel(dias)}</b> · <span id="autoHoraSum">${a.hora||'08:00'}</span></summary>
+    <div id="autoAntecWrap" style="display:${_autoEhLembrete(a.tipo)?'block':'none'}">
+      <label style="font-size:12px;color:var(--muted)">Avisar quantos minutos antes</label>
+      <select id="autoAntec" class="inp" style="margin-bottom:10px">${[5,10,15,20,30,60].map(m=>`<option value="${m}" ${(a.antecedencia||15)==m?'selected':''}>${m} minutos antes</option>`).join('')}</select>
+      <div style="font-size:11px;color:var(--faint);margin-bottom:6px">A AndréIA avisa no grupo antes de cada reunião da sua Google Agenda (verifica a cada ~5 min).</div>
+    </div>
+    <details id="autoQuandoWrap" style="margin-bottom:10px"><summary style="cursor:pointer;font-size:12px;color:var(--muted)">Quando: <b id="autoDiasSum" style="color:var(--text)">${_autoDiasLabel(dias)}</b> · <span id="autoHoraSum">${a.hora||'08:00'}</span></summary>
       <div id="autoDias" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px">${AUTO_DIAS.map(d=>`<label style="display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:4px 8px;cursor:pointer"><input type="checkbox" class="autoDia" value="${d[0]}" ${dias.includes(d[0])?'checked':''}> ${d[1]}</label>`).join('')}</div>
       <label style="font-size:12px;color:var(--muted)">Horário</label>
       <input id="autoHora" type="time" class="inp" value="${a.hora||'08:00'}" oninput="autoUpdSum()" style="margin-bottom:6px">
@@ -2231,19 +2239,24 @@ function autoPromptEdited(){
 }
 function autoRefreshTipoNote(){
   const t=document.getElementById('autoTipo').value;
-  const w=document.getElementById('autoEscopoWrap');if(w)w.style.display=_autoTemEscopo(t)?'block':'none';
-  const nv=document.getElementById('autoNivelWrap');if(nv)nv.style.display=_autoTemNivel(t)?'block':'none';
+  const lembrete=_autoEhLembrete(t);
+  const w=document.getElementById('autoEscopoWrap');if(w)w.style.display=(_autoTemEscopo(t)&&!lembrete)?'block':'none';
+  const nv=document.getElementById('autoNivelWrap');if(nv)nv.style.display=(_autoTemNivel(t)&&!lembrete)?'block':'none';
+  const aw=document.getElementById('autoAntecWrap');if(aw)aw.style.display=lembrete?'block':'none';
+  const qw=document.getElementById('autoQuandoWrap');if(qw)qw.style.display=lembrete?'none':'block';
   const n=document.getElementById('autoTipoNote');if(!n)return;
-  n.innerHTML=(t==='custom')?'<span style="color:var(--accent)">✍️ A AndréIA vai montar o aviso pelo texto acima (consulta os dados reais na hora).</span>':'<span style="color:#34d399">✓ Relatório pronto — dados exatos e garantidos.</span>';
+  n.innerHTML=lembrete?'<span style="color:var(--accent)">⏰ Aviso automático antes de cada reunião da agenda.</span>':((t==='custom')?'<span style="color:var(--accent)">✍️ A AndréIA vai montar o aviso pelo texto acima (consulta os dados reais na hora).</span>':'<span style="color:#34d399">✓ Relatório pronto — dados exatos e garantidos.</span>');
 }
 async function autoSave(id){
-  const dias=[...document.querySelectorAll('.autoDia:checked')].map(c=>c.value);
-  if(!dias.length){alert('Escolha pelo menos um dia.');return;}
   const tipo=document.getElementById('autoTipo').value;
+  const lembrete=_autoEhLembrete(tipo);
+  let dias=[...document.querySelectorAll('.autoDia:checked')].map(c=>c.value);
+  if(lembrete)dias=['todos'];
+  else if(!dias.length){alert('Escolha pelo menos um dia.');return;}
   const prompt=(document.getElementById('autoPrompt').value||'').trim();
   if(tipo==='custom'&&!prompt){alert('Escreva o que a AndréIA deve enviar (ou escolha uma sugestão).');return;}
-  const escEl=document.getElementById('autoEscopo'),nvEl=document.getElementById('autoNivel');
-  const row={titulo:document.getElementById('autoTitulo').value.trim(),tipo,prompt:tipo==='custom'?prompt:null,escopo:(_autoTemEscopo(tipo)&&escEl)?escEl.value:'padrao',nivel:(_autoTemNivel(tipo)&&nvEl)?nvEl.value:'resumido',dias,hora:document.getElementById('autoHora').value||'08:00',enabled:true};
+  const escEl=document.getElementById('autoEscopo'),nvEl=document.getElementById('autoNivel'),antEl=document.getElementById('autoAntec');
+  const row={titulo:document.getElementById('autoTitulo').value.trim(),tipo,prompt:tipo==='custom'?prompt:null,escopo:(_autoTemEscopo(tipo)&&!lembrete&&escEl)?escEl.value:'padrao',nivel:(_autoTemNivel(tipo)&&!lembrete&&nvEl)?nvEl.value:'resumido',antecedencia:(lembrete&&antEl)?+antEl.value:null,dias,hora:lembrete?'00:00':(document.getElementById('autoHora').value||'08:00'),enabled:true};
   if(id){await sb.from('andreia_automations').update(row).eq('id',id);}
   else{row.id='auto_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);await sb.from('andreia_automations').insert(row);}
   document.getElementById('autoOverlay').remove();renderAutomations();

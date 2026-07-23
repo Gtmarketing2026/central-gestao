@@ -510,9 +510,10 @@ Deno.serve(async (req) => {
   if (p === "/google/disconnect") { await saveAcctData({ google_cal: null }); return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, "Content-Type": "application/json" } }); }
 
   // /automations/tick -> dispara as automações da AndréIA que estão no horário (chamado pelo cron)
-  if (p === "/automations/tick") {
+  if (p === "/automations/tick" || p === "/automations/reminders") {
+    const payload = p === "/automations/reminders" ? { reminderTick: true } : { automationsTick: true };
     try {
-      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ automationsTick: true }) });
+      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const t = await r.text();
       return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
     } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
