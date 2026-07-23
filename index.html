@@ -3375,7 +3375,7 @@ function sbCampSource(s){
   goToTab('campanhas'); // goToTab já chama loadCampanhas
   if(changed&&_campCompare)loadCampPrev();
 }
-const CAMP_AGG_KEYS=['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'];
+const CAMP_AGG_KEYS=['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos','addToCart','initiateCheckout'];
 function _newAgg(){const o={};CAMP_AGG_KEYS.forEach(k=>o[k]=0);return o;}
 function _addAgg(agg,a){CAMP_AGG_KEYS.forEach(k=>agg[k]+=(a[k]||0));}
 function goToCampanhasFoco(clientId,tipo){activeClientId=clientId;const s=document.getElementById('sidebarClient');if(s)s.value=clientId;_campFoco=tipo||'';_campSource='meta';goToTab('campanhas');}
@@ -3437,6 +3437,16 @@ async function toggleCampStatus(level,id,btn){
     const ns=action==='pause'?'PAUSED':'ACTIVE';_campStatus[level][id]=ns;_paintSwitch(btn,ns);
   }catch(e){alert('Erro: '+(e.message||e));}
   btn.disabled=false;btn.style.opacity='1';
+}
+async function campDuplicate(id,nome,btn){
+  if(!confirm(`Duplicar a campanha "${nome}" no Meta? A cópia é criada PAUSADA pra você revisar antes de ativar.`))return;
+  if(btn){btn.disabled=true;btn.style.opacity='.5';}
+  try{
+    await metaExecute({action:'duplicate',id,nome});
+    alert('✅ Campanha duplicada (a cópia está pausada no gerenciador). Clique em "🔄" ou recarregue pra ela aparecer.');
+    loadCampanhas(_campClientId);
+  }catch(e){alert('Erro ao duplicar: '+(e.message||e));}
+  if(btn){btn.disabled=false;btn.style.opacity='1';}
 }
 function monthBounds(offset){const d=new Date();const first=new Date(d.getFullYear(),d.getMonth()+offset,1);const last=new Date(d.getFullYear(),d.getMonth()+offset+1,0);const iso=x=>`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;return{since:iso(first),until:iso(last)};}
 function renderCampRange(){const el=document.getElementById('campRange');if(!el)return;
@@ -3523,6 +3533,10 @@ const CAMP_COLS={
   views:{label:'Views',get:x=>Math.round(x.videoViews||0).toLocaleString('pt-BR')},
   custoview:{label:'Custo/view',get:x=>x.videoViews?fmt(x.spend/x.videoViews):'—'},
   engaj:{label:'Engaj.',get:x=>Math.round(x.engajamentos||0).toLocaleString('pt-BR')},
+  carrinho:{label:'Carrinho',get:x=>Math.round(x.addToCart||0).toLocaleString('pt-BR')},
+  custocarrinho:{label:'Custo/carr.',get:x=>x.addToCart?fmt(x.spend/x.addToCart):'—'},
+  checkout:{label:'Checkout',get:x=>Math.round(x.initiateCheckout||0).toLocaleString('pt-BR')},
+  custocheckout:{label:'Custo/check.',get:x=>x.initiateCheckout?fmt(x.spend/x.initiateCheckout):'—'},
   revenue:{label:'Receita',get:x=>fmt(x.revenue||0)},
 };
 const CAMP_COLS_DEFAULT=['invest','impressions','ctr','resultado','custores'];
@@ -3584,8 +3598,9 @@ function campRowHTML(name,level,agg,tipo,toggleId,badge,objLevel,objId){
   const stBtn=objId?campSwitchHTML(objLevel,objId,st):'';
   const cells=_campCols.map(k=>`<div style="padding:8px 6px;font-size:12px;text-align:right">${CAMP_COLS[k]?CAMP_COLS[k].get(d,tipo):''}</div>`).join('');
   const bg=level===1?'background:var(--surface2);':level===2?'background:rgba(255,255,255,.02);':'';
+  const dupBtn=(level===1&&_campSource!=='google'&&objId)?`<button onclick="event.stopPropagation();campDuplicate('${objId}','${(name||'').replace(/'/g,'').replace(/"/g,'')}',this)" title="Duplicar campanha (cópia pausada no Meta)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 4px;flex:none">⧉</button>`:'';
   return `<div ${toggleId?`onclick="toggleCampRow('${toggleId}')" style="cursor:pointer;`:'style="'}display:grid;${campGrid()}align-items:center;border-bottom:1px solid rgba(255,255,255,.05);${bg}">
-    <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(name||'').replace(/"/g,'')}">${stBtn}${caret} ${campHL(name)}${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400">${badge}</span>`:''}</div>
+    <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:2px" title="${(name||'').replace(/"/g,'')}">${stBtn}${caret} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${campHL(name)}</span>${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400;flex:none">${badge}</span>`:''}${dupBtn}</div>
     ${cells}</div>`;
 }
 function campAccErrBar(){
