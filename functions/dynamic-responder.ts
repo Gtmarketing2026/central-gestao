@@ -2000,8 +2000,8 @@ async function waTranscribe(url: string): Promise<string> {
 async function waMediaUrl(host: string, token: string, msgid: string): Promise<{ url: string; mime: string } | null> {
   try {
     const d = await waCall(host, token, "/message/download", "POST", { id: msgid });
-    const url = d && (d.fileURL || d.url); if (!url) return null;
-    return { url: String(url), mime: String((d && d.mimetype) || "") };
+    const b = (d && d.j) || {}; const url = b.fileURL || b.url; if (!url) return null;
+    return { url: String(url), mime: String(b.mimetype || "") };
   } catch { return null; }
 }
 async function waAgentHandle(w: any) {
