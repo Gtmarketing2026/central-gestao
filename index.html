@@ -924,6 +924,9 @@
       <div class="form-row"><label>💬 WhatsApp do cliente <span style="font-size:11px;color:var(--faint);font-weight:400">— destino padrão dos links de tracking (bio/WhatsApp) quando você não informar um destino</span></label>
         <input id="cWhatsapp" placeholder="Ex: 5521999998888 (DDI+DDD+número, só dígitos)">
       </div>
+      <div class="form-row"><label>🎯 Pixel do Meta (opcional) <span style="font-size:11px;color:var(--faint);font-weight:400">— ID do pixel pra enviar eventos do CRM (CAPI). Só preencha se o automático não achar; senão usa o 1º pixel da conta de anúncio</span></label>
+        <input id="cPixelId" placeholder="Ex: 123456789012345 (só dígitos)">
+      </div>
       <div class="form-row"><label>Fonte de vendas do funil <span style="font-size:11px;color:var(--faint);font-weight:400">— de onde vem o nº de vendas/conversões</span></label>
         <select id="cConversionSource">
           <option value="">Automático (pedidos se houver, senão Meta)</option>
@@ -1736,8 +1739,8 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,whatsapp:o.whatsapp||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||''});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,whatsapp:o.whatsapp||null,pixel_id:o.pixelId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||'',category:r.category||'',fixedType:r.fixed_type||''});
@@ -2317,6 +2320,7 @@ async function renderCrmGuide(){
 function stopCrmPoll(){if(_crmPollTimer){clearInterval(_crmPollTimer);_crmPollTimer=null;}}
 function startCrmPoll(){stopCrmPoll();_crmPollTimer=setInterval(()=>{if(document.getElementById('crm').classList.contains('active'))crmPoll(false);else stopCrmPoll();},20000);}
 async function loadCrm(){
+  _crmAnaMode=false;
   if(typeof loadAccountConfig==='function'){try{await loadAccountConfig();}catch(e){}}
   const showAgency=!!(_acctCfg&&_acctCfg.crm_show_agency);
   const {data}=await sb.from('wa_instances').select('*').order('created_at',{ascending:true});
@@ -2355,8 +2359,10 @@ async function loadCrmConvs(){
   const {data}=await q;_crmConvs=data||[];
   // estatísticas por conversa (nº de msgs, primeiro contato, direção da última) via RPC
   try{const {data:st}=await sb.rpc('crm_stats');const m={};(st||[]).forEach(s=>{m[s.conversation_id]=s;});_crmConvs.forEach(cv=>{const s=m[cv.id];if(s){cv._cnt=s.cnt;cv._first=s.first_ts;cv._lastdir=s.last_dir;}});}catch(e){}
+  if(_crmAnaMode)return; // Analytics aberto: não sobrescreve com o funil
   renderCrmFilters();renderCrm();renderCrmGuide();
 }
+let _crmAnaMode=false,_crmAnaFOrigin='',_crmAnaFCampaign='',_crmAnaRaw=null;
 function _crmDur(ms){if(!ms||ms<0)return '';const s=Math.floor(ms/1000);if(s<60)return s+'s';const min=Math.floor(s/60);if(min<60)return min+'min';const h=Math.floor(min/60);if(h<24)return h+'h';const dd=Math.floor(h/24);return dd+'d';}
 function _crmDH(ts){if(!ts)return '';const d=new Date(ts);return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}
 function _crmSrcLabel(s){s=String(s||'').toLowerCase();const map={bio:'BIO',site:'SITE',organico:'ORG','wa':'WHATSAPP',whatsapp:'WHATSAPP',ad:'ANÚNCIO',anuncio:'ANÚNCIO'};return map[s]||s.toUpperCase()||'LINK';}
@@ -2523,7 +2529,7 @@ async function crmExtractLead(id){
 /* ===== CRM Analytics: custo por conversa, funil, campanha × estágio (WhatsApp × Meta) ===== */
 let _crmAnaDays=30;
 async function crmAnalyticsOpen(days){
-  _crmAnaDays=days||_crmAnaDays;
+  _crmAnaMode=true;_crmAnaDays=days||_crmAnaDays;
   const inst=_crmInsts.find(i=>i.id===_crmInstId);const body=document.getElementById('crmBody');
   if(!inst){body.innerHTML='<div class="empty">Conecte um número primeiro.</div>';return;}
   document.getElementById('crmFilters').innerHTML='';document.getElementById('crmGuide').innerHTML='';
@@ -2535,7 +2541,26 @@ async function crmAnalyticsOpen(days){
   const capiQ=sb.from('capi_events').select('status,event_name,error,created_at').eq('client_id',inst.client_id||'__none__').gte('created_at',since).order('created_at',{ascending:false}).limit(200);
   const [{data:convs},{data:capi}]=await Promise.all([q,capiQ]);
   let meta=null;try{if(client&&client.metaAccountIds&&client.metaAccountIds.length)meta=await fetchMetaReportRange(client,since,until);}catch(e){}
-  crmAnaRender(convs||[],meta,capi||[]);
+  _crmAnaRaw={convs:convs||[],meta,capi:capi||[],clientName:(client&&client.name)||inst.name||'Agência'};
+  crmAnaRerender();
+}
+function crmAnaSetFilter(k,v){if(k==='origem')_crmAnaFOrigin=v;else if(k==='campanha')_crmAnaFCampaign=v;crmAnaRerender();}
+function crmAnaRerender(){
+  if(!_crmAnaRaw)return;
+  let C=_crmAnaRaw.convs;
+  if(_crmAnaFOrigin)C=C.filter(cv=>_crmOriginKey(cv)===_crmAnaFOrigin);
+  if(_crmAnaFCampaign)C=C.filter(cv=>(cv.origin||{}).campaign===_crmAnaFCampaign);
+  crmAnaRender(C,_crmAnaRaw.meta,_crmAnaRaw.capi);
+}
+function crmAnaDownload(mode){
+  const cn=(_crmAnaRaw&&_crmAnaRaw.clientName)||'CRM';
+  const clone=document.getElementById('crmBody').cloneNode(true);
+  const head=clone.querySelector('#crmAnaHead');if(head)head.remove();
+  const filt=[_crmAnaFOrigin?('origem '+(_crmAnaFOrigin.startsWith('utm:')?_crmSrcLabel(_crmAnaFOrigin.slice(4)):_crmAnaFOrigin)):'',_crmAnaFCampaign?('campanha '+_crmAnaFCampaign):''].filter(Boolean).join(' · ');
+  const css=":root{--surface:#fff;--surface2:#f4f5f7;--border:#e3e6ea;--muted:#5b6472;--faint:#98a1ad;--accent:#c79a3a;--text:#12151b;--red:#e05a5a}body{font-family:system-ui,-apple-system,Arial,sans-serif;background:#fff;color:#12151b;margin:0;padding:26px}h2,h3{margin:0 0 6px}table{border-collapse:collapse;width:100%}a{color:#c79a3a}";
+  const doc='<!doctype html><html><head><meta charset="utf-8"><title>CRM Analytics — '+cn+'</title><style>'+css+'</style></head><body><h2>📊 CRM Analytics — '+cn+'</h2><div style="color:#5b6472;font-size:13px;margin-bottom:18px">Período: '+_crmAnaDays+' dias'+(filt?' · '+filt:'')+' · gerado em '+new Date().toLocaleDateString('pt-BR')+' · <b>GT Marketing</b></div>'+clone.innerHTML+'</body></html>';
+  if(mode==='pdf'){const w=window.open('','_blank');if(!w){alert('Permita pop-ups pra gerar o PDF.');return;}w.document.write(doc);w.document.close();setTimeout(function(){w.focus();w.print();},500);}
+  else{const blob=new Blob([doc],{type:'text/html'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='crm-analytics-'+cn.replace(/[^a-z0-9]/gi,'_')+'-'+_crmAnaDays+'d.html';document.body.appendChild(a);a.click();a.remove();}
 }
 function crmAnaRender(C,meta,capi){
   const fmtR=v=>'R$ '+(Math.round((v||0)*100)/100).toLocaleString('pt-BR',{minimumFractionDigits:2});
@@ -2561,10 +2586,18 @@ function crmAnaRender(C,meta,capi){
     const sp=spendByCamp[cn]||0;const cpc=d.n?sp/d.n:0;
     return `<tr><td style="padding:8px 10px;font-size:12px;border-bottom:1px solid var(--border);max-width:280px">${cn.replace(/</g,'&lt;')}</td><td style="padding:8px 10px;text-align:right;font-weight:700;border-bottom:1px solid var(--border)">${d.n}</td>${stages.map(s=>`<td style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);color:${d.st[s.key]?s.color:'var(--faint)'}">${d.st[s.key]||'–'}</td>`).join('')}<td style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">${sp?fmtR(sp):'–'}</td><td style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">${cpc?fmtR(cpc):'–'}</td></tr>`;
   }).join('')||`<tr><td colspan="${stages.length+4}" style="padding:16px;text-align:center;color:var(--faint)">Sem conversas de anúncio no período.</td></tr>`;
+  const _raw=(_crmAnaRaw&&_crmAnaRaw.convs)||[];
+  const _origs=[...new Set(_raw.map(cv=>_crmOriginKey(cv)))];
+  const _camps=[...new Set(_raw.filter(cv=>(cv.origin||{}).campaign).map(cv=>cv.origin.campaign))];
+  const origSel=`<select style="width:auto;font-size:12px" onchange="crmAnaSetFilter('origem',this.value)"><option value="">Todas origens</option>${_origs.map(k=>`<option value="${k}" ${_crmAnaFOrigin===k?'selected':''}>${k==='anuncio'?'📣 Anúncio':k==='organico'?'💬 Orgânico':'🔗 '+_crmSrcLabel(k.slice(4))}</option>`).join('')}</select>`;
+  const campSel=_camps.length?`<select style="width:auto;font-size:12px;max-width:220px" onchange="crmAnaSetFilter('campanha',this.value)"><option value="">Todas campanhas</option>${_camps.map(c=>`<option value="${c.replace(/"/g,'&quot;')}" ${_crmAnaFCampaign===c?'selected':''}>${c.replace(/</g,'&lt;')}</option>`).join('')}</select>`:'';
   document.getElementById('crmBody').innerHTML=`
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <div id="crmAnaHead" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <button class="btn sm ghost" onclick="loadCrm()">← Voltar ao funil</button>
-      <div style="display:flex;gap:6px">${per(7,'7 dias')}${per(30,'30 dias')}${per(90,'90 dias')}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${origSel}${campSel}${per(7,'7 dias')}${per(30,'30 dias')}${per(90,'90 dias')}
+        <button class="btn sm ghost" onclick="crmAnaDownload('html')" title="Baixar como HTML">📥 HTML</button>
+        <button class="btn sm ghost" onclick="crmAnaDownload('pdf')" title="Salvar como PDF (impressão)">🖨 PDF</button>
+      </div>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
       ${kpi('Custo por conversa',fmtR(custoConv),'gasto Meta ÷ conversas de anúncio')}
@@ -5116,6 +5149,7 @@ function openClientModal(id){
   fillTemplatePicker(tplIds);
   document.getElementById('cSiteUrl').value=c.siteUrl||'';
   document.getElementById('cWhatsapp').value=c.whatsapp||'';
+  document.getElementById('cPixelId').value=c.pixelId||'';
   document.getElementById('cConversionSource').value=c.conversionSource||'';
   {const bm=c.benchmarkMetas||{};const setM=(id,v)=>{document.getElementById(id).value=(v||v===0)?v:''};
    setM('cMetaCtr',bm.ctr);setM('cMetaCpc',bm.cpc);setM('cMetaCpm',bm.cpm);setM('cMetaRoas',bm.roas);setM('cMetaCpa',bm.cpa);setM('cMetaCpl',bm.cpl);setM('cMetaConversa',bm.custoConversa);setM('cMetaView',bm.custoView);
@@ -5260,7 +5294,7 @@ async function saveClient(){
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
   const reportWeekly=document.getElementById('cReportWeekly').checked;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),googleAccountIds:googleSelectedIds.slice(),reportTemplateIds:getSelectedTemplateIds(),reportTemplateId:(getSelectedTemplateIds()[0]||''),siteUrl:document.getElementById('cSiteUrl').value.trim(),whatsapp:(document.getElementById('cWhatsapp').value||'').replace(/[^0-9]/g,''),conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:[...new Set(getSelectedTemplateIds().map(id=>(templateById(id)||{}).objectiveType).filter(Boolean))],benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),googleAccountIds:googleSelectedIds.slice(),reportTemplateIds:getSelectedTemplateIds(),reportTemplateId:(getSelectedTemplateIds()[0]||''),siteUrl:document.getElementById('cSiteUrl').value.trim(),whatsapp:(document.getElementById('cWhatsapp').value||'').replace(/[^0-9]/g,''),pixelId:(document.getElementById('cPixelId').value||'').replace(/[^0-9]/g,''),conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:[...new Set(getSelectedTemplateIds().map(id=>(templateById(id)||{}).objectiveType).filter(Boolean))],benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);

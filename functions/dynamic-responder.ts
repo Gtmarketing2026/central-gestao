@@ -1228,9 +1228,13 @@ async function _sha256hex(s: string) { const buf = await crypto.subtle.digest("S
 async function clientPixelId(clientId: string): Promise<string | null> {
   if (_pixelCache[clientId] !== undefined) return _pixelCache[clientId];
   const token = Deno.env.get("META_USER_TOKEN");
-  const cli = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=meta_account_id`))[0];
-  const acct = String(cli?.meta_account_id || "").split(",")[0].replace(/^act_/, "").trim();
+  const cli = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=meta_account_id,pixel_id`))[0];
   let pid: string | null = null;
+  // 1) pixel manual do cadastro tem prioridade
+  const manual = String(cli?.pixel_id || "").replace(/[^0-9]/g, "").trim();
+  if (manual) { _pixelCache[clientId] = manual; return manual; }
+  // 2) senão, pega o 1º pixel da conta de anúncio
+  const acct = String(cli?.meta_account_id || "").split(",")[0].replace(/^act_/, "").trim();
   if (acct && token) { try { const r = await fetch(`https://graph.facebook.com/v21.0/act_${acct}/adspixels?fields=id&limit=1&access_token=${token}`); const j = await r.json(); pid = (j.data && j.data[0] && j.data[0].id) || null; } catch { pid = null; } }
   _pixelCache[clientId] = pid; return pid;
 }
@@ -1240,7 +1244,8 @@ async function waCapi(convId: string, eventName: string) {
   const token = Deno.env.get("META_USER_TOKEN");
   const pid = cv.client_id ? await clientPixelId(cv.client_id) : null;
   const logId = _wuid();
-  if (!pid || !token) { await sbPost("capi_events", { id: logId, client_id: cv.client_id, conversation_id: convId, event_name: eventName, status: "failed", error: "Pixel do cliente ou token do Meta ausente." }); return { ok: false, error: "pixel/token" }; }
+  // Sem cliente vinculado (ex: número da agência) ou sem pixel → não dá pra atribuir; pula em silêncio (não é erro real, não loga falha).
+  if (!pid || !token) { return { ok: false, skipped: true, error: "sem pixel/cliente" }; }
   const o = cv.origin || {}; const phone = String(cv.chat_id || "").replace(/[^0-9]/g, "");
   const user_data: any = {}; if (phone) user_data.ph = await _sha256hex(phone); if (o.ctwa_clid) user_data.ctwa_clid = o.ctwa_clid;
   const ev: any = { event_name: eventName, event_time: Math.floor(Date.now() / 1000), action_source: o.ctwa_clid ? "business_messaging" : "website", user_data };
