@@ -8615,6 +8615,8 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   const body=document.getElementById('crTemplateBody');
   const rangeStart=since||(month+'-01'),rangeEnd=until||(month+'-31');
   metaAds=refineCampAds((metaAds||[]).slice()); // mesmos focos do menu Campanhas (Mensagem/Distribuição pelo nome)
+  // guarda os dados CRUS (sem filtro) — o _rtLast precisa deles pra não encolher o universo a cada re-render
+  const _rtRawAds=metaAds.slice(), _rtRawChStats=metaChStats;
   // opções do filtro (conta/campanha) a partir do universo COMPLETO, antes de filtrar
   const _rtAccOpts=[...new Set(metaAds.map(a=>a.account).filter(Boolean))].sort();
   const _rtCampOpts=[...new Set(metaAds.filter(a=>!_rtFAcc.length||_rtFAcc.includes(a.account)).map(a=>a.campaign).filter(Boolean))].sort();
@@ -8820,7 +8822,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   if(rtTabOn(c,'criativos'))_tabs.push(['criativos','Criativos']);
   const tabBtns=_tabs.map((t,i)=>`<button class="rtTabBtn ${i===0?'on':''}" data-rtab="${t[0]}" onclick="setReportTab('${t[0]}')">${t[1]}</button>`).join('');
   // ---- CONSTRUTOR DE LAYOUT: seções da Visão Geral montadas conforme o layout do cliente (ligar/desligar/ordenar + personalizadas) ----
-  _rtLast={cid:c.id,ordersTab:c.reportOrdersTab,month,dataByTab,adTabs,checkoutCount,metaChStats,metaAds,since,until};
+  _rtLast={cid:c.id,ordersTab:c.reportOrdersTab,month,dataByTab,adTabs,checkoutCount,metaChStats:_rtRawChStats,metaAds:_rtRawAds,since,until};
   const pixelAssistNote=(channelList.some(ch=>ch._salesFromSheet&&!ch._google)&&!noSales)?(()=>{const av=(metaAds||[]).reduce((s,a)=>({p:s.p+(a.purchases||0),r:s.r+(a.revenue||0)}),{p:0,r:0});return `<div style="font-size:11.5px;color:var(--rtm);margin:8px 0 0;padding:8px 12px;background:var(--rbg2);border:1px solid var(--rbr);border-radius:8px">🔵 <b>Assistência do pixel Meta</b> (referência — a venda real acima é da planilha): Faturamento ${fmt(av.r)} · Compras ${Math.round(av.p).toLocaleString('pt-BR')} · ROAS ${(tplAgg.spend?av.r/tplAgg.spend:0).toFixed(2)}x</div>`;})():'';
   const chanAgg={geral:tplAgg,meta:funnelChannelAgg((metaChStats&&metaChStats.META)||{}),google:funnelChannelAgg((metaChStats&&metaChStats.GOOGLE)||{})};
   const secMap={
