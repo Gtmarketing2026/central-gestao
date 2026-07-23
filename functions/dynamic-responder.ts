@@ -854,6 +854,25 @@ async function googleAdsInsights(g: any) {
     c.roas = c.spend ? c.revenue / c.spend : 0;
     return c;
   }).sort((a: any, b: any) => b.spend - a.spend);
+  // Campanhas com gasto que NÃO produzem linhas de anúncio (Performance Max, Shopping, Demand Gen — não têm ad_group_ad):
+  // sintetiza uma linha em nível de campanha pra elas aparecerem na árvore de campanhas.
+  if (g.byAd && g.byCampaign) {
+    const comAd = new Set(ads.map((a: any) => a.campaignId).filter(Boolean));
+    for (const c of Object.values(byCamp) as any[]) {
+      if ((c.spend || 0) <= 0) continue;
+      if (c.campaignId && comAd.has(c.campaignId)) continue;
+      ads.push({
+        adId: c.campaignId ? "gc" + c.campaignId : null, adName: (c.objetivo && c.objetivo.rotulo) || "Campanha",
+        campaign: c.campaign, campaignId: c.campaignId, adset: "", adsetId: null,
+        account: c.account, thumbnail: null, _google: true, _campaignLevel: true, objetivo: c.objetivo,
+        spend: c.spend, impressions: c.impressions, clicks: c.clicks, reach: 0, frequency: 0,
+        ctr: c.impressions ? (c.clicks / c.impressions) * 100 : 0, cpc: c.clicks ? c.spend / c.clicks : 0, cpm: c.impressions ? (c.spend / c.impressions) * 1000 : 0,
+        purchases: c.purchases, revenue: c.revenue, roas: c.spend ? c.revenue / c.spend : 0,
+        leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: c.videoViews || 0, engajamentos: c.engajamentos || 0,
+        cpa: c.purchases ? c.spend / c.purchases : 0,
+      });
+    }
+  }
   ads.sort((a: any, b: any) => b.spend - a.spend);
   return { total, campaigns, ads, accounts, accountErrors, period: { since, until } };
 }
