@@ -2499,8 +2499,25 @@ async function saveAccountConfig(patch){
 }
 /* ===== Google Agenda (iCal) → tarefas ===== */
 async function gcalSave(){const v=(document.getElementById('gcalUrl').value||'').trim();await saveAccountConfig({calendar_ics:v});const m=document.getElementById('gcalMsg');if(m)m.textContent=v?'✓ Link salvo. Clique em "Sincronizar agora".':'Link removido.';}
-async function gcalSync(btn){const m=document.getElementById('gcalMsg');if(!(_acctCfg&&_acctCfg.calendar_ics)){if(m)m.textContent='Cole e salve o link primeiro.';return;}if(btn){btn.disabled=true;btn.textContent='…';}if(m)m.textContent='Sincronizando…';try{const r=await fetch(TRACK_BASE+'/calendar/sync');const d=await r.json();if(m)m.innerHTML=d.error?('⚠ '+d.error):(`✓ ${d.created} reunião(ões) viraram tarefa`+(d.skipped?` · ${d.skipped} já existiam`:''));}catch(e){if(m)m.textContent='Erro: '+e.message;}if(btn){btn.disabled=false;btn.textContent='🔄 Sincronizar agora';}}
-async function calendarAutoSync(){try{if(!_acctCfg)await loadAccountConfig();if(_acctCfg&&_acctCfg.calendar_ics)await fetch(TRACK_BASE+'/calendar/sync');}catch(e){}}
+async function gcalSync(btn){const m=document.getElementById('gcalMsg');if(btn){btn.disabled=true;btn.textContent='…';}if(m)m.textContent='Sincronizando…';try{const r=await fetch(TRACK_BASE+'/calendar/sync');const d=await r.json();if(m)m.innerHTML=d.error?('⚠ '+d.error):(`✓ ${d.created} reunião(ões) viraram tarefa`+(d.skipped?` · ${d.skipped} já existiam`:''));}catch(e){if(m)m.textContent='Erro: '+e.message;}if(btn){btn.disabled=false;btn.textContent='🔄 Sincronizar agora';}}
+async function calendarAutoSync(){try{if(!_acctCfg)await loadAccountConfig();if(_acctCfg&&((_acctCfg.google_cal&&_acctCfg.google_cal.refresh_token)||_acctCfg.calendar_ics))await fetch(TRACK_BASE+'/calendar/sync');}catch(e){}}
+async function gcalCheckConn(){const s=document.getElementById('gcalConnState');const db=document.getElementById('gcalDiscBtn');if(!s)return;try{const r=await fetch(TRACK_BASE+'/google/status');const d=await r.json();if(d.connected){s.innerHTML='✅ Conectado'+(d.email?` como <b>${d.email}</b>`:'');if(db)db.style.display='';}else{s.innerHTML='<span style="color:var(--faint)">Nenhuma conta conectada.</span>';if(db)db.style.display='none';}}catch(e){s.textContent='';}}
+let _gcalPoll=null;
+async function gcalConnect(btn){
+  const w=window.open(TRACK_BASE+'/google/auth','gcalOAuth','width=520,height=640');
+  const m=document.getElementById('gcalMsg');if(m)m.textContent='Abrindo o Google… autorize na janela que abriu.';
+  if(_gcalPoll)clearInterval(_gcalPoll);
+  let tries=0;
+  _gcalPoll=setInterval(async()=>{
+    tries++;
+    try{const r=await fetch(TRACK_BASE+'/google/status');const d=await r.json();
+      if(d.connected){clearInterval(_gcalPoll);_gcalPoll=null;if(w&&!w.closed)w.close();
+        await loadAccountConfig();await gcalCheckConn();if(m)m.textContent='✅ Conta conectada! Sincronizando…';await gcalSync();
+      }}catch(e){}
+    if(tries>150){clearInterval(_gcalPoll);_gcalPoll=null;}
+  },2000);
+}
+async function gcalDisconnect(){if(!confirm('Desconectar a conta Google? As reuniões param de sincronizar.'))return;try{await fetch(TRACK_BASE+'/google/disconnect');await loadAccountConfig();await gcalCheckConn();const m=document.getElementById('gcalMsg');if(m)m.textContent='Conta desconectada.';}catch(e){}}
 function integStatusPill(state,txt){
   const m={ok:['#34d399','rgba(52,211,153,.13)','rgba(52,211,153,.4)'],warn:['#f59e0b','rgba(245,158,11,.12)','rgba(245,158,11,.4)'],err:['#f87171','rgba(248,113,113,.12)','rgba(248,113,113,.4)'],off:['var(--faint)','var(--surface2)','var(--border)'],load:['var(--muted)','var(--surface2)','var(--border)']};
   const [c,bg,bd]=m[state]||m.off;
@@ -2552,13 +2569,24 @@ async function loadConfiguracoes(){
       integStatusPill('ok','Ativo'),
       `<div style="font-size:12px;color:var(--muted)">Cada cliente compartilha a planilha dele como Leitor com <code style="background:var(--surface2);padding:1px 5px;border-radius:5px;word-break:break-all">leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com</code> (configurado por cliente na aba Relatórios).</div>`)}
     ${integCard('gcal','🗓','Google Agenda → Tarefas','Suas reuniões viram tarefas automaticamente. Só reuniões (com convidados ou link de vídeo).',
-      (_acctCfg.calendar_ics?integStatusPill('ok','conectado'):integStatusPill('off','não conectado')),
-      `<div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">No Google Agenda (no computador) → ⚙️ Configurações → clique na sua agenda → <b>Integrar agenda</b> → copie o <b>Endereço secreto no formato iCal</b> e cole aqui. As reuniões dos próximos 60 dias viram tarefas (sem duplicar).</div>
-       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="gcalUrl" value="${(_acctCfg.calendar_ics||'').replace(/"/g,'&quot;')}" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" style="flex:1;min-width:220px;font-size:12px"><button class="btn sm primary" onclick="gcalSave()">Salvar</button><button class="btn sm ghost" onclick="gcalSync(this)">🔄 Sincronizar agora</button></div>
+      ((_acctCfg.google_cal&&_acctCfg.google_cal.refresh_token)?integStatusPill('ok','conta conectada'):(_acctCfg.calendar_ics?integStatusPill('ok','iCal conectado'):integStatusPill('off','não conectado'))),
+      `<div id="gcalOauthBox" style="margin-bottom:12px">
+         <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Conecte sua conta do Google (a mesma do Google Ads) — a AndréIA lê suas reuniões pela agenda e cria as tarefas dos próximos 60 dias, sem duplicar.</div>
+         <div id="gcalConnState" style="font-size:12.5px;margin-bottom:8px">Verificando…</div>
+         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+           <button class="btn sm primary" onclick="gcalConnect(this)">🔗 Conectar Google</button>
+           <button class="btn sm ghost" onclick="gcalSync(this)">🔄 Sincronizar agora</button>
+           <button class="btn sm ghost" id="gcalDiscBtn" style="display:none;color:var(--danger)" onclick="gcalDisconnect()">Desconectar</button>
+         </div>
+       </div>
+       <details style="margin-top:4px"><summary style="cursor:pointer;font-size:11.5px;color:var(--faint)">Ou usar link iCal (avançado)</summary>
+         <div style="font-size:11.5px;color:var(--muted);margin:8px 0">No Google Agenda → ⚙️ → sua agenda → <b>Integrar agenda</b> → copie o <b>Endereço secreto no formato iCal</b>.</div>
+         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="gcalUrl" value="${(_acctCfg.calendar_ics||'').replace(/"/g,'&quot;')}" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" style="flex:1;min-width:220px;font-size:12px"><button class="btn sm ghost" onclick="gcalSave()">Salvar link</button></div>
+       </details>
        <div id="gcalMsg" style="font-size:11.5px;color:var(--faint);margin-top:8px"></div>`)}
     <div style="font-size:11px;color:var(--faint);margin-top:6px">O status de Meta e Google é verificado ao vivo. Se aparecer "reconectar", o token expirou — me avise que renovamos.</div>`;
   // status ao vivo Meta + Google
-  checkIntegMeta();checkIntegGoogle();
+  checkIntegMeta();checkIntegGoogle();gcalCheckConn();
 }
 /* ===== AndréIA no WhatsApp (grupo) ===== */
 function _andreiaInstId(){return (_acctCfg&&_acctCfg.andreia_wa&&_acctCfg.andreia_wa.instance_id)||'';}

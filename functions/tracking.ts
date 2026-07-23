@@ -327,24 +327,64 @@ function icsDate(val: string) {
   const iso = `${ymd}T${m[5] || "00"}:${m[6] || "00"}:00${m[8] ? "Z" : ""}`; const d = new Date(iso);
   return { ymd, hm, time: isNaN(d.getTime()) ? Date.parse(ymd) : d.getTime() };
 }
-async function handleCalendarSync(): Promise<Response> {
-  const j = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
-  const acc = (await sbSelect("account_config", "id=eq.main&select=data"))[0];
-  const url = ((acc?.data || {}) as any).calendar_ics;
-  if (!url) return j({ error: "Nenhum link do Google Agenda configurado." });
-  let text = ""; try { const r = await fetch(url); text = await r.text(); } catch (e) { return j({ error: "Falha ao ler o iCal: " + String(e) }); }
-  if (!/BEGIN:VCALENDAR/.test(text)) return j({ error: "O link não parece um iCal válido (comece pelo 'Endereço secreto no formato iCal')." });
-  const evs = icsParse(text);
+// ===== Google Agenda via OAuth (Calendar API) — modo preferido; iCal segue como fallback =====
+const GOOGLE_CID = Deno.env.get("GOOGLE_ADS_CLIENT_ID") || "";
+const GOOGLE_CSEC = Deno.env.get("GOOGLE_ADS_CLIENT_SECRET") || "";
+function googleRedirectUri() { return `${SB_URL}/functions/v1/tracking/google/callback`; }
+async function saveAcctData(patch: Record<string, unknown>) {
+  const cur = ((await sbSelect("account_config", "id=eq.main&select=data"))[0]?.data || {}) as any;
+  await sbPatch("account_config", "id=eq.main", { data: { ...cur, ...patch } });
+}
+function handleGoogleAuth(): Response {
+  if (!GOOGLE_CID) return new Response("GOOGLE_ADS_CLIENT_ID não configurado nos secrets.", { status: 500, headers: cors });
+  const p = new URLSearchParams({
+    client_id: GOOGLE_CID, redirect_uri: googleRedirectUri(), response_type: "code",
+    access_type: "offline", prompt: "consent", include_granted_scopes: "true",
+    scope: "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email",
+  });
+  return new Response(null, { status: 302, headers: { ...cors, Location: `https://accounts.google.com/o/oauth2/v2/auth?${p}` } });
+}
+function _oauthPage(title: string, msg: string) {
+  return new Response(`<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><body style="font-family:system-ui,-apple-system,sans-serif;background:#0f0f12;color:#eee;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center;max-width:420px;padding:24px"><h2 style="margin:0 0 8px">${title}</h2><p style="color:#aaa;line-height:1.5">${msg}</p><p style="color:#666;font-size:13px;margin-top:18px">Pode fechar esta aba.</p></div><script>try{setTimeout(function(){window.close()},2500)}catch(e){}</script>`, { headers: { ...cors, "Content-Type": "text/html; charset=utf-8" } });
+}
+async function handleGoogleCallback(url: URL): Promise<Response> {
+  const code = url.searchParams.get("code"), err = url.searchParams.get("error");
+  if (err) return _oauthPage("Conexão cancelada", "Você recusou o acesso (" + err + ").");
+  if (!code) return _oauthPage("Erro", "Não recebi o código do Google.");
+  try {
+    const tr = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: GOOGLE_CID, client_secret: GOOGLE_CSEC, redirect_uri: googleRedirectUri(), grant_type: "authorization_code" }) });
+    const tj = await tr.json();
+    if (!tj.refresh_token) return _oauthPage("Quase lá", "O Google não devolveu autorização permanente. Vá em <b>myaccount.google.com/permissions</b>, remova o app e tente conectar de novo (precisa aparecer a tela de consentimento).");
+    let email = "";
+    try { const ur = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", { headers: { Authorization: `Bearer ${tj.access_token}` } }); email = (await ur.json()).email || ""; } catch (_e) { /* */ }
+    await saveAcctData({ google_cal: { refresh_token: tj.refresh_token, email, connected_at: new Date().toISOString() } });
+    return _oauthPage("✅ Google conectado!", `Agenda de <b>${email || "sua conta"}</b> conectada. Suas reuniões vão virar tarefas automaticamente.`);
+  } catch (e) { return _oauthPage("Erro", String(e)); }
+}
+async function googleCalAccessToken(): Promise<string | null> {
+  const cfg = ((await sbSelect("account_config", "id=eq.main&select=data"))[0]?.data || {}) as any;
+  const rt = cfg.google_cal?.refresh_token; if (!rt) return null;
+  const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: GOOGLE_CID, client_secret: GOOGLE_CSEC, refresh_token: rt, grant_type: "refresh_token" }) });
+  const j = await r.json();
+  return j.access_token || null;
+}
+function mapGEvent(ev: any) {
+  const raw = ev.start?.dateTime || ev.start?.date || "";
+  const d = raw ? { time: new Date(raw).getTime(), ymd: String(raw).slice(0, 10), hm: ev.start?.dateTime ? String(raw).slice(11, 16) : "" } : null;
+  const conf = ev.hangoutLink || (ev.conferenceData?.entryPoints || []).map((e: any) => e.uri).find(Boolean) || "";
+  return { uid: ev.id, summary: ev.summary || "", cancelled: ev.status === "cancelled", attendees: (ev.attendees || []).length, conference: conf, description: ev.description || "", location: ev.location || "", d };
+}
+async function createMeetingTasks(evs: any[], j: (o: unknown, s?: number) => Response) {
   const now = Date.now(), horizon = now + 60 * 864e5;
   const clients = await sbSelect("clients", "select=id,name&limit=1000");
   let created = 0, skipped = 0;
   for (const ev of evs) {
     if (!ev.uid || !ev.summary) continue;
-    if (String(ev.status || "").toUpperCase() === "CANCELLED") continue;
+    if (ev.cancelled) continue;
     const isMeeting = ev.attendees > 0 || ev.conference || /meet\.google|zoom\.us|teams\.microsoft|hangout|whereby|meet\.jit/i.test((ev.description || "") + " " + (ev.location || ""));
     if (!isMeeting) continue;
-    const d = icsDate(ev.start); if (!d) continue;
-    if (d.time < now - 864e5 || d.time > horizon) continue; // só reuniões futuras (até 60 dias)
+    const d = ev.d; if (!d) continue;
+    if (d.time < now - 864e5 || d.time > horizon) continue;
     if ((await sbSelect("calendar_events", `uid=eq.${encodeURIComponent(ev.uid)}&select=uid&limit=1`)).length) { skipped++; continue; }
     let clientId: string | null = null; const sl = ev.summary.toLowerCase();
     const mc = clients.find((c: any) => c.name && c.name.length >= 4 && sl.includes(c.name.toLowerCase()));
@@ -357,6 +397,28 @@ async function handleCalendarSync(): Promise<Response> {
     created++;
   }
   return j({ created, skipped });
+}
+async function handleCalendarSync(): Promise<Response> {
+  const j = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
+  const cfg = ((await sbSelect("account_config", "id=eq.main&select=data"))[0]?.data || {}) as any;
+  // Modo preferido: OAuth (Calendar API)
+  if (cfg.google_cal?.refresh_token) {
+    const tok = await googleCalAccessToken();
+    if (!tok) return j({ error: "Não consegui renovar o acesso ao Google — reconecte sua conta." });
+    const now = Date.now(), horizon = now + 60 * 864e5;
+    const p = new URLSearchParams({ singleEvents: "true", orderBy: "startTime", maxResults: "250", timeMin: new Date(now - 864e5).toISOString(), timeMax: new Date(horizon).toISOString() });
+    const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${p}`, { headers: { Authorization: `Bearer ${tok}` } });
+    const gj = await r.json();
+    if (gj.error) return j({ error: "Google Calendar: " + (gj.error.message || JSON.stringify(gj.error)) });
+    return await createMeetingTasks((gj.items || []).map(mapGEvent), j);
+  }
+  // Fallback: iCal
+  const url = cfg.calendar_ics;
+  if (!url) return j({ error: "Conecte sua conta Google (ou cole o link iCal)." });
+  let text = ""; try { const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0", "Accept": "text/calendar,*/*" } }); text = await r.text(); } catch (e) { return j({ error: "Falha ao ler o iCal: " + String(e) }); }
+  if (!/BEGIN:VCALENDAR/.test(text)) return j({ error: "O link não parece um iCal válido (comece pelo 'Endereço secreto no formato iCal')." });
+  const evs = icsParse(text).map((e: any) => ({ uid: e.uid, summary: e.summary, cancelled: String(e.status || "").toUpperCase() === "CANCELLED", attendees: e.attendees, conference: e.conference, description: e.description, location: e.location, d: icsDate(e.start) }));
+  return await createMeetingTasks(evs, j);
 }
 
 Deno.serve(async (req) => {
@@ -386,8 +448,14 @@ Deno.serve(async (req) => {
 
   if (p === "/nuvemshop/callback") return handleNuvemshopCallback(url);
 
-  // GET /calendar/sync -> lê o Google Agenda (iCal) e cria tarefas das reuniões
+  // GET /calendar/sync -> lê o Google Agenda (OAuth ou iCal) e cria tarefas das reuniões
   if (p === "/calendar/sync") return handleCalendarSync();
+
+  // OAuth do Google Agenda (Calendar API)
+  if (p === "/google/auth") return handleGoogleAuth();
+  if (p === "/google/callback") return handleGoogleCallback(url);
+  if (p === "/google/status") { const cfg = ((await sbSelect("account_config", "id=eq.main&select=data"))[0]?.data || {}) as any; return new Response(JSON.stringify({ connected: !!cfg.google_cal?.refresh_token, email: cfg.google_cal?.email || "" }), { headers: { ...cors, "Content-Type": "application/json" } }); }
+  if (p === "/google/disconnect") { await saveAcctData({ google_cal: null }); return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, "Content-Type": "application/json" } }); }
 
   // /automations/tick -> dispara as automações da AndréIA que estão no horário (chamado pelo cron)
   if (p === "/automations/tick") {
