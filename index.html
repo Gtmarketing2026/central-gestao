@@ -495,6 +495,7 @@
     <div class="section-head">
       <h2>📅 Reuniões</h2>
       <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn primary sm" onclick="reunNew()" style="font-size:12px">➕ Nova reunião</button>
         <button class="btn ghost sm" onclick="reunSync(this)" style="font-size:12px">🔄 Sincronizar agenda</button>
         <div style="display:flex;gap:4px;align-items:center">
           <button class="btn ghost sm" onclick="reunMonth(-1)">‹</button>
@@ -1994,6 +1995,55 @@ async function reunLoadData(){
 function reunMonth(delta){if(delta===0)_reunRef=new Date();else _reunRef=new Date(_reunRef.getFullYear(),_reunRef.getMonth()+delta,1);renderReun();}
 async function reunSync(btn){const o=btn.textContent;btn.textContent='…';btn.disabled=true;try{const r=await fetch(TRACK_BASE+'/calendar/sync');const d=await r.json();await reunLoadData();renderReun();}catch(e){}btn.textContent=o;btn.disabled=false;}
 function reunOpen(id){const t=_reunTasks.find(x=>x.id===id);if(!t)return;if(t.link){window.open(t.link,'_blank');return;}const cn=(DB.clients.find(c=>c.id===t.client)||{}).name||'';alert(`📅 ${t.name}\n${t.hora?('🕐 '+t.hora+'\n'):''}${cn?('👤 '+cn+'\n'):''}${t.due?('📆 '+t.due.split('-').reverse().join('/')):''}`);}
+function reunNew(){
+  const connected=(_acctCfg&&_acctCfg.google_cal&&_acctCfg.google_cal.refresh_token);
+  if(!connected){alert('Conecte sua conta Google primeiro (⚙️ Configurações → Google Agenda).');return;}
+  const today=_ymdLocal(new Date());
+  const cliOpts=['<option value="">— sem cliente —</option>'].concat(DB.clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>`<option value="${c.id}">${c.name.replace(/</g,'&lt;')}</option>`)).join('');
+  const ov=document.createElement('div');ov.id='reunOverlay';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML=`<div class="card" style="max-width:420px;width:92%">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b>Nova reunião</b><button class="btn xs ghost" onclick="document.getElementById('reunOverlay').remove()">✕</button></div>
+    <label style="font-size:12px;color:var(--muted)">Título</label>
+    <input id="reunTit" class="inp" placeholder="Ex: Reunião de alinhamento" style="margin-bottom:10px">
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <div style="flex:1"><label style="font-size:12px;color:var(--muted)">Data</label><input id="reunData" type="date" class="inp" value="${today}"></div>
+      <div style="width:110px"><label style="font-size:12px;color:var(--muted)">Hora</label><input id="reunHora" type="time" class="inp" value="10:00"></div>
+      <div style="width:90px"><label style="font-size:12px;color:var(--muted)">Duração</label><select id="reunDur" class="inp"><option value="30">30 min</option><option value="60" selected>1h</option><option value="90">1h30</option><option value="120">2h</option></select></div>
+    </div>
+    <label style="font-size:12px;color:var(--muted)">Cliente (opcional)</label>
+    <select id="reunCli" class="inp" style="margin-bottom:14px">${cliOpts}</select>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sm ghost" onclick="document.getElementById('reunOverlay').remove()">Cancelar</button><button class="btn sm primary" onclick="reunCreate(this)">Criar na agenda</button></div>
+    <div id="reunNewMsg" style="font-size:11.5px;color:var(--faint);margin-top:8px"></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+async function reunCreate(btn){
+  const summary=(document.getElementById('reunTit').value||'').trim();
+  const date=document.getElementById('reunData').value,time=document.getElementById('reunHora').value,durationMin=+document.getElementById('reunDur').value,clientId=document.getElementById('reunCli').value||null;
+  const msg=document.getElementById('reunNewMsg');
+  if(!summary){if(msg)msg.textContent='Dê um título.';return;}
+  if(!date){if(msg)msg.textContent='Escolha a data.';return;}
+  btn.disabled=true;btn.textContent='Criando…';
+  try{
+    const r=await fetch(TRACK_BASE+'/calendar/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary,date,time,durationMin,clientId})});
+    const d=await r.json();
+    if(d.error==='reconnect'){if(msg)msg.innerHTML='⚠ Reconecte o Google com permissão de edição (⚙️ Configurações → Google Agenda → Conectar Google).';btn.disabled=false;btn.textContent='Criar na agenda';return;}
+    if(d.error){if(msg)msg.textContent='⚠ '+d.error;btn.disabled=false;btn.textContent='Criar na agenda';return;}
+    document.getElementById('reunOverlay').remove();await reunLoadData();renderReun();
+  }catch(e){if(msg)msg.textContent='Erro: '+e.message;btn.disabled=false;btn.textContent='Criar na agenda';}
+}
+async function reunDel(id,btn){
+  const t=_reunTasks.find(x=>x.id===id);
+  if(!confirm(`Excluir a reunião "${t?t.name:''}"? Ela será apagada também da sua Google Agenda.`))return;
+  if(btn){btn.disabled=true;btn.textContent='…';}
+  try{
+    const r=await fetch(TRACK_BASE+'/calendar/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:id})});
+    const d=await r.json();
+    if(d.error==='reconnect'){alert('Reconecte o Google com permissão de edição (⚙️ Configurações → Google Agenda → Conectar Google).');if(btn){btn.disabled=false;btn.textContent='🗑';}return;}
+    if(d.error){alert('Erro: '+d.error);if(btn){btn.disabled=false;btn.textContent='🗑';}return;}
+    await reunLoadData();renderReun();
+  }catch(e){alert('Erro: '+e.message);if(btn){btn.disabled=false;btn.textContent='🗑';}}
+}
 function renderReun(){
   const lbl=document.getElementById('reunMonthLbl'),cal=document.getElementById('reunCal'),list=document.getElementById('reunList');if(!cal)return;
   const ref=_reunRef||new Date();const y=ref.getFullYear(),m=ref.getMonth();
@@ -2020,7 +2070,7 @@ function renderReun(){
   const DIA=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   list.innerHTML=`<h3 style="font-size:14px;margin:0 0 10px">Próximas reuniões</h3>`+Object.keys(groups).sort().map(ds=>{
     const [yy,mm,dd]=ds.split('-');const dt=new Date(+yy,+mm-1,+dd);
-    const rows=groups[ds].sort((a,b)=>(a.hora||'99').localeCompare(b.hora||'99')).map(t=>{const cn=(DB.clients.find(c=>c.id===t.client)||{}).name||'';return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)"><div style="min-width:46px;font-weight:700;font-size:13px;color:var(--accent)">${t.hora||'—'}</div><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${(t.name||'').replace(/</g,'&lt;')}</div>${cn?`<div style="font-size:11.5px;color:var(--muted)">${cn}</div>`:''}</div>${t.link?`<a href="${t.link}" target="_blank" class="btn xs primary" style="text-decoration:none">Entrar</a>`:''}<button class="btn xs ghost" onclick="reunOpen('${t.id}')">Abrir</button></div>`;}).join('');
+    const rows=groups[ds].sort((a,b)=>(a.hora||'99').localeCompare(b.hora||'99')).map(t=>{const cn=(DB.clients.find(c=>c.id===t.client)||{}).name||'';return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)"><div style="min-width:46px;font-weight:700;font-size:13px;color:var(--accent)">${t.hora||'—'}</div><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${(t.name||'').replace(/</g,'&lt;')}</div>${cn?`<div style="font-size:11.5px;color:var(--muted)">${cn}</div>`:''}</div>${t.link?`<a href="${t.link}" target="_blank" class="btn xs primary" style="text-decoration:none">Entrar</a>`:''}<button class="btn xs ghost" onclick="reunOpen('${t.id}')">Abrir</button><button class="btn xs ghost" style="color:var(--danger)" title="Excluir" onclick="reunDel('${t.id}',this)">🗑</button></div>`;}).join('');
     return `<div style="margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px">${DIA[dt.getDay()]}, ${dd}/${mm}</div>${rows}</div>`;
   }).join('');
 }

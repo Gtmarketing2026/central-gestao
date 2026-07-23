@@ -1287,6 +1287,30 @@ async function waAgentExec(pending: any, clientId: string | null) {
       await sbPatchD("finance", `id=eq.${encodeURIComponent(rows[0].id)}`, { status: "pago" });
       return `✅ Baixa dada: ${rows[0].description} (R$${Number(rows[0].val).toFixed(2)}).`;
     }
+    if (pending.tipo === "criar_reuniao") {
+      const summary = pending.nome || "Reunião"; const date = pending._due; const time = pending.hora || "";
+      if (!date) return "Pra qual dia é a reunião?";
+      const r = await fetch(`${_SB_URL}/functions/v1/tracking/calendar/create`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ summary, date, time, clientId: cid || null }) });
+      const d = await r.json();
+      if (d.error === "reconnect") return "⚠ Preciso de permissão de edição na Google Agenda — reconecte o Google no sistema (⚙️ Configurações → Google Agenda).";
+      if (d.error) return "❌ Não consegui criar a reunião: " + d.error;
+      const cn = await _waClientNome(cid);
+      return `📅 Reunião criada na agenda${cn ? ` (cliente ${cn})` : ""}: ${summary}${time ? ` às ${time}` : ""} — ${date.split("-").reverse().join("/")}.`;
+    }
+    if (pending.tipo === "cancelar_reuniao") {
+      const term = String(pending.nome || "").trim();
+      const q = ["id=like.cal*", "status=neq.done", "select=id,name,due,notes", "order=due.asc", "limit=8"];
+      if (pending._due) q.push(`due=eq.${pending._due}`);
+      if (term) q.push(`name=ilike.*${encodeURIComponent(term)}*`);
+      const rows = await sbGet("tasks", q.join("&"));
+      if (!rows.length) return `Não achei essa reunião${term ? ` ("${term}")` : ""}${pending._due ? ` em ${pending._due}` : ""}.`;
+      if (rows.length > 1) return `Achei ${rows.length} reuniões parecidas — qual? ${rows.map((r: any) => `${r.name}${r.due ? ` (${r.due.split("-").reverse().join("/")})` : ""}`).join(" / ")}`;
+      const r = await fetch(`${_SB_URL}/functions/v1/tracking/calendar/delete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ taskId: rows[0].id }) });
+      const d = await r.json();
+      if (d.error === "reconnect") return "⚠ Preciso de permissão de edição na Google Agenda — reconecte o Google no sistema.";
+      if (d.error) return "❌ Não consegui excluir: " + d.error;
+      return `🗑 Reunião cancelada: ${rows[0].name}.`;
+    }
   } catch (e) { return "❌ Não consegui executar: " + String((e as any)?.message || e); }
   return "Feito 👍";
 }
@@ -1396,7 +1420,7 @@ const WA_TOOLS = [
   { type: "function", function: { name: "resumo_todos_clientes", description: "Resumo de TODOS os clientes no período (gasto + métrica do objetivo, Meta/Google separados). Use quando pedirem panorama/todos os clientes.", parameters: { type: "object", properties: { dias: { type: "integer" } } } } },
   { type: "function", function: { name: "reunioes", description: "REUNIÕES/compromissos da AGENDA (Google Agenda), que é DIFERENTE de tarefa operacional. USE isto quando perguntarem sobre reuniões, agenda, compromissos, calls. NÃO liste tarefas comuns aqui.", parameters: { type: "object", properties: { quando: { type: "string", description: "'hoje', 'amanha', 'semana' ou vazio (padrão hoje)" }, data: { type: "string", description: "data específica AAAA-MM-DD (opcional)" } } } } },
   { type: "function", function: { name: "financeiro", description: "Consulta financeira com TOTAL e itens já com o nome do cliente resolvido e a soma correta. USE ISSO pra qualquer pergunta de dinheiro (a receber, a pagar, recebido, pago, fluxo do mês).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["receita", "despesa"] }, status: { type: "string", enum: ["pendente", "pago"] }, mes: { type: "string", description: "AAAA-MM, ex: 2026-07" }, cliente: { type: "string" } } } } },
-  { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM). Para criar_tarefa, o RESPONSÁVEL (quem faz) e o QUANDO (data) são obrigatórios — se o usuário não disser, PERGUNTE antes.", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"] }, cliente: { type: "string" }, nome: { type: "string", description: "título da tarefa" }, responsavel: { type: "string", description: "nome de quem vai fazer a tarefa (membro da equipe)" }, quando: { type: "string", description: "data da tarefa em AAAA-MM-DD (calcule 'amanhã', 'sexta' etc. a partir de hoje)" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
+  { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM). Para criar_tarefa, o RESPONSÁVEL (quem faz) e o QUANDO (data) são obrigatórios — se o usuário não disser, PERGUNTE antes.", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "criar_reuniao", "cancelar_reuniao", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"] }, cliente: { type: "string" }, nome: { type: "string", description: "título da tarefa OU da reunião (pra cancelar_reuniao, o título/pedaço do nome da reunião a cancelar)" }, responsavel: { type: "string", description: "nome de quem vai fazer a tarefa (membro da equipe)" }, quando: { type: "string", description: "data em AAAA-MM-DD (calcule 'amanhã', 'sexta' etc. a partir de hoje) — usada por tarefa e reunião" }, hora: { type: "string", description: "horário da reunião em HH:MM (opcional)" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
 ];
 const WA_MENU_TEXT = `🤖 *AndréIA — o que posso fazer aqui no grupo:*
 
@@ -1412,6 +1436,8 @@ const WA_MENU_TEXT = `🤖 *AndréIA — o que posso fazer aqui no grupo:*
 🗓 *Agenda*
 • _Quais reuniões tenho hoje?_ / _amanhã?_
 • _Minhas reuniões da semana_
+• _Marca reunião com [cliente] sexta às 15h_ (peço confirmação)
+• _Cancela a reunião [nome]_ (peço confirmação)
 
 💰 *Financeiro*
 • _Quanto temos a receber esse mês?_ / _a pagar?_
@@ -1534,6 +1560,8 @@ async function waExecTool(name: string, args: any, clients: any[]) {
 function _waConfirmText(p: any, clients: any[]) {
   const cn = (clients.find((c) => c.id === p.client_id) || {}).name || ""; const cli = cn ? `📌 Cliente: ${cn}\n` : "";
   if (p.tipo === "criar_tarefa") return `${cli}Crio a tarefa "${p.nome || ""}"${p.obs ? ` (${p.obs})` : ""}${p.responsavel ? ` — resp. *${p.responsavel}*` : ""}${p._due ? ` — pra *${p._due}*` : ""}. Confirma? (responda SIM)`;
+  if (p.tipo === "criar_reuniao") return `${cli}Crio a reunião "${p.nome || ""}" na Google Agenda${p._due ? ` em *${p._due.split("-").reverse().join("/")}*` : ""}${p.hora ? ` às *${p.hora}*` : ""}. Confirma? (responda SIM)`;
+  if (p.tipo === "cancelar_reuniao") return `${cli}Cancelar a reunião "${p.nome || ""}"${p._due ? ` de *${p._due.split("-").reverse().join("/")}*` : ""} (apaga também na Google Agenda). Confirma? (responda SIM)`;
   if (p.tipo === "pausar_campanha") return `${cli}Pausar a campanha "${p.campanha || ""}". Confirma?`;
   if (p.tipo === "reativar_campanha") return `${cli}Reativar a campanha "${p.campanha || ""}". Confirma?`;
   if (p.tipo === "orcamento") return `${cli}Ajustar o orçamento diário da "${p.campanha || ""}" pra R$${p.novoValor}. Confirma?`;
@@ -1591,7 +1619,7 @@ async function waAgentHandle(w: any) {
 - Formato WhatsApp: NÃO use markdown de título (nada de ### ou **). Negrito é com UM asterisco (*assim*). Listas com "• ". Seja enxuta.
 - ATALHOS que a equipe pode pedir: "quem precisa de atenção?" → use resumo_todos_clientes e destaque os clientes abaixo da meta, com gasto sem resultado, ou parados; "saúde da carteira" → visão geral (gasto total do período, quantos performando/abaixo, e financeiro a receber/pagar via a ferramenta financeiro); "pendências operacionais" → tarefas em aberto (consultar_banco tabela tasks, filtro status=neq.done, ordena por due); "recomendações da semana" → 2-3 ações priorizadas (o que pausar/escalar/ajustar) com base nos dados. Sempre com dado real, curto.
 - Ao pedirem detalhes/campanhas de um cliente, use meta_insights e liste CADA campanha do array 'campanhas' com os KPIs que a ferramenta já trouxe pra ela (gasto, orçamento e a métrica do objetivo dela). Use SOMENTE os campos que vieram — NÃO invente nem puxe métrica de fora (ex: não some conversas num total de venda). O consolidado é o campo 'total'.
-- Para AÇÕES (criar tarefa, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
+- Para AÇÕES (criar tarefa, criar/cancelar reunião na agenda, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao. Reunião: passe o título em 'nome', o dia em 'quando' (AAAA-MM-DD) e o horário em 'hora' (HH:MM) se disser. Cliente é opcional em reunião. — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
 - CRIAR TAREFA: o RESPONSÁVEL (quem vai fazer) e a DATA são OBRIGATÓRIOS. Se o usuário não informar os dois, PERGUNTE (não invente responsável nem data, não assuma você mesma). Passe 'responsavel' (nome da pessoa) e 'quando' já como data ISO AAAA-MM-DD — calcule "amanhã", "hoje", "sexta" a partir de hoje.
 - DINHEIRO/FINANCEIRO: para QUALQUER pergunta de valores (a receber, a pagar, recebido, pago, fluxo do mês) use a ferramenta **financeiro** — ela já devolve o TOTAL correto e os ITENS com o nome certo do cliente. "a receber" = {tipo:'receita',status:'pendente'}; "a pagar" = {tipo:'despesa',status:'pendente'}; "este mês" = mes:'${new Date().toISOString().slice(0, 7)}'. NUNCA some você mesma nem adivinhe o nome do cliente — use os campos 'total' e 'itens' que a ferramenta retorna, exatamente.
 - Datas: hoje é ${new Date().toISOString().slice(0, 10)}. Ao filtrar por um cliente específico use o id dele (está na lista abaixo entre colchetes, ou consulte a tabela clients). Clientes: ${clients.slice(0, 150).map((c: any) => `${c.name}[${c.id}]`).join(" | ")}.`;
@@ -1613,7 +1641,15 @@ async function waAgentHandle(w: any) {
             if (rc) cid = rc.id;
             else reply = `🤔 Não achei o cliente "${args.cliente}" no sistema. Confere o nome pra mim? (se quiser, peço a lista de clientes)`;
           }
-          if (!reply && !cid) reply = "De qual cliente é essa ação? Me diz o nome do cliente.";
+          const semCliente = args.tipo === "criar_reuniao" || args.tipo === "cancelar_reuniao";
+          if (!reply && !cid && !semCliente) reply = "De qual cliente é essa ação? Me diz o nome do cliente.";
+          // REUNIÃO: exige data pra criar; cliente é opcional
+          if (!reply && args.tipo === "criar_reuniao") {
+            const dataOk = args.quando && /^\d{4}-\d{2}-\d{2}$/.test(String(args.quando));
+            if (!dataOk) reply = "Pra qual *dia* é a reunião? (e o horário, se tiver)";
+            else args._due = args.quando;
+          }
+          if (!reply && args.tipo === "cancelar_reuniao" && args.quando && /^\d{4}-\d{2}-\d{2}$/.test(String(args.quando))) args._due = args.quando;
           // TAREFA: exige responsável (da equipe) + data — senão PERGUNTA
           if (!reply && args.tipo === "criar_tarefa") {
             const team = await sbGet("team", "select=id,name");

@@ -341,7 +341,7 @@ function handleGoogleAuth(): Response {
   const p = new URLSearchParams({
     client_id: GOOGLE_CID, redirect_uri: googleRedirectUri(), response_type: "code",
     access_type: "offline", prompt: "consent", include_granted_scopes: "true",
-    scope: "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email",
+    scope: "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email",
   });
   return new Response(null, { status: 302, headers: { ...cors, Location: `https://accounts.google.com/o/oauth2/v2/auth?${p}` } });
 }
@@ -421,6 +421,55 @@ async function handleCalendarSync(): Promise<Response> {
   const evs = icsParse(text).map((e: any) => ({ uid: e.uid, summary: e.summary, cancelled: String(e.status || "").toUpperCase() === "CANCELLED", attendees: e.attendees, conference: e.conference, description: e.description, location: e.location, d: icsDate(e.start) }));
   return await createMeetingTasks(evs, j);
 }
+async function sbDelete(table: string, query: string) {
+  await fetch(`${SB_URL}/rest/v1/${table}?${query}`, { method: "DELETE", headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } });
+}
+// Cria uma reunião na Google Agenda (escrita) + tarefa local (id cal*). body: {summary,date,time?,durationMin?,description?,clientId?}
+async function handleCalCreate(req: Request): Promise<Response> {
+  const j = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
+  let b: any = {}; try { b = await req.json(); } catch (_e) { /* */ }
+  const summary = String(b.summary || b.titulo || "").trim(); if (!summary) return j({ error: "título obrigatório" }, 400);
+  const date = String(b.date || b.data || "").slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return j({ error: "data inválida (use AAAA-MM-DD)" }, 400);
+  const time = String(b.time || b.hora || "").slice(0, 5);
+  const dur = Number(b.durationMin || b.duracao || 60) || 60;
+  const tok = await googleCalAccessToken(); if (!tok) return j({ error: "Google não conectado — conecte sua conta primeiro." }, 400);
+  const tz = "America/Sao_Paulo";
+  let ebody: any;
+  if (/^\d{2}:\d{2}$/.test(time)) {
+    const [hh, mm] = time.split(":").map(Number); const endM = hh * 60 + mm + dur;
+    const eh = String(Math.floor(endM / 60) % 24).padStart(2, "0"), em = String(endM % 60).padStart(2, "0");
+    ebody = { summary, description: b.description || b.obs || "", start: { dateTime: `${date}T${time}:00`, timeZone: tz }, end: { dateTime: `${date}T${eh}:${em}:00`, timeZone: tz } };
+  } else {
+    ebody = { summary, description: b.description || b.obs || "", start: { date }, end: { date } };
+  }
+  const r = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", { method: "POST", headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" }, body: JSON.stringify(ebody) });
+  const ev = await r.json();
+  if (ev.error) { if (r.status === 403 || r.status === 401) return j({ error: "reconnect", detail: "Precisa reconectar o Google com permissão de edição da agenda." }, 403); return j({ error: "Google: " + (ev.error.message || "falha ao criar") }, 400); }
+  const clients = await sbSelect("clients", "select=id,name&limit=1000");
+  let clientId = b.clientId || null;
+  if (!clientId) { const sl = summary.toLowerCase(); const mc = clients.find((c: any) => c.name && c.name.length >= 4 && sl.includes(c.name.toLowerCase())); if (mc) clientId = mc.id; }
+  const notes = `🗓 Reunião (Google Agenda)${time ? ` · ${time}` : ""}`;
+  const tid = "cal" + uid();
+  await sbInsert("tasks", { id: tid, name: summary.slice(0, 200), client: clientId, owner: "eu", status: "todo", prio: "media", due: date, notes, urgent: false });
+  await sbInsert("calendar_events", { uid: ev.id, task_id: tid, summary: summary.slice(0, 200), start: date });
+  return j({ ok: true, id: ev.id, taskId: tid, date, time });
+}
+// Exclui uma reunião: apaga no Google Agenda + tarefa/calendar_event local. body: {taskId?} ou {uid?}
+async function handleCalDelete(req: Request): Promise<Response> {
+  const j = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
+  let b: any = {}; try { b = await req.json(); } catch (_e) { /* */ }
+  let uidVal = String(b.uid || ""), tid = String(b.taskId || b.id || "");
+  if (!uidVal && tid) { const row = (await sbSelect("calendar_events", `task_id=eq.${encodeURIComponent(tid)}&select=uid&limit=1`))[0]; if (row) uidVal = row.uid; }
+  if (!tid && uidVal) { const row = (await sbSelect("calendar_events", `uid=eq.${encodeURIComponent(uidVal)}&select=task_id&limit=1`))[0]; if (row) tid = row.task_id; }
+  if (!uidVal && !tid) return j({ error: "reunião não encontrada" }, 404);
+  if (uidVal) {
+    const tok = await googleCalAccessToken();
+    if (tok) { const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(uidVal)}`, { method: "DELETE", headers: { Authorization: `Bearer ${tok}` } }); if (r.status === 403 || r.status === 401) return j({ error: "reconnect", detail: "Precisa reconectar o Google com permissão de edição." }, 403); /* 404/410 = já não existe no Google, segue */ }
+  }
+  if (tid) await sbDelete("tasks", `id=eq.${encodeURIComponent(tid)}`);
+  if (uidVal) await sbDelete("calendar_events", `uid=eq.${encodeURIComponent(uidVal)}`);
+  return j({ ok: true });
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -451,6 +500,8 @@ Deno.serve(async (req) => {
 
   // GET /calendar/sync -> lê o Google Agenda (OAuth ou iCal) e cria tarefas das reuniões
   if (p === "/calendar/sync") return handleCalendarSync();
+  if (p === "/calendar/create" && req.method === "POST") return handleCalCreate(req);
+  if (p === "/calendar/delete" && req.method === "POST") return handleCalDelete(req);
 
   // OAuth do Google Agenda (Calendar API)
   if (p === "/google/auth") return handleGoogleAuth();
