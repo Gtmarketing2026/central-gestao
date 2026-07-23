@@ -2224,6 +2224,35 @@ async function _googleCalToken(): Promise<string | null> {
   } catch (_e) { return null; }
 }
 // Lembra X min antes de cada reunião do Google Agenda. Roda a cada ~5 min (cron). Dedup via wa_reminded.
+// Monitor de conectividade: detecta quando um WhatsApp cai → notificação no sino + aviso da AndréIA no grupo.
+function _fmtFone(p: any) { p = String(p || "").replace(/[^0-9]/g, ""); if (!p) return ""; const m = p.match(/^(\d{2})(\d{2})(\d{4,5})(\d{4})$/); return m ? `+${m[1]} (${m[2]}) ${m[3]}-${m[4]}` : p; }
+async function waConnectivityCheck() {
+  const insts = await sbGet("wa_instances", "select=id,name,uaz_host,uaz_token,status,phone");
+  const team = await sbGet("team", "select=id");
+  const g: any = await _andreiaGroupInst();
+  const caidos: string[] = [];
+  for (const inst of (insts || [])) {
+    if (!inst.uaz_host || !inst.uaz_token) continue;
+    let cur: string | null = null;
+    try { const { j } = await waCall(inst.uaz_host, inst.uaz_token, "/instance/status"); cur = (j && j.instance && j.instance.status) || null; } catch { continue; }
+    if (!cur) continue;
+    const was = inst.status;
+    if (was === "connected" && cur !== "connected") {
+      await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { status: cur, updated_at: new Date().toISOString() });
+      const fone = _fmtFone(inst.phone); const quem = inst.name || fone || "instância";
+      const title = `🔴 WhatsApp desconectado: ${quem}`;
+      const detail = `O número ${fone || "(sem número)"} (${inst.name || "instância"}) caiu (${cur}). Reconecte em Configurações → WhatsApp pra não perder mensagens.`;
+      for (const t of (team || [])) { try { await sbPost("notifications", { id: _wuid(), to_team: t.id, from_team: "sistema", task_id: null, task_name: title, comment_text: detail, read: false, type: "wa_disconnect" }); } catch (_e) { /* */ } }
+      if (!g.erro) { try { await waCall(g.inst.uaz_host, g.inst.uaz_token, "/send/text", "POST", { number: g.group, text: `🔴 *WhatsApp desconectado*\n${WA_DIV}\n*${quem}*${fone ? ` (${fone})` : ""} caiu.\nReconecte em Configurações → WhatsApp pra não perder mensagens. 📲` }); } catch (_e) { /* */ } }
+      caidos.push(quem);
+    } else if (was !== "connected" && cur === "connected") {
+      await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { status: "connected", connected_at: new Date().toISOString() });
+    } else if (was !== cur) {
+      await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { status: cur });
+    }
+  }
+  return { checked: (insts || []).length, caidos };
+}
 async function waMeetingRemindersTick() {
   const autos = await sbGet("andreia_automations", "enabled=eq.true&tipo=eq.lembrete_reuniao&select=*");
   if (!autos.length) return { skip: "nenhum lembrete de reunião ativo" };
@@ -2293,6 +2322,10 @@ Deno.serve(async (req) => {
     }
     if (body.reminderTick) {
       const r = await waMeetingRemindersTick();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.waConnCheck) {
+      const r = await waConnectivityCheck();
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.automationRunNow) {
