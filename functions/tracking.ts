@@ -300,6 +300,65 @@ async function handleWaConnect(id: string, url: URL): Promise<Response> {
   return j({ status: ins.status || "connecting", qrcode: ins.qrcode || "", paircode: ins.paircode || "", name: inst.name || "" });
 }
 
+// ---- Google Agenda (iCal) → tarefas: lê o link secreto, cria tarefa por reunião (dedup por UID) ----
+function icsUnfold(t: string) { return t.replace(/\r\n[ \t]/g, "").replace(/\n[ \t]/g, ""); }
+function icsParse(text: string) {
+  const lines = icsUnfold(text).split(/\r?\n/); const evs: any[] = []; let cur: any = null;
+  for (const line of lines) {
+    if (line === "BEGIN:VEVENT") { cur = { attendees: 0 }; continue; }
+    if (line === "END:VEVENT") { if (cur) evs.push(cur); cur = null; continue; }
+    if (!cur) continue;
+    const i = line.indexOf(":"); if (i < 0) continue;
+    const keyfull = line.slice(0, i), val = line.slice(i + 1); const key = keyfull.split(";")[0].toUpperCase();
+    if (key === "SUMMARY") cur.summary = val;
+    else if (key === "UID") cur.uid = val;
+    else if (key === "DTSTART") { cur.start = val; cur.allday = /VALUE=DATE(;|$|:)/i.test(keyfull) || /^\d{8}$/.test(val); }
+    else if (key === "LOCATION") cur.location = val;
+    else if (key === "DESCRIPTION") cur.description = val;
+    else if (key === "STATUS") cur.status = val;
+    else if (key === "ATTENDEE") cur.attendees++;
+    else if (key === "X-GOOGLE-CONFERENCE" || key === "X-GOOGLE-HANGOUT") cur.conference = val;
+  }
+  return evs;
+}
+function icsDate(val: string) {
+  const m = String(val).match(/^(\d{4})(\d{2})(\d{2})(T(\d{2})(\d{2})(\d{2}))?(Z)?/); if (!m) return null;
+  const ymd = `${m[1]}-${m[2]}-${m[3]}`, hm = m[5] ? `${m[5]}:${m[6]}` : "";
+  const iso = `${ymd}T${m[5] || "00"}:${m[6] || "00"}:00${m[8] ? "Z" : ""}`; const d = new Date(iso);
+  return { ymd, hm, time: isNaN(d.getTime()) ? Date.parse(ymd) : d.getTime() };
+}
+async function handleCalendarSync(): Promise<Response> {
+  const j = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
+  const acc = (await sbSelect("account_config", "id=eq.main&select=data"))[0];
+  const url = ((acc?.data || {}) as any).calendar_ics;
+  if (!url) return j({ error: "Nenhum link do Google Agenda configurado." });
+  let text = ""; try { const r = await fetch(url); text = await r.text(); } catch (e) { return j({ error: "Falha ao ler o iCal: " + String(e) }); }
+  if (!/BEGIN:VCALENDAR/.test(text)) return j({ error: "O link não parece um iCal válido (comece pelo 'Endereço secreto no formato iCal')." });
+  const evs = icsParse(text);
+  const now = Date.now(), horizon = now + 60 * 864e5;
+  const clients = await sbSelect("clients", "select=id,name&limit=1000");
+  let created = 0, skipped = 0;
+  for (const ev of evs) {
+    if (!ev.uid || !ev.summary) continue;
+    if (String(ev.status || "").toUpperCase() === "CANCELLED") continue;
+    const isMeeting = ev.attendees > 0 || ev.conference || /meet\.google|zoom\.us|teams\.microsoft|hangout|whereby|meet\.jit/i.test((ev.description || "") + " " + (ev.location || ""));
+    if (!isMeeting) continue;
+    const d = icsDate(ev.start); if (!d) continue;
+    if (d.time < now - 864e5 || d.time > horizon) continue; // só reuniões futuras (até 60 dias)
+    if ((await sbSelect("calendar_events", `uid=eq.${encodeURIComponent(ev.uid)}&select=uid&limit=1`)).length) { skipped++; continue; }
+    let clientId: string | null = null; const sl = ev.summary.toLowerCase();
+    const mc = clients.find((c: any) => c.name && c.name.length >= 4 && sl.includes(c.name.toLowerCase()));
+    if (mc) clientId = mc.id;
+    const meet = ev.conference || ((ev.description || "").match(/https?:\/\/(meet\.google|[^\s"']*zoom\.us|teams\.microsoft)[^\s"'<>]*/i) || [])[0] || "";
+    const notes = `🗓 Reunião (Google Agenda)${d.hm ? ` · ${d.hm}` : ""}${meet ? `\n${meet}` : ""}${ev.location ? `\n📍 ${ev.location}` : ""}`;
+    const tid = "cal" + uid();
+    await sbInsert("tasks", { id: tid, name: ev.summary.slice(0, 200), client: clientId, owner: "eu", status: "todo", prio: "media", due: d.ymd, notes, urgent: false });
+    await sbInsert("calendar_events", { uid: ev.uid, task_id: tid, summary: ev.summary.slice(0, 200), start: d.ymd });
+    created++;
+  }
+  return j({ created, skipped });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const url = new URL(req.url);
@@ -326,6 +385,9 @@ Deno.serve(async (req) => {
   if (p === "/rd/webhook") return new Response("rd webhook ok", { headers: { ...cors, "Content-Type": "text/plain" } });
 
   if (p === "/nuvemshop/callback") return handleNuvemshopCallback(url);
+
+  // GET /calendar/sync -> lê o Google Agenda (iCal) e cria tarefas das reuniões
+  if (p === "/calendar/sync") return handleCalendarSync();
 
   // GET /wa/connect/<instanceId> -> JSON com qrcode/paircode/status (usado pela página pública de conexão)
   const mWaC = p.match(/^\/wa\/connect\/([^/]+)$/);
