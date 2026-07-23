@@ -1344,6 +1344,29 @@ const WA_TOOLS = [
   { type: "function", function: { name: "financeiro", description: "Consulta financeira com TOTAL e itens já com o nome do cliente resolvido e a soma correta. USE ISSO pra qualquer pergunta de dinheiro (a receber, a pagar, recebido, pago, fluxo do mês).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["receita", "despesa"] }, status: { type: "string", enum: ["pendente", "pago"] }, mes: { type: "string", description: "AAAA-MM, ex: 2026-07" }, cliente: { type: "string" } } } } },
   { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM). Para criar_tarefa, o RESPONSÁVEL (quem faz) e o QUANDO (data) são obrigatórios — se o usuário não disser, PERGUNTE antes.", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"] }, cliente: { type: "string" }, nome: { type: "string", description: "título da tarefa" }, responsavel: { type: "string", description: "nome de quem vai fazer a tarefa (membro da equipe)" }, quando: { type: "string", description: "data da tarefa em AAAA-MM-DD (calcule 'amanhã', 'sexta' etc. a partir de hoje)" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
 ];
+const WA_MENU_TEXT = `🤖 *AndréIA — o que posso fazer aqui no grupo:*
+
+📊 *Análise*
+• _Como tá o [cliente] nos últimos 7 dias?_
+• _Detalhes das campanhas do [cliente]_
+• _Resumo de todos os clientes_
+• _Quem precisa de atenção?_
+• _Saúde da carteira_
+• _Recomendações da semana_
+
+💰 *Financeiro*
+• _Quanto temos a receber esse mês?_ / _a pagar?_
+• _Cria um lançamento…_ / _Dá baixa em…_
+
+✅ *Operacional*
+• _Pendências operacionais_ / _Tarefas em aberto do [cliente]_
+• _Cria uma tarefa pro [responsável] em [cliente] pra [data]: …_
+
+⚙️ *Campanhas* (peço confirmação antes)
+• _Pausa / reativa / duplica a campanha [nome]_
+• _Sobe o orçamento da [nome] pra R$ X_
+
+É só mandar em linguagem natural. 💬 Mande *menu* pra ver isso de novo.`;
 function _waResolveClient(nomeOuId: string, clients: any[]) { if (!nomeOuId) return null; const q = String(nomeOuId).toLowerCase().trim(); return clients.find((c) => c.id === nomeOuId) || clients.find((c) => c.name.toLowerCase() === q) || clients.find((c) => c.name.toLowerCase().includes(q)) || null; }
 let _waCliMap: Record<string, string> | null = null, _waCliMapT = 0;
 async function _waClientsMap(): Promise<Record<string, string>> {
@@ -1454,6 +1477,12 @@ async function waAgentHandle(w: any) {
     if (isYes) { const msg = await waAgentExec(sess.pending, sess.client_id); await saveSess({ pending: null, last_msgid: w.msgid }); await send(msg); return { ok: true }; }
     if (isNo) { await saveSess({ pending: null, last_msgid: w.msgid }); await send("Ok, cancelei 👍"); return { ok: true }; }
   }
+  // menu de comandos
+  if (/^(menu|ajuda|comandos|opções|opcoes|\?|o que voce faz|o que você faz|help)[.!?]*$/i.test(text.trim())) {
+    await send(WA_MENU_TEXT);
+    await saveSess({ last_msgid: w.msgid, pending: null, history: [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: "[menu enviado]" }].slice(-16) });
+    return { ok: true };
+  }
   // pedido de RESUMO GERAL de todos os clientes → monta determinístico (sem alucinar placeholders)
   const low = text.toLowerCase();
   if (/\b(cada cliente|todos os clientes|todos clientes|resumo geral|de todos|geral dos clientes|resumo dos clientes|panorama|de cada cliente)\b/.test(low) || (/resumo/.test(low) && /clientes/.test(low))) {
@@ -1471,6 +1500,7 @@ async function waAgentHandle(w: any) {
 - Você CONSULTA os dados reais do sistema com as ferramentas: consultar_banco (qualquer tabela: financeiro, tarefas, CRM, RD, pedidos, clientes…), meta_insights e google_insights (métricas ao vivo), resumo_todos_clientes. SEMPRE busque o dado real antes de responder — NUNCA invente número nem use placeholders (X, Y, Z). Se não houver dado, diga que não há.
 - Traga SÓ o que tem dado, e a métrica do OBJETIVO do cliente. O snapshot já traz o campo 'objetivo' e só as métricas certas dele: venda→compras/ROAS/CPA; leads→leads/CPL; mensagens→conversas/custo por conversa; tráfego→cliques/CTR/CPC. NUNCA misture (ex: cliente de VENDA não mostra "custo por conversa").
 - Formato WhatsApp: NÃO use markdown de título (nada de ### ou **). Negrito é com UM asterisco (*assim*). Listas com "• ". Seja enxuta.
+- ATALHOS que a equipe pode pedir: "quem precisa de atenção?" → use resumo_todos_clientes e destaque os clientes abaixo da meta, com gasto sem resultado, ou parados; "saúde da carteira" → visão geral (gasto total do período, quantos performando/abaixo, e financeiro a receber/pagar via a ferramenta financeiro); "pendências operacionais" → tarefas em aberto (consultar_banco tabela tasks, filtro status=neq.done, ordena por due); "recomendações da semana" → 2-3 ações priorizadas (o que pausar/escalar/ajustar) com base nos dados. Sempre com dado real, curto.
 - Ao pedirem detalhes/campanhas de um cliente, use meta_insights e liste CADA campanha do array 'campanhas' com os KPIs que a ferramenta já trouxe pra ela (gasto, orçamento e a métrica do objetivo dela). Use SOMENTE os campos que vieram — NÃO invente nem puxe métrica de fora (ex: não some conversas num total de venda). O consolidado é o campo 'total'.
 - Para AÇÕES (criar tarefa, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
 - CRIAR TAREFA: o RESPONSÁVEL (quem vai fazer) e a DATA são OBRIGATÓRIOS. Se o usuário não informar os dois, PERGUNTE (não invente responsável nem data, não assuma você mesma). Passe 'responsavel' (nome da pessoa) e 'quando' já como data ISO AAAA-MM-DD — calcule "amanhã", "hoje", "sexta" a partir de hoje.
