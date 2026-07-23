@@ -1137,7 +1137,16 @@ async function waCapi(convId: string, eventName: string) {
   return { ok: status === "success", status, error };
 }
 // ===== AndréIA no WhatsApp (grupo): entende a mensagem, analisa o cliente, cria tarefa (com confirmação) =====
-function _waResumoMeta(t: any) { return { gasto: Math.round(t.spend), impressoes: t.impressions, cliques: t.clicks, ctr: +(t.ctr || 0).toFixed(2), cpc: +(t.cpc || 0).toFixed(2), cpm: +(t.cpm || 0).toFixed(2), alcance: t.reach, conversas: t.conversas, custoPorConversa: t.conversas ? +(t.spend / t.conversas).toFixed(2) : null, leads: t.leads, compras: Math.round(t.purchases || 0), roas: +(t.roas || 0).toFixed(2) }; }
+// resumo já FILTRADO pela métrica do objetivo (venda→ROAS/CPA; leads→CPL; mensagem→custo por conversa; senão tráfego)
+function _waResumoMeta(t: any) {
+  const spend = t.spend || 0;
+  const objetivo = (t.purchases || 0) > 0 ? "venda" : ((t.leads || 0) > 0 ? "leads" : ((t.conversas || 0) > 0 ? "mensagens" : "trafego"));
+  const out: any = { objetivo, gasto: Math.round(spend), impressoes: t.impressions, cliques: t.clicks, ctr: +(t.ctr || 0).toFixed(2), cpc: +(t.cpc || 0).toFixed(2), cpm: +(t.cpm || 0).toFixed(2), alcance: t.reach };
+  if (objetivo === "venda") { out.compras = Math.round(t.purchases || 0); out.roas = +(t.roas || 0).toFixed(2); out.cpa = t.purchases ? +(spend / t.purchases).toFixed(2) : null; }
+  else if (objetivo === "leads") { out.leads = t.leads; out.cpl = t.leads ? +(spend / t.leads).toFixed(2) : null; }
+  else if (objetivo === "mensagens") { out.conversas = t.conversas; out.custoPorConversa = t.conversas ? +(spend / t.conversas).toFixed(2) : null; }
+  return out;
+}
 const _snapCache: Record<string, { t: number; v: any }> = {};
 async function waAgentSnapshot(clientId: string) {
   const cached = _snapCache[clientId]; if (cached && Date.now() - cached.t < 180000) return cached.v;
@@ -1431,7 +1440,8 @@ async function waAgentHandle(w: any) {
   const nomes = clients.slice(0, 150).map((c: any) => c.name).join(" | ");
   const sys = `Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com a equipe da agência. Fale CURTO, direto e natural (é WhatsApp).
 - Você CONSULTA os dados reais do sistema com as ferramentas: consultar_banco (qualquer tabela: financeiro, tarefas, CRM, RD, pedidos, clientes…), meta_insights e google_insights (métricas ao vivo), resumo_todos_clientes. SEMPRE busque o dado real antes de responder — NUNCA invente número nem use placeholders (X, Y, Z). Se não houver dado, diga que não há.
-- Traga SÓ o que tem dado, e a métrica que faz sentido pro OBJETIVO do cliente (venda→ROAS; lead→CPL; mensagem→custo por conversa; tráfego→CPC/CTR). Não recite dados que não foram pedidos.
+- Traga SÓ o que tem dado, e a métrica do OBJETIVO do cliente. O snapshot já traz o campo 'objetivo' e só as métricas certas dele: venda→compras/ROAS/CPA; leads→leads/CPL; mensagens→conversas/custo por conversa; tráfego→cliques/CTR/CPC. NUNCA misture (ex: cliente de VENDA não mostra "custo por conversa").
+- Formato WhatsApp: NÃO use markdown de título (nada de ### ou **). Negrito é com UM asterisco (*assim*). Listas com "• ". Seja enxuta.
 - Para AÇÕES (criar tarefa, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
 - DINHEIRO/FINANCEIRO: para QUALQUER pergunta de valores (a receber, a pagar, recebido, pago, fluxo do mês) use a ferramenta **financeiro** — ela já devolve o TOTAL correto e os ITENS com o nome certo do cliente. "a receber" = {tipo:'receita',status:'pendente'}; "a pagar" = {tipo:'despesa',status:'pendente'}; "este mês" = mes:'${new Date().toISOString().slice(0, 7)}'. NUNCA some você mesma nem adivinhe o nome do cliente — use os campos 'total' e 'itens' que a ferramenta retorna, exatamente.
 - Datas: hoje é ${new Date().toISOString().slice(0, 10)}. Ao filtrar por um cliente específico use o id dele (está na lista abaixo entre colchetes, ou consulte a tabela clients). Clientes: ${clients.slice(0, 150).map((c: any) => `${c.name}[${c.id}]`).join(" | ")}.`;
