@@ -633,6 +633,46 @@ async function metaAction(m: any) {
   throw new Error("action invalida");
 }
 
+// Clona a ESTRUTURA de uma campanha (campanha + conjuntos, PAUSADOS) pra OUTRA conta de anúncio (outro cliente).
+// Não copia criativos/anúncios (são amarrados à conta de origem). Mapeia o pixel pro do destino quando possível.
+async function metaCloneCampaign(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
+  const base = "https://graph.facebook.com/v21.0";
+  const src = String(m.sourceCampaignId || ""); const tgt = String(m.targetAccountId || "").replace(/^act_/, "");
+  if (!src || !tgt) throw new Error("sourceCampaignId e targetAccountId obrigatórios");
+  const get = async (id: string, fields: string) => { const r = await fetch(`${base}/${id}?fields=${fields}&access_token=${token}`); const j = await r.json(); if (j.error) throw new Error(j.error.message); return j; };
+  const post = async (path: string, params: Record<string, string>) => { const r = await fetch(`${base}/${path}`, { method: "POST", body: new URLSearchParams({ ...params, access_token: token }) }); const j = await r.json(); if (j.error) throw new Error(j.error.message); return j; };
+  const camp = await get(src, "name,objective,special_ad_categories,buying_type,bid_strategy,daily_budget,lifetime_budget");
+  const campParams: Record<string, string> = { name: (camp.name || "Campanha") + " (clone)", objective: camp.objective, status: "PAUSED", special_ad_categories: JSON.stringify(camp.special_ad_categories || []) };
+  if (camp.buying_type) campParams.buying_type = camp.buying_type;
+  if (camp.bid_strategy) campParams.bid_strategy = camp.bid_strategy;
+  if (camp.daily_budget) campParams.daily_budget = String(camp.daily_budget);
+  else if (camp.lifetime_budget) campParams.lifetime_budget = String(camp.lifetime_budget);
+  let newCamp: any;
+  try { newCamp = await post(`act_${tgt}/campaigns`, campParams); } catch (e) { throw new Error("Não consegui criar a campanha no cliente de destino: " + String((e as any)?.message || e)); }
+  const newCampId = newCamp.id;
+  let tgtPixel: string | null = null; try { const px = await get(`act_${tgt}/adspixels`, "id"); tgtPixel = (px.data && px.data[0] && px.data[0].id) || null; } catch (_e) { /* */ }
+  const asRes = await get(`${src}/adsets`, "name,optimization_goal,billing_event,daily_budget,lifetime_budget,bid_amount,targeting,end_time,destination_type,promoted_object").catch(() => ({ data: [] }));
+  const adsets = asRes.data || [];
+  const criados: any[] = [], falhas: any[] = [];
+  for (const as of adsets) {
+    const p: Record<string, string> = { name: as.name || "Conjunto", campaign_id: newCampId, status: "PAUSED", billing_event: as.billing_event || "IMPRESSIONS", optimization_goal: as.optimization_goal || "REACH" };
+    if (as.daily_budget) p.daily_budget = String(as.daily_budget); else if (as.lifetime_budget) { p.lifetime_budget = String(as.lifetime_budget); if (as.end_time) p.end_time = as.end_time; }
+    if (as.bid_amount) p.bid_amount = String(as.bid_amount);
+    if (as.targeting) { const t = { ...as.targeting }; delete t.custom_audiences; delete t.excluded_custom_audiences; p.targeting = JSON.stringify(t); }
+    if (as.destination_type) p.destination_type = as.destination_type;
+    let fallback = false;
+    if (as.promoted_object) {
+      const po = as.promoted_object;
+      if (po.pixel_id && tgtPixel) { const npo: any = { pixel_id: tgtPixel }; if (po.custom_event_type) npo.custom_event_type = po.custom_event_type; p.promoted_object = JSON.stringify(npo); }
+      else { fallback = true; p.optimization_goal = "LINK_CLICKS"; p.billing_event = "IMPRESSIONS"; }
+    }
+    try { const na = await post(`act_${tgt}/adsets`, p); criados.push({ nome: as.name, id: na.id, fallback }); }
+    catch (e) { falhas.push({ nome: as.name, erro: String((e as any)?.message || e).slice(0, 160) }); }
+  }
+  return { ok: true, campanhaId: newCampId, campanhaNome: campParams.name, criados, falhas, pixelDestino: tgtPixel };
+}
+
 // Performance por segmentação (sexo / plataforma / posicionamento) — nível de conta, agregada entre contas
 async function metaBreakdowns(m: any) {
   const token = Deno.env.get("META_USER_TOKEN");
@@ -1988,6 +2028,10 @@ Deno.serve(async (req) => {
     }
     if (body.metaAction) {
       const r = await metaAction(body.metaAction);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.metaCloneCampaign) {
+      const r = await metaCloneCampaign(body.metaCloneCampaign);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.dnaExtract) {

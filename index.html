@@ -686,6 +686,7 @@
       <div id="campFocos" style="display:flex;gap:5px;flex-wrap:wrap"></div>
       <span style="flex:1"></span>
       <div id="campStatusFilter" style="display:flex;gap:4px"></div>
+      <button class="btn sm ghost" id="campCloneBtn" onclick="campCloneOpen()" title="Clonar a estrutura de uma campanha para outro cliente (Meta)">📋 Clonar p/ cliente</button>
       <div style="position:relative">
         <button class="btn sm ghost" onclick="toggleCampColsPanel()">⚙ Colunas</button>
         <div id="campColsPanel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);width:420px;max-width:90vw;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.4);z-index:50;padding:14px"></div>
@@ -3465,6 +3466,49 @@ async function campDuplicate(id,nome,btn){
   }catch(e){alert('Erro ao duplicar: '+(e.message||e));}
   if(btn){btn.disabled=false;btn.style.opacity='1';}
 }
+function campCloneOpen(){
+  if(_campSource==='google'){alert('Clonar estrutura só está disponível no Meta.');return;}
+  const tree=buildCampaignTree(_campAds.filter(a=>a.spend>0)).filter(cp=>cp.id);
+  if(!tree.length){alert('Nenhuma campanha com dados pra clonar. Carregue as campanhas do Meta primeiro.');return;}
+  const targets=DB.clients.filter(c=>c.id!==_campClientId&&c.metaAccountIds&&c.metaAccountIds.length).sort((a,b)=>a.name.localeCompare(b.name));
+  if(!targets.length){alert('Nenhum outro cliente com conta do Meta vinculada pra receber a cópia.');return;}
+  const srcName=(DB.clients.find(c=>c.id===_campClientId)||{}).name||'';
+  const ov=document.createElement('div');ov.id='cloneOverlay';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML=`<div class="card" style="max-width:460px;width:92%;max-height:90vh;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b>📋 Clonar estrutura de campanha</b><button class="btn xs ghost" onclick="document.getElementById('cloneOverlay').remove()">✕</button></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Copia <b>campanha + conjuntos</b> (segmentação, orçamento, objetivo) de <b>${srcName}</b> para outro cliente — tudo criado <b>PAUSADO</b>. Não copia criativos nem público personalizado (são amarrados à conta de origem).</div>
+    <label style="font-size:12px;color:var(--muted)">Campanha de origem</label>
+    <select id="cloneSrc" class="inp" style="margin-bottom:10px">${tree.map(cp=>`<option value="${cp.id}">${(cp.nome||'').replace(/</g,'&lt;')}</option>`).join('')}</select>
+    <label style="font-size:12px;color:var(--muted)">Cliente de destino</label>
+    <select id="cloneTgt" class="inp" style="margin-bottom:14px">${targets.map(c=>`<option value="${c.id}">${c.name.replace(/</g,'&lt;')}</option>`).join('')}</select>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sm ghost" onclick="document.getElementById('cloneOverlay').remove()">Cancelar</button><button class="btn sm primary" onclick="campCloneRun(this)">Clonar (pausado)</button></div>
+    <div id="cloneMsg" style="font-size:12px;margin-top:10px"></div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+async function campCloneRun(btn){
+  const srcId=document.getElementById('cloneSrc').value;
+  const tgtClientId=document.getElementById('cloneTgt').value;
+  const tgt=DB.clients.find(c=>c.id===tgtClientId);
+  const targetAccountId=(tgt&&tgt.metaAccountIds&&tgt.metaAccountIds[0])||'';
+  const msg=document.getElementById('cloneMsg');
+  if(!srcId||!targetAccountId){if(msg)msg.textContent='Escolha origem e destino.';return;}
+  btn.disabled=true;btn.textContent='Clonando…';if(msg)msg.textContent='Criando campanha e conjuntos (pode levar alguns segundos)…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaCloneCampaign:{sourceCampaignId:srcId,targetAccountId}}});
+    if(error)throw new Error(error.message||error);
+    const d=(data&&data.data)||data;
+    if(d&&d.error)throw new Error(d.error);
+    const okN=(d.criados||[]).length,fbN=(d.criados||[]).filter(x=>x.fallback).length,failN=(d.falhas||[]).length;
+    let html=`<div style="color:#34d399">✅ Campanha criada em <b>${tgt.name}</b> (pausada): ${d.campanhaNome}</div>`;
+    html+=`<div style="margin-top:6px">Conjuntos criados: <b>${okN}</b>${failN?` · falharam: ${failN}`:''}</div>`;
+    if(fbN)html+=`<div style="font-size:11.5px;color:var(--warn,#d97706);margin-top:4px">⚠ ${fbN} conjunto(s) de conversão/mensagem entraram como "cliques" (sem pixel/página equivalente no destino) — ajuste a otimização.</div>`;
+    if(failN)html+=`<div style="font-size:11.5px;color:var(--muted);margin-top:4px">${d.falhas.map(f=>`• ${f.nome}: ${f.erro}`).join('<br>')}</div>`;
+    html+=`<div style="font-size:11.5px;color:var(--muted);margin-top:8px">📌 Falta: subir os <b>criativos</b> e conferir <b>pixel/página</b> antes de ativar.</div>`;
+    if(msg)msg.innerHTML=html;
+    btn.textContent='Concluído';
+  }catch(e){if(msg)msg.innerHTML=`<span style="color:var(--danger)">Erro: ${e.message||e}</span>`;btn.disabled=false;btn.textContent='Clonar (pausado)';}
+}
 function monthBounds(offset){const d=new Date();const first=new Date(d.getFullYear(),d.getMonth()+offset,1);const last=new Date(d.getFullYear(),d.getMonth()+offset+1,0);const iso=x=>`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;return{since:iso(first),until:iso(last)};}
 function renderCampRange(){const el=document.getElementById('campRange');if(!el)return;
   const b=(key,lbl,fn)=>`<button class="btn sm ${_campPreset===key?'primary':'ghost'}" onclick="${fn}">${lbl}</button>`;
@@ -3629,6 +3673,7 @@ function campAccErrBar(){
 }
 function renderCampBody(){
   const body=document.getElementById('campBody');if(!body)return;
+  const _cb=document.getElementById('campCloneBtn');if(_cb)_cb.style.display=_campSource==='google'?'none':'';
   // sanitiza colunas pro canal atual (presets/ajustes do Meta podem ter colunas que o Google não tem)
   const avail=campColsAvailable();
   _campCols=_campCols.filter(k=>avail[k]);
