@@ -1114,6 +1114,27 @@ Regras: baseie-se nos números e nas imagens; nunca invente dados; avalie cada c
 }
 
 // Análise de site: PageSpeed Insights (carregamento/acessibilidade/SEO) + leitura de UX/navegação por IA.
+// Junta material do cliente automaticamente (site + copy dos anúncios do Meta + termos de busca do Google) pra montar o DNA.
+async function _dnaGatherFromAccount(clientId: string): Promise<string> {
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,seg,site_url,meta_account_id,google_account_id`))[0];
+  if (!c) return "";
+  const parts: string[] = [`Negócio: ${c.name}. Segmento: ${c.seg || "-"}.`];
+  if (c.site_url) { const t = await fetchUrlText(c.site_url).catch(() => ""); if (t) parts.push("=== SITE DO CLIENTE ===\n" + t.slice(0, 6000)); }
+  const token = Deno.env.get("META_USER_TOKEN");
+  const accs = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+  const copies = new Set<string>();
+  if (token) for (const acc of accs.slice(0, 3)) {
+    try {
+      const r = await fetch(`https://graph.facebook.com/v21.0/act_${acc}/adcreatives?fields=title,body,object_story_spec{link_data{message,name,description}}&limit=150&access_token=${token}`);
+      const j = await r.json();
+      (j.data || []).forEach((cr: any) => { const ld = cr.object_story_spec && cr.object_story_spec.link_data; [cr.title, cr.body, ld && ld.message, ld && ld.name, ld && ld.description].forEach((x: any) => { if (x && String(x).trim().length > 3) copies.add(String(x).trim()); }); });
+    } catch { /* */ }
+  }
+  if (copies.size) parts.push("=== COPY DOS ANÚNCIOS (Meta) ===\n" + [...copies].slice(0, 70).join("\n"));
+  const gAccs = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+  if (gAccs.length) { try { const since = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10); const br: any = await googleBreakdowns({ accounts: gAccs.map((id: string) => ({ id })), since, until }).catch(() => null); if (br && br.termos && br.termos.length) parts.push("=== TERMOS DE BUSCA (Google) ===\n" + br.termos.slice(0, 40).map((t: any) => t.key).join(", ")); } catch { /* */ } }
+  return parts.join("\n\n");
+}
 async function siteAudit(m: any) {
   const url = String(m.url || "").trim();
   if (!url) throw new Error("url obrigatória");
@@ -2441,6 +2462,8 @@ Deno.serve(async (req) => {
     if (body.dnaExtract) {
       let text = body.dnaExtract.text || "";
       if (!text && body.dnaExtract.url) text = await fetchUrlText(body.dnaExtract.url);
+      if (!text && body.dnaExtract.clientId) text = await _dnaGatherFromAccount(body.dnaExtract.clientId);
+      if (!text || text.replace(/\s/g, "").length < 60) return new Response(JSON.stringify({ error: "Sem informação suficiente na conta pra montar o DNA. Preencha o site do cliente, tenha anúncios ativos, ou cole um material (PDF/texto)." }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const r = await extractDna(text, body.dnaExtract.direcionamento || "");
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
