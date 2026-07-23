@@ -294,7 +294,7 @@ async function handleWaConnect(id: string, url: URL): Promise<Response> {
     ins = (conn && conn.instance) ? conn.instance : (conn || ins);
   }
   if (ins.status) { const patch: Record<string, unknown> = { status: ins.status, updated_at: new Date().toISOString() }; if (ins.owner) patch.phone = String(ins.owner).replace(/@.*$/, ""); if (ins.status === "connected") patch.connected_at = new Date().toISOString(); await sbPatch("wa_instances", `id=eq.${encodeURIComponent(id)}`, patch); }
-  return j({ status: ins.status || "connecting", qrcode: ins.qrcode || "", paircode: ins.paircode || "", name: inst.name || "" });
+  return j({ status: ins.status || "connecting", qrcode: ins.qrcode || "", paircode: ins.paircode || ins.pairCode || ins.code || ins.paircode_text || "", name: inst.name || "" });
 }
 
 // ---- Google Agenda (iCal) → tarefas: lê o link secreto, cria tarefa por reunião (dedup por UID) ----

@@ -60,11 +60,12 @@
       var qr=d.qrcode||"";
       var img=qr?(qr.indexOf("data:")===0?qr:"data:image/png;base64,"+qr):"";
       document.getElementById("qrbox").innerHTML=img?('<img src="'+img+'" alt="QR Code">'):'<span class="muted">Gerando QR…</span>';
-      if(d.paircode)document.getElementById("paircode").innerHTML='<div class="code">'+esc(d.paircode)+'</div><div style="margin-top:6px">No WhatsApp: Aparelhos conectados → Conectar com número → digite este código.</div>';
+      if(phone&&d.paircode)document.getElementById("paircode").innerHTML='<div class="code">'+esc(d.paircode)+'</div><div style="margin-top:6px">No WhatsApp: Aparelhos conectados → Conectar com número → digite este código.</div>';
     }catch(e){document.getElementById("qrbox").innerHTML='<span class="muted">Erro ao carregar. Recarregue a página.</span>';}
   }
-  function genPair(){var p=(document.getElementById("phone").value||"").replace(/[^0-9]/g,"");if(!p){alert("Digite o número com DDD.");return;}poll(p);}
+  var curPhone="";
+  function genPair(){var p=(document.getElementById("phone").value||"").replace(/[^0-9]/g,"");if(p.length<10){alert("Digite o número com DDD (ex: 5521999998888).");return;}curPhone=p;document.getElementById("paircode").innerHTML='<div class="muted">Gerando código…</div>';poll(p);}
   poll();
-  timer=setInterval(function(){poll();},3500);
+  timer=setInterval(function(){poll(curPhone);},3500);
 </script>
 </body></html>
