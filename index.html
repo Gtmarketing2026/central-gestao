@@ -3427,14 +3427,16 @@ async function loadCampanhas(clientId,days){
     const adIds=[...new Set(_campAds.filter(a=>!a._google).map(a=>a.adId).filter(Boolean))].slice(0,300);
     if(_campSource==='meta'&&hasMetaAcc)sb.functions.invoke('dynamic-responder',{body:{metaEntities:{accounts,adIds}}}).then(r=>{
       const ent=(r.data&&r.data.data)||r.data||{};
-      (ent.campaigns||[]).forEach(x=>_campStatus.camp[x.id]=x.status);
-      (ent.adsets||[]).forEach(x=>_campStatus.adset[x.id]=x.status);
+      _campBudget={camp:{},adset:{}};
+      (ent.campaigns||[]).forEach(x=>{_campStatus.camp[x.id]=x.status;if(x.orcamentoDiario)_campBudget.camp[x.id]=x.orcamentoDiario;});
+      (ent.adsets||[]).forEach(x=>{_campStatus.adset[x.id]=x.status;if(x.orcamentoDiario)_campBudget.adset[x.id]=x.orcamentoDiario;});
       (ent.ads||[]).forEach(x=>_campStatus.ad[x.id]=x.status);
       if(document.querySelector('.panel#campanhas.active')&&_campClientId===c.id)renderCampBody();
     }).catch(()=>{});
   }catch(e){body.innerHTML=`<div class="empty">Erro: ${e.message}</div>`;}
 }
 let _campStatus={camp:{},adset:{},ad:{}};
+let _campBudget={camp:{},adset:{}};
 function campSwitchHTML(objLevel,objId,st){
   const known=st==='ACTIVE'||st==='PAUSED';
   if(!known){ // status indisponível (ex: rate limit) — cinza neutro, nunca "pausado" por engano
@@ -3508,6 +3510,20 @@ async function campCloneRun(btn){
     if(msg)msg.innerHTML=html;
     btn.textContent='Concluído';
   }catch(e){if(msg)msg.innerHTML=`<span style="color:var(--danger)">Erro: ${e.message||e}</span>`;btn.disabled=false;btn.textContent='Clonar (pausado)';}
+}
+async function campEditBudget(level,id,atual,btn){
+  const label=level==='camp'?'campanha':'conjunto';
+  const v=prompt(`Novo orçamento diário (R$) da ${label} — atual ${fmt(atual)}:`,String(atual));
+  if(v==null)return;
+  const novo=parseFloat(String(v).replace(/[^\d.,]/g,'').replace('.','').replace(',','.'));
+  if(isNaN(novo)||novo<1){alert('Valor inválido (mínimo R$1,00).');return;}
+  if(!confirm(`Mudar o orçamento diário da ${label} de ${fmt(atual)} para ${fmt(novo)} no Meta agora?`))return;
+  const old=btn.textContent;btn.textContent='…';btn.disabled=true;
+  try{
+    await metaExecute({action:'budget',id,novoOrcamentoDiario:novo});
+    _campBudget[level][id]=novo;
+    renderCampBody();
+  }catch(e){alert('Erro: '+(e.message||e));btn.textContent=old;btn.disabled=false;}
 }
 function monthBounds(offset){const d=new Date();const first=new Date(d.getFullYear(),d.getMonth()+offset,1);const last=new Date(d.getFullYear(),d.getMonth()+offset+1,0);const iso=x=>`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;return{since:iso(first),until:iso(last)};}
 function renderCampRange(){const el=document.getElementById('campRange');if(!el)return;
@@ -3660,8 +3676,11 @@ function campRowHTML(name,level,agg,tipo,toggleId,badge,objLevel,objId){
   const cells=_campCols.map(k=>`<div style="padding:8px 6px;font-size:12px;text-align:right">${CAMP_COLS[k]?CAMP_COLS[k].get(d,tipo):''}</div>`).join('');
   const bg=level===1?'background:var(--surface2);':level===2?'background:rgba(255,255,255,.02);':'';
   const dupBtn=(level===1&&_campSource!=='google'&&objId)?`<button onclick="event.stopPropagation();campDuplicate('${objId}','${(name||'').replace(/'/g,'').replace(/"/g,'')}',this)" title="Duplicar campanha (cópia pausada no Meta)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 4px;flex:none">⧉</button>`:'';
+  const budLevel=objLevel==='camp'?'camp':objLevel==='adset'?'adset':null;
+  const bud=(_campSource!=='google'&&objId&&budLevel&&_campBudget[budLevel])?_campBudget[budLevel][objId]:null;
+  const budBtn=bud?`<button onclick="event.stopPropagation();campEditBudget('${budLevel}','${objId}',${bud},this)" title="Editar orçamento diário no Meta" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;font-size:11px;padding:1px 6px;flex:none;white-space:nowrap">💰 ${fmt(bud)}/dia ✏️</button>`:'';
   return `<div ${toggleId?`onclick="toggleCampRow('${toggleId}')" style="cursor:pointer;`:'style="'}display:grid;${campGrid()}align-items:center;border-bottom:1px solid rgba(255,255,255,.05);${bg}">
-    <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:2px" title="${(name||'').replace(/"/g,'')}">${stBtn}${caret} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${campHL(name)}</span>${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400;flex:none">${badge}</span>`:''}${dupBtn}</div>
+    <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px" title="${(name||'').replace(/"/g,'')}">${stBtn}${caret} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${campHL(name)}</span>${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400;flex:none">${badge}</span>`:''}${budBtn}${dupBtn}</div>
     ${cells}</div>`;
 }
 function campAccErrBar(){
@@ -4706,10 +4725,21 @@ function clientTypeLabel(cat){return typeLabels[cat]||cat||'—'}
 
 /* ---- BUDGET CHANNELS ---- */
 let budgetRows=[];
+const BUDGET_CHANNELS=['Meta Ads','Google Ads','TikTok Ads','LinkedIn Ads','Pinterest Ads','Kwai Ads','Taboola','Bing Ads','YouTube Ads','Outro'];
 function renderBudgetChannels(){
-  document.getElementById('cBudgetChannels').innerHTML=budgetRows.map((r,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center"><input placeholder="Canal (ex: Meta Ads)" value="${r.name||''}" style="flex:1" oninput="budgetRows[${i}].name=this.value"><input type="number" placeholder="R$" value="${r.val||''}" style="width:110px" oninput="budgetRows[${i}].val=+this.value;budgetAutoCalc()"><button class="btn sm ghost danger" type="button" onclick="budgetRows.splice(${i},1);renderBudgetChannels();budgetAutoCalc()">✕</button></div>`).join('');
+  document.getElementById('cBudgetChannels').innerHTML=budgetRows.map((r,i)=>{
+    const known=BUDGET_CHANNELS.includes(r.name);
+    const opts=BUDGET_CHANNELS.map(ch=>`<option value="${ch}" ${r.name===ch?'selected':''}>${ch}</option>`).join('');
+    const custom=(!known&&r.name)?`<option value="${(r.name||'').replace(/"/g,'&quot;')}" selected>${r.name}</option>`:'';
+    return `<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+      <select style="flex:1" onchange="budgetSetChannel(${i},this.value)"><option value="">— canal —</option>${opts}${custom}</select>
+      ${(r.name==='Outro'||(!known&&r.name))?`<input placeholder="Nome do canal" value="${(known?'':r.name||'').replace(/"/g,'&quot;')}" style="width:130px" oninput="budgetRows[${i}].name=this.value">`:''}
+      <input type="number" placeholder="R$" value="${r.val||''}" style="width:100px" oninput="budgetRows[${i}].val=+this.value;budgetAutoCalc()">
+      <button class="btn sm ghost danger" type="button" onclick="budgetRows.splice(${i},1);renderBudgetChannels();budgetAutoCalc()">✕</button></div>`;
+  }).join('');
   budgetAutoCalc();
 }
+function budgetSetChannel(i,v){budgetRows[i].name=v;renderBudgetChannels();}
 function addBudgetChannel(){budgetRows.push({name:'',val:0});renderBudgetChannels()}
 function budgetAutoCalc(){
   const total=+document.getElementById('cBudget').value||0;
