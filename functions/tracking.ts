@@ -260,7 +260,6 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
   const aw = (((await sbSelect("account_config", "id=eq.main&select=data"))[0]?.data) || {}).andreia_wa || {};
   if (aw.instance_id === instId) {
     for (const m of msgs) {
-      if (m.fromMe) continue;
       const chatid = String(m.chatid || "");
       if (aw.group_jid && chatid !== aw.group_jid) continue;
       const sender = String(m.sender_pn || m.sender || "").replace(/@.*$/, "");
@@ -271,6 +270,9 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
       if (_mt === "ptt" || _mt === "audio" || /audio/.test(_mime)) _mkind = "audio";
       else if (_mt === "image" || /image/.test(_mime)) _mkind = "image";
       else if (_mt === "document" || /pdf/.test(_mime)) _mkind = "document";
+      // A AndréIA NUNCA envia mídia (só texto via API). Então: mensagem da própria dona (fromMe) só é
+      // processada quando tem MÍDIA (áudio/imagem/PDF) — zero risco de loop. Texto fromMe é ignorado (evita eco das respostas dela).
+      if (m.fromMe && !_mkind) continue;
       const payload = { waAgent: { instanceId: instId, chatid, sender, text: waMsgText(m), msgid: String(m.messageid || m.id || ""), mtype: _mkind, mime: _mime, fname: String((m.content && (m.content.fileName || m.content.title)) || "") } };
       try { await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify(payload) }); } catch (_e) {}
     }
