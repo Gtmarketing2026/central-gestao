@@ -1372,6 +1372,7 @@ const WA_TOOLS = [
   { type: "function", function: { name: "consultar_banco", description: "Consulta SOMENTE LEITURA de qualquer tabela do sistema pra buscar dados reais (cliente, financeiro, tarefas, conversas do CRM, RD, pedidos etc). SEMPRE use antes de responder sobre dados guardados.", parameters: { type: "object", properties: { tabela: { type: "string", enum: Object.keys(WA_TABLES) }, colunas: { type: "string", description: "colunas separadas por vírgula ou '*'" }, filtro: { type: "string", description: "filtro no formato PostgREST, ex: 'client=eq.<id>&status=eq.pendente'; datas: 'due=gte.2026-07-01&due=lte.2026-07-31'; texto: 'description=ilike.*fee*'. Vazio = sem filtro." }, ordenar: { type: "string", description: "ex: 'created_at.desc' ou 'due.asc'" }, limite: { type: "integer" } }, required: ["tabela"] } } },
   { type: "function", function: { name: "meta_insights", description: "Métricas de Meta Ads AO VIVO de UM cliente no período: 'total' (consolidado, já filtrado pela métrica do objetivo) e 'campanhas' (CADA campanha com gasto, orçamento diário e os KPIs do objetivo DELA). Use pra 'como tá o cliente X', 'campanhas do X', detalhes por campanha.", parameters: { type: "object", properties: { cliente: { type: "string", description: "nome do cliente" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "google_insights", description: "Métricas de Google Ads AO VIVO de UM cliente no período.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer" } }, required: ["cliente"] } } },
+  { type: "function", function: { name: "google_keywords", description: "Palavras-chave e termos de busca do Google Ads de UM cliente no período (por palavra: gasto, cliques, conversões, CPC). USE isto quando perguntarem 'como está cada palavra-chave', keywords, termos de busca ou o que as pessoas pesquisaram.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "resumo_todos_clientes", description: "Resumo de TODOS os clientes no período (gasto + métrica do objetivo, Meta/Google separados). Use quando pedirem panorama/todos os clientes.", parameters: { type: "object", properties: { dias: { type: "integer" } } } } },
   { type: "function", function: { name: "financeiro", description: "Consulta financeira com TOTAL e itens já com o nome do cliente resolvido e a soma correta. USE ISSO pra qualquer pergunta de dinheiro (a receber, a pagar, recebido, pago, fluxo do mês).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["receita", "despesa"] }, status: { type: "string", enum: ["pendente", "pago"] }, mes: { type: "string", description: "AAAA-MM, ex: 2026-07" }, cliente: { type: "string" } } } } },
   { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM). Para criar_tarefa, o RESPONSÁVEL (quem faz) e o QUANDO (data) são obrigatórios — se o usuário não disser, PERGUNTE antes.", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"] }, cliente: { type: "string" }, nome: { type: "string", description: "título da tarefa" }, responsavel: { type: "string", description: "nome de quem vai fazer a tarefa (membro da equipe)" }, quando: { type: "string", description: "data da tarefa em AAAA-MM-DD (calcule 'amanhã', 'sexta' etc. a partir de hoje)" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
@@ -1381,6 +1382,7 @@ const WA_MENU_TEXT = `🤖 *AndréIA — o que posso fazer aqui no grupo:*
 📊 *Análise*
 • _Como tá o [cliente] nos últimos 7 dias?_
 • _Detalhes das campanhas do [cliente]_
+• _Como está cada palavra-chave do [cliente]?_ (Google)
 • _Resumo de todos os clientes_
 • _Quem precisa de atenção?_
 • _Saúde da carteira_
@@ -1471,6 +1473,17 @@ async function waExecTool(name: string, args: any, clients: any[]) {
     const d = Number(args.dias) || 30; const since = new Date(Date.now() - d * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
     const r = await googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until }).catch((e: any) => ({ erro: String(e?.message || e) }));
     return { cliente: c.name, _cid: c.id, dias: d, total: r && (r as any).total };
+  }
+  if (name === "google_keywords") {
+    const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" };
+    const gIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean); if (!gIds.length) return { cliente: c.name, aviso: "cliente sem Google Ads vinculado" };
+    const dd = Number(args.dias) || 7; const since = new Date(Date.now() - dd * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
+    const r: any = await googleBreakdowns({ accounts: gIds.map((id: string) => ({ id })), since, until }).catch((e: any) => ({ erro: String(e?.message || e) }));
+    if (r.erro) return { cliente: c.name, dias: dd, erro: r.erro };
+    const fmt = (arr: any[]) => (arr || []).filter((k: any) => (k.spend || 0) > 0 || (k.clicks || 0) > 0).slice(0, 15).map((k: any) => ({ termo: k.key, gasto: Math.round(k.spend), cliques: k.clicks, conversoes: +(k.conversions || 0).toFixed(1), cpc: k.clicks ? +(k.spend / k.clicks).toFixed(2) : 0 }));
+    const palavrasChave = fmt(r.keywords), termosDeBusca = fmt(r.termos);
+    if (!palavrasChave.length && !termosDeBusca.length) return { cliente: c.name, dias: dd, aviso: "sem palavras-chave com dados no período (o cliente pode não estar rodando Rede de Pesquisa, ou não teve impressões)" };
+    return { cliente: c.name, dias: dd, palavrasChave, termosDeBusca };
   }
   return { erro: "ferramenta desconhecida" };
 }
