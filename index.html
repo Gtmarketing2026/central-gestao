@@ -8925,17 +8925,41 @@ function _rtRebuildChStats(ads,orig){
   if(oG){const {g}=_rtChAgg(ads.filter(a=>a._google),0);out.GOOGLE={...oG,spend:g.spend,impressions:g.impressions,clicks:g.clicks,reach:0,revenue:g.revenue,sales:Math.round(g.purchases),videoViews:g.videoViews,engajamentos:g.engajamentos,records:[]};}
   return out;
 }
-function rtToggleFilter(id,val){const arr=id==='acc'?_rtFAcc:_rtFCamp;const i=arr.indexOf(val);if(i>=0)arr.splice(i,1);else arr.push(val);if(id==='acc')_rtFCamp=[];rtRerender();}
-function rtClearFilter(id){if(id==='acc'){_rtFAcc=[];_rtFCamp=[];}else _rtFCamp=[];rtRerender();}
-function rtTogglePanel(id){const p=document.getElementById('rtfp_'+id);if(!p)return;const open=p.style.display==='none';document.querySelectorAll('[id^=rtfp_]').forEach(x=>x.style.display='none');p.style.display=open?'block':'none';}
+let _rtFilterDirty=false,_rtOutsideBound=false;
+// marca a seleção mas NÃO re-renderiza (senão o painel fecha a cada clique); atualiza só o rótulo do botão
+function rtToggleFilter(id,val){
+  const arr=id==='acc'?_rtFAcc:_rtFCamp;const i=arr.indexOf(val);if(i>=0)arr.splice(i,1);else arr.push(val);
+  if(id==='acc')_rtFCamp=[];
+  _rtFilterDirty=true;
+  const p=document.getElementById('rtfp_'+id);const btn=p&&p.previousElementSibling;
+  if(btn){btn.classList.toggle('primary',arr.length>0);btn.classList.toggle('ghost',arr.length===0);const lbl=btn.getAttribute('data-label')||'';btn.textContent=`${lbl}: ${arr.length?arr.length+' sel.':'todas'} ▾`;}
+}
+function rtApplyFilterIfDirty(){if(_rtFilterDirty){_rtFilterDirty=false;rtRerender();}}
+function rtClearFilter(id){if(id==='acc'){_rtFAcc=[];_rtFCamp=[];}else _rtFCamp=[];_rtFilterDirty=false;rtRerender();}
+function rtTogglePanel(id){
+  const p=document.getElementById('rtfp_'+id);if(!p)return;
+  const willOpen=p.style.display==='none';
+  document.querySelectorAll('[id^=rtfp_]').forEach(x=>{if(x!==p)x.style.display='none';});
+  p.style.display=willOpen?'block':'none';
+  if(!willOpen)rtApplyFilterIfDirty(); // fechou pelo próprio botão → aplica
+  if(!_rtOutsideBound){ // fecha ao clicar fora e aplica o filtro pendente
+    _rtOutsideBound=true;
+    document.addEventListener('click',function(e){
+      const open=[...document.querySelectorAll('[id^=rtfp_]')].filter(x=>x.style.display!=='none');
+      if(!open.length)return;
+      if(e.target.closest('[id^=rtfp_]')||e.target.closest('.rtFilterTrigger'))return;
+      open.forEach(x=>x.style.display='none');rtApplyFilterIfDirty();
+    });
+  }
+}
 function rtMulti(id,label,opts,sel,labelFn){
   const cnt=sel.length?`${sel.length} sel.`:'todas';
   const lbl=o=>((labelFn?labelFn(o):o)||'—').replace(/</g,'&lt;');
   const items=opts.length?opts.map(o=>`<label style="display:flex;gap:6px;align-items:center;padding:3px 4px;font-size:12px;cursor:pointer"><input type="checkbox" ${sel.includes(o)?'checked':''} onchange="rtToggleFilter('${id}',this.getAttribute('data-v'))" data-v="${String(o||'').replace(/"/g,'&quot;')}" style="width:auto">${lbl(o)}</label>`).join(''):'<div style="font-size:11px;color:var(--rtm);padding:4px">sem opções</div>';
   return `<div style="position:relative">
-    <button class="btn sm ${sel.length?'primary':'ghost'}" type="button" onclick="rtTogglePanel('${id}')">${label}: ${cnt} ▾</button>
+    <button class="btn sm rtFilterTrigger ${sel.length?'primary':'ghost'}" type="button" data-label="${label}" onclick="rtTogglePanel('${id}')">${label}: ${cnt} ▾</button>
     <div id="rtfp_${id}" style="display:none;position:absolute;z-index:40;top:110%;right:0;min-width:250px;max-height:300px;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.45)">
-      <div style="text-align:right;padding:0 4px 4px"><a onclick="rtClearFilter('${id}')" style="font-size:11px;color:var(--accent);cursor:pointer">limpar</a></div>${items}</div></div>`;
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:0 4px 6px;gap:8px"><a onclick="rtClearFilter('${id}')" style="font-size:11px;color:var(--accent);cursor:pointer">limpar</a><a onclick="rtTogglePanel('${id}')" style="font-size:11px;color:var(--rtm);cursor:pointer">✓ aplicar</a></div>${items}</div></div>`;
 }
 // resolve o layout do cliente (ordem + on/off); default = tudo ligado; acrescenta seções/abas novas do catálogo no fim
 function rtResolveLayout(c){
