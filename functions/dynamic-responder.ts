@@ -1365,16 +1365,21 @@ function _domObj(r: any): string | null {
   return best;
 }
 // métrica do OBJETIVO. Se `obj` vier (tipo dominante das campanhas), segue ELE; senão cai no heurístico por presença de valor.
+function _objLabel(o?: string | null) { return ({ conversao: "venda", app: "venda", leads: "leads", mensagens: "mensagens", video: "vídeo", alcance: "alcance", distribuicao: "alcance", engajamento: "engajamento", trafego: "tráfego" } as Record<string, string>)[o || ""] || "tráfego"; }
 function _objMetric(t: any, google: boolean, obj?: string | null) {
   const spend = t.spend || 0;
   const isVenda = obj === "conversao" || obj === "app" || (!obj && (t.purchases || 0) > 0);
   const isLead = obj === "leads" || (!obj && !google && (t.leads || 0) > 0);
   const isMsg = obj === "mensagens" || (!obj && !google && (t.conversas || 0) > 0);
   const isVideo = obj === "video";
+  const isAlcance = obj === "alcance" || obj === "distribuicao";
+  const isEngaj = obj === "engajamento";
   if (isVenda) { const roas = t.roas != null ? t.roas : (spend ? (t.revenue || 0) / spend : 0); return `Compras ${Math.round(t.purchases || 0)} · ROAS ${(roas || 0).toFixed(2)}`; }
   if (isLead) return `Leads ${t.leads || 0} · CPL ${_fmtR(t.leads ? spend / t.leads : 0)}`;
   if (isMsg) return `Conversas ${t.conversas || 0} · Custo/conversa ${_fmtR(t.conversas ? spend / t.conversas : 0)}`;
   if (isVideo) return `Views ${Math.round(t.videoViews || 0)} · Custo/view ${_fmtR(t.videoViews ? spend / t.videoViews : 0)}`;
+  if (isAlcance) { const cpm = t.cpm != null ? t.cpm : (t.impressions ? spend / t.impressions * 1000 : 0); const freq = t.reach ? t.impressions / t.reach : 0; return `Alcance ${Math.round(t.reach || 0).toLocaleString("pt-BR")} · CPM ${_fmtR(cpm)}${freq ? ` · Freq ${freq.toFixed(2)}` : ""}`; }
+  if (isEngaj) return `Engajamentos ${Math.round(t.engajamentos || 0).toLocaleString("pt-BR")} · Custo ${_fmtR(t.engajamentos ? spend / t.engajamentos : 0)}`;
   const ctr = t.ctr != null ? t.ctr : (t.impressions ? (t.clicks / t.impressions * 100) : 0);
   const cpc = t.cpc != null ? t.cpc : (t.clicks ? spend / t.clicks : 0);
   return `Cliques ${t.clicks || 0} · CTR ${(ctr || 0).toFixed(2)}% · CPC ${_fmtR(cpc)}`;
@@ -1441,20 +1446,44 @@ function _waKpiFull(t: any, google: boolean, obj?: string | null): string[] {
   const isLead = obj === "leads" || (!obj && !google && (t.leads || 0) > 0);
   const isMsg = obj === "mensagens" || (!obj && !google && (t.conversas || 0) > 0);
   const isVideo = obj === "video" || (!obj && (t.videoViews || 0) > 0);
+  const isAlcance = obj === "alcance" || obj === "distribuicao";
+  const isEngaj = obj === "engajamento";
   if (isVenda) { const roas = t.roas != null ? t.roas : (t.spend ? (t.revenue || 0) / t.spend : 0); L.push(`Compras: ${Math.round(t.purchases || 0)}`); L.push(`ROAS: ${(roas || 0).toFixed(2)}x`); L.push(`CPA: ${t.purchases ? _fmtR(t.spend / t.purchases) : "—"}`); if (t.revenue) L.push(`Receita: ${_fmtR(t.revenue)}`); }
   else if (isLead) { L.push(`Leads: ${t.leads || 0}`); L.push(`CPL: ${t.leads ? _fmtR(t.spend / t.leads) : "—"}`); }
   else if (isMsg) { L.push(`Conversas: ${t.conversas || 0}`); L.push(`Custo/conversa: ${t.conversas ? _fmtR(t.spend / t.conversas) : "—"}`); }
   else if (isVideo) { L.push(`Visualizações: ${Math.round(t.videoViews || 0).toLocaleString("pt-BR")}`); }
+  else if (isAlcance) { if (!google && t.reach && t.impressions) L.push(`Frequência: ${(t.impressions / t.reach).toFixed(2)}`); }
+  else if (isEngaj) { L.push(`Engajamentos: ${Math.round(t.engajamentos || 0).toLocaleString("pt-BR")}`); }
   return L;
 }
-// Uma frase de análise do gestor por cliente (1 chamada LLM sobre os dados compilados)
+// Análise do gestor POR CANAL, cada um julgado pelo SEU objetivo. Retorna cliente -> texto (1 linha por canal).
 async function _waAnalises(items: any[]): Promise<Record<string, string>> {
   try {
-    const data = items.map((r: any) => ({ cliente: r.nome, meta: r.meta ? `${_objMetric(r.meta, false, r.objMeta)} (gasto ${Math.round(r.meta.spend)})` : null, google: r.google ? `${_objMetric(r.google, true, r.objGoogle)} (gasto ${Math.round(r.google.spend)})` : null }));
-    const sys = `Você é a AndréIA, gestora de tráfego sênior. Para CADA cliente, escreva UMA frase curta (máx ~18 palavras) de análise do gestor: o que está bom ou ruim pelo OBJETIVO do cliente e o próximo passo. Direto, sem enrolação. Responda em JSON: {"analises":[{"cliente":"nome exato","texto":"..."}]}`;
-    const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content: JSON.stringify(data) }], response_format: { type: "json_object" }, max_tokens: 1200, temperature: 0.4 });
+    const data = items.map((r: any) => {
+      const canais: any[] = [];
+      if (r.meta && (r.meta.spend || 0) > 0) canais.push({ canal: "Meta", objetivo: _objLabel(r.objMeta), metricas: _objMetric(r.meta, false, r.objMeta), gasto: Math.round(r.meta.spend) });
+      if (r.google && (r.google.spend || 0) > 0) canais.push({ canal: "Google", objetivo: _objLabel(r.objGoogle), metricas: _objMetric(r.google, true, r.objGoogle), gasto: Math.round(r.google.spend) });
+      return { cliente: r.nome, canais };
+    });
+    const sys = `Você é a AndréIA, gestora de tráfego sênior. Analise CADA CLIENTE e, dentro dele, CADA CANAL SEPARADAMENTE — julgando pelo OBJETIVO daquele canal (o campo "objetivo"):
+- venda: avalie ROAS/CPA/faturamento.
+- leads: avalie quantidade de leads e CPL.
+- mensagens: avalie conversas e custo por conversa.
+- tráfego: avalie cliques, CPC e CTR.
+- alcance: avalie alcance, CPM e frequência — NÃO fale de cliques/CTR nem de conversões/vendas.
+- engajamento: avalie engajamentos e custo por engajamento.
+- vídeo: avalie visualizações e custo por view.
+REGRAS: nunca cite venda/conversão/ROAS se o objetivo não for venda. Nunca cite CTR/cliques se o objetivo for alcance. Uma frase curta (máx ~16 palavras) POR CANAL, dizendo o que está bom/ruim e o próximo passo. Se houver 2 canais, dê uma frase pra cada.
+Responda em JSON: {"analises":[{"cliente":"nome exato","linhas":[{"canal":"Meta","texto":"..."},{"canal":"Google","texto":"..."}]}]}`;
+    const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content: JSON.stringify(data) }], response_format: { type: "json_object" }, max_tokens: 1600, temperature: 0.4 });
     const parsed = JSON.parse(j.choices[0].message.content || "{}");
-    const map: Record<string, string> = {}; (parsed.analises || []).forEach((a: any) => { if (a && a.cliente) map[a.cliente] = a.texto; }); return map;
+    const map: Record<string, string> = {};
+    (parsed.analises || []).forEach((a: any) => {
+      if (!a || !a.cliente) return;
+      if (Array.isArray(a.linhas) && a.linhas.length) map[a.cliente] = a.linhas.filter((l: any) => l && l.texto).map((l: any) => `• *${l.canal}:* ${l.texto}`).join("\n");
+      else if (a.texto) map[a.cliente] = a.texto;
+    });
+    return map;
   } catch (_e) { return {}; }
 }
 // Resumo de clientes no período (por cliente, Meta/Google separados). `escopo` filtra QUEM entra; `nivel` = resumido|completo. Retorna mensagens (chunked).
@@ -1508,7 +1537,7 @@ async function waAgentAllClientsSummary(days: number, escopo = "padrao", nivel =
       if (mS > 0) b += `\n\n📘 *META*\n${_waKpiFull(r.meta, false, r.objMeta).map((l: string) => `• ${l}`).join("\n")}`;
       if (gS > 0) b += `\n\n🔎 *GOOGLE*\n${_waKpiFull(r.google, true, r.objGoogle).map((l: string) => `• ${l}`).join("\n")}`;
       if (mS > 0 && gS > 0) b += `\n\n💰 *Total investido:* ${_fmtR(mS + gS)}`;
-      if (analises[r.nome]) b += `\n\n💬 _${analises[r.nome]}_`;
+      if (analises[r.nome]) b += `\n\n💬 *Análise*\n${analises[r.nome]}`;
     } else {
       if (mS > 0) b += `\n📘 Meta — Gasto ${_fmtR(mS)} · ${_objMetric(r.meta, false, r.objMeta)}`;
       if (gS > 0) b += `\n🔎 Google — Gasto ${_fmtR(gS)} · ${_objMetric(r.google, true, r.objGoogle)}`;
@@ -1668,8 +1697,10 @@ function _fmtN(v: number) { return Math.round(v || 0).toLocaleString("pt-BR"); }
 function _brDia(iso: string) { const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}` : iso; }
 async function _waAnaliseCliente(nome: string, mt: any, gt: any, objM?: string | null, objG?: string | null) {
   try {
-    const data = { cliente: nome, meta: mt ? _objMetric(mt, false, objM) : null, google: gt ? _objMetric(gt, true, objG) : null };
-    const sys = "Você é a AndréIA, gestora de tráfego da GT Marketing, escrevendo PARA O CLIENTE. Em 1 ou 2 frases curtas, profissionais e claras (sem jargão técnico, sem falar em 'pausar/escalar/otimizar campanha'), resuma o desempenho do período de forma honesta e positiva. Não use markdown nem emojis.";
+    const data: any = { cliente: nome };
+    if (mt) data.meta = { objetivo: _objLabel(objM), metricas: _objMetric(mt, false, objM) };
+    if (gt) data.google = { objetivo: _objLabel(objG), metricas: _objMetric(gt, true, objG) };
+    const sys = "Você é a AndréIA, gestora de tráfego da GT Marketing, escrevendo PARA O CLIENTE. Em 1 ou 2 frases curtas, profissionais e claras (sem jargão técnico, sem 'pausar/escalar/otimizar'), resuma o desempenho de forma honesta e positiva, SEMPRE pelo OBJETIVO de cada canal (o campo 'objetivo'). Se houver dois canais com objetivos diferentes, comente cada um pelo seu objetivo. NUNCA cite venda/conversão se o objetivo não for venda; NUNCA cite CTR/cliques se o objetivo for alcance. Não use markdown nem emojis.";
     const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content: JSON.stringify(data) }], max_tokens: 180, temperature: 0.5 });
     return (j.choices[0].message.content || "").trim();
   } catch (_e) { return ""; }
