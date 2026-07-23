@@ -241,6 +241,7 @@
         <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('relatorios')">📊 Relatórios</button>
         <button class="tab" style="padding-left:28px;font-size:12.5px" onclick="sbCfg('dna')">🧬 DNA &amp; Conhecimento</button>
       </div>
+      <button class="tab" data-tab="reunioes">📅 Reuniões</button>
       <button class="tab" data-tab="relatorios">📊 Relatórios</button>
       </div>
 
@@ -490,6 +491,24 @@
   </section>
 
   <!-- TASKS -->
+  <section class="panel" id="reunioes">
+    <div class="section-head">
+      <h2>📅 Reuniões</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn ghost sm" onclick="reunSync(this)" style="font-size:12px">🔄 Sincronizar agenda</button>
+        <div style="display:flex;gap:4px;align-items:center">
+          <button class="btn ghost sm" onclick="reunMonth(-1)">‹</button>
+          <b id="reunMonthLbl" style="min-width:150px;text-align:center;display:inline-block;font-size:13px"></b>
+          <button class="btn ghost sm" onclick="reunMonth(1)">›</button>
+          <button class="btn ghost sm" onclick="reunMonth(0)" style="font-size:12px">Hoje</button>
+        </div>
+      </div>
+    </div>
+    <div id="reunConnWarn"></div>
+    <div id="reunCal"></div>
+    <div id="reunList" style="margin-top:18px"></div>
+  </section>
+
   <section class="panel" id="tasks">
     <div class="section-head">
       <h2>Tarefas e entregas</h2>
@@ -1954,6 +1973,55 @@ function goToTab(tabId){
   else stopCrmPoll();
   if(tabId==='whatsapp')loadWhatsappTab();
   if(tabId==='tasks')calendarAutoSync();
+  if(tabId==='reunioes')loadReunioes();
+}
+/* ===== Reuniões (calendário do Google Agenda) ===== */
+let _reunTasks=[], _reunRef=null;
+function _ymdLocal(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+async function loadReunioes(){
+  if(!_acctCfg)await loadAccountConfig();
+  const warn=document.getElementById('reunConnWarn');
+  const connected=(_acctCfg&&_acctCfg.google_cal&&_acctCfg.google_cal.refresh_token)||(_acctCfg&&_acctCfg.calendar_ics);
+  if(warn)warn.innerHTML=connected?'':`<div class="card" style="border:1px solid var(--warn,#d97706);margin-bottom:14px"><b>⚠ Agenda não conectada.</b> Vá em ⚙️ Configurações → 🗓 Google Agenda → <b>Conectar Google</b> para suas reuniões aparecerem aqui.</div>`;
+  if(!_reunRef)_reunRef=new Date();
+  await reunLoadData();renderReun();
+}
+async function reunLoadData(){
+  const {data}=await sb.from('tasks').select('id,name,client,due,notes,status').like('id','cal%').order('due',{ascending:true}).limit(500);
+  _reunTasks=(data||[]).map(t=>({id:t.id,name:t.name,client:t.client,due:t.due,status:t.status,hora:(String(t.notes||'').match(/(\d{2}:\d{2})/)||[])[1]||'',link:(String(t.notes||'').match(/https?:\/\/\S+/)||[])[0]||''}));
+}
+function reunMonth(delta){if(delta===0)_reunRef=new Date();else _reunRef=new Date(_reunRef.getFullYear(),_reunRef.getMonth()+delta,1);renderReun();}
+async function reunSync(btn){const o=btn.textContent;btn.textContent='…';btn.disabled=true;try{const r=await fetch(TRACK_BASE+'/calendar/sync');const d=await r.json();await reunLoadData();renderReun();}catch(e){}btn.textContent=o;btn.disabled=false;}
+function reunOpen(id){const t=_reunTasks.find(x=>x.id===id);if(t&&t.link){window.open(t.link,'_blank');return;}if(typeof openTaskModal==='function')openTaskModal(id);}
+function renderReun(){
+  const lbl=document.getElementById('reunMonthLbl'),cal=document.getElementById('reunCal'),list=document.getElementById('reunList');if(!cal)return;
+  const ref=_reunRef||new Date();const y=ref.getFullYear(),m=ref.getMonth();
+  const MES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  if(lbl)lbl.textContent=`${MES[m]} ${y}`;
+  const byDay={};_reunTasks.forEach(t=>{if(t.due)(byDay[t.due]=byDay[t.due]||[]).push(t);});
+  const startDow=new Date(y,m,1).getDay(),daysIn=new Date(y,m+1,0).getDate(),today=_ymdLocal(new Date());
+  const WD=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  let cells='';
+  for(let i=0;i<startDow;i++)cells+=`<div style="min-height:90px;border:1px solid var(--border);border-radius:8px;opacity:.25"></div>`;
+  for(let d=1;d<=daysIn;d++){
+    const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const evs=(byDay[ds]||[]).sort((a,b)=>(a.hora||'99').localeCompare(b.hora||'99'));
+    const isToday=ds===today;
+    const chips=evs.slice(0,3).map(t=>{const cn=(DB.clients.find(c=>c.id===t.client)||{}).name||'';return `<div onclick="reunOpen('${t.id}')" title="${(t.name||'').replace(/"/g,'&quot;')}" style="cursor:pointer;font-size:10.5px;background:var(--surface2);border-left:3px solid var(--accent);border-radius:4px;padding:1px 4px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.hora?`<b>${t.hora}</b> `:''}${(t.name||'').replace(/</g,'&lt;')}${cn?` · ${cn}`:''}</div>`;}).join('');
+    const more=evs.length>3?`<div style="font-size:10px;color:var(--muted);margin-top:2px">+${evs.length-3} mais</div>`:'';
+    cells+=`<div style="min-height:90px;border:1px solid ${isToday?'var(--accent)':'var(--border)'};border-radius:8px;padding:4px;background:${isToday?'rgba(240,192,64,.06)':'var(--surface)'}"><div style="font-size:11px;font-weight:700;color:${isToday?'var(--accent)':'var(--muted)'}">${d}</div>${chips}${more}</div>`;
+  }
+  cal.innerHTML=`<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px">${WD.map(w=>`<div style="font-size:10px;text-transform:uppercase;color:var(--faint);text-align:center;font-weight:700">${w}</div>`).join('')}</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${cells}</div>`;
+  const up=_reunTasks.filter(t=>t.due&&t.due>=today).slice(0,80);
+  if(!list)return;
+  if(!up.length){list.innerHTML=`<div class="card" style="text-align:center;color:var(--muted)">Nenhuma reunião futura. Clique em "🔄 Sincronizar agenda".</div>`;return;}
+  const groups={};up.forEach(t=>{(groups[t.due]=groups[t.due]||[]).push(t);});
+  const DIA=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  list.innerHTML=`<h3 style="font-size:14px;margin:0 0 10px">Próximas reuniões</h3>`+Object.keys(groups).sort().map(ds=>{
+    const [yy,mm,dd]=ds.split('-');const dt=new Date(+yy,+mm-1,+dd);
+    const rows=groups[ds].sort((a,b)=>(a.hora||'99').localeCompare(b.hora||'99')).map(t=>{const cn=(DB.clients.find(c=>c.id===t.client)||{}).name||'';return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)"><div style="min-width:46px;font-weight:700;font-size:13px;color:var(--accent)">${t.hora||'—'}</div><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${(t.name||'').replace(/</g,'&lt;')}</div>${cn?`<div style="font-size:11.5px;color:var(--muted)">${cn}</div>`:''}</div>${t.link?`<a href="${t.link}" target="_blank" class="btn xs primary" style="text-decoration:none">Entrar</a>`:''}<button class="btn xs ghost" onclick="reunOpen('${t.id}')">Abrir</button></div>`;}).join('');
+    return `<div style="margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px">${DIA[dt.getDay()]}, ${dd}/${mm}</div>${rows}</div>`;
+  }).join('');
 }
 async function loadWhatsappTab(){
   const el=document.getElementById('whatsappBody');if(!el)return;
