@@ -1617,7 +1617,7 @@ async function _waAnalises(items: any[]): Promise<Record<string, string>> {
       const canais: any[] = [];
       if (r.meta && (r.meta.spend || 0) > 0) canais.push({ canal: "Meta", objetivo: _objLabel(r.objMeta), metricas: _objMetric(r.meta, false, r.objMeta), gasto: Math.round(r.meta.spend) });
       if (r.google && (r.google.spend || 0) > 0) canais.push({ canal: "Google", objetivo: _objLabel(r.objGoogle), metricas: _objMetric(r.google, true, r.objGoogle), gasto: Math.round(r.google.spend) });
-      return { cliente: r.nome, canais };
+      return { cliente: r.nome, canais, crm: r.crm && r.crm.total ? { leads: r.crm.total, qualificados: r.crm.qualificados, taxaQualificacao: r.crm.taxaQualificacao, vendas: r.crm.vendas } : null };
     });
     const pb = await _waPlaybook();
     const sys = `${pb}\n\nVocê é a AndréIA, gestora de tráfego sênior. Analise CADA CLIENTE e, dentro dele, CADA CANAL SEPARADAMENTE — julgando pelo OBJETIVO daquele canal (o campo "objetivo"), SEMPRE seguindo o playbook acima (ex: custo alto → orientar a verificar qualificação, não só "reduzir custo"):
@@ -1629,6 +1629,7 @@ async function _waAnalises(items: any[]): Promise<Record<string, string>> {
 - engajamento: avalie engajamentos e custo por engajamento.
 - vídeo: avalie visualizações e custo por view.
 REGRAS: nunca cite venda/conversão/ROAS se o objetivo não for venda. Nunca cite CTR/cliques se o objetivo for alcance. Uma frase curta (máx ~16 palavras) POR CANAL, dizendo o que está bom/ruim e o próximo passo. Se houver 2 canais, dê uma frase pra cada.
+Se o cliente tiver 'crm' (funil de leads), adicione UMA frase sobre a QUALIFICAÇÃO: muitos leads com baixa taxa de qualificação → revisar segmentação/qualidade; alta qualificação → escalar; use o playbook (custo alto ≠ ruim se qualifica).
 Responda em JSON: {"analises":[{"cliente":"nome exato","linhas":[{"canal":"Meta","texto":"..."},{"canal":"Google","texto":"..."}]}]}`;
     const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content: JSON.stringify(data) }], response_format: { type: "json_object" }, max_tokens: 1600, temperature: 0.4 });
     const parsed = JSON.parse(j.choices[0].message.content || "{}");
@@ -1669,7 +1670,8 @@ async function waAgentAllClientsSummary(days: number, escopo = "padrao", nivel =
       // REGRA: venda vem da planilha (se o canal tem aba VENDAS). Sobrepõe o pixel e força a métrica de venda.
       if (mt) { const sh = await _waSheetSales(c, "meta", since, until); if (sh) { mt = _applySheet(mt, sh); objMeta = "conversao"; } }
       if (gt) { const sh = await _waSheetSales(c, "google", since, until); if (sh) { gt = _applySheet(gt, sh); objGoogle = "conversao"; } }
-      return { nome: c.name, meta: mt, google: gt, objMeta, objGoogle, restr: escopo === "com_restricao" ? _clientRestrictions(c, restr) : [] };
+      const crm = await waCrmStats(c.id, Math.max(days, 30)).catch(() => null);
+      return { nome: c.name, meta: mt, google: gt, objMeta, objGoogle, crm, restr: escopo === "com_restricao" ? _clientRestrictions(c, restr) : [] };
     }));
     results.push(...rs);
   }
@@ -1686,7 +1688,8 @@ async function waAgentAllClientsSummary(days: number, escopo = "padrao", nivel =
       else b += `\n⏸ não rodou no período`;
       blocks.push(b); continue;
     }
-    if (!ran) { if (!showNon) continue; blocks.push(`*${r.nome}* — ⏸ não rodou no período`); continue; }
+    const crmLine = (r.crm && r.crm.total) ? `\n🗣 CRM — ${r.crm.total} leads · ${r.crm.qualificados} qualif. (${r.crm.taxaQualificacao}%)${r.crm.vendas ? ` · ${r.crm.vendas} vendas` : ""}` : "";
+    if (!ran) { if (!showNon) { if (crmLine) blocks.push(`*${r.nome}* — ⏸ sem tráfego${crmLine}`); continue; } blocks.push(`*${r.nome}* — ⏸ não rodou no período${crmLine}`); continue; }
     let b = completo ? `━━━━━━━━━━━━━━━\n📊 *${r.nome.toUpperCase()}*` : `*${r.nome}*`;
     if (completo) {
       if (mS > 0) b += `\n\n📘 *META*\n${_waKpiFull(r.meta, false, r.objMeta).map((l: string) => `• ${l}`).join("\n")}`;
@@ -1698,6 +1701,7 @@ async function waAgentAllClientsSummary(days: number, escopo = "padrao", nivel =
       if (gS > 0) b += `\n🔎 Google — Gasto ${_fmtR(gS)} · ${_objMetric(r.google, true, r.objGoogle)}`;
       if (mS > 0 && gS > 0) b += `\n➕ Total — Gasto ${_fmtR(mS + gS)}`;
     }
+    if (crmLine) b += (completo ? "\n" : "") + crmLine;
     blocks.push(b);
   }
   const escLbl = ESCOPO_LABEL[escopo] || ESCOPO_LABEL.padrao;
@@ -1733,6 +1737,7 @@ const WA_TOOLS = [
   { type: "function", function: { name: "google_keywords", description: "Palavras-chave e termos de busca do Google Ads de UM cliente no período (por palavra: gasto, cliques, conversões, CPC). USE isto quando perguntarem 'como está cada palavra-chave', keywords, termos de busca ou o que as pessoas pesquisaram.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "resumo_todos_clientes", description: "Resumo de TODOS os clientes no período (gasto + métrica do objetivo, Meta/Google separados). Use quando pedirem panorama/todos os clientes.", parameters: { type: "object", properties: { dias: { type: "integer" } } } } },
   { type: "function", function: { name: "relatorio_cliente", description: "Gera um RELATÓRIO VISUAL e limpo de UM cliente PRONTO PRA ENVIAR AO CLIENTE (investimento, resultados pelo objetivo, alcance e uma análise). Use quando pedirem 'relatório do [cliente]', 'manda o relatório pro cliente', 'relatório pra enviar'. Envie o campo 'relatorio' EXATAMENTE como vier.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" } }, required: ["cliente"] } } },
+  { type: "function", function: { name: "crm_funil", description: "Funil do CRM (WhatsApp) de UM cliente: leads por etapa (novo/MQL/SQL/comprou), taxa de qualificação, vendas e origem (anúncio×orgânico). USE quando pedirem sobre leads, funil, qualificação, atendimento ou conversas do cliente.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer", description: "padrão 30" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "reunioes", description: "REUNIÕES/compromissos da AGENDA (Google Agenda), que é DIFERENTE de tarefa operacional. USE isto quando perguntarem sobre reuniões, agenda, compromissos, calls. NÃO liste tarefas comuns aqui.", parameters: { type: "object", properties: { quando: { type: "string", description: "'hoje', 'amanha', 'semana' ou vazio (padrão hoje)" }, data: { type: "string", description: "data específica AAAA-MM-DD (opcional)" } } } } },
   { type: "function", function: { name: "financeiro", description: "Consulta financeira com TOTAL e itens já com o nome do cliente resolvido e a soma correta. USE ISSO pra qualquer pergunta de dinheiro (a receber, a pagar, recebido, pago, fluxo do mês).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["receita", "despesa"] }, status: { type: "string", enum: ["pendente", "pago"] }, mes: { type: "string", description: "AAAA-MM, ex: 2026-07" }, cliente: { type: "string" } } } } },
   { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM). Para criar_tarefa, o RESPONSÁVEL (quem faz) e o QUANDO (data) são obrigatórios — se o usuário não disser, PERGUNTE antes.", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "criar_reuniao", "cancelar_reuniao", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"] }, cliente: { type: "string" }, nome: { type: "string", description: "título da tarefa OU da reunião (pra cancelar_reuniao, o título/pedaço do nome da reunião a cancelar). NÃO inclua 'urgente' nem 'revisão' no título — use os campos próprios." }, responsavel: { type: "string", description: "nome de quem vai fazer a tarefa (membro da equipe)" }, quando: { type: "string", description: "data em AAAA-MM-DD (calcule 'amanhã', 'sexta' etc. a partir de hoje) — usada por tarefa e reunião" }, hora: { type: "string", description: "horário da reunião em HH:MM (opcional)" }, urgente: { type: "boolean", description: "true se a tarefa foi pedida como URGENTE — marca a flag de urgência (NÃO escreva 'urgente' no título/obs)" }, revisao: { type: "boolean", description: "true se pediram para SOLICITAR REVISÃO da tarefa — marca a flag de revisão (NÃO escreva 'revisão' no título/obs)" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
@@ -1744,6 +1749,7 @@ const WA_MENU_TEXT = `🤖 *AndréIA — o que posso fazer aqui no grupo:*
 • _Detalhes das campanhas do [cliente]_
 • _Como está cada palavra-chave do [cliente]?_ (Google)
 • _Relatório do [cliente] pra enviar_ (layout pronto pro cliente)
+• _Funil do CRM do [cliente]?_ (leads, qualificação, vendas)
 • _Resumo de todos os clientes_
 • _Quem precisa de atenção?_
 • _Saúde da carteira_
@@ -1786,6 +1792,18 @@ async function waQueryTable(args: any) {
     if (rows.length && (rows[0].client !== undefined || rows[0].client_id !== undefined)) { const map = await _waClientsMap(); rows.forEach((r: any) => { const cid = r.client || r.client_id; if (cid && map[cid]) r.cliente_nome = map[cid]; }); }
     return { linhas: rows, total: rows.length };
   } catch (e) { return { erro: String((e as any)?.message || e) }; }
+}
+// Funil do CRM (WhatsApp) de UM cliente: leads por etapa, taxa de qualificação, vendas, origem. null se o cliente não tem CRM.
+async function waCrmStats(clientId: string, dias = 30) {
+  if (!clientId) return null;
+  const since = new Date(Date.now() - dias * 864e5).toISOString();
+  const rows = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&last_at=gte.${since}&select=stage,origin_type,num_errado,irrelevante&limit=5000`);
+  if (!rows || !rows.length) return null;
+  const c: any = { total: 0, sem: 0, novo: 0, mql: 0, sql: 0, comprou: 0, posvenda: 0, perdido: 0, anuncio: 0, organico: 0, numErrado: 0, irrelevante: 0 };
+  rows.forEach((r: any) => { c.total++; const st = r.stage || "sem"; if (c[st] != null) c[st]++; else c.sem++; if (r.origin_type === "anuncio") c.anuncio++; else c.organico++; if (r.num_errado) c.numErrado++; if (r.irrelevante) c.irrelevante++; });
+  const qualificados = c.mql + c.sql + c.comprou + c.posvenda;
+  const vendas = c.comprou + c.posvenda;
+  return { dias, total: c.total, etapas: { novo: c.novo, mql: c.mql, sql: c.sql, comprou: c.comprou, posvenda: c.posvenda, perdido: c.perdido, semEtapa: c.sem }, qualificados, vendas, taxaQualificacao: c.total ? +(qualificados / c.total * 100).toFixed(1) : 0, taxaConversao: c.total ? +(vendas / c.total * 100).toFixed(1) : 0, deAnuncio: c.anuncio, organico: c.organico, numeroErrado: c.numErrado, irrelevantes: c.irrelevante };
 }
 // Reuniões da agenda (Google Agenda) — tarefas sincronizadas (id 'cal*', nota "Reunião (Google Agenda)"). Diferente de tarefa operacional.
 async function waReunioes(args: any) {
@@ -1902,6 +1920,12 @@ async function waRelatorioCliente(c: any, dias: number, comAnalise = true): Prom
   s += `\n📈 *Alcance*\n• Impressões: ${_fmtN(tot.impressions)}\n`;
   if (tot.reach > 0) s += `• Pessoas alcançadas: ${_fmtN(tot.reach)}\n`;
   s += `• Cliques: ${_fmtN(tot.clicks)} · CTR ${ctr.toFixed(2)}%\n`;
+  // CRM (WhatsApp) — se o cliente tem funil de atendimento
+  const crm = await waCrmStats(c.id, Math.max(dias, 30)).catch(() => null);
+  if (crm && crm.total) {
+    s += `\n🗣 *Atendimento (CRM)*\n• Leads: *${_fmtN(crm.total)}*${crm.deAnuncio ? ` (${crm.deAnuncio} de anúncio)` : ""}\n• Qualificados (MQL+): *${crm.qualificados}* (${crm.taxaQualificacao}%)\n`;
+    if (crm.vendas) s += `• Vendas: *${crm.vendas}* (${crm.taxaConversao}%)\n`;
+  }
   // Análise
   if (comAnalise) { const a = await _waAnaliseCliente(c.name, mt, gt, objM, objG); if (a) s += `\n💬 ${a}\n`; }
   s += `${DIV}\n_GT Marketing • Gestão de Tráfego_`;
@@ -1911,6 +1935,7 @@ async function waExecTool(name: string, args: any, clients: any[]) {
   if (name === "consultar_banco") return await waQueryTable(args);
   if (name === "relatorio_cliente") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const rep = await waRelatorioCliente(c, Number(args.dias) || 7); return { _cid: c.id, relatorio: rep, instrucao: "Envie o campo 'relatorio' EXATAMENTE como está, sem reescrever nem resumir." }; }
   if (name === "financeiro") return await waFinanceiro(args);
+  if (name === "crm_funil") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const s = await waCrmStats(c.id, Number(args.dias) || 30); return s ? { cliente: c.name, ...s } : { cliente: c.name, aviso: "cliente sem CRM/leads no período" }; }
   if (name === "reunioes") return await waReunioes(args);
   if (name === "resumo_todos_clientes") { const msgs = await waAgentAllClientsSummary(Number(args.dias) || 7); return { texto: msgs.join("\n\n") }; }
   if (name === "meta_insights") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const r = await waMetaResumo(c.id, Number(args.dias) || 7); return { _cid: c.id, ...r }; }

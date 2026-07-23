@@ -7062,6 +7062,22 @@ function renderDashSeg(){
   </div><div style="font-size:11px;color:var(--faint);margin-bottom:8px">Nível de conta (não segue os filtros de campanha/conjunto).</div>${table}`;
 }
 /* ---- Detalhes do Google: conversões por ação, palavras-chave e termos de busca ---- */
+async function loadDashCrm(clientId){
+  const el=document.getElementById('dashCrmCard');if(!el)return;el.style.display='none';
+  try{
+    const {data}=await sb.from('wa_conversations').select('stage,origin_type,num_errado,irrelevante').eq('client_id',clientId).gte('last_at',_dashSince||daysAgoISO(30)).limit(5000);
+    if(!data||!data.length)return;
+    const STAGES=crmStages().filter(s=>s.key!=='sem');const byStage={};STAGES.forEach(s=>byStage[s.key]=0);let total=0,anun=0;
+    data.forEach(r=>{total++;if(byStage[r.stage]!=null)byStage[r.stage]++;if(r.origin_type==='anuncio')anun++;});
+    const qual=(byStage.mql||0)+(byStage.sql||0)+(byStage.comprou||0)+(byStage.posvenda||0);
+    const vendas=(byStage.comprou||0)+(byStage.posvenda||0);
+    const maxF=Math.max(1,...STAGES.map(s=>byStage[s.key]));
+    const kpi=(l,v,s)=>`<div style="flex:1;min-width:120px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 14px"><div style="font-size:10.5px;color:var(--muted);text-transform:uppercase">${l}</div><div style="font-size:20px;font-weight:800;margin-top:3px">${v}</div>${s?`<div style="font-size:11px;color:var(--faint)">${s}</div>`:''}</div>`;
+    el.style.display='';el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px"><h3 style="margin:0">🗣 CRM — Funil de Atendimento</h3><button class="btn sm ghost" onclick="goToTab('crm')">Abrir CRM</button></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">${kpi('Leads',total,anun?anun+' de anúncio':'')}${kpi('Qualificados',qual,total?(qual/total*100).toFixed(0)+'% de qualificação':'')}${kpi('Vendas',vendas,total?(vendas/total*100).toFixed(0)+'% de conversão':'')}</div>
+    ${STAGES.map(s=>`<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>${(s.label||'').replace(/</g,'&lt;')}</span><b>${byStage[s.key]}</b></div><div style="height:18px;background:var(--surface2);border-radius:6px;overflow:hidden"><div style="height:100%;width:${Math.max(byStage[s.key]/maxF*100,2)}%;background:${s.color||'#60a5fa'};border-radius:6px"></div></div></div>`).join('')}`;
+  }catch(e){}
+}
 async function loadDashGoogleDet(){
   const el=document.getElementById('dashGoogleCard');if(!el)return;
   const c=DB.clients.find(x=>x.id===_dashClientId);if(!c||!(c.googleAccountIds&&c.googleAccountIds.length))return;
@@ -7496,6 +7512,7 @@ function renderMetaDashboard(c,rep,since,until){
     <div class="card" id="dashBenchCard" style="margin-bottom:16px;display:none"></div>
     ${(_dashSource!=='google'&&hasM)?`<div class="card" id="dashSegCard" style="margin-bottom:16px"></div>`:''}
     ${(_dashSource!=='meta'&&hasG)?`<div class="card" id="dashGoogleCard" style="margin-bottom:16px"></div>`:''}
+    <div class="card" id="dashCrmCard" style="margin-bottom:16px;display:none"></div>
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
         <h3 style="margin:0">📈 Evolução Diária</h3>
@@ -7537,6 +7554,7 @@ function renderMetaDashboard(c,rep,since,until){
   applyDashFilters();setDashLevel(_dashLevel);
   if(_dashSource!=='google'&&hasM){loadDashSeg();dashLoadStatuses(c);} // status 🟢/🔴 chega async e re-renderiza os seletores do funil
   if(_dashSource!=='meta'&&hasG)loadDashGoogleDet();
+  loadDashCrm(c.id);
   if(c.rdConfig&&c.rdConfig.refresh_token)loadDashRdEvent(); // seção Evento (RD)
   renderBudgetBanner(c,'dashBudgetWarn'); // teto de investimento (async)
 }
