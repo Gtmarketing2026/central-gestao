@@ -831,7 +831,7 @@ async function googleAdsInsights(g: any) {
       const [accountRows, acctDaily, campRows, adRows] = await Promise.all([
         gadsSearch(acc.id, `SELECT ${GADS_METRICS} FROM customer WHERE ${range}`, token),
         g.daily ? gadsSearch(acc.id, `SELECT segments.date, ${GADS_METRICS} FROM customer WHERE ${range}`, token) : Promise.resolve([] as any[]),
-        g.byCampaign ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, campaign.advertising_channel_type${g.daily ? ", segments.date" : ""}, ${GADS_METRICS_FULL} FROM campaign WHERE ${range}`, token) : Promise.resolve([] as any[]),
+        g.byCampaign ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, campaign.advertising_channel_type, campaign_budget.amount_micros, campaign_budget.resource_name${g.daily ? ", segments.date" : ""}, ${GADS_METRICS_FULL} FROM campaign WHERE ${range}`, token) : Promise.resolve([] as any[]),
         g.byAd ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, campaign.advertising_channel_type, ad_group.id, ad_group.name, ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.ad.type, ${GADS_METRICS_FULL} FROM ad_group_ad WHERE ${range} AND metrics.cost_micros > 0`, token) : Promise.resolve([] as any[]),
       ]);
       return { acc, accountRows, acctDaily, campRows, adRows, error: null as string | null };
@@ -857,7 +857,7 @@ async function googleAdsInsights(g: any) {
     for (const row of campRows) {
       const label = row.campaign?.name || "Google Ads";
       const s = gadsShape(row.metrics);
-      if (!byCamp[label]) byCamp[label] = { campaign: label, campaignId: row.campaign?.id ? String(row.campaign.id) : null, account: acc.name || acc.id, objetivo: googleObjetivo(row.campaign?.advertisingChannelType), _google: true, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
+      if (!byCamp[label]) byCamp[label] = { campaign: label, campaignId: row.campaign?.id ? String(row.campaign.id) : null, account: acc.name || acc.id, accountId: acc.id, objetivo: googleObjetivo(row.campaign?.advertisingChannelType), _google: true, orcamentoDiario: row.campaignBudget?.amountMicros ? +row.campaignBudget.amountMicros / 1e6 : null, budgetResource: row.campaignBudget?.resourceName || null, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
       const c = byCamp[label];
       c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks;
       c.revenue += s.revenue; c.purchases += s.purchases;
@@ -917,6 +917,43 @@ async function googleAdsInsights(g: any) {
   return { total, campaigns, ads, accounts, accountErrors, period: { since, until } };
 }
 
+// Ajusta o orçamento diário de uma campanha do Google (mutate no campaign_budget).
+async function googleUpdateBudget(m: any) {
+  const cid = String(m.accountId || "").replace(/-/g, ""); const res = m.budgetResource; const novo = Number(m.novoValor);
+  if (!cid || !res || !(novo > 0)) throw new Error("accountId, budgetResource e novoValor obrigatórios");
+  const token = await googleAdsAccessToken();
+  const devToken = Deno.env.get("GOOGLE_ADS_DEV_TOKEN"); const mcc = String(Deno.env.get("GOOGLE_ADS_MCC_ID") || "").replace(/-/g, "");
+  const body = { operations: [{ updateMask: "amount_micros", update: { resourceName: res, amountMicros: String(Math.round(novo * 1e6)) } }] };
+  const r = await fetch(`https://googleads.googleapis.com/${GADS_VER}/customers/${cid}/campaignBudgets:mutate`, { method: "POST", headers: { "Authorization": `Bearer ${token}`, "developer-token": devToken!, "login-customer-id": mcc, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json();
+  if (j.error) throw new Error(j?.error?.details?.[0]?.errors?.[0]?.message || j.error.message || "erro no Google Ads");
+  return { ok: true, detail: `Orçamento diário ajustado para R$${novo.toFixed(2)}` };
+}
+// Sugestão de LIMPEZA de termos de busca (palavras-chave negativas) com base no DNA do cliente.
+async function googleTermCleanup(m: any) {
+  const termos: any[] = (m.termos || []).slice(0, 80);
+  if (!termos.length) return { negativar: [], observacao: "Sem termos de busca no período." };
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(m.clientId || "")}&select=name,dna,seg`))[0];
+  const dna = (c && c.dna) || {};
+  const ctx = {
+    marca: dna?.identidade?.marca || c?.name || "",
+    posicionamento: dna?.identidade?.posicionamento || "",
+    sobre: dna?.identidade?.sobre || "",
+    segmento: c?.seg || "",
+    produtos: (dna?.produtos || []).map((p: any) => p.nome).filter(Boolean).slice(0, 15),
+    personas: (dna?.personas || []).map((p: any) => p.titulo).filter(Boolean).slice(0, 8),
+    palavrasProibidas: (dna?.diretrizes?.palavrasProibidas || []).slice(0, 30),
+    palavrasRessoam: (dna?.diretrizes?.palavrasRessoam || []).slice(0, 30),
+  };
+  const lista = termos.map((t: any) => ({ termo: t.key, gasto: Math.round(t.spend || 0), cliques: Math.round(t.clicks || 0), conversoes: +(t.conversions || 0).toFixed(1) }));
+  const sys = `Você é especialista em Google Ads e gestão de palavras-chave NEGATIVAS. Recebe o DNA do cliente (o que vende, personas, palavras que ressoam e proibidas) e a lista de TERMOS DE BUSCA reais que dispararam os anúncios. Sua tarefa: identificar termos IRRELEVANTES / fora do público / que não têm a ver com o que o cliente vende (candidatos a palavra-chave NEGATIVA), para limpar o tráfego. Seja criterioso: só marque como negativar se realmente foge do negócio/persona (ex: busca por concorrente, produto que não vende, intenção errada, gratuito quando é pago, localidade errada). Termos com CONVERSÃO geralmente NÃO devem ser negativados. Responda SOMENTE JSON: {"negativar":[{"termo":"...","motivo":"curto"}],"observacao":"1 frase geral"}.`;
+  const user = `DNA do cliente:\n${JSON.stringify(ctx)}\n\nTermos de busca (com gasto/cliques/conversões):\n${JSON.stringify(lista)}`;
+  try {
+    const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content: user }], response_format: { type: "json_object" }, max_tokens: 1500, temperature: 0.3 });
+    const parsed = JSON.parse(j.choices[0].message.content || "{}");
+    return { negativar: (parsed.negativar || []).slice(0, 60), observacao: parsed.observacao || "", cliente: c?.name || "", temDna: !!(dna && Object.keys(dna).length) };
+  } catch (e) { return { erro: String((e as any)?.message || e) }; }
+}
 // Detalhes específicos do Google: conversões por ação, palavras-chave e termos de busca (agregados entre contas)
 async function googleBreakdowns(g: any) {
   let accounts: string[] = [];
@@ -2230,6 +2267,14 @@ Deno.serve(async (req) => {
     }
     if (body.googleBreakdowns) {
       const r = await googleBreakdowns(body.googleBreakdowns);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleTermCleanup) {
+      const r = await googleTermCleanup(body.googleTermCleanup);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleBudget) {
+      const r = await googleUpdateBudget(body.googleBudget);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.googleAds) {

@@ -687,6 +687,7 @@
       <span style="flex:1"></span>
       <div id="campStatusFilter" style="display:flex;gap:4px"></div>
       <button class="btn sm ghost" id="campCloneBtn" onclick="campCloneOpen()" title="Clonar a estrutura de uma campanha para outro cliente (Meta)">📋 Clonar p/ cliente</button>
+      <button class="btn sm ghost" id="campTermsBtn" style="display:none" onclick="gTermsOpen()" title="Palavras-chave, termos de busca e limpeza por IA (Google)">🔑 Termos & Limpeza</button>
       <div style="position:relative">
         <button class="btn sm ghost" onclick="toggleCampColsPanel()">⚙ Colunas</button>
         <div id="campColsPanel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);width:420px;max-width:90vw;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.4);z-index:50;padding:14px"></div>
@@ -3432,6 +3433,7 @@ async function loadCampanhas(clientId,days){
     const rep=_campSource==='google'?await fetchGoogleReportRange(c,since,until):await fetchMetaReportRange(c,since,until);
     _campAds=refineCampAds(rep.ads||[]);
     _campAccErrors=rep.accountErrors||[];
+    if(_campSource==='google'){_campBudget={camp:{},adset:{}};(rep.campaigns||[]).forEach(cp=>{if(cp.campaignId&&cp.orcamentoDiario)_campBudget.camp[cp.campaignId]={val:cp.orcamentoDiario,res:cp.budgetResource,acc:cp.accountId};});}
     renderBudgetBanner(c,'campBudgetWarn'); // teto de investimento (async)
     _campCols=focoCols(_campFoco);
     _campStatus={camp:{},adset:{},ad:{}};
@@ -3441,8 +3443,8 @@ async function loadCampanhas(clientId,days){
     if(_campSource==='meta'&&hasMetaAcc)sb.functions.invoke('dynamic-responder',{body:{metaEntities:{accounts,adIds}}}).then(r=>{
       const ent=(r.data&&r.data.data)||r.data||{};
       _campBudget={camp:{},adset:{}};
-      (ent.campaigns||[]).forEach(x=>{_campStatus.camp[x.id]=x.status;if(x.orcamentoDiario)_campBudget.camp[x.id]=x.orcamentoDiario;});
-      (ent.adsets||[]).forEach(x=>{_campStatus.adset[x.id]=x.status;if(x.orcamentoDiario)_campBudget.adset[x.id]=x.orcamentoDiario;});
+      (ent.campaigns||[]).forEach(x=>{_campStatus.camp[x.id]=x.status;if(x.orcamentoDiario)_campBudget.camp[x.id]={val:x.orcamentoDiario};});
+      (ent.adsets||[]).forEach(x=>{_campStatus.adset[x.id]=x.status;if(x.orcamentoDiario)_campBudget.adset[x.id]={val:x.orcamentoDiario};});
       (ent.ads||[]).forEach(x=>_campStatus.ad[x.id]=x.status);
       if(document.querySelector('.panel#campanhas.active')&&_campClientId===c.id)renderCampBody();
     }).catch(()=>{});
@@ -3524,17 +3526,98 @@ async function campCloneRun(btn){
     btn.textContent='Concluído';
   }catch(e){if(msg)msg.innerHTML=`<span style="color:var(--danger)">Erro: ${e.message||e}</span>`;btn.disabled=false;btn.textContent='Clonar (pausado)';}
 }
-async function campEditBudget(level,id,atual,btn){
+/* ---- Google: Termos & Limpeza (palavras-chave, termos de busca, negativas por IA) ---- */
+let _gTermsData=null,_gTermsTab='keywords';
+async function gTermsOpen(){
+  const c=DB.clients.find(x=>x.id===_campClientId);
+  if(!c||!(c.googleAccountIds&&c.googleAccountIds.length)){alert('Cliente sem Google Ads vinculado.');return;}
+  const ov=document.createElement('div');ov.id='gTermsOverlay';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px';
+  ov.innerHTML=`<div class="card" style="max-width:900px;width:96%;max-height:90vh;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b>🔑 Termos & Limpeza — ${c.name.replace(/</g,'&lt;')}</b><button class="btn xs ghost" onclick="document.getElementById('gTermsOverlay').remove()">✕</button></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="btn sm primary" id="gtTabKw" onclick="gTermsTab('keywords')">Palavras-chave</button>
+      <button class="btn sm ghost" id="gtTabTm" onclick="gTermsTab('termos')">Termos de busca</button>
+      <button class="btn sm ghost" id="gtTabCl" onclick="gTermsTab('limpeza')">🧹 Limpeza (IA)</button>
+    </div>
+    <div id="gTermsBody"><div class="empty" style="padding:20px">Carregando palavras-chave e termos de busca…</div></div>
+  </div>`;
+  document.body.appendChild(ov);
+  try{
+    const accounts=c.googleAccountIds.map(id=>({id}));
+    const since=_campSince||daysAgoISO(_campDays),until=_campUntil||today();
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleBreakdowns:{accounts,since,until}}});
+    if(error)throw error;if(data&&data.error)throw new Error(data.error);
+    _gTermsData=(data&&data.data)||{keywords:[],termos:[]};_gTermsCleanup=null;
+    gTermsRender();
+  }catch(e){const b=document.getElementById('gTermsBody');if(b)b.innerHTML='<div class="empty" style="padding:20px">Erro: '+(e.message||e)+'</div>';}
+}
+function gTermsTab(t){_gTermsTab=t;gTermsRender();}
+let _gTermsCleanup=null;
+function _gtTable(list,nameLbl){
+  if(!list||!list.length)return '<div class="empty" style="padding:16px">Sem dados no período.</div>';
+  const th=(s,l)=>`<th style="text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">${s}</th>`;
+  const td=(s,l)=>`<td style="padding:6px 10px;font-size:12px;text-align:${l?'left':'right'};border-bottom:1px solid rgba(255,255,255,.04)">${s}</td>`;
+  return `<div style="overflow-x:auto;max-height:60vh"><table style="width:100%;border-collapse:collapse">
+    <tr>${th(nameLbl,1)}${th('Invest.')}${th('Cliques')}${th('CTR')}${th('CPC')}${th('Conv.')}</tr>
+    ${list.slice(0,150).map(r=>`<tr>${td(String(r.key).replace(/</g,'&lt;'),1)}${td(fmt(r.spend))}${td(Math.round(r.clicks).toLocaleString('pt-BR'))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${td((r.conversions||0).toFixed(1))}</tr>`).join('')}
+  </table></div>`;
+}
+function gTermsRender(){
+  const b=document.getElementById('gTermsBody');if(!b||!_gTermsData)return;
+  ['Kw','Tm','Cl'].forEach(s=>{const el=document.getElementById('gtTab'+s);if(el){const on=(s==='Kw'&&_gTermsTab==='keywords')||(s==='Tm'&&_gTermsTab==='termos')||(s==='Cl'&&_gTermsTab==='limpeza');el.className='btn sm '+(on?'primary':'ghost');}});
+  if(_gTermsTab==='keywords')b.innerHTML=_gtTable(_gTermsData.keywords,'Palavra-chave');
+  else if(_gTermsTab==='termos')b.innerHTML=_gtTable(_gTermsData.termos,'Termo de busca');
+  else gTermsRenderCleanup(b);
+}
+function gTermsRenderCleanup(b){
+  if(!_gTermsCleanup){
+    b.innerHTML=`<div style="padding:10px 0">
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">A IA analisa os <b>termos de busca</b> reais contra o <b>DNA do cliente</b> (o que vende, personas, palavras proibidas) e sugere quais <b>negativar</b> pra limpar o tráfego.</div>
+      <button class="btn sm primary" onclick="gTermsAnalyze(this)">🧹 Analisar termos com IA (DNA)</button>
+      <div id="gtClMsg" style="font-size:11.5px;color:var(--faint);margin-top:8px"></div>
+    </div>`;return;
+  }
+  const r=_gTermsCleanup;
+  if(r.erro){b.innerHTML='<div class="empty" style="padding:16px">Erro: '+r.erro+'</div>';return;}
+  const negs=r.negativar||[];
+  if(!negs.length){b.innerHTML=`<div style="padding:16px">✅ ${r.observacao||'Nenhum termo fora do perfil encontrado — tráfego limpo.'}</div>`;return;}
+  const th=(s,l)=>`<th style="text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">${s}</th>`;
+  b.innerHTML=`${r.temDna?'':'<div style="font-size:11.5px;color:var(--warn,#d97706);margin-bottom:10px">⚠ Este cliente ainda não tem DNA preenchido — a análise fica limitada. Preencha o DNA pra sugestões mais precisas.</div>'}
+    <div style="font-size:12.5px;margin-bottom:8px">${r.observacao?r.observacao.replace(/</g,'&lt;'):''}</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px"><button class="btn sm ghost" onclick="gTermsCopyNegs()">📋 Copiar negativas (${negs.length})</button><button class="btn sm ghost" onclick="_gTermsCleanup=null;gTermsRender()">↻ Refazer</button></div>
+    <div style="overflow-x:auto;max-height:55vh"><table style="width:100%;border-collapse:collapse">
+      <tr>${th('Termo a negativar',1)}${th('Motivo',1)}</tr>
+      ${negs.map(n=>`<tr><td style="padding:6px 10px;font-size:12px;border-bottom:1px solid rgba(255,255,255,.04);color:#f87171">${String(n.termo).replace(/</g,'&lt;')}</td><td style="padding:6px 10px;font-size:11.5px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.04)">${String(n.motivo||'').replace(/</g,'&lt;')}</td></tr>`).join('')}
+    </table></div>`;
+}
+async function gTermsAnalyze(btn){
+  const msg=document.getElementById('gtClMsg');btn.disabled=true;btn.textContent='Analisando…';if(msg)msg.textContent='A IA está lendo os termos e o DNA…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleTermCleanup:{clientId:_campClientId,termos:(_gTermsData.termos||[]).slice(0,80)}}});
+    if(error)throw error;_gTermsCleanup=(data&&data.data)||{};gTermsRender();
+  }catch(e){if(msg)msg.textContent='Erro: '+(e.message||e);btn.disabled=false;btn.textContent='🧹 Analisar termos com IA (DNA)';}
+}
+function gTermsCopyNegs(){const negs=(_gTermsCleanup&&_gTermsCleanup.negativar)||[];const txt=negs.map(n=>n.termo).join('\n');navigator.clipboard.writeText(txt).then(()=>alert('Negativas copiadas! Cole no Google Ads → Palavras-chave negativas.')).catch(()=>{});}
+async function googleExecuteBudget(payload){
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleBudget:payload}});
+  if(error)throw new Error(error.message||error);
+  const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);
+  if(!d||!d.ok)throw new Error((d&&d.detail)||'Falha ao ajustar no Google');return d;
+}
+async function campEditBudget(level,id,btn){
+  const b=_campBudget[level]&&_campBudget[level][id];if(!b)return;
+  const atual=b.val;const canal=_campSource==='google'?'Google':'Meta';
   const label=level==='camp'?'campanha':'conjunto';
   const v=prompt(`Novo orçamento diário (R$) da ${label} — atual ${fmt(atual)}:`,String(atual));
   if(v==null)return;
-  const novo=parseFloat(String(v).replace(/[^\d.,]/g,'').replace('.','').replace(',','.'));
+  const novo=parseFloat(String(v).replace(/[^\d.,]/g,'').replace(/\./g,'').replace(',','.'));
   if(isNaN(novo)||novo<1){alert('Valor inválido (mínimo R$1,00).');return;}
-  if(!confirm(`Mudar o orçamento diário da ${label} de ${fmt(atual)} para ${fmt(novo)} no Meta agora?`))return;
+  if(!confirm(`Mudar o orçamento diário da ${label} de ${fmt(atual)} para ${fmt(novo)} no ${canal} agora? Isso altera de verdade no gerenciador.`))return;
   const old=btn.textContent;btn.textContent='…';btn.disabled=true;
   try{
-    await metaExecute({action:'budget',id,novoOrcamentoDiario:novo});
-    _campBudget[level][id]=novo;
+    if(b.res)await googleExecuteBudget({accountId:b.acc,budgetResource:b.res,novoValor:novo});
+    else await metaExecute({action:'budget',id,novoOrcamentoDiario:novo});
+    _campBudget[level][id]={...b,val:novo};
     renderCampBody();
   }catch(e){alert('Erro: '+(e.message||e));btn.textContent=old;btn.disabled=false;}
 }
@@ -3684,14 +3767,15 @@ function campRowHTML(name,level,agg,tipo,toggleId,badge,objLevel,objId){
   const d=deriveMeta({...agg});
   const pad=8+level*16;
   const caret=toggleId?`<span id="${toggleId}_c" style="display:inline-block;width:14px;color:var(--muted)">▸</span>`:'<span style="display:inline-block;width:14px"></span>';
-  const st=objId?_campStatus[objLevel][objId]:null;
-  const stBtn=objId?campSwitchHTML(objLevel,objId,st):'';
+  const isG=_campSource==='google';
+  const st=(objId&&!isG&&_campStatus[objLevel])?_campStatus[objLevel][objId]:null;
+  const stBtn=(objId&&!isG)?campSwitchHTML(objLevel,objId,st):'';
   const cells=_campCols.map(k=>`<div style="padding:8px 6px;font-size:12px;text-align:right">${CAMP_COLS[k]?CAMP_COLS[k].get(d,tipo):''}</div>`).join('');
   const bg=level===1?'background:var(--surface2);':level===2?'background:rgba(255,255,255,.02);':'';
   const dupBtn=(level===1&&_campSource!=='google'&&objId)?`<button onclick="event.stopPropagation();campDuplicate('${objId}','${(name||'').replace(/'/g,'').replace(/"/g,'')}',this)" title="Duplicar campanha (cópia pausada no Meta)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 4px;flex:none">⧉</button>`:'';
   const budLevel=objLevel==='camp'?'camp':objLevel==='adset'?'adset':null;
-  const bud=(_campSource!=='google'&&objId&&budLevel&&_campBudget[budLevel])?_campBudget[budLevel][objId]:null;
-  const budBtn=bud?`<button onclick="event.stopPropagation();campEditBudget('${budLevel}','${objId}',${bud},this)" title="Editar orçamento diário no Meta" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;font-size:11px;padding:1px 6px;flex:none;white-space:nowrap">💰 ${fmt(bud)}/dia ✏️</button>`:'';
+  const bud=(objId&&budLevel&&_campBudget[budLevel]&&_campBudget[budLevel][objId])?_campBudget[budLevel][objId]:null;
+  const budBtn=bud?`<button onclick="event.stopPropagation();campEditBudget('${budLevel}','${objId}',this)" title="Editar orçamento diário (muda no gerenciador)" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;font-size:11px;padding:1px 6px;flex:none;white-space:nowrap">💰 ${fmt(bud.val)}/dia ✏️</button>`:'';
   return `<div ${toggleId?`onclick="toggleCampRow('${toggleId}')" style="cursor:pointer;`:'style="'}display:grid;${campGrid()}align-items:center;border-bottom:1px solid rgba(255,255,255,.05);${bg}">
     <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px" title="${(name||'').replace(/"/g,'')}">${stBtn}${caret} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${campHL(name)}</span>${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400;flex:none">${badge}</span>`:''}${budBtn}${dupBtn}</div>
     ${cells}</div>`;
@@ -3706,6 +3790,7 @@ function campAccErrBar(){
 function renderCampBody(){
   const body=document.getElementById('campBody');if(!body)return;
   const _cb=document.getElementById('campCloneBtn');if(_cb)_cb.style.display=_campSource==='google'?'none':'';
+  const _tb=document.getElementById('campTermsBtn');if(_tb)_tb.style.display=_campSource==='google'?'':'none';
   // sanitiza colunas pro canal atual (presets/ajustes do Meta podem ter colunas que o Google não tem)
   const avail=campColsAvailable();
   _campCols=_campCols.filter(k=>avail[k]);
@@ -3732,9 +3817,9 @@ function renderCampBody(){
     const adsetRows=Object.values(cp.adsets).sort((a,b)=>b.agg.spend-a.agg.spend).map((as,ai)=>{
       const sid=pfx+ci+'as'+ai;
       const adRows=as.ads.sort((a,b)=>b.spend-a.spend).map(ad=>campRowHTML(ad.adName,3,ad,cp.objetivo.tipo,null,null,'ad',cp._google?null:ad.adId)).join('');
-      return `<div>${campRowHTML(as.nome,2,as.agg,cp.objetivo.tipo,sid,as.ads.length+' anúncio(s)','adset',cp._google?null:as.id)}<div id="${sid}" style="display:none">${adRows}</div></div>`;
+      return `<div>${campRowHTML(as.nome,2,as.agg,cp.objetivo.tipo,sid,as.ads.length+' anúncio(s)','adset',as.id)}<div id="${sid}" style="display:none">${adRows}</div></div>`;
     }).join('');
-    return `<div>${campRowHTML(cp.nome,1,cp.agg,cp.objetivo.tipo,cid,cp.objetivo.rotulo,'camp',cp._google?null:cp.id)}<div id="${cid}" style="display:none">${adsetRows}</div></div>`;
+    return `<div>${campRowHTML(cp.nome,1,cp.agg,cp.objetivo.tipo,cid,cp.objetivo.rotulo,'camp',cp.id)}<div id="${cid}" style="display:none">${adsetRows}</div></div>`;
   }).join('');
   // Divide em ativas x pausadas (padrão: só ativas; pausadas carregam sob demanda). Status desconhecido conta como ativa.
   let active=tree,paused=[];
