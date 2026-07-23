@@ -2541,11 +2541,15 @@ async function crmAnalyticsOpen(days){
   q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
   const capiQ=sb.from('capi_events').select('status,event_name,error,created_at').eq('client_id',inst.client_id||'__none__').gte('created_at',since).order('created_at',{ascending:false}).limit(200);
   const [{data:convs},{data:capi}]=await Promise.all([q,capiQ]);
+  const _cvs=convs||[];
+  // só conta o gasto de um canal se ELE trouxe leads no período (senão infla o custo por conversa)
+  const hasGoogle=_cvs.some(cv=>((cv.origin||{}).channel==='google'));
+  const hasMeta=_cvs.some(cv=>{const o=cv.origin||{};return (cv.origin_type==='anuncio'||cv.origin_type==='utm')&&o.channel!=='google';});
   let meta=null,goog=null;
-  try{if(client&&client.metaAccountIds&&client.metaAccountIds.length)meta=await fetchMetaReportRange(client,since,until);}catch(e){}
-  try{if(client&&client.googleAccountIds&&client.googleAccountIds.length)goog=await fetchGoogleReportRange(client,since,until);}catch(e){}
+  try{if(hasMeta&&client&&client.metaAccountIds&&client.metaAccountIds.length)meta=await fetchMetaReportRange(client,since,until);}catch(e){}
+  try{if(hasGoogle&&client&&client.googleAccountIds&&client.googleAccountIds.length)goog=await fetchGoogleReportRange(client,since,until);}catch(e){}
   const combined={total:{spend:((meta&&meta.total&&meta.total.spend)||0)+((goog&&goog.total&&goog.total.spend)||0)},campaigns:[...((meta&&meta.campaigns)||[]),...((goog&&goog.campaigns)||[])]};
-  _crmAnaRaw={convs:convs||[],meta:combined,capi:capi||[],clientName:(client&&client.name)||inst.name||'Agência'};
+  _crmAnaRaw={convs:_cvs,meta:combined,capi:capi||[],clientName:(client&&client.name)||inst.name||'Agência'};
   crmAnaRerender();
 }
 function crmAnaSetFilter(k,v){if(k==='origem')_crmAnaFOrigin=v;else if(k==='campanha')_crmAnaFCampaign=v;crmAnaRerender();}
