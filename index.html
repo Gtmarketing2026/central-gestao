@@ -66,6 +66,13 @@
   .btn.primary{background:var(--accent);border-color:var(--accent);color:#0a0906}
   .btn.primary:hover{filter:brightness(1.1)}
   .btn.sm{padding:5px 10px;font-size:12px}
+  .btn.xs{padding:3px 8px;font-size:11px}
+  .switch{position:relative;display:inline-block;width:38px;height:22px}
+  .switch input{opacity:0;width:0;height:0}
+  .switch .slider{position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:22px;transition:.2s}
+  .switch .slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+  .switch input:checked + .slider{background:var(--accent)}
+  .switch input:checked + .slider:before{transform:translateX(16px)}
   .btn.ghost{background:transparent}
   .btn.danger:hover{border-color:var(--red);color:var(--red)}
   input,select,textarea{font-family:inherit;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 11px;border-radius:var(--radius-sm);font-size:13px;width:100%}
@@ -1966,8 +1973,92 @@ async function loadWhatsappTab(){
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><span style="font-size:20px">🤖</span><b style="font-size:14px">AndréIA no WhatsApp</b></div>
       <div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">Fale com a AndréIA num grupo do WhatsApp: peça análises, consulte dados e crie tarefas. Ela pede confirmação antes de ações de alto impacto.</div>
       <div id="andreiaWaBody" style="font-size:12.5px;color:var(--muted)">Carregando…</div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:5px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:20px">🔔</span><b style="font-size:14px">Central de Automações</b></div>
+        <button class="btn sm primary" onclick="autoNew()">➕ Nova automação</button>
+      </div>
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">Agende avisos automáticos que a AndréIA manda no grupo do WhatsApp — ex: <i>toda segunda às 08:00, resumo de todos os clientes</i>. Ative/desative quando quiser.</div>
+      <div id="autoList" style="font-size:12.5px;color:var(--muted)">Carregando…</div>
     </div>`;
-  renderWaConfig();renderAndreiaWa();
+  renderWaConfig();renderAndreiaWa();renderAutomations();
+}
+/* ===== Central de Automações / Notificações da AndréIA ===== */
+const AUTO_TIPOS=[
+  {tipo:'resumo7',label:'Resumo dos clientes (7 dias)',emoji:'📊'},
+  {tipo:'resumo30',label:'Resumo dos clientes (30 dias)',emoji:'📊'},
+  {tipo:'atencao',label:'Quem precisa de atenção',emoji:'🚨'},
+  {tipo:'recomendacoes',label:'Recomendações da semana',emoji:'💡'},
+  {tipo:'receber',label:'A receber este mês',emoji:'💰'},
+  {tipo:'pagar',label:'A pagar este mês',emoji:'💸'},
+  {tipo:'pendencias',label:'Tarefas em aberto',emoji:'✅'},
+];
+const AUTO_DIAS=[['todos','Todos os dias'],['uteis','Dias úteis'],['1','Segunda'],['2','Terça'],['3','Quarta'],['4','Quinta'],['5','Sexta'],['6','Sábado'],['0','Domingo']];
+function _autoTipoLabel(t){const x=AUTO_TIPOS.find(a=>a.tipo===t);return x?(x.emoji+' '+x.label):t;}
+function _autoDiasLabel(d){const arr=Array.isArray(d)?d.map(String):['todos'];if(arr.includes('todos'))return'Todos os dias';if(arr.includes('uteis'))return'Dias úteis';return arr.map(x=>{const f=AUTO_DIAS.find(y=>y[0]===x);return f?f[1].slice(0,3):x;}).join(', ');}
+async function renderAutomations(){
+  const el=document.getElementById('autoList');if(!el)return;
+  const {data,error}=await sb.from('andreia_automations').select('*').order('hora',{ascending:true});
+  if(error){el.innerHTML=`<span style="color:var(--danger)">Erro: ${error.message}</span>`;return;}
+  const aw=(_acctCfg&&_acctCfg.andreia_wa)||{};
+  const semGrupo=!aw.instance_id||!aw.group_jid;
+  if(!data||!data.length){el.innerHTML=`<div style="padding:14px;text-align:center;color:var(--muted)">Nenhuma automação ainda. Clique em <b>Nova automação</b>.</div>${semGrupo?'<div style="font-size:11.5px;color:var(--warn,#d97706);margin-top:6px">⚠️ Configure o grupo da AndréIA acima para os avisos serem enviados.</div>':''}`;return;}
+  el.innerHTML=(semGrupo?'<div style="font-size:11.5px;color:var(--warn,#d97706);margin-bottom:10px">⚠️ Configure o grupo da AndréIA acima para os avisos serem enviados.</div>':'')+data.map(a=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <label class="switch" style="flex:none"><input type="checkbox" ${a.enabled?'checked':''} onchange="autoToggle('${a.id}',this.checked)"><span class="slider"></span></label>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${a.titulo||_autoTipoLabel(a.tipo)}</div>
+        <div style="font-size:11.5px;color:var(--muted)">${_autoTipoLabel(a.tipo)} · ${_autoDiasLabel(a.dias)} às ${a.hora||'08:00'}${a.last_run?` · último envio ${_brDateJs(a.last_run)}`:''}</div>
+      </div>
+      <button class="btn xs ghost" title="Enviar agora" onclick="autoRunNow('${a.id}',this)">Testar</button>
+      <button class="btn xs ghost" onclick="autoEdit('${a.id}')">Editar</button>
+      <button class="btn xs ghost" style="color:var(--danger)" onclick="autoDel('${a.id}')">🗑</button>
+    </div>`).join('');
+}
+function _brDateJs(s){const m=String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}`:s;}
+function autoNew(){autoEdit(null);}
+async function autoEdit(id){
+  let a={id:null,titulo:'',tipo:'resumo7',dias:['1'],hora:'08:00',enabled:true};
+  if(id){const{data}=await sb.from('andreia_automations').select('*').eq('id',id).single();if(data)a=data;}
+  const dias=Array.isArray(a.dias)?a.dias.map(String):['todos'];
+  const ov=document.createElement('div');ov.id='autoOverlay';ov.className='modal-overlay';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML=`<div class="card" style="max-width:440px;width:92%;max-height:90vh;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b>${id?'Editar':'Nova'} automação</b><button class="btn xs ghost" onclick="document.getElementById('autoOverlay').remove()">✕</button></div>
+    <label style="font-size:12px;color:var(--muted)">Nome (opcional)</label>
+    <input id="autoTitulo" class="inp" value="${(a.titulo||'').replace(/"/g,'&quot;')}" placeholder="Ex: Resumo de segunda" style="margin-bottom:10px">
+    <label style="font-size:12px;color:var(--muted)">O que enviar</label>
+    <select id="autoTipo" class="inp" style="margin-bottom:10px">${AUTO_TIPOS.map(t=>`<option value="${t.tipo}" ${a.tipo===t.tipo?'selected':''}>${t.emoji} ${t.label}</option>`).join('')}</select>
+    <label style="font-size:12px;color:var(--muted)">Quando</label>
+    <div id="autoDias" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px">${AUTO_DIAS.map(d=>`<label style="display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:4px 8px;cursor:pointer"><input type="checkbox" class="autoDia" value="${d[0]}" ${dias.includes(d[0])?'checked':''}> ${d[1]}</label>`).join('')}</div>
+    <label style="font-size:12px;color:var(--muted)">Horário</label>
+    <input id="autoHora" type="time" class="inp" value="${a.hora||'08:00'}" style="margin-bottom:14px">
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sm ghost" onclick="document.getElementById('autoOverlay').remove()">Cancelar</button><button class="btn sm primary" onclick="autoSave('${id||''}')">Salvar</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  // dias mutuamente exclusivos: "todos"/"uteis" limpam os específicos e vice-versa
+  ov.querySelectorAll('.autoDia').forEach(cb=>cb.addEventListener('change',()=>{
+    const v=cb.value;const all=[...ov.querySelectorAll('.autoDia')];
+    if(cb.checked){if(v==='todos'||v==='uteis'){all.forEach(o=>{if(o!==cb)o.checked=false;});}else{all.forEach(o=>{if(o.value==='todos'||o.value==='uteis')o.checked=false;});}}
+  }));
+}
+async function autoSave(id){
+  const dias=[...document.querySelectorAll('.autoDia:checked')].map(c=>c.value);
+  if(!dias.length){alert('Escolha pelo menos um dia.');return;}
+  const row={titulo:document.getElementById('autoTitulo').value.trim(),tipo:document.getElementById('autoTipo').value,dias,hora:document.getElementById('autoHora').value||'08:00',enabled:true};
+  if(id){await sb.from('andreia_automations').update(row).eq('id',id);}
+  else{row.id='auto_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);await sb.from('andreia_automations').insert(row);}
+  document.getElementById('autoOverlay').remove();renderAutomations();
+}
+async function autoToggle(id,on){await sb.from('andreia_automations').update({enabled:on}).eq('id',id);}
+async function autoDel(id){if(!confirm('Excluir esta automação?'))return;await sb.from('andreia_automations').delete().eq('id',id);renderAutomations();}
+async function autoRunNow(id,btn){
+  const old=btn.textContent;btn.textContent='Enviando…';btn.disabled=true;
+  try{const{data,error}=await sb.functions.invoke('dynamic-responder',{body:{automationRunNow:{id}}});
+    if(error)throw error;const r=data&&data.data;
+    if(r&&r.ok){btn.textContent='✓ Enviado';}else{alert('Não enviou: '+((r&&r.erro)||'verifique o grupo da AndréIA'));btn.textContent=old;}
+  }catch(e){alert('Erro: '+(e.message||e));btn.textContent=old;}
+  finally{btn.disabled=false;setTimeout(()=>{if(btn)btn.textContent=old;},2500);renderAutomations();}
 }
 /* ===== CRM de Conversas (WhatsApp via uazapi) — funil Kanban ===== */
 const CRM_STAGES=[

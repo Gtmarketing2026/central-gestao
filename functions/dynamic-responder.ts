@@ -1662,6 +1662,92 @@ async function waHandler(w: any) {
   throw new Error("op inválida");
 }
 
+// ===== AndréIA — Automações / Central de notificações =====
+function _brDate(s: any) { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}` : (s || ""); }
+function _spNow() { return new Date(Date.now() - 3 * 3600e3); } // America/Sao_Paulo (UTC-3)
+function _mesAtual() { return _spNow().toISOString().slice(0, 7); }
+function _waFmtFinanceiro(res: any, titulo: string) {
+  if (!res || res.erro) return `${titulo}: ${(res && res.erro) || "sem dados"}`;
+  if (!res.itens || !res.itens.length) return `${titulo}: nada pendente 🎉`;
+  const linhas = res.itens.slice().sort((a: any, b: any) => String(a.vencimento || "").localeCompare(String(b.vencimento || "")))
+    .map((i: any) => `• *${i.cliente}*: ${_fmtR(i.valor)} (venc. ${_brDate(i.vencimento)})`).join("\n");
+  return `${titulo} — total *${_fmtR(res.total)}*\n\n${linhas}`;
+}
+async function waPendenciasText() {
+  const rows = await sbGet("tasks", "status=neq.done&select=name,client,owner,due,prio&order=due.asc&limit=40");
+  if (!rows.length) return "✅ Nenhuma tarefa em aberto.";
+  const map = await _waClientsMap();
+  const team = await sbGet("team", "select=id,name"); const tm: Record<string, string> = {}; team.forEach((t: any) => { tm[t.id] = t.name; });
+  const linhas = rows.slice(0, 25).map((r: any) => `• ${r.name}${r.client && map[r.client] ? ` (${map[r.client]})` : ""}${r.owner && tm[r.owner] ? ` — ${tm[r.owner]}` : ""}${r.due ? ` · ${_brDate(r.due)}` : ""}`).join("\n");
+  return `✅ *Tarefas em aberto* (${rows.length})\n\n${linhas}`;
+}
+// Runner só-leitura (sem ações) pra gerar texto de análise/recomendações
+async function waAgentOneShot(prompt: string): Promise<string> {
+  const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id&limit=1000");
+  const nomes = clients.slice(0, 200).map((c: any) => c.name).join(" | ");
+  const sys = `Você é a AndréIA, gestora de tráfego da GT Marketing, mandando um aviso automático no grupo de WhatsApp da equipe. Consulte os dados REAIS com as ferramentas antes de afirmar qualquer número. Analise cada cliente pelo OBJETIVO dele (venda→ROAS/CPA; leads→CPL; mensagens→custo por conversa; tráfego→CPC) — nunca mostre ROAS pra quem não é venda. Responda CURTO e direto pro WhatsApp: sem markdown de título (nada de # ou **), negrito é *asterisco simples*, use bullets •. Hoje é ${_spNow().toISOString().slice(0, 10)}. Clientes: ${nomes}.`;
+  const tools = WA_TOOLS.filter((t: any) => t.function.name !== "preparar_acao");
+  const messages: any[] = [{ role: "system", content: sys }, { role: "user", content: prompt }];
+  for (let it = 0; it < 5; it++) {
+    const j = await callOpenAI({ model: "gpt-4o-mini", messages, tools, tool_choice: "auto", max_tokens: 900, temperature: 0.3 });
+    const msg = j.choices[0].message;
+    if (msg.tool_calls && msg.tool_calls.length) {
+      messages.push(msg);
+      for (const tc of msg.tool_calls) { let a: any = {}; try { a = JSON.parse(tc.function.arguments || "{}"); } catch { /* */ } const res = await waExecTool(tc.function.name, a, clients); messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(res).slice(0, 7000) }); }
+      continue;
+    }
+    return msg.content || "";
+  }
+  return "";
+}
+async function waAutoText(tipo: string): Promise<string[]> {
+  if (tipo === "resumo7") return await waAgentAllClientsSummary(7);
+  if (tipo === "resumo30") return await waAgentAllClientsSummary(30);
+  if (tipo === "receber") return [_waFmtFinanceiro(await waFinanceiro({ tipo: "receita", status: "pendente", mes: _mesAtual() }), "💰 *A receber este mês*")];
+  if (tipo === "pagar") return [_waFmtFinanceiro(await waFinanceiro({ tipo: "despesa", status: "pendente", mes: _mesAtual() }), "💸 *A pagar este mês*")];
+  if (tipo === "pendencias") return [await waPendenciasText()];
+  if (tipo === "atencao") return [await waAgentOneShot("Quem precisa de atenção hoje? Analise TODOS os clientes ativos (use resumo_todos_clientes e, se precisar, meta_insights por cliente) e destaque só os que estão abaixo da meta, gastando sem resultado, ou parados. Se estiver tudo bem, diga que está tudo em ordem. Curto.")];
+  if (tipo === "recomendacoes") return [await waAgentOneShot("Recomendações da semana: com base nos dados reais dos clientes ativos, liste 2 a 3 ações priorizadas (o que pausar, escalar ou ajustar), citando o cliente. Curto e prático.")];
+  return [];
+}
+async function _andreiaGroupInst() {
+  const data = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
+  const aw = data.andreia_wa || {};
+  if (!aw.instance_id || !aw.group_jid) return { erro: "grupo da AndréIA não configurado" };
+  const inst = (await sbGet("wa_instances", `id=eq.${encodeURIComponent(aw.instance_id)}&select=uaz_host,uaz_token`))[0];
+  if (!inst) return { erro: "instância da AndréIA não encontrada" };
+  return { inst, group: aw.group_jid };
+}
+async function _sendGroup(g: any, msgs: string[]) {
+  for (const mm of msgs) { if (mm && String(mm).trim()) await waCall(g.inst.uaz_host, g.inst.uaz_token, "/send/text", "POST", { number: g.group, text: String(mm) }); }
+}
+async function waAutomationRunNow(id: string) {
+  const a = (await sbGet("andreia_automations", `id=eq.${encodeURIComponent(id)}&select=*`))[0];
+  if (!a) return { erro: "automação não encontrada" };
+  const g = await _andreiaGroupInst(); if ((g as any).erro) return g;
+  const msgs = await waAutoText(a.tipo); if (!msgs.length) return { erro: "tipo desconhecido" };
+  await _sendGroup(g, msgs);
+  await sbPatchD("andreia_automations", `id=eq.${encodeURIComponent(id)}`, { last_run: _spNow().toISOString().slice(0, 10) });
+  return { ok: true, enviados: msgs.length };
+}
+async function waAutomationsTick() {
+  const g = await _andreiaGroupInst(); if ((g as any).erro) return { skip: (g as any).erro };
+  const now = _spNow(); const day = now.getUTCDay();
+  const hhmm = String(now.getUTCHours()).padStart(2, "0") + ":" + String(now.getUTCMinutes()).padStart(2, "0");
+  const today = now.toISOString().slice(0, 10);
+  const autos = await sbGet("andreia_automations", "enabled=eq.true&select=*");
+  let ran = 0; const feitas: string[] = [];
+  for (const a of autos) {
+    if (a.last_run === today) continue;
+    const dias = Array.isArray(a.dias) ? a.dias.map((x: any) => String(x)) : ["todos"];
+    const diaOk = dias.includes("todos") || (dias.includes("uteis") && day >= 1 && day <= 5) || dias.includes(String(day));
+    if (!diaOk) continue;
+    if ((a.hora || "08:00") > hhmm) continue; // ainda não chegou a hora hoje
+    try { const msgs = await waAutoText(a.tipo); await _sendGroup(g, msgs); await sbPatchD("andreia_automations", `id=eq.${encodeURIComponent(a.id)}`, { last_run: today }); ran++; feitas.push(a.titulo || a.tipo); } catch (e) { /* segue as demais */ }
+  }
+  return { ran, feitas, hhmm, day, today };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -1672,6 +1758,14 @@ Deno.serve(async (req) => {
     }
     if (body.waAgent) {
       const r = await waAgentHandle(body.waAgent);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.automationsTick) {
+      const r = await waAutomationsTick();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.automationRunNow) {
+      const r = await waAutomationRunNow(body.automationRunNow.id);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const spreadsheetId = body.spreadsheetId;

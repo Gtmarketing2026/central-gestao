@@ -389,6 +389,15 @@ Deno.serve(async (req) => {
   // GET /calendar/sync -> lê o Google Agenda (iCal) e cria tarefas das reuniões
   if (p === "/calendar/sync") return handleCalendarSync();
 
+  // /automations/tick -> dispara as automações da AndréIA que estão no horário (chamado pelo cron)
+  if (p === "/automations/tick") {
+    try {
+      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ automationsTick: true }) });
+      const t = await r.text();
+      return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
+    } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
+  }
+
   // GET /wa/connect/<instanceId> -> JSON com qrcode/paircode/status (usado pela página pública de conexão)
   const mWaC = p.match(/^\/wa\/connect\/([^/]+)$/);
   if (mWaC) return handleWaConnect(mWaC[1], url);
