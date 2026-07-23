@@ -1068,10 +1068,13 @@ const CRM_DEFAULT_FIELDS = [
   { key: "valor", label: "Valor", type: "valor", hint: "Valor em R$ mencionado na negociação" },
 ];
 const CRM_DEFAULT_STAGES = [
-  { key: "sem", label: "Sem etapa", desc: "" }, { key: "novo", label: "Novo", desc: "Contato acabou de chegar; só a primeira mensagem." },
-  { key: "mql", label: "MQL", desc: "Demonstrou interesse inicial, mas ainda sem informações suficientes pra ser oportunidade forte." },
-  { key: "sql", label: "SQL", desc: "Pediu algo específico / qualificado / com intenção clara." }, { key: "comprou", label: "Comprou", desc: "Pagamento confirmado / fechou." },
-  { key: "posvenda", label: "Pós-Venda", desc: "Já é cliente; comunicação pós-compra." }, { key: "perdido", label: "Perdido", desc: "Desistiu / sem interesse." },
+  { key: "sem", label: "Sem etapa", desc: "" },
+  { key: "novo", label: "Lead novo", desc: "Contato inicial. Só mandou a mensagem automática/genérica vinda do anúncio (ex: 'quero informações', 'saber mais') e ainda NÃO deu sinal real de qualificação. Permanece aqui até responder com interesse comercial concreto." },
+  { key: "mql", label: "MQL", event: "Lead", desc: "Marketing Qualified Lead. Demonstrou interesse REAL no produto/serviço: perguntou sobre preço, disponibilidade, como funciona, pediu informações específicas — qualquer sinal de interesse comercial. NÃO classificar como MQL contatos que enviaram apenas a mensagem automática/genérica do anúncio, mesmo que contenha palavras como 'interesse', 'informações' ou 'saber mais'." },
+  { key: "sql", label: "SQL", event: "QualifiedLead", desc: "Sales Qualified Lead. Definiu o que quer e está pronto para proposta: especificou produto, data, quantidade, pediu orçamento formal, quer agendar, ou está negociando condições de pagamento." },
+  { key: "comprou", label: "Comprou", event: "Purchase", desc: "Pagamento ou contratação confirmada. Pix/cartão/link pago, agendamento confirmado com pagamento, contrato assinado. Precisa de confirmação EXPLÍCITA de fechamento." },
+  { key: "posvenda", label: "Pós-Venda", desc: "Já é cliente; comunicação pós-compra (suporte, onboarding, recompra)." },
+  { key: "perdido", label: "Perdido", desc: "Desistiu, sumiu ou disse que não tem interesse." },
 ];
 // IA lê a conversa: extrai os campos configurados + CLASSIFICA a etapa do funil com um nível de confiança.
 // autoApply: aplica a etapa automaticamente se a confiança >= mínimo configurado.

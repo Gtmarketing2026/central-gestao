@@ -1954,12 +1954,12 @@ async function loadWhatsappTab(){
 /* ===== CRM de Conversas (WhatsApp via uazapi) — funil Kanban ===== */
 const CRM_STAGES=[
   {key:'sem',label:'Sem etapa',color:'#94a3b8',desc:''},
-  {key:'novo',label:'Novo',color:'#60a5fa',desc:'Contato acabou de chegar; só a primeira mensagem.'},
-  {key:'mql',label:'MQL',color:'#f0c040',desc:'Demonstrou interesse inicial, mas ainda sem informações suficientes pra ser oportunidade forte.',event:'Lead'},
-  {key:'sql',label:'SQL',color:'#34d399',desc:'Pediu algo específico / qualificado / com intenção clara.',event:'QualifiedLead'},
-  {key:'comprou',label:'Comprou',color:'#a78bfa',desc:'Pagamento confirmado / fechou.',event:'Purchase'},
-  {key:'posvenda',label:'Pós-Venda',color:'#22d3ee',desc:'Já é cliente; comunicação pós-compra.'},
-  {key:'perdido',label:'Perdido',color:'#f87171',desc:'Desistiu / sem interesse.'},
+  {key:'novo',label:'Lead novo',color:'#60a5fa',desc:'Contato inicial. Só mandou a mensagem automática/genérica vinda do anúncio (ex: "quero informações", "saber mais") e ainda NÃO deu sinal real de qualificação. Permanece aqui até responder com interesse comercial concreto.'},
+  {key:'mql',label:'MQL',color:'#f0c040',event:'Lead',desc:'Marketing Qualified Lead. Demonstrou interesse REAL no produto/serviço: perguntou sobre preço, disponibilidade, como funciona, pediu informações específicas — qualquer sinal de interesse comercial. NÃO classificar como MQL contatos que enviaram apenas a mensagem automática/genérica do anúncio, mesmo que contenha palavras como "interesse", "informações" ou "saber mais".'},
+  {key:'sql',label:'SQL',color:'#34d399',event:'QualifiedLead',desc:'Sales Qualified Lead. Definiu o que quer e está pronto para proposta: especificou produto, data, quantidade, pediu orçamento formal, quer agendar, ou está negociando condições de pagamento.'},
+  {key:'comprou',label:'Comprou',color:'#a78bfa',event:'Purchase',desc:'Pagamento ou contratação confirmada. Pix/cartão/link pago, agendamento confirmado com pagamento, contrato assinado. Precisa de confirmação EXPLÍCITA de fechamento.'},
+  {key:'posvenda',label:'Pós-Venda',color:'#22d3ee',desc:'Já é cliente; comunicação pós-compra (suporte, onboarding, recompra).'},
+  {key:'perdido',label:'Perdido',color:'#f87171',desc:'Desistiu, sumiu ou disse que não tem interesse.'},
 ];
 let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
 let _crmSearch='',_crmFOrigin='',_crmFCampaign='',_crmViewAgency=false;
