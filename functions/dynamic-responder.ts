@@ -2049,7 +2049,7 @@ async function waHandler(w: any) {
       const msgid = String(m.messageid || m.id || ""); if (!msgid || known.has(msgid)) continue;
       const phone = String(m.chatid || m.sender_pn || m.sender || "").replace(/@.*$/, "").replace(/[^0-9]/g, ""); if (!phone) continue;
       const fromMe = !!m.fromMe; const text = waText(m); const ts = waTs(m.messageTimestamp);
-      const existing = (await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=eq.${phone}&select=id,origin_type&limit=1`))[0];
+      const existing = (await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=eq.${phone}&select=id,origin_type,name&limit=1`))[0];
       let convId = existing?.id; const origin = fromMe ? null : waOrigin(m);
       if (origin && origin.type === "anuncio" && origin.data.source_id && !origin.data.campaign) {
         const key = String(origin.data.source_id);
@@ -2057,7 +2057,7 @@ async function waHandler(w: any) {
         if (adCache[key]) Object.assign(origin.data, adCache[key]);
       }
       if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: phone, name: m.senderName || phone, last_text: text, last_at: ts, unread: fromMe ? 0 : 1, origin_type: origin ? origin.type : "organico", origin: origin ? origin.data : null }); }
-      else { const patch: Record<string, unknown> = { last_text: text, last_at: ts }; if (!fromMe) patch.unread = 1; if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; } await sbPatchD("wa_conversations", `id=eq.${convId}`, patch); }
+      else { const patch: Record<string, unknown> = { last_text: text, last_at: ts }; if (!fromMe) patch.unread = 1; if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; } if (m.senderName && (!existing.name || existing.name === phone || /^\d+$/.test(String(existing.name)))) patch.name = m.senderName; await sbPatchD("wa_conversations", `id=eq.${convId}`, patch); }
       await sbPost("wa_messages", { id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: msgid, direction: fromMe ? "out" : "in", msg_type: m.messageType || "text", text, ts, raw: m });
       if (!fromMe) newInbound.add(convId);
       added++;

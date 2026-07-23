@@ -2351,26 +2351,34 @@ async function loadCrmConvs(){
   q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
   const {data}=await q;_crmConvs=data||[];renderCrmFilters();renderCrm();renderCrmGuide();
 }
-function crmOriginBadge(t){
+function _crmSrcLabel(s){s=String(s||'').toLowerCase();const map={bio:'BIO',site:'SITE',organico:'ORG','wa':'WHATSAPP',whatsapp:'WHATSAPP',ad:'ANÚNCIO',anuncio:'ANÚNCIO'};return map[s]||s.toUpperCase()||'LINK';}
+// chave de origem granular: anuncio, organico, ou 'utm:<track_source>' (bio, site, etc.)
+function _crmOriginKey(cv){const t=cv.origin_type||'organico';if(t==='utm')return 'utm:'+(((cv.origin||{}).track_source||'link').toLowerCase());return t;}
+function crmOriginBadge(cv){
+  const t=(typeof cv==='string')?cv:(cv&&cv.origin_type)||'organico';const o=(typeof cv==='object'&&cv&&cv.origin)||{};
   if(t==='anuncio')return '<span style="font-size:9px;font-weight:800;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.35);border-radius:6px;padding:1px 5px">📣 ANÚNCIO</span>';
-  if(t==='utm')return '<span style="font-size:9px;font-weight:800;color:#c4b5fd;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.35);border-radius:6px;padding:1px 5px">🔗 UTM</span>';
+  if(t==='utm')return `<span style="font-size:9px;font-weight:800;color:#c4b5fd;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.35);border-radius:6px;padding:1px 5px">🔗 ${_crmSrcLabel(o.track_source)}</span>`;
   return '<span style="font-size:9px;font-weight:800;color:var(--faint);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:1px 5px">💬 ORG</span>';
 }
 function _crmTime(ts){if(!ts)return '';const d=new Date(ts),n=new Date();const sameDay=d.toDateString()===n.toDateString();return sameDay?d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});}
 function _crmCampaigns(){const s=new Set();_crmConvs.forEach(cv=>{const c=(cv.origin||{}).campaign;if(c)s.add(c);});return [...s];}
+function _crmOrigins(){const s=new Set();_crmConvs.forEach(cv=>s.add(_crmOriginKey(cv)));return [...s];}
 function renderCrmFilters(){
   const camps=_crmCampaigns();
   document.getElementById('crmFilters').innerHTML=`
     <input id="crmSearch" placeholder="🔎 Buscar nome ou telefone…" value="${_crmSearch.replace(/"/g,'&quot;')}" oninput="_crmSearch=this.value;renderCrm()" style="width:auto;min-width:200px;font-size:12.5px">
     <select style="width:auto;font-size:12.5px" onchange="_crmFOrigin=this.value;renderCrm()">
-      <option value="">Todas origens</option><option value="anuncio" ${_crmFOrigin==='anuncio'?'selected':''}>📣 Anúncio</option><option value="utm" ${_crmFOrigin==='utm'?'selected':''}>🔗 UTM</option><option value="organico" ${_crmFOrigin==='organico'?'selected':''}>💬 Orgânico</option>
+      <option value="">Todas origens</option>
+      <option value="anuncio" ${_crmFOrigin==='anuncio'?'selected':''}>📣 Anúncio</option>
+      ${_crmOrigins().filter(k=>k.startsWith('utm:')).map(k=>`<option value="${k}" ${_crmFOrigin===k?'selected':''}>🔗 ${_crmSrcLabel(k.slice(4))}</option>`).join('')}
+      <option value="organico" ${_crmFOrigin==='organico'?'selected':''}>💬 Orgânico</option>
     </select>
     ${camps.length?`<select style="width:auto;font-size:12.5px;max-width:220px" onchange="_crmFCampaign=this.value;renderCrm()"><option value="">Todas campanhas</option>${camps.map(c=>`<option value="${c.replace(/"/g,'&quot;')}" ${_crmFCampaign===c?'selected':''}>${c.replace(/</g,'&lt;')}</option>`).join('')}</select>`:''}`;
 }
 function _crmFiltered(){
   const s=_crmSearch.trim().toLowerCase();
   return _crmConvs.filter(cv=>{
-    if(_crmFOrigin&&(cv.origin_type||'organico')!==_crmFOrigin)return false;
+    if(_crmFOrigin&&_crmOriginKey(cv)!==_crmFOrigin)return false;
     if(_crmFCampaign&&(cv.origin||{}).campaign!==_crmFCampaign)return false;
     if(s&&!((cv.name||'').toLowerCase().includes(s)||(cv.chat_id||'').includes(s)))return false;
     return true;
@@ -2386,20 +2394,22 @@ function renderCrm(){
   const cols=STAGES.map(st=>{
     const items=byStage[st.key];
     const cards=items.map(cv=>crmCardHTML(cv)).join('')||'<div style="font-size:11px;color:var(--faint);text-align:center;padding:16px 0">—</div>';
-    return `<div class="crmCol" ondragover="event.preventDefault();this.style.background='var(--surface2)'" ondragleave="this.style.background=''" ondrop="crmDrop(event,'${st.key}')" style="width:250px;flex:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;max-height:calc(100vh - 250px)">
+    return `<div class="crmCol" ondragover="event.preventDefault();this.style.background='var(--surface2)'" ondragleave="this.style.background=''" ondrop="crmDrop(event,'${st.key}')" style="flex:1 1 230px;min-width:210px;background:var(--surface);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;max-height:calc(100vh - 250px)">
       <div style="padding:10px 12px;border-bottom:2px solid ${st.color};display:flex;justify-content:space-between;align-items:center"><b style="font-size:12.5px">${st.label}</b><span style="font-size:11px;color:var(--muted);background:var(--surface2);border-radius:20px;padding:1px 8px">${items.length}</span></div>
       <div style="padding:8px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">${cards}</div></div>`;
   }).join('');
-  document.getElementById('crmBody').innerHTML=`<div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px">${cols}</div>`;
+  document.getElementById('crmBody').innerHTML=`<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px">${cols}</div>`;
 }
 function crmCardHTML(cv){
   const o=cv.origin||{};
-  const campaign=o.campaign?`<div style="font-size:10px;color:#93c5fd;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📣 ${String(o.campaign).replace(/</g,'&lt;')}</div>`:'';
+  const adPath=[o.campaign,o.adset,o.ad].filter(Boolean).join(' › ');
+  const adInfo=cv.origin_type==='anuncio'?(adPath||o.title||''):'';
+  const campaign=adInfo?`<div style="font-size:10px;color:#93c5fd;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${String(adInfo).replace(/"/g,'&quot;')}">📣 ${String(adInfo).replace(/</g,'&lt;')}</div>`:'';
   const f=cv.fields||{};
   const prod=f.produto?`<div style="font-size:11px;color:var(--text);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="color:var(--muted)">🎯</span> ${String(f.produto).replace(/</g,'&lt;')}</div>`:'';
   const valor=f.valor?`<div style="font-size:11px;color:#34d399;font-weight:700;margin-top:3px">💰 ${String(f.valor).replace(/</g,'&lt;').replace(/^R?\$?\s*/,'R$ ')}</div>`:'';
   return `<div draggable="true" ondragstart="crmDragStart(event,'${cv.id}')" onclick="openCrmConv('${cv.id}')" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px;cursor:pointer">
-    <div style="display:flex;justify-content:space-between;gap:6px;align-items:start"><b style="font-size:12.5px;line-height:1.3">${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b>${crmOriginBadge(cv.origin_type)}</div>
+    <div style="display:flex;justify-content:space-between;gap:6px;align-items:start"><b style="font-size:12.5px;line-height:1.3">${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b>${crmOriginBadge(cv)}</div>
     <div style="font-size:11px;color:var(--muted);margin-top:2px">📞 ${cv.chat_id}</div>
     ${cv.last_text?`<div style="font-size:11px;color:var(--faint);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(cv.last_text||'').replace(/</g,'&lt;')}</div>`:''}
     ${prod}${valor}${campaign}
