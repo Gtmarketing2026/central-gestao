@@ -1409,6 +1409,10 @@ const WA_MENU_TEXT = `🤖 *AndréIA — o que posso fazer aqui no grupo:*
 • _Saúde da carteira_
 • _Recomendações da semana_
 
+🗓 *Agenda*
+• _Quais reuniões tenho hoje?_ / _amanhã?_
+• _Minhas reuniões da semana_
+
 💰 *Financeiro*
 • _Quanto temos a receber esse mês?_ / _a pagar?_
 • _Cria um lançamento…_ / _Dá baixa em…_
