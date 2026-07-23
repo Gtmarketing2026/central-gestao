@@ -2348,8 +2348,8 @@ async function loadCrm(){
 function crmToggleAgency(){_crmViewAgency=!_crmViewAgency;_crmActive=null;_crmFCampaign='';loadCrm();}
 async function crmPoll(manual){
   const btn=document.getElementById('crmPollBtn');if(manual&&btn){btn.textContent='…';btn.disabled=true;}
-  const _inst=_crmInsts.find(i=>i.id===_crmInstId);const _cli=DB.clients.find(c=>c.id===((_inst&&_inst.client_id)||activeClientId));const _metaAcc=(_cli&&_cli.metaAccountIds)||[];
-  try{await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,limit:80}}});if(manual)await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'resolveOrigins',instanceId:_crmInstId,metaAccountIds:_metaAcc}}}).catch(()=>{});await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id);}catch(e){}
+  const _inst=_crmInsts.find(i=>i.id===_crmInstId);const _cli=DB.clients.find(c=>c.id===((_inst&&_inst.client_id)||activeClientId));const _metaAcc=(_cli&&_cli.metaAccountIds)||[];const _gAcc=(_cli&&_cli.googleAccountIds)||[];
+  try{await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,limit:80}}});if(manual)await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'resolveOrigins',instanceId:_crmInstId,metaAccountIds:_metaAcc,googleAccountIds:_gAcc}}}).catch(()=>{});await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id);}catch(e){}
   if(manual&&btn){btn.textContent='🔄 Atualizar';btn.disabled=false;}
 }
 async function loadCrmConvs(){
@@ -2370,7 +2370,8 @@ function _crmSrcLabel(s){s=String(s||'').toLowerCase();const map={bio:'BIO',site
 function _crmOriginKey(cv){const t=cv.origin_type||'organico';if(t==='utm')return 'utm:'+(((cv.origin||{}).track_source||'link').toLowerCase());return t;}
 function crmOriginBadge(cv){
   const t=(typeof cv==='string')?cv:(cv&&cv.origin_type)||'organico';const o=(typeof cv==='object'&&cv&&cv.origin)||{};
-  if(t==='anuncio')return '<span style="font-size:9px;font-weight:800;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.35);border-radius:6px;padding:1px 5px">📣 ANÚNCIO</span>';
+  if(t==='anuncio'&&o.channel==='google')return '<span style="font-size:9px;font-weight:800;color:#6ee7b7;background:rgba(52,211,153,.14);border:1px solid rgba(52,211,153,.4);border-radius:6px;padding:1px 5px">🔍 GOOGLE ADS</span>';
+  if(t==='anuncio')return '<span style="font-size:9px;font-weight:800;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.35);border-radius:6px;padding:1px 5px">📣 META ADS</span>';
   if(t==='utm')return `<span style="font-size:9px;font-weight:800;color:#c4b5fd;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.35);border-radius:6px;padding:1px 5px">🔗 ${_crmSrcLabel(o.track_source)}</span>`;
   return '<span style="font-size:9px;font-weight:800;color:var(--faint);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:1px 5px">💬 ORG</span>';
 }
@@ -2540,8 +2541,11 @@ async function crmAnalyticsOpen(days){
   q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
   const capiQ=sb.from('capi_events').select('status,event_name,error,created_at').eq('client_id',inst.client_id||'__none__').gte('created_at',since).order('created_at',{ascending:false}).limit(200);
   const [{data:convs},{data:capi}]=await Promise.all([q,capiQ]);
-  let meta=null;try{if(client&&client.metaAccountIds&&client.metaAccountIds.length)meta=await fetchMetaReportRange(client,since,until);}catch(e){}
-  _crmAnaRaw={convs:convs||[],meta,capi:capi||[],clientName:(client&&client.name)||inst.name||'Agência'};
+  let meta=null,goog=null;
+  try{if(client&&client.metaAccountIds&&client.metaAccountIds.length)meta=await fetchMetaReportRange(client,since,until);}catch(e){}
+  try{if(client&&client.googleAccountIds&&client.googleAccountIds.length)goog=await fetchGoogleReportRange(client,since,until);}catch(e){}
+  const combined={total:{spend:((meta&&meta.total&&meta.total.spend)||0)+((goog&&goog.total&&goog.total.spend)||0)},campaigns:[...((meta&&meta.campaigns)||[]),...((goog&&goog.campaigns)||[])]};
+  _crmAnaRaw={convs:convs||[],meta:combined,capi:capi||[],clientName:(client&&client.name)||inst.name||'Agência'};
   crmAnaRerender();
 }
 function crmAnaSetFilter(k,v){if(k==='origem')_crmAnaFOrigin=v;else if(k==='campanha')_crmAnaFCampaign=v;crmAnaRerender();}
@@ -2602,7 +2606,7 @@ function crmAnaRender(C,meta,capi){
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
       ${kpi('Custo por conversa',fmtR(custoConv),'gasto Meta ÷ conversas de anúncio')}
       ${kpi('Conversas',total,`${anuncio} de anúncio · ${organico} orgânico`)}
-      ${kpi('Gasto total (Meta)',fmtR(gasto),`${pctAds.toFixed(0)}% das conversas vêm de ads`)}
+      ${kpi('Gasto total (ads)',fmtR(gasto),`${pctAds.toFixed(0)}% das conversas vêm de ads`)}
       ${kpi('Eventos CAPI',capiOk,capiFail?`<span style="color:#f87171">${capiFail} falha(s)</span> · <a onclick="crmCapiHistory()" style="cursor:pointer;color:var(--accent)">ver histórico</a>`:`<a onclick="crmCapiHistory()" style="cursor:pointer;color:var(--accent)">ver histórico</a>`)}
     </div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px">

@@ -141,11 +141,19 @@ var has=Object.keys(o).some(function(k){return o[k]});
 try{var st=JSON.parse(localStorage.getItem('_alc_o')||'null');if(has){localStorage.setItem('_alc_o',JSON.stringify(o))}else if(st){o=st}}catch(e){}
 function send(t,x){var b={cid:CID,type:t,anon:anon,sess:sess,ref:document.referrer||'',landing:location.pathname+location.search,ua:navigator.userAgent};for(var k in o)b[k]=o[k];if(x)for(var j in x)b[j]=x[j];var s=JSON.stringify(b);try{if(navigator.sendBeacon){navigator.sendBeacon(BASE+'/collect',s);return}}catch(e){}try{fetch(BASE+'/collect',{method:'POST',body:s,keepalive:true,headers:{'Content-Type':'application/json'}}).catch(function(){})}catch(e){}}
 send('pageview');
-document.addEventListener('click',function(e){var a=e.target&&e.target.closest?e.target.closest('a'):null;if(!a||!a.href)return;if(/wa\\.me|api\\.whatsapp\\.com|whatsapp:/i.test(a.href)){send('wpp_click',{dest:a.href.slice(0,300)})}},true);
+document.addEventListener('click',function(e){var a=e.target&&e.target.closest?e.target.closest('a'):null;if(!a||!a.href)return;if(/wa\\.me|api\\.whatsapp\\.com|whatsapp:/i.test(a.href)){send('wpp_click',{dest:a.href.slice(0,300)});var hasO=o.utm_campaign||o.gclid||o.fbclid||o.utm_source;if(hasO&&a.href.indexOf('[#')===-1){e.preventDefault();e.stopPropagation();var href=a.href,tg=a.target||'_self';var go=function(h){if(tg==='_blank')window.open(h,'_blank');else location.href=h};fetch(BASE+'/wa/ref',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cid:CID,utm_source:o.utm_source,utm_medium:o.utm_medium,utm_campaign:o.utm_campaign,utm_content:o.utm_content,utm_term:o.utm_term,gclid:o.gclid,fbclid:o.fbclid})}).then(function(r){return r.json()}).then(function(d){var h=href;try{var u=new URL(href);var t=u.searchParams.get('text')||'';u.searchParams.set('text',(t?t+' ':'')+'[#'+d.ref+']');h=u.toString()}catch(_e){h=href+(href.indexOf('?')>-1?'&':'?')+'text='+encodeURIComponent('[#'+d.ref+']')}go(h)}).catch(function(){go(href)})}}},true);
 window.ALICIA={send:send,origin:o,anon:anon};
 })();`;
 }
 
+// Pixel: clique no WhatsApp → grava a origem (utm/gclid) e devolve um ref pra injetar no texto.
+async function handleWaRef(req: Request) {
+  let b: any = {}; try { b = await req.json(); } catch (_e) { /* */ }
+  const rid = uid().slice(0, 8);
+  const chan = _channelOf(b.utm_source || "", b.gclid || "", b.fbclid || "");
+  await sbInsert("wa_ref_origins", { ref: rid, client_id: b.cid || null, created_at: new Date().toISOString(), origin: { channel: chan, track_source: b.utm_source || chan, medium: b.utm_medium || "", campaign: b.utm_campaign || "", adgroup: b.utm_content || "", keyword: b.utm_term || "", gclid: b.gclid || "", fbclid: b.fbclid || "" } });
+  return new Response(JSON.stringify({ ref: rid }), { headers: { ...cors, "Content-Type": "application/json" } });
+}
 async function handleCollect(req: Request) {
   let b: any = {};
   try { b = await req.json(); } catch (_e) { return new Response("bad", { status: 400, headers: cors }); }
@@ -179,8 +187,20 @@ async function handleRedirect(cid: string, slug: string, url: URL, ref: string |
   let dest = String(link.destination || "");
   const passthrough = url.search.replace(/^\?/, "");
   if (passthrough) dest += (dest.includes("?") ? "&" : "?") + passthrough;
+  // Se o destino é WhatsApp e veio origem (utm/gclid/fbclid), grava um REF e injeta [#ref] no texto pré-preenchido,
+  // pra casar o clique rastreado (campanha › grupo › palavra-chave) com a conversa que chega.
+  const isWa = /wa\.me|api\.whatsapp\.com|whatsapp:/i.test(dest);
+  const hasOrigin = !!(g("utm_campaign") || g("utm_source") || g("gclid") || g("gbraid") || g("wbraid") || g("fbclid"));
+  if (isWa && hasOrigin) {
+    const rid = uid().slice(0, 8);
+    const chan = _channelOf(g("utm_source"), g("gclid") || g("gbraid") || g("wbraid"), g("fbclid"));
+    await sbInsert("wa_ref_origins", { ref: rid, client_id: cid, created_at: new Date().toISOString(), origin: { channel: chan, track_source: g("utm_source") || chan, medium: g("utm_medium"), campaign: g("utm_campaign"), adgroup: g("utm_content"), keyword: g("utm_term"), gclid: g("gclid") || g("gbraid") || g("wbraid"), fbclid: g("fbclid"), link_slug: slug, kind: link.kind } });
+    try { const u = new URL(dest); const t = u.searchParams.get("text") || ""; u.searchParams.set("text", (t ? t + " " : "") + "[#" + rid + "]"); dest = u.toString(); }
+    catch (_e) { dest += (dest.includes("?") ? "&" : "?") + "text=" + encodeURIComponent("[#" + rid + "]"); }
+  }
   return new Response(null, { status: 302, headers: { ...cors, Location: dest } });
 }
+function _channelOf(src: string, gclid: string, fbclid: string) { src = String(src || "").toLowerCase(); if (gclid || /google|gads|gclid|adwords/.test(src)) return "google"; if (fbclid || /meta|facebook|^fb$|instagram|^ig$/.test(src)) return "meta"; return src || "link"; }
 
 // Extrai a atribuição de anúncio (Click-to-WhatsApp) de uma mensagem do uazapi
 function waExtractOrigin(m: any): { type: string; data: Record<string, unknown> } | null {
@@ -199,6 +219,14 @@ function waExtractOrigin(m: any): { type: string; data: Record<string, unknown> 
     return { type: (m.track_source === "ad" ? "anuncio" : "utm"), data: { track_source: m.track_source || "", track_id: m.track_id || "" } };
   }
   return null;
+}
+// Casa o [#ref] injetado pelo link rastreável → origem completa (campanha › grupo › palavra-chave / gclid).
+async function refOrigin(text: string): Promise<{ type: string; data: Record<string, unknown> } | null> {
+  const mm = String(text || "").match(/\[#([a-z0-9]{6,10})\]/i); if (!mm) return null;
+  const row = (await sbSelect("wa_ref_origins", `ref=eq.${encodeURIComponent(mm[1])}&select=origin&limit=1`))[0];
+  const o = row && row.origin; if (!o) return null;
+  const paid = o.channel === "google" || o.channel === "meta" || /cpc|paid|ad/i.test(String(o.medium || ""));
+  return { type: paid ? "anuncio" : "utm", data: { channel: o.channel || "", track_source: o.track_source || o.channel || "", campaign: o.campaign || "", adset: o.adgroup || "", ad: o.keyword || "", keyword: o.keyword || "", adgroup: o.adgroup || "", gclid: o.gclid || "", fbclid: o.fbclid || "", medium: o.medium || "" } };
 }
 function waMsgText(m: any): string {
   const c = m.content || {};
@@ -254,7 +282,8 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
     // conversa (upsert por client_id + chat_id)
     const existing = (await sbSelect("wa_conversations", `client_id=${clientId ? "eq." + encodeURIComponent(clientId) : "is.null"}&chat_id=eq.${encodeURIComponent(phone)}&select=id,origin_type&limit=1`))[0];
     let convId = existing?.id;
-    const origin = fromMe ? null : waExtractOrigin(m);
+    let origin = fromMe ? null : waExtractOrigin(m);
+    if (!fromMe) { const rf = await refOrigin(text); if (rf) origin = rf; }
     if (!convId) {
       convId = uid();
       await sbInsert("wa_conversations", {
@@ -487,6 +516,7 @@ Deno.serve(async (req) => {
   }
 
   if (p === "/collect" && req.method === "POST") return handleCollect(req);
+  if (p === "/wa/ref" && req.method === "POST") return handleWaRef(req);
 
   if (p === "/rd/callback") return handleRdCallback(url);
 

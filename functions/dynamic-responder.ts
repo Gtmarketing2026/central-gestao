@@ -1142,6 +1142,14 @@ function waOrigin(m: any): { type: string; data: Record<string, unknown> } | nul
   if (m.track_source || m.track_id) return { type: m.track_source === "ad" ? "anuncio" : "utm", data: { track_source: m.track_source || "", track_id: m.track_id || "" } };
   return null;
 }
+// Casa o [#ref] injetado pelo link rastreável → origem completa (campanha › grupo › palavra-chave / gclid).
+async function _waRefOrigin(text: string): Promise<{ type: string; data: Record<string, unknown> } | null> {
+  const mm = String(text || "").match(/\[#([a-z0-9]{6,10})\]/i); if (!mm) return null;
+  const row = (await sbGet("wa_ref_origins", `ref=eq.${encodeURIComponent(mm[1])}&select=origin&limit=1`))[0];
+  const o = row && row.origin; if (!o) return null;
+  const paid = o.channel === "google" || o.channel === "meta" || /cpc|paid|ad/i.test(String(o.medium || ""));
+  return { type: paid ? "anuncio" : "utm", data: { channel: o.channel || "", track_source: o.track_source || o.channel || "", campaign: o.campaign || "", adset: o.adgroup || "", ad: o.keyword || "", keyword: o.keyword || "", adgroup: o.adgroup || "", gclid: o.gclid || "", fbclid: o.fbclid || "", medium: o.medium || "" } };
+}
 async function waCall(host: string, token: string, path: string, method = "GET", payload?: any) {
   const r = await fetch(host.replace(/\/$/, "") + path, { method, headers: { token, "Content-Type": "application/json" }, body: payload ? JSON.stringify(payload) : undefined });
   const t = await r.text(); let j: any; try { j = JSON.parse(t); } catch { j = t; }
@@ -1172,6 +1180,20 @@ async function waResolveAdByTitle(title: string, accountIds: string[]): Promise<
       }
     } catch { /* segue pra próxima conta */ }
   }
+  return null;
+}
+// Resolve os IDs do Google (ValueTrack {campaignid}/{adgroupid}) em NOMES, nas contas do cliente.
+async function waResolveGoogleCampaign(campaignId: string, adgroupId: string, accountIds: string[]): Promise<{ campaign: string; adgroup: string } | null> {
+  if (!accountIds.length || (!campaignId && !adgroupId)) return null;
+  try {
+    const token = await googleAdsAccessToken();
+    for (const acc of accountIds.map((x) => String(x).replace(/-/g, ""))) {
+      let campName = "", agName = "";
+      if (campaignId) { const rows = await gadsSearch(acc, `SELECT campaign.name FROM campaign WHERE campaign.id = ${campaignId}`, token).catch(() => []); campName = rows[0]?.campaign?.name || ""; }
+      if (adgroupId) { const rows = await gadsSearch(acc, `SELECT ad_group.name FROM ad_group WHERE ad_group.id = ${adgroupId}`, token).catch(() => []); agName = rows[0]?.adGroup?.name || ""; }
+      if (campName || agName) return { campaign: campName, adgroup: agName };
+    }
+  } catch { /* */ }
   return null;
 }
 async function waUzConfig() { const acc = await sbGet("account_config", "id=eq.main&select=data"); const uz = (acc[0]?.data || {}).uazapi || {}; if (!uz.server || !uz.admin_token) throw new Error("uazapi não configurado (aba Configurações → WhatsApp)."); return uz; }
@@ -2076,7 +2098,8 @@ async function waHandler(w: any) {
       const phone = String(m.chatid || m.sender_pn || m.sender || "").replace(/@.*$/, "").replace(/[^0-9]/g, ""); if (!phone) continue;
       const fromMe = !!m.fromMe; const text = waText(m); const ts = waTs(m.messageTimestamp);
       const existing = (await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=eq.${phone}&select=id,origin_type,name&limit=1`))[0];
-      let convId = existing?.id; const origin = fromMe ? null : waOrigin(m);
+      let convId = existing?.id; let origin = fromMe ? null : waOrigin(m);
+      if (!fromMe) { const rf = await _waRefOrigin(text); if (rf) origin = rf; }
       if (origin && origin.type === "anuncio" && origin.data.source_id && !origin.data.campaign) {
         const key = String(origin.data.source_id);
         if (adCache[key] === undefined) adCache[key] = await waResolveAd(key);
@@ -2097,14 +2120,19 @@ async function waHandler(w: any) {
     const convs = await sbGet("wa_conversations", `client_id=${clientFilter}&origin_type=eq.anuncio&select=id,origin`);
     // contas Meta pra busca por título (via C): do cliente da instância OU passadas pelo front (cliente ativo no CRM)
     const accIds: string[] = (Array.isArray(w.metaAccountIds) && w.metaAccountIds.length) ? w.metaAccountIds.map((x: any) => String(x).replace(/[^0-9]/g, "")).filter(Boolean) : [];
+    const gAccIds: string[] = (Array.isArray(w.googleAccountIds) && w.googleAccountIds.length) ? w.googleAccountIds.map((x: any) => String(x).replace(/[^0-9]/g, "")).filter(Boolean) : [];
     const cache: Record<string, Record<string, string> | null> = {}; const titleCache: Record<string, Record<string, string> | null> = {}; let done = 0;
     for (const cv of (convs || [])) {
-      const o = cv.origin || {}; if (o.campaign) continue;
+      const o = cv.origin || {};
+      // já resolvido = campanha é NOME (não um id numérico do ValueTrack)
+      if (o.campaign && !/^\d+$/.test(String(o.campaign))) continue;
       let res: Record<string, string> | null = null;
-      // (A) id do anúncio (source_id) → Graph direto
+      // (A) Meta: id do anúncio (source_id) → Graph direto
       if (o.source_id) { const key = String(o.source_id); if (cache[key] === undefined) cache[key] = await waResolveAd(key); res = cache[key]; }
-      // (C) fallback: casar pelo TÍTULO do criativo nas contas do cliente
+      // (C) Meta: casar pelo TÍTULO do criativo nas contas do cliente
       if (!res && o.title && accIds.length) { const tk = String(o.title); if (titleCache[tk] === undefined) titleCache[tk] = await waResolveAdByTitle(o.title, accIds); res = titleCache[tk]; }
+      // Google: ValueTrack {campaignid}/{adgroupid} → nomes
+      if (!res && o.channel === "google" && gAccIds.length) { const gr = await waResolveGoogleCampaign(/^\d+$/.test(String(o.campaign || "")) ? String(o.campaign) : "", /^\d+$/.test(String(o.adgroup || "")) ? String(o.adgroup) : "", gAccIds); if (gr) res = { campaign: gr.campaign || o.campaign || "", adset: gr.adgroup || o.adset || "" }; }
       if (res) { await sbPatchD("wa_conversations", `id=eq.${cv.id}`, { origin: { ...o, ...res } }); done++; }
     }
     return { resolved: done };
