@@ -2290,7 +2290,7 @@ const CRM_STAGES=[
   {key:'perdido',label:'Perdido',color:'#f87171',desc:'Desistiu, sumiu ou disse que não tem interesse.'},
 ];
 let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
-let _crmSearch='',_crmFOrigin='',_crmFCampaign='',_crmViewAgency=false;
+let _crmSearch='',_crmFOrigin='',_crmFCampaign='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFFlag='',_crmFCampo='';
 let _crmGuideOpen=(localStorage.getItem('crmGuide')!=='0');
 function toggleCrmGuide(){_crmGuideOpen=!_crmGuideOpen;localStorage.setItem('crmGuide',_crmGuideOpen?'1':'0');renderCrmGuide();}
 async function renderCrmGuide(){
@@ -2382,17 +2382,23 @@ function crmOriginBadge(cv){
 function _crmTime(ts){if(!ts)return '';const d=new Date(ts),n=new Date();const sameDay=d.toDateString()===n.toDateString();return sameDay?d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});}
 function _crmCampaigns(){const s=new Set();_crmConvs.forEach(cv=>{const c=(cv.origin||{}).campaign;if(c)s.add(c);});return [...s];}
 function _crmOrigins(){const s=new Set();_crmConvs.forEach(cv=>s.add(_crmOriginKey(cv)));return [...s];}
+function _crmDaysSince(ts){if(!ts)return 0;return Math.floor((Date.now()-new Date(ts))/86400000);}
 function renderCrmFilters(){
-  const camps=_crmCampaigns();
+  const camps=_crmCampaigns();const flds=(crmFields()||[]).filter(f=>f.key);
+  const sel=(id,cur,opts)=>`<select style="width:auto;font-size:12px" onchange="${id}=this.value;renderCrm()">${opts.map(([v,l])=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`).join('')}</select>`;
   document.getElementById('crmFilters').innerHTML=`
     <input id="crmSearch" placeholder="🔎 Buscar nome ou telefone…" value="${_crmSearch.replace(/"/g,'&quot;')}" oninput="_crmSearch=this.value;renderCrm()" style="width:auto;min-width:200px;font-size:12.5px">
-    <select style="width:auto;font-size:12.5px" onchange="_crmFOrigin=this.value;renderCrm()">
+    <select style="width:auto;font-size:12px" onchange="_crmFOrigin=this.value;renderCrm()">
       <option value="">Todas origens</option>
       <option value="anuncio" ${_crmFOrigin==='anuncio'?'selected':''}>📣 Anúncio</option>
       ${_crmOrigins().filter(k=>k.startsWith('utm:')).map(k=>`<option value="${k}" ${_crmFOrigin===k?'selected':''}>🔗 ${_crmSrcLabel(k.slice(4))}</option>`).join('')}
       <option value="organico" ${_crmFOrigin==='organico'?'selected':''}>💬 Orgânico</option>
     </select>
-    ${camps.length?`<select style="width:auto;font-size:12.5px;max-width:220px" onchange="_crmFCampaign=this.value;renderCrm()"><option value="">Todas campanhas</option>${camps.map(c=>`<option value="${c.replace(/"/g,'&quot;')}" ${_crmFCampaign===c?'selected':''}>${c.replace(/</g,'&lt;')}</option>`).join('')}</select>`:''}`;
+    ${camps.length?`<select style="width:auto;font-size:12px;max-width:200px" onchange="_crmFCampaign=this.value;renderCrm()"><option value="">Todas campanhas</option>${camps.map(c=>`<option value="${c.replace(/"/g,'&quot;')}" ${_crmFCampaign===c?'selected':''}>${c.replace(/</g,'&lt;')}</option>`).join('')}</select>`:''}
+    ${sel('_crmFEntrada',_crmFEntrada,[['','Entrou: qualquer'],['hoje','Entrou hoje'],['7','Entrou 7 dias'],['30','Entrou 30 dias']])}
+    ${sel('_crmFAtend',_crmFAtend,[['','Atendimento: todos'],['aguardando','⏳ Aguardando resposta'],['respondida','✓ Respondidas'],['sr1','Sem resposta +1d'],['sr3','Sem resposta +3d'],['sr7','Sem resposta +7d']])}
+    ${sel('_crmFFlag',_crmFFlag,[['','Relevância: todas'],['valido','✅ Válidos'],['num','⚠ Número errado'],['irrel','⚑ Irrelevante']])}
+    ${flds.length?sel('_crmFCampo',_crmFCampo,[['','Campo extraído: qualquer'],...flds.map(f=>['has:'+f.key,'Com '+(f.label||f.key).toLowerCase()])]):''}`;
 }
 function _crmFiltered(){
   const s=_crmSearch.trim().toLowerCase();
@@ -2400,13 +2406,17 @@ function _crmFiltered(){
     if(_crmFOrigin&&_crmOriginKey(cv)!==_crmFOrigin)return false;
     if(_crmFCampaign&&(cv.origin||{}).campaign!==_crmFCampaign)return false;
     if(s&&!((cv.name||'').toLowerCase().includes(s)||(cv.chat_id||'').includes(s)))return false;
+    if(_crmFEntrada){const dd=_crmDaysSince(cv._first||cv.last_at);if(_crmFEntrada==='hoje'&&dd>0)return false;if(_crmFEntrada==='7'&&dd>7)return false;if(_crmFEntrada==='30'&&dd>30)return false;}
+    if(_crmFAtend){const dd=_crmDaysSince(cv.last_at);if(_crmFAtend==='aguardando'&&cv._lastdir!=='in')return false;if(_crmFAtend==='respondida'&&cv._lastdir!=='out')return false;if(_crmFAtend==='sr1'&&!(cv._lastdir==='in'&&dd>=1))return false;if(_crmFAtend==='sr3'&&!(cv._lastdir==='in'&&dd>=3))return false;if(_crmFAtend==='sr7'&&!(cv._lastdir==='in'&&dd>=7))return false;}
+    if(_crmFFlag){if(_crmFFlag==='valido'&&(cv.num_errado||cv.irrelevante))return false;if(_crmFFlag==='num'&&!cv.num_errado)return false;if(_crmFFlag==='irrel'&&!cv.irrelevante)return false;}
+    if(_crmFCampo&&_crmFCampo.startsWith('has:')){const k=_crmFCampo.slice(4);if(!((cv.fields||{})[k]||'').toString().trim())return false;}
     return true;
   });
 }
 function crmStages(){return (_acctCfg&&Array.isArray(_acctCfg.crm_stages)&&_acctCfg.crm_stages.length)?_acctCfg.crm_stages:CRM_STAGES;}
 function renderCrm(){
   const list=_crmFiltered();
-  document.getElementById('crmCount').textContent=`${list.length} conversa${list.length===1?'':'s'} no funil`;
+  document.getElementById('crmCount').textContent=(list.length===_crmConvs.length)?`${list.length} conversa${list.length===1?'':'s'} no funil`:`${list.length} de ${_crmConvs.length} conversas`;
   const STAGES=crmStages();const firstKey=STAGES[0]?STAGES[0].key:'sem';
   const byStage={};STAGES.forEach(s=>byStage[s.key]=[]);
   list.forEach(cv=>{const k=cv.stage&&byStage[cv.stage]?cv.stage:firstKey;byStage[k].push(cv);});
