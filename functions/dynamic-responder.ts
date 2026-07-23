@@ -1329,19 +1329,44 @@ const WA_TOOLS = [
   { type: "function", function: { name: "meta_insights", description: "Métricas de Meta Ads AO VIVO de UM cliente (totais 7/30d + campanhas ativas com orçamento) no período.", parameters: { type: "object", properties: { cliente: { type: "string", description: "nome do cliente" }, dias: { type: "integer" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "google_insights", description: "Métricas de Google Ads AO VIVO de UM cliente no período.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "resumo_todos_clientes", description: "Resumo de TODOS os clientes no período (gasto + métrica do objetivo, Meta/Google separados). Use quando pedirem panorama/todos os clientes.", parameters: { type: "object", properties: { dias: { type: "integer" } } } } },
+  { type: "function", function: { name: "financeiro", description: "Consulta financeira com TOTAL e itens já com o nome do cliente resolvido e a soma correta. USE ISSO pra qualquer pergunta de dinheiro (a receber, a pagar, recebido, pago, fluxo do mês).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["receita", "despesa"] }, status: { type: "string", enum: ["pendente", "pago"] }, mes: { type: "string", description: "AAAA-MM, ex: 2026-07" }, cliente: { type: "string" } } } } },
   { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"] }, cliente: { type: "string" }, nome: { type: "string" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
 ];
 function _waResolveClient(nomeOuId: string, clients: any[]) { if (!nomeOuId) return null; const q = String(nomeOuId).toLowerCase().trim(); return clients.find((c) => c.id === nomeOuId) || clients.find((c) => c.name.toLowerCase() === q) || clients.find((c) => c.name.toLowerCase().includes(q)) || null; }
+let _waCliMap: Record<string, string> | null = null, _waCliMapT = 0;
+async function _waClientsMap(): Promise<Record<string, string>> {
+  if (_waCliMap && Date.now() - _waCliMapT < 300000) return _waCliMap;
+  const cs = await sbGet("clients", "select=id,name&limit=1000"); const m: Record<string, string> = {};
+  cs.forEach((c: any) => { m[c.id] = c.name; }); _waCliMap = m; _waCliMapT = Date.now(); return m;
+}
 async function waQueryTable(args: any) {
   const t = args.tabela; if (!WA_TABLES[t]) return { erro: "tabela não permitida" };
   const p = ["select=" + encodeURIComponent(args.colunas && String(args.colunas).trim() ? args.colunas : "*")];
   if (args.filtro && String(args.filtro).trim()) p.push(String(args.filtro).trim());
   if (args.ordenar) p.push("order=" + encodeURIComponent(args.ordenar));
   p.push("limit=" + Math.min(Number(args.limite) || 30, 100));
-  try { const rows = await sbGet(t, p.join("&")); return { linhas: rows, total: rows.length }; } catch (e) { return { erro: String((e as any)?.message || e) }; }
+  try {
+    const rows = await sbGet(t, p.join("&"));
+    if (rows.length && (rows[0].client !== undefined || rows[0].client_id !== undefined)) { const map = await _waClientsMap(); rows.forEach((r: any) => { const cid = r.client || r.client_id; if (cid && map[cid]) r.cliente_nome = map[cid]; }); }
+    return { linhas: rows, total: rows.length };
+  } catch (e) { return { erro: String((e as any)?.message || e) }; }
+}
+// Financeiro determinístico: total + itens (com nome do cliente já resolvido). Evita o modelo errar nome/soma.
+async function waFinanceiro(args: any) {
+  const p = ["select=type,status,client,description,val,due", "limit=1000"];
+  if (args.tipo) p.push("type=eq." + args.tipo);
+  if (args.status) p.push("status=eq." + args.status);
+  if (args.mes) p.push("due=like." + String(args.mes) + "*");
+  if (args.cliente) { const clients = await sbGet("clients", "select=id,name&limit=1000"); const rc = _waResolveClient(args.cliente, clients); if (!rc) return { erro: `cliente "${args.cliente}" não encontrado` }; p.push("client=eq." + rc.id); }
+  const rows = await sbGet("finance", p.join("&"));
+  const map = await _waClientsMap();
+  const itens = rows.map((r: any) => ({ cliente: map[r.client] || "(sem cliente)", descricao: r.description, valor: Number(r.val) || 0, vencimento: r.due, status: r.status, tipo: r.type }));
+  const total = Math.round(itens.reduce((s: number, x: any) => s + x.valor, 0) * 100) / 100;
+  return { total, quantidade: itens.length, itens };
 }
 async function waExecTool(name: string, args: any, clients: any[]) {
   if (name === "consultar_banco") return await waQueryTable(args);
+  if (name === "financeiro") return await waFinanceiro(args);
   if (name === "resumo_todos_clientes") { const msgs = await waAgentAllClientsSummary(Number(args.dias) || 7); return { texto: msgs.join("\n\n") }; }
   if (name === "meta_insights") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const snap = await waAgentSnapshot(c.id); return { cliente: c.name, _cid: c.id, dados: snap }; }
   if (name === "google_insights") {
@@ -1405,7 +1430,7 @@ async function waAgentHandle(w: any) {
 - Você CONSULTA os dados reais do sistema com as ferramentas: consultar_banco (qualquer tabela: financeiro, tarefas, CRM, RD, pedidos, clientes…), meta_insights e google_insights (métricas ao vivo), resumo_todos_clientes. SEMPRE busque o dado real antes de responder — NUNCA invente número nem use placeholders (X, Y, Z). Se não houver dado, diga que não há.
 - Traga SÓ o que tem dado, e a métrica que faz sentido pro OBJETIVO do cliente (venda→ROAS; lead→CPL; mensagem→custo por conversa; tráfego→CPC/CTR). Não recite dados que não foram pedidos.
 - Para AÇÕES (criar tarefa, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
-- FINANCEIRO (tabela finance): "a receber" = receita pendente; "a pagar" = despesa pendente; "recebido/pago" = pago. Campos: type='receita'|'despesa', status='pendente'|'pago', val (número), due (texto AAAA-MM-DD), client (id), description. Pra um MÊS use o filtro de texto: due=like.2026-07*. Ex: a receber em julho → consultar_banco{tabela:'finance', filtro:"type=eq.receita&status=eq.pendente&due=like.2026-07*"} e SOME os val. Se pedirem "a receber este mês" e você achar linhas, responda o total e liste; só diga que não há se a consulta voltar VAZIA de verdade.
+- DINHEIRO/FINANCEIRO: para QUALQUER pergunta de valores (a receber, a pagar, recebido, pago, fluxo do mês) use a ferramenta **financeiro** — ela já devolve o TOTAL correto e os ITENS com o nome certo do cliente. "a receber" = {tipo:'receita',status:'pendente'}; "a pagar" = {tipo:'despesa',status:'pendente'}; "este mês" = mes:'${new Date().toISOString().slice(0, 7)}'. NUNCA some você mesma nem adivinhe o nome do cliente — use os campos 'total' e 'itens' que a ferramenta retorna, exatamente.
 - Datas: hoje é ${new Date().toISOString().slice(0, 10)}. Ao filtrar por um cliente específico use o id dele (está na lista abaixo entre colchetes, ou consulte a tabela clients). Clientes: ${clients.slice(0, 150).map((c: any) => `${c.name}[${c.id}]`).join(" | ")}.`;
   const hist0 = ((sess && sess.history) || []).slice(-8).map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text }));
   const messages: any[] = [{ role: "system", content: sys }, ...hist0, { role: "user", content: text }];
