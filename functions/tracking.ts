@@ -194,12 +194,9 @@ function waExtractOrigin(m: any): { type: string; data: Record<string, unknown> 
       thumbnail: ad.thumbnailUrl || ad.thumbnail || "", media_type: ad.mediaType || "",
     } };
   }
-  // uazapi às vezes já traz origem em track_source/track_id ou source
+  // uazapi às vezes já traz origem em track_source/track_id (do rastreamento). NÃO usar m.source: é a plataforma do device (ios/web/android), não anúncio.
   if (m.track_source || m.track_id) {
     return { type: (m.track_source === "ad" ? "anuncio" : "utm"), data: { track_source: m.track_source || "", track_id: m.track_id || "" } };
-  }
-  if (m.source && m.source !== "unknown" && m.source !== "app") {
-    return { type: "anuncio", data: { source: m.source } };
   }
   return null;
 }

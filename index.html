@@ -2421,6 +2421,8 @@ async function openCrmConv(id){
   if(cv.unread){sb.from('wa_conversations').update({unread:0}).eq('id',id).then(()=>{});cv.unread=0;}
   renderCrmDrawer();renderCrm();
   setTimeout(()=>{const th=document.getElementById('crmThread');if(th)th.scrollTop=th.scrollHeight;},30);
+  // auto-classifica ao abrir se a conversa ainda não foi classificada pela IA
+  if(!cv.ai_stage&&_crmMsgs.some(m=>m.direction==='in')){crmExtractLead(id);}
 }
 function crmCloseThread(){_crmActive=null;document.getElementById('crmDrawer').innerHTML='';renderCrm();}
 function crmFields(){return (_acctCfg&&Array.isArray(_acctCfg.crm_fields)&&_acctCfg.crm_fields.length)?_acctCfg.crm_fields:[

@@ -1978,7 +1978,7 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
   return { ok: true };
 }
 async function waHandler(w: any) {
-  if (w.op === "extract") return await waExtract(w.convId);
+  if (w.op === "extract") return await waExtract(w.convId, w.autoApply !== false);
   if (w.op === "capi") return await waCapi(w.convId, w.event);
   // criar instância nova (número da agência ou de um cliente) — não precisa de instanceId
   if (w.op === "create") {
