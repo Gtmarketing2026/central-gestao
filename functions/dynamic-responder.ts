@@ -1494,6 +1494,7 @@ const WA_TOOLS = [
   { type: "function", function: { name: "google_insights", description: "Métricas de Google Ads AO VIVO de UM cliente no período.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "google_keywords", description: "Palavras-chave e termos de busca do Google Ads de UM cliente no período (por palavra: gasto, cliques, conversões, CPC). USE isto quando perguntarem 'como está cada palavra-chave', keywords, termos de busca ou o que as pessoas pesquisaram.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "resumo_todos_clientes", description: "Resumo de TODOS os clientes no período (gasto + métrica do objetivo, Meta/Google separados). Use quando pedirem panorama/todos os clientes.", parameters: { type: "object", properties: { dias: { type: "integer" } } } } },
+  { type: "function", function: { name: "relatorio_cliente", description: "Gera um RELATÓRIO VISUAL e limpo de UM cliente PRONTO PRA ENVIAR AO CLIENTE (investimento, resultados pelo objetivo, alcance e uma análise). Use quando pedirem 'relatório do [cliente]', 'manda o relatório pro cliente', 'relatório pra enviar'. Envie o campo 'relatorio' EXATAMENTE como vier.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "reunioes", description: "REUNIÕES/compromissos da AGENDA (Google Agenda), que é DIFERENTE de tarefa operacional. USE isto quando perguntarem sobre reuniões, agenda, compromissos, calls. NÃO liste tarefas comuns aqui.", parameters: { type: "object", properties: { quando: { type: "string", description: "'hoje', 'amanha', 'semana' ou vazio (padrão hoje)" }, data: { type: "string", description: "data específica AAAA-MM-DD (opcional)" } } } } },
   { type: "function", function: { name: "financeiro", description: "Consulta financeira com TOTAL e itens já com o nome do cliente resolvido e a soma correta. USE ISSO pra qualquer pergunta de dinheiro (a receber, a pagar, recebido, pago, fluxo do mês).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["receita", "despesa"] }, status: { type: "string", enum: ["pendente", "pago"] }, mes: { type: "string", description: "AAAA-MM, ex: 2026-07" }, cliente: { type: "string" } } } } },
   { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM). Para criar_tarefa, o RESPONSÁVEL (quem faz) e o QUANDO (data) são obrigatórios — se o usuário não disser, PERGUNTE antes.", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "criar_reuniao", "cancelar_reuniao", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"] }, cliente: { type: "string" }, nome: { type: "string", description: "título da tarefa OU da reunião (pra cancelar_reuniao, o título/pedaço do nome da reunião a cancelar)" }, responsavel: { type: "string", description: "nome de quem vai fazer a tarefa (membro da equipe)" }, quando: { type: "string", description: "data em AAAA-MM-DD (calcule 'amanhã', 'sexta' etc. a partir de hoje) — usada por tarefa e reunião" }, hora: { type: "string", description: "horário da reunião em HH:MM (opcional)" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
@@ -1504,6 +1505,7 @@ const WA_MENU_TEXT = `🤖 *AndréIA — o que posso fazer aqui no grupo:*
 • _Como tá o [cliente] nos últimos 7 dias?_
 • _Detalhes das campanhas do [cliente]_
 • _Como está cada palavra-chave do [cliente]?_ (Google)
+• _Relatório do [cliente] pra enviar_ (layout pronto pro cliente)
 • _Resumo de todos os clientes_
 • _Quem precisa de atenção?_
 • _Saúde da carteira_
@@ -1607,8 +1609,56 @@ async function waMetaResumo(clientId: string, dias: number) {
   const campanhas = ((r && r.campaigns) || []).filter((x: any) => (x.spend || 0) > 0).slice(0, 20).map((x: any) => ({ nome: x.campaign, objetivo: (x.objetivo && x.objetivo.rotulo) || "", orcamentoDiario: budgetByName[x.campaign] || undefined, ..._waCampKpi(x) }));
   return { cliente: c.name, dias, total, campanhas };
 }
+// Relatório VISUAL de UM cliente, pronto pra enviar pro cliente (layout limpo pro WhatsApp).
+function _fmtN(v: number) { return Math.round(v || 0).toLocaleString("pt-BR"); }
+function _brDia(iso: string) { const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}` : iso; }
+async function _waAnaliseCliente(nome: string, mt: any, gt: any) {
+  try {
+    const data = { cliente: nome, meta: mt ? _objMetric(mt, false) : null, google: gt ? _objMetric(gt, true) : null };
+    const sys = "Você é a AndréIA, gestora de tráfego da GT Marketing, escrevendo PARA O CLIENTE. Em 1 ou 2 frases curtas, profissionais e claras (sem jargão técnico, sem falar em 'pausar/escalar/otimizar campanha'), resuma o desempenho do período de forma honesta e positiva. Não use markdown nem emojis.";
+    const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content: JSON.stringify(data) }], max_tokens: 180, temperature: 0.5 });
+    return (j.choices[0].message.content || "").trim();
+  } catch (_e) { return ""; }
+}
+async function waRelatorioCliente(c: any, dias: number, comAnalise = true): Promise<string> {
+  const since = new Date(Date.now() - dias * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
+  const mIds = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+  const gIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+  const [m, g] = await Promise.all([
+    mIds.length ? metaAdsInsights({ accounts: mIds.map((id: string) => ({ id, name: id })), since, until }).catch(() => null) : Promise.resolve(null),
+    gIds.length ? googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until }).catch(() => null) : Promise.resolve(null),
+  ]);
+  const mt = m && m.total && (m.total.spend || 0) > 0 ? m.total : null;
+  const gt = g && g.total && (g.total.spend || 0) > 0 ? g.total : null;
+  const DIV = "━━━━━━━━━━━━━━━";
+  if (!mt && !gt) return `📊 *RELATÓRIO — ${c.name}*\n${DIV}\nSem investimento no período (${_brDia(since)}–${_brDia(until)}).`;
+  const tot = { spend: 0, impressions: 0, clicks: 0, reach: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, videoViews: 0 };
+  [mt, gt].forEach((t: any) => { if (!t) return; tot.spend += t.spend || 0; tot.impressions += t.impressions || 0; tot.clicks += t.clicks || 0; tot.reach += (t.reach || 0); tot.purchases += t.purchases || 0; tot.revenue += t.revenue || 0; tot.leads += t.leads || 0; tot.conversas += t.conversas || 0; tot.videoViews += t.videoViews || 0; });
+  let s = `📊 *RELATÓRIO DE PERFORMANCE*\n👤 *${c.name}*\n📅 ${_brDia(since)} a ${_brDia(until)} (${dias} dias)\n${DIV}\n`;
+  // Investimento
+  s += `\n💰 *Investimento*\n`;
+  if (mt && gt) { s += `• Meta: ${_fmtR(mt.spend)}\n• Google: ${_fmtR(gt.spend)}\n• *Total: ${_fmtR(tot.spend)}*\n`; }
+  else s += `• *Total: ${_fmtR(tot.spend)}*\n`;
+  // Resultados (pelo que teve resultado)
+  const res: string[] = [];
+  if (tot.purchases > 0) { const roas = tot.spend ? tot.revenue / tot.spend : 0; res.push(`• Vendas: *${_fmtN(tot.purchases)}*`); if (tot.revenue) res.push(`• Faturamento: *${_fmtR(tot.revenue)}*`); res.push(`• ROAS: *${roas.toFixed(2)}x*`); res.push(`• Custo por venda: ${_fmtR(tot.purchases ? tot.spend / tot.purchases : 0)}`); }
+  if (tot.leads > 0) { res.push(`• Leads: *${_fmtN(tot.leads)}*`); res.push(`• Custo por lead: ${_fmtR(tot.leads ? tot.spend / tot.leads : 0)}`); }
+  if (tot.conversas > 0) { res.push(`• Conversas: *${_fmtN(tot.conversas)}*`); res.push(`• Custo por conversa: ${_fmtR(tot.conversas ? tot.spend / tot.conversas : 0)}`); }
+  if (res.length) s += `\n🎯 *Resultados*\n${res.join("\n")}\n`;
+  // Alcance / engajamento
+  const ctr = tot.impressions ? tot.clicks / tot.impressions * 100 : 0;
+  s += `\n📈 *Alcance*\n• Impressões: ${_fmtN(tot.impressions)}\n`;
+  if (tot.reach > 0) s += `• Pessoas alcançadas: ${_fmtN(tot.reach)}\n`;
+  s += `• Cliques: ${_fmtN(tot.clicks)} · CTR ${ctr.toFixed(2)}%\n`;
+  if (tot.videoViews > 0) s += `• Visualizações de vídeo: ${_fmtN(tot.videoViews)}\n`;
+  // Análise
+  if (comAnalise) { const a = await _waAnaliseCliente(c.name, mt, gt); if (a) s += `\n💬 ${a}\n`; }
+  s += `${DIV}\n_GT Marketing • Gestão de Tráfego_`;
+  return s;
+}
 async function waExecTool(name: string, args: any, clients: any[]) {
   if (name === "consultar_banco") return await waQueryTable(args);
+  if (name === "relatorio_cliente") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const rep = await waRelatorioCliente(c, Number(args.dias) || 7); return { _cid: c.id, relatorio: rep, instrucao: "Envie o campo 'relatorio' EXATAMENTE como está, sem reescrever nem resumir." }; }
   if (name === "financeiro") return await waFinanceiro(args);
   if (name === "reunioes") return await waReunioes(args);
   if (name === "resumo_todos_clientes") { const msgs = await waAgentAllClientsSummary(Number(args.dias) || 7); return { texto: msgs.join("\n\n") }; }
@@ -1685,6 +1735,19 @@ async function waAgentHandle(w: any) {
     for (const mm of msgs) await send(mm);
     await saveSess({ pending: null, last_msgid: w.msgid, history: [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: "[resumo geral de clientes enviado]" }].slice(-16) });
     return { ok: true };
+  }
+  // relatório de UM cliente pra enviar — atalho (garante o layout limpo verbatim)
+  if (/\brelat[óo]rio/.test(low) && !/clientes/.test(low)) {
+    const clientsR = await sbGet("clients", "select=id,name,meta_account_id,google_account_id&limit=1000");
+    const hit = clientsR.filter((c: any) => c.name && String(c.name).length >= 4 && low.includes(String(c.name).toLowerCase()));
+    if (hit.length === 1) {
+      const days = /\b90\b/.test(text) ? 90 : (/\b30\b/.test(text) ? 30 : 7);
+      await send(`⏳ Montando o relatório de ${hit[0].name} (${days} dias)…`);
+      const rep = await waRelatorioCliente(hit[0], days);
+      await send(rep);
+      await saveSess({ client_id: hit[0].id, pending: null, last_msgid: w.msgid, history: [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: "[relatório do cliente enviado]" }].slice(-16) });
+      return { ok: true };
+    }
   }
   // ===== Agente com FERRAMENTAS: consulta qualquer banco do sistema + Meta/Google ao vivo =====
   const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id&limit=500");
