@@ -1338,7 +1338,7 @@ const WA_TABLES: Record<string, string> = {
 };
 const WA_TOOLS = [
   { type: "function", function: { name: "consultar_banco", description: "Consulta SOMENTE LEITURA de qualquer tabela do sistema pra buscar dados reais (cliente, financeiro, tarefas, conversas do CRM, RD, pedidos etc). SEMPRE use antes de responder sobre dados guardados.", parameters: { type: "object", properties: { tabela: { type: "string", enum: Object.keys(WA_TABLES) }, colunas: { type: "string", description: "colunas separadas por vírgula ou '*'" }, filtro: { type: "string", description: "filtro no formato PostgREST, ex: 'client=eq.<id>&status=eq.pendente'; datas: 'due=gte.2026-07-01&due=lte.2026-07-31'; texto: 'description=ilike.*fee*'. Vazio = sem filtro." }, ordenar: { type: "string", description: "ex: 'created_at.desc' ou 'due.asc'" }, limite: { type: "integer" } }, required: ["tabela"] } } },
-  { type: "function", function: { name: "meta_insights", description: "Métricas de Meta Ads AO VIVO de UM cliente (totais 7/30d + campanhas ativas com orçamento) no período.", parameters: { type: "object", properties: { cliente: { type: "string", description: "nome do cliente" }, dias: { type: "integer" } }, required: ["cliente"] } } },
+  { type: "function", function: { name: "meta_insights", description: "Métricas de Meta Ads AO VIVO de UM cliente no período: 'total' (consolidado, já filtrado pela métrica do objetivo) e 'campanhas' (CADA campanha com gasto, orçamento diário e os KPIs do objetivo DELA). Use pra 'como tá o cliente X', 'campanhas do X', detalhes por campanha.", parameters: { type: "object", properties: { cliente: { type: "string", description: "nome do cliente" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "google_insights", description: "Métricas de Google Ads AO VIVO de UM cliente no período.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "resumo_todos_clientes", description: "Resumo de TODOS os clientes no período (gasto + métrica do objetivo, Meta/Google separados). Use quando pedirem panorama/todos os clientes.", parameters: { type: "object", properties: { dias: { type: "integer" } } } } },
   { type: "function", function: { name: "financeiro", description: "Consulta financeira com TOTAL e itens já com o nome do cliente resolvido e a soma correta. USE ISSO pra qualquer pergunta de dinheiro (a receber, a pagar, recebido, pago, fluxo do mês).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["receita", "despesa"] }, status: { type: "string", enum: ["pendente", "pago"] }, mes: { type: "string", description: "AAAA-MM, ex: 2026-07" }, cliente: { type: "string" } } } } },
@@ -1376,11 +1376,40 @@ async function waFinanceiro(args: any) {
   const total = Math.round(itens.reduce((s: number, x: any) => s + x.valor, 0) * 100) / 100;
   return { total, quantidade: itens.length, itens };
 }
+// KPI de UMA campanha, pela métrica do objetivo DELA (venda→compras/ROAS; leads→CPL; mensagem→custo/conversa; senão tráfego)
+function _waCampKpi(c: any) {
+  const spend = c.spend || 0; const tipo = (c.objetivo && c.objetivo.tipo) || "";
+  const base: any = { gasto: Math.round(spend), ctr: +(c.ctr || 0).toFixed(2), cpc: +(c.cpc || 0).toFixed(2) };
+  if (tipo === "conversao" || tipo === "app") { base.compras = Math.round(c.purchases || 0); base.roas = c.roas != null ? +c.roas.toFixed(2) : (spend ? +((c.revenue || 0) / spend).toFixed(2) : 0); base.cpa = c.purchases ? +(spend / c.purchases).toFixed(2) : null; }
+  else if (tipo === "leads") { base.leads = c.leads || 0; base.cpl = c.leads ? +(spend / c.leads).toFixed(2) : null; }
+  else if (tipo === "mensagens") { base.conversas = c.conversas || 0; base.custoPorConversa = c.conversas ? +(spend / c.conversas).toFixed(2) : null; }
+  else if (tipo === "video") { base.videoViews = c.videoViews || 0; }
+  else { base.cliques = c.clicks || 0; }
+  return base;
+}
+// Resumo de UM cliente com KPIs POR CAMPANHA (cada uma pela métrica do objetivo dela) + total filtrado, pro período pedido
+async function waMetaResumo(clientId: string, dias: number) {
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,meta_account_id`))[0];
+  if (!c) return { erro: "cliente não encontrado" };
+  const ids = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+  if (!ids.length) return { cliente: c.name, aviso: "cliente sem Meta Ads vinculado" };
+  const accounts = ids.map((id: string) => ({ id, name: id }));
+  const since = new Date(Date.now() - dias * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
+  const [r, ent] = await Promise.all([
+    metaAdsInsights({ accounts, since, until, byCampaign: true }).catch(() => null),
+    metaEntities({ accounts }).catch(() => null),
+  ]);
+  const total = (r && r.total) ? _waResumoMeta(r.total) : null;
+  const budgetByName: Record<string, number> = {};
+  if (ent) (ent.campaigns || []).forEach((x: any) => { if (x.status === "ACTIVE" || x.entrega === "ACTIVE") budgetByName[x.nome] = x.orcamentoDiario; });
+  const campanhas = ((r && r.campaigns) || []).filter((x: any) => (x.spend || 0) > 0).slice(0, 20).map((x: any) => ({ nome: x.campaign, objetivo: (x.objetivo && x.objetivo.rotulo) || "", orcamentoDiario: budgetByName[x.campaign] || undefined, ..._waCampKpi(x) }));
+  return { cliente: c.name, dias, total, campanhas };
+}
 async function waExecTool(name: string, args: any, clients: any[]) {
   if (name === "consultar_banco") return await waQueryTable(args);
   if (name === "financeiro") return await waFinanceiro(args);
   if (name === "resumo_todos_clientes") { const msgs = await waAgentAllClientsSummary(Number(args.dias) || 7); return { texto: msgs.join("\n\n") }; }
-  if (name === "meta_insights") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const snap = await waAgentSnapshot(c.id); return { cliente: c.name, _cid: c.id, dados: snap }; }
+  if (name === "meta_insights") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const r = await waMetaResumo(c.id, Number(args.dias) || 7); return { _cid: c.id, ...r }; }
   if (name === "google_insights") {
     const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" };
     const gIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean); if (!gIds.length) return { cliente: c.name, aviso: "cliente sem Google Ads vinculado" };
@@ -1442,6 +1471,7 @@ async function waAgentHandle(w: any) {
 - Você CONSULTA os dados reais do sistema com as ferramentas: consultar_banco (qualquer tabela: financeiro, tarefas, CRM, RD, pedidos, clientes…), meta_insights e google_insights (métricas ao vivo), resumo_todos_clientes. SEMPRE busque o dado real antes de responder — NUNCA invente número nem use placeholders (X, Y, Z). Se não houver dado, diga que não há.
 - Traga SÓ o que tem dado, e a métrica do OBJETIVO do cliente. O snapshot já traz o campo 'objetivo' e só as métricas certas dele: venda→compras/ROAS/CPA; leads→leads/CPL; mensagens→conversas/custo por conversa; tráfego→cliques/CTR/CPC. NUNCA misture (ex: cliente de VENDA não mostra "custo por conversa").
 - Formato WhatsApp: NÃO use markdown de título (nada de ### ou **). Negrito é com UM asterisco (*assim*). Listas com "• ". Seja enxuta.
+- Ao pedirem detalhes/campanhas de um cliente, use meta_insights e liste CADA campanha do array 'campanhas' com os KPIs que a ferramenta já trouxe pra ela (gasto, orçamento e a métrica do objetivo dela). Use SOMENTE os campos que vieram — NÃO invente nem puxe métrica de fora (ex: não some conversas num total de venda). O consolidado é o campo 'total'.
 - Para AÇÕES (criar tarefa, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
 - DINHEIRO/FINANCEIRO: para QUALQUER pergunta de valores (a receber, a pagar, recebido, pago, fluxo do mês) use a ferramenta **financeiro** — ela já devolve o TOTAL correto e os ITENS com o nome certo do cliente. "a receber" = {tipo:'receita',status:'pendente'}; "a pagar" = {tipo:'despesa',status:'pendente'}; "este mês" = mes:'${new Date().toISOString().slice(0, 7)}'. NUNCA some você mesma nem adivinhe o nome do cliente — use os campos 'total' e 'itens' que a ferramenta retorna, exatamente.
 - Datas: hoje é ${new Date().toISOString().slice(0, 10)}. Ao filtrar por um cliente específico use o id dele (está na lista abaixo entre colchetes, ou consulte a tabela clients). Clientes: ${clients.slice(0, 150).map((c: any) => `${c.name}[${c.id}]`).join(" | ")}.`;
