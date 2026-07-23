@@ -8841,11 +8841,21 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   };
   const catLabel={};RT_SEC_CATALOG.forEach(s=>catLabel[s.key]=s.label);
   const layout=rtResolveLayout(c);
+  // contexto extra pros blocos personalizados (linha=evolução no tempo, campanhas=tabela, funil)
+  const _rtAggShape=x=>({spend:x.spend||0,revenue:x.revenue||0,compras:Math.round(x.purchases||x.compras||0),clicks:x.clicks||0,impressions:x.impressions||0,reach:x.reach||0,leads:x.leads||0,conversas:x.conversas||0,addCarrinho:x.addToCart||x.addCarrinho||0,checkout:x.initiateCheckout||x.checkout||0,videoViews:x.videoViews||0,engajamentos:x.engajamentos||0,frequencia:x.reach?(x.impressions||0)/x.reach:0});
+  const _rtDaily={};const _rtAddRec=r=>{const k=r&&r.date;if(!k)return;const o=_rtDaily[k]||(_rtDaily[k]={date:k,spend:0,revenue:0,clicks:0,impressions:0,compras:0});o.spend+=r.spend||0;o.revenue+=r.revenue||0;o.clicks+=r.clicks||0;o.impressions+=r.impressions||0;o.compras+=Math.round(r.sales||0);};
+  (_tplCampsView||[]).forEach(cp=>(cp.records||[]).forEach(_rtAddRec));
+  if(metaChStats&&metaChStats.GOOGLE&&metaChStats.GOOGLE.records&&!_rtFilterActive())metaChStats.GOOGLE.records.forEach(_rtAddRec);
+  const rtCtx={
+    daily:Object.values(_rtDaily).sort((a,b)=>a.date<b.date?-1:1),
+    camps:(_tplCampsView||[]).map(cp=>({name:cp.campaign||'—',agg:_rtAggShape(cp)})).filter(x=>x.agg.spend>0).sort((a,b)=>b.agg.spend-a.agg.spend),
+    funnel:funnelStages
+  };
   const geralInner=layout.map(entry=>{
     if(entry.on===false)return '';
     if(RT_TAB_CATALOG.some(t=>t.key===entry.key))return ''; // abas são controladas à parte, não entram na Visão Geral
     const isCustom=(entry.key||'').startsWith('custom_');
-    const html=isCustom?rtRenderCustomSection(entry,chanAgg):(secMap[entry.key]||'');
+    const html=isCustom?rtRenderCustomSection(entry,chanAgg,rtCtx):(secMap[entry.key]||'');
     if(!html)return '';
     const lbl=isCustom?(entry.title||'Seção personalizada'):(catLabel[entry.key]||entry.key);
     return `<div data-section="${entry.key}">${rtSecEditBar(entry.key,lbl)}${html}</div>`;
@@ -8983,12 +8993,51 @@ function rtSecEditBar(key,label){
     ${isCustom?`<button class="btn sm ghost" type="button" onclick="rtLayoutAddCustom('${key}')" title="editar">✎</button>`:''}
     <button class="btn sm ghost" type="button" style="color:#f87171" onclick="rtLayoutToggle('${key}')" title="ocultar do relatório">✕</button></div>`;
 }
-function rtRenderCustomSection(entry,chanAgg){
+// gráfico de linha em SVG (evolução no tempo) — sem lib, imprime bem no PDF; cada métrica normalizada ao seu próprio máximo
+function _rtLineSVG(records,metricKeys){
+  const recs=(records||[]).filter(r=>r&&r.date);
+  const keys=(metricKeys||[]).filter(k=>METRIC_CATALOG[k]);
+  if(recs.length<2||!keys.length)return '<div style="font-size:12px;color:var(--rtm);padding:14px">Sem dados diários suficientes no período para o gráfico de linha.</div>';
+  const W=720,H=260,P={l:8,r:8,t:16,b:24},pal=['#f0c040','#60a5fa','#34d399','#f472b6','#a78bfa','#fb923c'];
+  const n=recs.length,iw=W-P.l-P.r,ih=H-P.t-P.b;
+  const x=i=>P.l+(n<=1?iw/2:iw*i/(n-1));
+  const lines=keys.map((k,ki)=>{
+    const mc=METRIC_CATALOG[k];const vals=recs.map(r=>mc.calc(r)||0);const max=Math.max(...vals,0)||1;
+    const pts=vals.map((v,i)=>`${x(i).toFixed(1)},${(P.t+ih-(v/max)*ih).toFixed(1)}`).join(' ');
+    const tot=vals.reduce((s,v)=>s+v,0);const lastV=vals[vals.length-1];
+    const legVal=(/pct|x|money|num/.test(mc.fmt))?fmtMetric(lastV,mc.fmt):fmtMetric(tot,mc.fmt);
+    return {k,color:pal[ki%pal.length],pts,label:mc.label,legVal};
+  });
+  const dts=recs.map(r=>r.date);const lbl=d=>{const m=String(d).match(/(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}`:d;};
+  const xticks=[0,Math.floor((n-1)/2),n-1].filter((v,i,a)=>a.indexOf(v)===i);
+  const grid=[0,.25,.5,.75,1].map(g=>`<line x1="${P.l}" y1="${(P.t+ih*g).toFixed(1)}" x2="${W-P.r}" y2="${(P.t+ih*g).toFixed(1)}" stroke="rgba(255,255,255,.06)" stroke-width="1"/>`).join('');
+  const svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${grid}
+    ${lines.map(l=>`<polyline points="${l.pts}" fill="none" stroke="${l.color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`).join('')}
+    ${xticks.map(i=>`<text x="${x(i).toFixed(1)}" y="${H-6}" fill="var(--rtm)" font-size="10" text-anchor="${i===0?'start':i===n-1?'end':'middle'}">${lbl(dts[i])}</text>`).join('')}
+  </svg>`;
+  const legend=`<div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:8px">${lines.map(l=>`<div style="display:flex;align-items:center;gap:6px;font-size:11.5px"><span style="width:14px;height:3px;background:${l.color};border-radius:2px;display:inline-block"></span><b style="color:var(--rt1)">${l.label}</b> <span style="color:var(--rtm)">${l.legVal}</span></div>`).join('')}</div>`;
+  return `<div class="rt-tc" style="padding:14px 16px">${svg}${legend}<div style="font-size:10.5px;color:var(--rtm);margin-top:8px">Cada linha é normalizada ao seu próprio máximo (para comparar tendências de unidades diferentes). Valor na legenda = ${'total do período (ou média p/ taxas)'}.</div></div>`;
+}
+function rtRenderCustomSection(entry,chanAgg,ctx){
   const agg=(chanAgg&&chanAgg[entry.channel||'geral'])||{};
+  const fmt=entry.format;
   const metrics=(entry.metrics||[]).filter(k=>METRIC_CATALOG[k]);
-  if(!metrics.length)return '';
   const title=(entry.title||'Seção personalizada').replace(/</g,'&lt;');
-  const chLbl=entry.format==='grafico'?'📊 COMPARATIVO DE CANAIS':entry.channel==='meta'?'Ⓜ️ META ADS':entry.channel==='google'?'🔎 GOOGLE ADS':'🌐 GERAL';
+  const chLbl=fmt==='grafico'?'📊 COMPARATIVO DE CANAIS':fmt==='linha'?'📈 EVOLUÇÃO NO TEMPO':fmt==='campanhas'?'📣 CAMPANHAS':fmt==='funil'?'🔻 FUNIL':entry.channel==='meta'?'Ⓜ️ META ADS':entry.channel==='google'?'🔎 GOOGLE ADS':'🌐 GERAL';
+  const wrap=bodyH=>`<div class="rt-sec"><div class="rt-sec-hdr"><div class="rt-sec-num">★</div><div class="rt-sec-title">${title}</div><span style="font-size:10px;font-weight:800;letter-spacing:.04em;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.4);border-radius:8px;padding:2px 8px;margin-left:8px">${chLbl}</span><div class="rt-sec-ln"></div></div>${bodyH}</div>`;
+  // ----- Funil (usa as etapas do funil do relatório) -----
+  if(fmt==='funil'){const st=(ctx&&ctx.funnel)||[];if(!st[0]||!st[0].value)return wrap('<div style="font-size:12px;color:var(--rtm);padding:14px">Sem dados de funil no período.</div>');return wrap(funnelBarsHTML(st));}
+  // ----- Tabela de campanhas (campanha × métricas escolhidas) -----
+  if(fmt==='campanhas'){
+    const rows=(ctx&&ctx.camps)||[];const cols=metrics.length?metrics:['valorGasto','compras','custoPorCompra','ctr'];
+    if(!rows.length)return wrap('<div style="font-size:12px;color:var(--rtm);padding:14px">Sem campanhas com gasto no período.</div>');
+    const th=`<th style="text-align:left;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">Campanha</th>${cols.map(k=>`<th style="text-align:right;padding:10px 14px;font-size:10.5px;color:var(--rtm);text-transform:uppercase;border-bottom:1px solid var(--rbr)">${METRIC_CATALOG[k].label}</th>`).join('')}`;
+    const trs=rows.slice(0,40).map(r=>`<tr><td style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035);max-width:280px">${(r.name||'—').replace(/</g,'&lt;')}</td>${cols.map(k=>`<td style="text-align:right;padding:8px 14px;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.035)">${fmtMetric(METRIC_CATALOG[k].calc(r.agg),METRIC_CATALOG[k].fmt)}</td>`).join('')}</tr>`).join('');
+    return wrap(`<div class="rt-tc" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><tr>${th}</tr>${trs}</table></div>`);
+  }
+  // ----- Gráfico de linha (evolução no tempo) -----
+  if(fmt==='linha')return wrap(_rtLineSVG((ctx&&ctx.daily)||[],metrics.length?metrics:['valorGasto']));
+  if(!metrics.length)return '';
   const val=k=>{const mc=METRIC_CATALOG[k];return fmtMetric(mc.calc(agg),mc.fmt);};
   let bodyH;
   if(entry.format==='grafico'){
@@ -9049,8 +9098,8 @@ function rtLayoutAddCustom(editKey){
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Métricas / KPIs (o que puxar)</div><div><a onclick="document.querySelectorAll('.rtcMetric').forEach(x=>x.checked=true)" style="font-size:11px;color:var(--accent);cursor:pointer">marcar todas</a> · <a onclick="document.querySelectorAll('.rtcMetric').forEach(x=>x.checked=false)" style="font-size:11px;color:var(--accent);cursor:pointer">limpar</a></div></div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${metOpts}</div>
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Formato</div>
-    <select id="rtcFmt" style="width:auto;margin-bottom:18px">${fmtOpt('cards','Cards')}${fmtOpt('tabela','Tabela')}${fmtOpt('destaque','Destaque (números grandes)')}${fmtOpt('grafico','Gráfico (barras comparando canais)')}</select>
-    <div style="font-size:11px;color:var(--muted);margin:-12px 0 16px">No formato <b>Gráfico</b>, cada métrica vira barras comparando Geral × Meta × Google (o canal escolhido acima é ignorado).</div>
+    <select id="rtcFmt" style="width:auto;margin-bottom:18px">${fmtOpt('cards','Cards (KPIs)')}${fmtOpt('tabela','Tabela (indicador × valor)')}${fmtOpt('destaque','Destaque (números grandes)')}${fmtOpt('grafico','Gráfico de barras (comparar canais)')}${fmtOpt('linha','Gráfico de linha (evolução no tempo)')}${fmtOpt('campanhas','Tabela de campanhas (campanha × métricas)')}${fmtOpt('funil','Funil de conversão')}</select>
+    <div style="font-size:11px;color:var(--muted);margin:-12px 0 16px"><b>Barras</b>: cada métrica compara Geral × Meta × Google. <b>Linha</b>: evolução diária das métricas escolhidas. <b>Campanhas</b>: as métricas viram colunas por campanha. <b>Funil</b>: usa as etapas do funil do relatório (não precisa escolher métrica).</div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn ghost" type="button" onclick="document.getElementById('rtCustomOverlay').remove()">Cancelar</button>
       <button class="btn primary" type="button" onclick="rtLayoutSaveCustom('${editKey||''}')">${editKey?'Salvar alterações':'Adicionar seção'}</button>
@@ -9062,7 +9111,7 @@ function rtLayoutSaveCustom(editKey){
   const channel=(document.querySelector('input[name=rtcChan]:checked')||{}).value||'geral';
   const metrics=[...document.querySelectorAll('.rtcMetric:checked')].map(x=>x.value);
   const format=document.getElementById('rtcFmt').value||'cards';
-  if(!metrics.length){alert('Escolha ao menos uma métrica.');return;}
+  if(!metrics.length&&format!=='funil'){alert('Escolha ao menos uma métrica.');return;}
   const c=_rtClient();if(!c)return;const secs=rtResolveLayout(c);
   if(editKey){const e=secs.find(s=>s.key===editKey);if(e){e.title=title;e.channel=channel;e.metrics=metrics;e.format=format;e.on=true;}}
   else secs.push({key:'custom_'+uid(),on:true,title,channel,metrics,format});
