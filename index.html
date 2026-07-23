@@ -255,7 +255,7 @@
       <button class="nav-group" onclick="toggleNavGroup(this)">Rastreamento<span class="caret">▾</span></button>
       <div class="nav-sec">
       <button class="tab" data-tab="rastreamento">📡 Pixel e Links</button>
-      <button class="tab" onclick="showComingSoon('WhatsApp','Conectar o WhatsApp do cliente por QR code (Cloud API da Meta) e receber as conversas com a origem. Fase 2 do rastreamento.')">💬 WhatsApp</button>
+      <button class="tab" data-tab="whatsapp">💬 WhatsApp</button>
       </div>
 
       <button class="nav-group" onclick="toggleNavGroup(this)">Financeiro<span class="caret">▾</span></button>
@@ -598,6 +598,13 @@
       <div class="filterbar" id="crtRangeBar" style="margin-bottom:14px;flex-wrap:wrap;gap:6px"></div>
       <div id="crTemplateBody"><div class="empty">Selecione um cliente com planilha de pedidos configurada.</div></div>
     </div>
+  </section>
+
+  <!-- WHATSAPP: conexão de números + AndréIA -->
+  <section class="panel" id="whatsapp">
+    <h2 style="margin:0 0 4px">💬 WhatsApp</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:14px">Conecte os números (agência e clientes) e configure a AndréIA no WhatsApp.</div>
+    <div id="whatsappBody"><div class="empty">Carregando…</div></div>
   </section>
 
   <!-- CRM DE CONVERSAS (WhatsApp) — funil Kanban -->
@@ -1921,6 +1928,28 @@ function goToTab(tabId){
   if(tabId==='raiox')loadRaioX(activeClientId);
   if(tabId==='crm')loadCrm();
   else stopCrmPoll();
+  if(tabId==='whatsapp')loadWhatsappTab();
+}
+async function loadWhatsappTab(){
+  const el=document.getElementById('whatsappBody');if(!el)return;
+  await loadAccountConfig();
+  el.innerHTML=`
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:20px">💬</span><b style="font-size:15px">WhatsApp (uazapi)</b></div>
+        ${integStatusPill('ok','uazapi conectado')}
+      </div>
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">Conecte números por QR: o da agência (para envios) e o de cada cliente. As conversas caem no CRM já com a origem (anúncio/UTM).</div>
+      <div id="waInstList" style="font-size:12.5px;color:var(--muted)">Carregando…</div>
+      <button class="btn sm primary" style="margin-top:10px" onclick="waConnectStart('')">➕ Conectar um número</button>
+      <label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);cursor:pointer"><input type="checkbox" ${_acctCfg.crm_show_agency?'checked':''} onchange="waToggleShowAgency(this.checked)"> Mostrar o CRM da agência (por padrão o CRM é só dos clientes; o número da agência é usado para envios)</label>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><span style="font-size:20px">🤖</span><b style="font-size:14px">AndréIA no WhatsApp</b></div>
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">Fale com a AndréIA num grupo do WhatsApp: peça análises, consulte dados e crie tarefas. Ela pede confirmação antes de ações de alto impacto.</div>
+      <div id="andreiaWaBody" style="font-size:12.5px;color:var(--muted)">Carregando…</div>
+    </div>`;
+  renderWaConfig();renderAndreiaWa();
 }
 /* ===== CRM de Conversas (WhatsApp via uazapi) — funil Kanban ===== */
 const CRM_STAGES=[
@@ -2341,24 +2370,16 @@ async function loadConfiguracoes(){
         <button class="btn sm primary" style="flex:none" onclick="saveNuvemApp()">Salvar</button>
       </div>
       <div style="font-size:11px;color:var(--faint);margin-top:8px">Crie um App de Parceiro na Nuvemshop com a URL de redirect <code style="background:var(--surface2);padding:1px 5px;border-radius:5px;word-break:break-all">${TRACK_BASE}/nuvemshop/callback</code>. Depois conecte a loja de cada cliente no cadastro dele (aba Mídia).</div>`);})()}
-    ${integCard('whatsapp','💬','WhatsApp (uazapi)',
-      'Conecte números por QR: o da agência (para envios) e o de cada cliente. As conversas caem no CRM já com a origem (anúncio/UTM).',
+    ${integCard('whatsapp','💬','WhatsApp (uazapi) + AndréIA',
+      'Conexão de números por QR e a AndréIA no WhatsApp ficam na aba WhatsApp (Rastreamento).',
       integStatusPill('ok','uazapi conectado'),
-      `<div id="waInstList" style="font-size:12.5px;color:var(--muted)">Carregando números…</div>
-       <button class="btn sm primary" style="margin-top:10px" onclick="waConnectStart('')">➕ Conectar um número</button>
-       <label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);cursor:pointer"><input type="checkbox" ${_acctCfg.crm_show_agency?'checked':''} onchange="waToggleShowAgency(this.checked)"> Mostrar o CRM da agência (por padrão o CRM é só dos clientes; o número da agência é usado para envios)</label>`)}
-    <div class="card" style="margin-top:14px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><span style="font-size:20px">🤖</span><b style="font-size:14px">AndréIA no WhatsApp</b></div>
-      <div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">Fale com a AndréIA num grupo do WhatsApp: peça análises dos clientes e crie tarefas. Ela pede confirmação antes de ações de alto impacto.</div>
-      <div id="andreiaWaBody" style="font-size:12.5px;color:var(--muted)">Carregando…</div>
-    </div>
+      `<button class="btn sm primary" onclick="goToTab('whatsapp')">Abrir aba WhatsApp →</button>`)}
     ${integCard('sheets','📊','Google Sheets','Leitura das planilhas de venda (contas conectadas por compartilhamento).',
       integStatusPill('ok','Ativo'),
       `<div style="font-size:12px;color:var(--muted)">Cada cliente compartilha a planilha dele como Leitor com <code style="background:var(--surface2);padding:1px 5px;border-radius:5px;word-break:break-all">leitor-planilhas@central-gestao-sheets.iam.gserviceaccount.com</code> (configurado por cliente na aba Relatórios).</div>`)}
     <div style="font-size:11px;color:var(--faint);margin-top:6px">O status de Meta e Google é verificado ao vivo. Se aparecer "reconectar", o token expirou — me avise que renovamos.</div>`;
   // status ao vivo Meta + Google
   checkIntegMeta();checkIntegGoogle();
-  renderWaConfig();renderAndreiaWa();
 }
 /* ===== AndréIA no WhatsApp (grupo) ===== */
 function _andreiaInstId(){return (_acctCfg&&_acctCfg.andreia_wa&&_acctCfg.andreia_wa.instance_id)||'';}
