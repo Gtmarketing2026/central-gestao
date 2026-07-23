@@ -824,48 +824,62 @@
       <div id="cBudgetChannels"></div>
       <div id="cBudgetAlert" style="display:none;font-size:12px;color:var(--red);margin-bottom:10px"></div>
       <hr class="budget-divider">
-      <div class="form-row" style="margin-bottom:6px">
-        <span style="font-size:13px;font-weight:600;color:var(--text)">📡 Conta de anúncios (Meta Ads — ao vivo)</span>
-        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Vincule a conta do Meta deste cliente pra puxar investimento, CTR, CPM, ROAS e conversões em tempo real — sem planilha.</div>
+      <style>
+        .cad-collapse{border:1px solid var(--border);border-radius:10px;margin:0 0 10px;overflow:hidden}
+        .cad-collapse-hd{cursor:pointer;padding:11px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+        .cad-collapse-hd .t{font-size:13px;font-weight:600;color:var(--text)}
+        .cad-collapse-bd{display:none;padding:2px 14px 14px}
+        .cad-collapse.open>.cad-collapse-bd{display:block}
+        .cad-collapse.open .cad-caret{transform:rotate(180deg)}
+        .cad-caret{transition:transform .15s;color:var(--faint);font-size:11px}
+        .cad-collapse .cad-sub{font-size:11px;color:var(--faint);margin-bottom:8px;line-height:1.5}
+      </style>
+      <div class="cad-collapse">
+        <div class="cad-collapse-hd" onclick="this.parentElement.classList.toggle('open')"><span class="t">📡 Conta de anúncios (Meta Ads)</span><span class="cad-caret">▾</span></div>
+        <div class="cad-collapse-bd">
+          <div class="cad-sub">Vincule a conta do Meta deste cliente pra puxar investimento, CTR, CPM, ROAS e conversões em tempo real. Pode vincular <strong>mais de uma conta</strong> — o relatório soma todas.</div>
+          <div class="form-row" style="margin-bottom:6px"><input id="cMetaSearch" type="text" placeholder="🔎 Buscar conta por nome ou ID…" autocomplete="off" oninput="metaSelectSearch=this.value;fillMetaSelect()" style="width:100%"></div>
+          <div class="form-row"><label>Conta de anúncios</label>
+            <select id="cMetaAccountId" autocomplete="off" size="14" style="width:100%"><option value="">— carregue as contas e escolha —</option></select>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:6px">
+            <button class="btn sm" style="flex:1;justify-content:center" type="button" onclick="addMetaAccount()">+ Vincular</button>
+            <button class="btn sm ghost" style="flex:1;justify-content:center" type="button" id="cMetaLoadBtn" onclick="loadMetaAccounts()" title="Busca a lista direto do Meta">🔄 Atualizar contas</button>
+          </div>
+          <div id="cMetaAccountChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+          <div id="cMetaAccountHint" style="font-size:11px;color:var(--faint)"></div>
+        </div>
       </div>
-      <div style="font-size:11px;color:var(--faint);font-weight:400;margin-bottom:6px">Pode vincular <strong>mais de uma conta</strong> (ex: Fernanda 01, 02 e 03) — o relatório soma todas.</div>
-      <div class="form-row" style="margin-bottom:6px"><input id="cMetaSearch" type="text" placeholder="🔎 Buscar conta por nome ou ID…" autocomplete="off" oninput="metaSelectSearch=this.value;fillMetaSelect()" style="width:100%"></div>
-      <div class="form-row"><label>Conta de anúncios</label>
-        <select id="cMetaAccountId" autocomplete="off" size="14" style="width:100%"><option value="">— carregue as contas e escolha —</option></select>
+      <div class="cad-collapse">
+        <div class="cad-collapse-hd" onclick="this.parentElement.classList.toggle('open')"><span class="t">🔎 Conta de anúncios (Google Ads)</span><span class="cad-caret">▾</span></div>
+        <div class="cad-collapse-bd">
+          <div class="cad-sub">Vincule a conta do Google Ads (via MCC) pra puxar investimento, cliques, CTR e conversões em tempo real. A venda pode continuar vindo da planilha (aba GOOGLE VENDAS).</div>
+          <div class="form-row" style="margin-bottom:6px"><input id="cGoogleSearch" type="text" placeholder="🔎 Buscar conta por nome ou ID…" autocomplete="off" oninput="googleSelectSearch=this.value;fillGoogleSelect()" style="width:100%"></div>
+          <div class="form-row"><label>Conta do Google Ads</label>
+            <select id="cGoogleAccountId" autocomplete="off" size="8" style="width:100%"><option value="">— carregue as contas e escolha —</option></select>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:6px">
+            <button class="btn sm" style="flex:1;justify-content:center" type="button" onclick="addGoogleAccount()">+ Vincular</button>
+            <button class="btn sm ghost" style="flex:1;justify-content:center" type="button" id="cGoogleLoadBtn" onclick="loadGoogleAccounts()" title="Busca a lista de contas direto da MCC do Google Ads">🔄 Atualizar contas</button>
+          </div>
+          <div id="cGoogleAccountChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+          <div id="cGoogleAccountHint" style="font-size:11px;color:var(--faint)"></div>
+        </div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:6px">
-        <button class="btn sm" style="flex:1;justify-content:center" type="button" onclick="addMetaAccount()">+ Vincular</button>
-        <button class="btn sm ghost" style="flex:1;justify-content:center" type="button" id="cMetaLoadBtn" onclick="loadMetaAccounts()" title="Busca a lista direto do Meta — contas que você acabou de pegar acesso aparecem aqui">🔄 Atualizar contas</button>
+      <div class="cad-collapse">
+        <div class="cad-collapse-hd" onclick="this.parentElement.classList.toggle('open')"><span class="t">📣 RD Station (leads &amp; eventos)</span><span class="cad-caret">▾</span></div>
+        <div class="cad-collapse-bd">
+          <div class="cad-sub">Conecte a conta RD Station <b>deste cliente</b> pra puxar os eventos (conversões), leads por evento e o carrinho. Cada cliente autoriza a conta RD dele.</div>
+          <div id="cRdConnectRow"></div>
+        </div>
       </div>
-      <div id="cMetaAccountChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
-      <div id="cMetaAccountHint" style="font-size:11px;color:var(--faint)"></div>
-      <hr class="budget-divider">
-      <div class="form-row" style="margin-bottom:6px">
-        <span style="font-size:13px;font-weight:600;color:var(--text)">🔎 Conta de anúncios (Google Ads — ao vivo)</span>
-        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Vincule a conta do Google Ads (via MCC) pra puxar investimento, cliques, CTR e conversões em tempo real. A venda pode continuar vindo da planilha (aba GOOGLE VENDAS), igual ao Meta.</div>
+      <div class="cad-collapse">
+        <div class="cad-collapse-hd" onclick="this.parentElement.classList.toggle('open')"><span class="t">🛒 Nuvemshop (loja / vendas reais)</span><span class="cad-caret">▾</span></div>
+        <div class="cad-collapse-bd">
+          <div class="cad-sub">Conecte a loja Nuvemshop <b>deste cliente</b> pra puxar os pedidos reais (venda/faturamento) automaticamente — substitui a planilha.</div>
+          <div id="cNuvemConnectRow"></div>
+        </div>
       </div>
-      <div class="form-row" style="margin-bottom:6px"><input id="cGoogleSearch" type="text" placeholder="🔎 Buscar conta por nome ou ID…" autocomplete="off" oninput="googleSelectSearch=this.value;fillGoogleSelect()" style="width:100%"></div>
-      <div class="form-row"><label>Conta do Google Ads</label>
-        <select id="cGoogleAccountId" autocomplete="off" size="8" style="width:100%"><option value="">— carregue as contas e escolha —</option></select>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:6px">
-        <button class="btn sm" style="flex:1;justify-content:center" type="button" onclick="addGoogleAccount()">+ Vincular</button>
-        <button class="btn sm ghost" style="flex:1;justify-content:center" type="button" id="cGoogleLoadBtn" onclick="loadGoogleAccounts()" title="Busca a lista de contas direto da MCC do Google Ads">🔄 Atualizar contas</button>
-      </div>
-      <div id="cGoogleAccountChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
-      <div id="cGoogleAccountHint" style="font-size:11px;color:var(--faint)"></div>
-      <hr class="budget-divider">
-      <div class="form-row" style="margin-bottom:6px">
-        <span style="font-size:13px;font-weight:600;color:var(--text)">📣 RD Station (leads &amp; eventos deste cliente)</span>
-        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Conecte a conta RD Station <b>deste cliente</b> pra puxar os eventos (conversões), leads por evento e o carrinho. Cada cliente autoriza a conta RD dele.</div>
-      </div>
-      <div id="cRdConnectRow"></div>
-      <hr class="budget-divider">
-      <div class="form-row" style="margin-bottom:6px">
-        <span style="font-size:13px;font-weight:600;color:var(--text)">🛒 Nuvemshop (loja / vendas reais)</span>
-        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Conecte a loja Nuvemshop <b>deste cliente</b> pra puxar os pedidos reais (venda/faturamento) automaticamente — substitui a planilha.</div>
-      </div>
-      <div id="cNuvemConnectRow"></div>
     </div>
 
     <div class="cpanel" data-panel="relatorios" style="display:none">
