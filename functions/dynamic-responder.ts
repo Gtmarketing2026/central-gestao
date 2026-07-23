@@ -527,6 +527,28 @@ async function metaFunding(m: any) {
   return { accounts: out };
 }
 
+// Varre os criativos das contas do cliente e extrai domínios de site + números de WhatsApp usados nos anúncios.
+function _bumpC(o: Record<string, number>, k: any) { k = String(k || "").trim(); if (!k) return; o[k] = (o[k] || 0) + 1; }
+async function metaClientInfo(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
+  const accs = (Array.isArray(m.accountIds) ? m.accountIds : []).map((x: any) => String(x).replace(/[^0-9]/g, "")).filter(Boolean);
+  const siteCount: Record<string, number> = {}, waCount: Record<string, number> = {};
+  const grabUrl = (u: any) => { const s = String(u || ""); const wa = s.match(/wa\.me\/(\d{8,15})|api\.whatsapp\.com\/send\/?\?phone=(\d{8,15})|whatsapp:.*?(\d{8,15})/i); if (wa) { _bumpC(waCount, wa[1] || wa[2] || wa[3]); return; } try { const h = new URL(s).hostname.replace(/^www\./, ""); if (h && !/facebook|instagram|fb\.me|fb\.com|whatsapp|l\.facebook/i.test(h)) _bumpC(siteCount, h); } catch { /* */ } };
+  for (const acc of accs) {
+    try {
+      const r = await fetch(`https://graph.facebook.com/v21.0/act_${acc}/adcreatives?fields=link_url,object_story_spec&limit=250&access_token=${token}`);
+      const j = await r.json();
+      (j.data || []).forEach((cr: any) => {
+        if (cr.link_url) grabUrl(cr.link_url);
+        const ld = cr.object_story_spec && cr.object_story_spec.link_data;
+        if (ld) { if (ld.link) grabUrl(ld.link); const cta = ld.call_to_action && ld.call_to_action.value; if (cta) { if (cta.link) grabUrl(cta.link); if (cta.app_link) grabUrl(cta.app_link); if (cta.whatsapp_number) _bumpC(waCount, String(cta.whatsapp_number).replace(/[^0-9]/g, "")); } }
+      });
+    } catch { /* */ }
+  }
+  const sites = Object.entries(siteCount).sort((a, b) => b[1] - a[1]).map((x) => x[0]).slice(0, 6);
+  const whatsapps = Object.entries(waCount).sort((a, b) => b[1] - a[1]).map((x) => x[0]).slice(0, 6);
+  return { sites, whatsapps };
+}
 // Lista os pixels das contas de anúncio do cliente (pra puxar automático no cadastro).
 async function metaListPixels(m: any) {
   const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");

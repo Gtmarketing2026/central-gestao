@@ -919,7 +919,8 @@
         <div style="font-size:11px;color:var(--faint);margin-top:6px">Nenhum marcado = detecta automático pelo objetivo com mais gasto.</div>
       </div>
       <div class="form-row"><label>🌐 Site do cliente <span style="font-size:11px;color:var(--faint);font-weight:400">— usado na análise de site do Raio-X (carregamento, usabilidade, SEO)</span></label>
-        <input id="cSiteUrl" placeholder="https://site-do-cliente.com.br">
+        <div style="display:flex;gap:8px;align-items:center"><input id="cSiteUrl" placeholder="https://site-do-cliente.com.br" style="flex:1"><button type="button" class="btn sm ghost" onclick="cPullMetaInfo(this)" title="Puxar site e WhatsApp dos anúncios do Meta">🔄 Puxar do Meta</button></div>
+        <div id="cMetaInfoMsg" style="font-size:11px;color:var(--faint);margin-top:4px"></div>
       </div>
       <div class="form-row"><label>💬 WhatsApp do cliente <span style="font-size:11px;color:var(--faint);font-weight:400">— destino padrão dos links de tracking (bio/WhatsApp) quando você não informar um destino</span></label>
         <input id="cWhatsapp" placeholder="Ex: 5521999998888 (DDI+DDD+número, só dígitos)">
@@ -3440,16 +3441,7 @@ async function loadRastreamento(clientId){
       <div>${linkRows}</div>
     </div>`;
 
-    // ---- Card 3: WhatsApp & CRM (próxima fase) ----
-    const waCard=`<div class="card" style="border:1px dashed var(--border)">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
-        <h3 style="margin:0">💬 WhatsApp &amp; CRM de conversas</h3>
-        <span style="font-size:11px;font-weight:700;color:var(--accent);background:rgba(240,192,64,.12);border:1px solid rgba(240,192,64,.35);border-radius:999px;padding:3px 10px">EM CONSTRUÇÃO</span>
-      </div>
-      <div style="font-size:13px;color:var(--muted);line-height:1.6">Próxima fase: o cliente escaneia um <b>QR code</b> pra conectar o WhatsApp dele (Cloud API da Meta). A partir daí, cada conversa aparece aqui num CRM, marcada com a origem — <b>de anúncio</b> (com campanha › conjunto › anúncio no Meta, ou campanha › conjunto › palavra-chave no Google) <b>ou de UTM/tráfego</b>. É o casamento entre o clique rastreado e a conversa que chega.</div>
-    </div>`;
-
-    body.innerHTML=statusCard+linksCard+waCard;
+    body.innerHTML=statusCard+linksCard;
   }catch(e){body.innerHTML=`<div class="empty">Erro ao carregar rastreamento: ${e.message||e}</div>`;}
 }
 let _rastToken='';
@@ -4916,6 +4908,22 @@ const typeLabels={mensal:'Mensal',funil:'Funil',show:'Show',evento:'Show/evento'
 function clientType(id){const c=DB.clients.find(x=>x.id===id);if(!c)return'';return c.category||c.billing||'mensal'}
 function clientTypeLabel(cat){return typeLabels[cat]||cat||'—'}
 
+async function cPullMetaInfo(btn){
+  const accs=(typeof metaSelectedIds!=='undefined'?metaSelectedIds:[]).slice();
+  const msg=document.getElementById('cMetaInfoMsg');
+  if(!accs.length){if(msg)msg.textContent='⚠ Selecione a conta do Meta do cliente primeiro (aba Mídia & Integrações).';return;}
+  const o=btn.textContent;btn.textContent='…';btn.disabled=true;if(msg)msg.textContent='Buscando nos anúncios do Meta…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaClientInfo:{accountIds:accs}}});
+    if(error)throw error;const d=(data&&data.data)||data||{};const sites=d.sites||[],was=d.whatsapps||[];const found=[];
+    if(sites.length===1){document.getElementById('cSiteUrl').value='https://'+sites[0];found.push('site');}
+    else if(sites.length>1){const p=prompt('Sites encontrados — digite o número:\n'+sites.map((s,i)=>`${i+1}) ${s}`).join('\n'));const i=parseInt(p)-1;if(sites[i]){document.getElementById('cSiteUrl').value='https://'+sites[i];found.push('site');}}
+    if(was.length===1){document.getElementById('cWhatsapp').value=was[0];found.push('WhatsApp');}
+    else if(was.length>1){const p=prompt('WhatsApps encontrados — digite o número:\n'+was.map((w,i)=>`${i+1}) ${w}`).join('\n'));const i=parseInt(p)-1;if(was[i]){document.getElementById('cWhatsapp').value=was[i];found.push('WhatsApp');}}
+    if(msg)msg.textContent=found.length?('✓ '+found.join(' e ')+' preenchido'+(found.length>1?'s':'')):'Não encontrei site nem WhatsApp nos anúncios dessa conta.';
+  }catch(e){if(msg)msg.textContent='Erro: '+(e.message||e);}
+  btn.textContent=o;btn.disabled=false;
+}
 async function cPixelPull(btn){
   const accs=(typeof metaSelectedIds!=='undefined'?metaSelectedIds:[]).slice();
   const msg=document.getElementById('cPixelMsg');
@@ -5187,7 +5195,7 @@ function openClientModal(id){
   fillTemplatePicker(tplIds);
   document.getElementById('cSiteUrl').value=c.siteUrl||'';
   document.getElementById('cWhatsapp').value=c.whatsapp||'';
-  document.getElementById('cPixelId').value=c.pixelId||'';const _pm=document.getElementById('cPixelMsg');if(_pm)_pm.textContent='';
+  document.getElementById('cPixelId').value=c.pixelId||'';const _pm=document.getElementById('cPixelMsg');if(_pm)_pm.textContent='';const _mm=document.getElementById('cMetaInfoMsg');if(_mm)_mm.textContent='';
   document.getElementById('cConversionSource').value=c.conversionSource||'';
   {const bm=c.benchmarkMetas||{};const setM=(id,v)=>{document.getElementById(id).value=(v||v===0)?v:''};
    setM('cMetaCtr',bm.ctr);setM('cMetaCpc',bm.cpc);setM('cMetaCpm',bm.cpm);setM('cMetaRoas',bm.roas);setM('cMetaCpa',bm.cpa);setM('cMetaCpl',bm.cpl);setM('cMetaConversa',bm.custoConversa);setM('cMetaView',bm.custoView);
