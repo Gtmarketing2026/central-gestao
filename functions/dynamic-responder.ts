@@ -1456,6 +1456,21 @@ function _waKpiFull(t: any, google: boolean, obj?: string | null): string[] {
   else if (isEngaj) { L.push(`Engajamentos: ${Math.round(t.engajamentos || 0).toLocaleString("pt-BR")}`); }
   return L;
 }
+// Playbook de inteligência: princípios embutidos + base de conhecimento da agência (agent_knowledge global).
+const WA_PLAYBOOK_BASE = `PLAYBOOK DE INTELIGÊNCIA — como AVALIAR e ORIENTAR (siga sempre):
+- Avalie SEMPRE pela métrica do OBJETIVO do canal. Nunca julgue por venda/ROAS quem não é venda.
+- Custo por lead/conversa alto (ou CPA alto) NÃO é automaticamente ruim: pode ser um lead mais QUALIFICADO. Antes de dizer "reduzir custo", ORIENTE a VERIFICAR A QUALIFICAÇÃO dos leads/conversas (se estão virando reunião/venda no CRM). Se estão qualificados e fechando, o custo pode estar saudável.
+- Lead barato porém desqualificado é PIOR que lead caro que fecha. Olhe qualificação antes de olhar custo.
+- CTR/CPC baixos em campanha de ALCANCE/reconhecimento não são problema — o objetivo é impressão/alcance/frequência.
+- Não recomende pausar/escalar/otimizar com base numa métrica isolada; baseie-se no resultado do objetivo.
+- Oriente o próximo passo concreto (ex: "checar a qualificação das X conversas no CRM antes de mexer no orçamento").`;
+let _waPbCache: string | null = null, _waPbT = 0;
+async function _waPlaybook(): Promise<string> {
+  if (_waPbCache && Date.now() - _waPbT < 300000) return _waPbCache;
+  let extra = "";
+  try { const rows = await sbGet("agent_knowledge", "select=title,text,client_id&order=created_at.desc&limit=20"); const g = (rows || []).filter((r: any) => !r.client_id).slice(0, 3); if (g.length) extra = "\n\nMÉTODOS DA AGÊNCIA (base de conhecimento):\n" + g.map((k: any) => `- ${k.title}: ${String(k.text || "").slice(0, 2500)}`).join("\n"); } catch (_e) { /* */ }
+  _waPbCache = WA_PLAYBOOK_BASE + extra; _waPbT = Date.now(); return _waPbCache;
+}
 // Análise do gestor POR CANAL, cada um julgado pelo SEU objetivo. Retorna cliente -> texto (1 linha por canal).
 async function _waAnalises(items: any[]): Promise<Record<string, string>> {
   try {
@@ -1465,7 +1480,8 @@ async function _waAnalises(items: any[]): Promise<Record<string, string>> {
       if (r.google && (r.google.spend || 0) > 0) canais.push({ canal: "Google", objetivo: _objLabel(r.objGoogle), metricas: _objMetric(r.google, true, r.objGoogle), gasto: Math.round(r.google.spend) });
       return { cliente: r.nome, canais };
     });
-    const sys = `Você é a AndréIA, gestora de tráfego sênior. Analise CADA CLIENTE e, dentro dele, CADA CANAL SEPARADAMENTE — julgando pelo OBJETIVO daquele canal (o campo "objetivo"):
+    const pb = await _waPlaybook();
+    const sys = `${pb}\n\nVocê é a AndréIA, gestora de tráfego sênior. Analise CADA CLIENTE e, dentro dele, CADA CANAL SEPARADAMENTE — julgando pelo OBJETIVO daquele canal (o campo "objetivo"), SEMPRE seguindo o playbook acima (ex: custo alto → orientar a verificar qualificação, não só "reduzir custo"):
 - venda: avalie ROAS/CPA/faturamento.
 - leads: avalie quantidade de leads e CPL.
 - mensagens: avalie conversas e custo por conversa.
@@ -1700,7 +1716,8 @@ async function _waAnaliseCliente(nome: string, mt: any, gt: any, objM?: string |
     const data: any = { cliente: nome };
     if (mt) data.meta = { objetivo: _objLabel(objM), metricas: _objMetric(mt, false, objM) };
     if (gt) data.google = { objetivo: _objLabel(objG), metricas: _objMetric(gt, true, objG) };
-    const sys = "Você é a AndréIA, gestora de tráfego da GT Marketing, escrevendo PARA O CLIENTE. Em 1 ou 2 frases curtas, profissionais e claras (sem jargão técnico, sem 'pausar/escalar/otimizar'), resuma o desempenho de forma honesta e positiva, SEMPRE pelo OBJETIVO de cada canal (o campo 'objetivo'). Se houver dois canais com objetivos diferentes, comente cada um pelo seu objetivo. NUNCA cite venda/conversão se o objetivo não for venda; NUNCA cite CTR/cliques se o objetivo for alcance. Não use markdown nem emojis.";
+    const pb = await _waPlaybook();
+    const sys = `${pb}\n\nVocê é a AndréIA, gestora de tráfego da GT Marketing, escrevendo PARA O CLIENTE. Em 1 ou 2 frases curtas, profissionais e claras (sem jargão técnico, sem 'pausar/escalar/otimizar'), resuma o desempenho de forma honesta e positiva, SEMPRE pelo OBJETIVO de cada canal (o campo 'objetivo') e seguindo o playbook acima. Se houver dois canais com objetivos diferentes, comente cada um pelo seu objetivo. NUNCA cite venda/conversão se o objetivo não for venda; NUNCA cite CTR/cliques se o objetivo for alcance. Não use markdown nem emojis.`;
     const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content: JSON.stringify(data) }], max_tokens: 180, temperature: 0.5 });
     return (j.choices[0].message.content || "").trim();
   } catch (_e) { return ""; }
@@ -1847,12 +1864,16 @@ async function waAgentHandle(w: any) {
   // ===== Agente com FERRAMENTAS: consulta qualquer banco do sistema + Meta/Google ao vivo =====
   const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,conversion_source,report_sheet_url,report_tabs&limit=500");
   const nomes = clients.slice(0, 150).map((c: any) => c.name).join(" | ");
-  const sys = `Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com a equipe da agência. Fale CURTO, direto e natural (é WhatsApp).
+  const pb = await _waPlaybook();
+  const sys = `${pb}
+
+Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com a equipe da agência. Fale CURTO, direto e natural (é WhatsApp). Ao AVALIAR/RECOMENDAR, siga sempre o PLAYBOOK acima (ex: custo por lead/conversa alto → orientar a verificar a QUALIFICAÇÃO antes de mandar reduzir custo).
 - Você CONSULTA os dados reais do sistema com as ferramentas: consultar_banco (qualquer tabela: financeiro, tarefas, CRM, RD, pedidos, clientes…), meta_insights e google_insights (métricas ao vivo), resumo_todos_clientes. SEMPRE busque o dado real antes de responder — NUNCA invente número nem use placeholders (X, Y, Z). Se não houver dado, diga que não há.
 - Traga SÓ o que tem dado, e a métrica do OBJETIVO do cliente. O snapshot já traz o campo 'objetivo' e só as métricas certas dele: venda→compras/ROAS/CPA; leads→leads/CPL; mensagens→conversas/custo por conversa; tráfego→cliques/CTR/CPC. NUNCA misture (ex: cliente de VENDA não mostra "custo por conversa").
 - Formato WhatsApp: NÃO use markdown de título (nada de ### ou **). Negrito é com UM asterisco (*assim*). Listas com "• ". Seja enxuta.
 - ATALHOS que a equipe pode pedir: "quem precisa de atenção?" → use resumo_todos_clientes e destaque os clientes abaixo da meta, com gasto sem resultado, ou parados; "saúde da carteira" → visão geral (gasto total do período, quantos performando/abaixo, e financeiro a receber/pagar via a ferramenta financeiro); "pendências operacionais" → tarefas em aberto (consultar_banco tabela tasks, filtro status=neq.done, ordena por due); "recomendações da semana" → 2-3 ações priorizadas (o que pausar/escalar/ajustar) com base nos dados. Sempre com dado real, curto.
 - Ao pedirem detalhes/campanhas de um cliente, use meta_insights e liste CADA campanha do array 'campanhas' com os KPIs que a ferramenta já trouxe pra ela (gasto, orçamento e a métrica do objetivo dela). Use SOMENTE os campos que vieram — NÃO invente nem puxe métrica de fora (ex: não some conversas num total de venda). O consolidado é o campo 'total'.
+- (assist.): vendas/compras/ROAS/CPA POR CAMPANHA vêm do GERENCIADOR (pixel), não da planilha — ao mostrá-las escreva "(assist.)" ao lado do número (ex: "Compras 12 (assist.) · ROAS 3,1 (assist.)"), porque a venda REAL da agência vem da planilha e o pixel não divide venda por campanha. No consolidado do cliente que usa planilha, a venda é a real (sem "(assist.)").
 - Para AÇÕES (criar tarefa, criar/cancelar reunião na agenda, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao. Reunião: passe o título em 'nome', o dia em 'quando' (AAAA-MM-DD) e o horário em 'hora' (HH:MM) se disser. Cliente é opcional em reunião. — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
 - CRIAR TAREFA: o RESPONSÁVEL (quem vai fazer) e a DATA são OBRIGATÓRIOS. Se o usuário não informar os dois, PERGUNTE (não invente responsável nem data, não assuma você mesma). Passe 'responsavel' (nome da pessoa) e 'quando' já como data ISO AAAA-MM-DD — calcule "amanhã", "hoje", "sexta" a partir de hoje.
 - DINHEIRO/FINANCEIRO: para QUALQUER pergunta de valores (a receber, a pagar, recebido, pago, fluxo do mês) use a ferramenta **financeiro** — ela já devolve o TOTAL correto e os ITENS com o nome certo do cliente. "a receber" = {tipo:'receita',status:'pendente'}; "a pagar" = {tipo:'despesa',status:'pendente'}; "este mês" = mes:'${new Date().toISOString().slice(0, 7)}'. NUNCA some você mesma nem adivinhe o nome do cliente — use os campos 'total' e 'itens' que a ferramenta retorna, exatamente.
@@ -2046,7 +2067,8 @@ async function waPendenciasText() {
 async function waAgentOneShot(prompt: string): Promise<string> {
   const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,conversion_source,report_sheet_url,report_tabs&limit=1000");
   const nomes = clients.slice(0, 200).map((c: any) => c.name).join(" | ");
-  const sys = `Você é a AndréIA, gestora de tráfego da GT Marketing, mandando um aviso automático no grupo de WhatsApp da equipe. Consulte os dados REAIS com as ferramentas antes de afirmar qualquer número. Analise cada cliente pelo OBJETIVO dele (venda→ROAS/CPA; leads→CPL; mensagens→custo por conversa; tráfego→CPC) — nunca mostre ROAS pra quem não é venda. Hoje é ${_spNow().toISOString().slice(0, 10)}. Clientes: ${nomes}.
+  const pb = await _waPlaybook();
+  const sys = `${pb}\n\nVocê é a AndréIA, gestora de tráfego da GT Marketing, mandando um aviso automático no grupo de WhatsApp da equipe. Consulte os dados REAIS com as ferramentas antes de afirmar qualquer número. Analise cada cliente pelo OBJETIVO dele (venda→ROAS/CPA; leads→CPL; mensagens→custo por conversa; tráfego→CPC; alcance→alcance/CPM) — nunca mostre ROAS pra quem não é venda, e siga o PLAYBOOK acima (custo alto pede verificar QUALIFICAÇÃO, não só reduzir custo). Hoje é ${_spNow().toISOString().slice(0, 10)}. Clientes: ${nomes}.
 
 FORMATAÇÃO (padrão dos avisos — siga SEMPRE, deixe visualmente limpo e organizado):
 - 1ª linha: título com emoji + *negrito*. Logo abaixo, uma linha divisória: ${WA_DIV}
