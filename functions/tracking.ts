@@ -269,6 +269,7 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
     }
     return ok();
   }
+  let needResolve = false;
   for (const m of msgs) {
     const isGroup = m.isGroup || String(m.chatid || "").endsWith("@g.us");
     if (isGroup) continue; // CRM é só 1:1
@@ -291,18 +292,23 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
         last_text: text, last_at: ts, unread: fromMe ? 0 : 1,
         origin_type: origin ? origin.type : "organico", origin: origin ? origin.data : null,
       });
+      if (origin && origin.type === "anuncio") needResolve = true;
     } else {
       const patch: Record<string, unknown> = { last_text: text, last_at: ts };
       if (!fromMe) patch.unread = 1;
       if (m.senderName) patch.name = m.senderName;
       // grava atribuição só se ainda não tiver (primeira toca ganha)
-      if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; }
+      if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; if (origin.type === "anuncio") needResolve = true; }
       await sbPatch("wa_conversations", `id=eq.${convId}`, patch);
     }
     await sbInsert("wa_messages", {
       id: uid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: String(msgid),
       direction: fromMe ? "out" : "in", msg_type: m.messageType || "text", text, ts, raw: m,
     });
+  }
+  // chegou conversa de anúncio → resolve campanha›conjunto›anúncio na hora (não espera o cron de 20min)
+  if (needResolve) {
+    try { fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ resolveAllOrigins: true }) }).catch(() => {}); } catch (_e) {}
   }
   return ok();
 }
