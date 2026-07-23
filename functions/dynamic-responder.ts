@@ -1467,11 +1467,11 @@ async function waAgentAllClientsSummary(days: number, escopo = "padrao", nivel =
       blocks.push(b); continue;
     }
     if (!ran) { if (!showNon) continue; blocks.push(`*${r.nome}* — ⏸ não rodou no período`); continue; }
-    let b = `*${r.nome}*`;
+    let b = completo ? `━━━━━━━━━━━━━━━\n📊 *${r.nome.toUpperCase()}*` : `*${r.nome}*`;
     if (completo) {
-      if (mS > 0) b += `\n\n📘 *Meta*\n${_waKpiFull(r.meta, false, r.objMeta).map((l: string) => `• ${l}`).join("\n")}`;
-      if (gS > 0) b += `\n\n🔎 *Google*\n${_waKpiFull(r.google, true, r.objGoogle).map((l: string) => `• ${l}`).join("\n")}`;
-      if (mS > 0 && gS > 0) b += `\n\n➕ *Total investido:* ${_fmtR(mS + gS)}`;
+      if (mS > 0) b += `\n\n📘 *META*\n${_waKpiFull(r.meta, false, r.objMeta).map((l: string) => `• ${l}`).join("\n")}`;
+      if (gS > 0) b += `\n\n🔎 *GOOGLE*\n${_waKpiFull(r.google, true, r.objGoogle).map((l: string) => `• ${l}`).join("\n")}`;
+      if (mS > 0 && gS > 0) b += `\n\n💰 *Total investido:* ${_fmtR(mS + gS)}`;
       if (analises[r.nome]) b += `\n\n💬 _${analises[r.nome]}_`;
     } else {
       if (mS > 0) b += `\n📘 Meta — Gasto ${_fmtR(mS)} · ${_objMetric(r.meta, false, r.objMeta)}`;
