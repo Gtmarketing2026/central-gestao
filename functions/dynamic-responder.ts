@@ -1281,14 +1281,38 @@ function _objMetric(t: any, google: boolean) {
   const cpc = t.cpc != null ? t.cpc : (t.clicks ? spend / t.clicks : 0);
   return `Cliques ${t.clicks || 0} · CTR ${(ctr || 0).toFixed(2)}% · CPC ${_fmtR(cpc)}`;
 }
-// Resumo de TODOS os clientes no período — por cliente, Meta/Google separados + total; pula quem não teve gasto. Retorna mensagens (chunked).
-async function waAgentAllClientsSummary(days: number): Promise<string[]> {
+// Restrição de conta de anúncio (espelha metaAcctStatusText/googleAcctStatusText do front)
+function _metaRestr(st: any) { st = Number(st); if (st === 1 || st === 201) return null; if (st === 2) return "desativada pelo Meta"; if (st === 3) return "restrita por pagamento"; if (st === 9) return "em carência de pagamento"; if (st === 8) return "pendente de acerto de pagamento"; if (st === 7) return "em análise de risco/política"; if (st === 100) return "em encerramento"; if (st === 101 || st === 202) return "encerrada"; return `status atípico (código ${st})`; }
+function _googleRestr(st: any) { st = String(st || "").toUpperCase(); if (st === "" || st === "ENABLED" || st === "UNSPECIFIED") return null; if (st === "SUSPENDED") return "suspensa pelo Google"; if (st === "CANCELED") return "cancelada"; if (st === "CLOSED") return "encerrada"; return `status atípico (${st})`; }
+async function _waAccountRestrictions() {
+  const [ma, ga] = await Promise.all([metaListAccounts().catch(() => []), googleListAccounts().catch(() => [])]);
+  const m: Record<string, any> = {}; (ma || []).forEach((a: any) => { const t = _metaRestr(a.status); if (t) m[String(a.id).replace(/^act_/, "")] = { canal: "Meta", txt: t }; });
+  const g: Record<string, any> = {}; (ga || []).forEach((a: any) => { const t = _googleRestr(a.status); if (t) g[String(a.id).replace(/-/g, "")] = { canal: "Google", txt: t }; });
+  return { m, g };
+}
+function _clientRestrictions(c: any, restr: any): any[] {
+  const out: any[] = [];
+  String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean).forEach((id: string) => { const r = restr.m[id.replace(/^act_/, "")]; if (r) out.push(r); });
+  String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean).forEach((id: string) => { const r = restr.g[id.replace(/-/g, "")]; if (r) out.push(r); });
+  return out;
+}
+const ESCOPO_LABEL: Record<string, string> = { padrao: "clientes com investimento", todos: "todos os clientes", ativos: "clientes ativos", ativos_sem_restricao: "ativos sem restrição", rodaram: "só os que rodaram", com_restricao: "com restrição de conta" };
+// Resumo de clientes no período (por cliente, Meta/Google separados). `escopo` filtra QUEM entra. Retorna mensagens (chunked).
+async function waAgentAllClientsSummary(days: number, escopo = "padrao"): Promise<string[]> {
   const since = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
   const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,status&limit=500");
-  const active = clients.filter((c: any) => c.status !== "Encerrado" && (String(c.meta_account_id || "").trim() || String(c.google_account_id || "").trim()));
+  const withAcct = clients.filter((c: any) => String(c.meta_account_id || "").trim() || String(c.google_account_id || "").trim());
+  const needRestr = escopo === "ativos_sem_restricao" || escopo === "com_restricao";
+  const restr = needRestr ? await _waAccountRestrictions() : { m: {}, g: {} };
+  const isAtivo = (c: any) => c.status === "Ativo";
+  let base = withAcct.filter((c: any) => c.status !== "Encerrado");
+  if (escopo === "ativos" || escopo === "ativos_sem_restricao" || escopo === "rodaram") base = base.filter(isAtivo);
+  if (escopo === "ativos_sem_restricao") base = base.filter((c: any) => _clientRestrictions(c, restr).length === 0);
+  if (escopo === "com_restricao") base = base.filter((c: any) => _clientRestrictions(c, restr).length > 0);
+  const showNon = escopo === "todos" || escopo === "ativos" || escopo === "ativos_sem_restricao";
   const results: any[] = [];
-  for (let i = 0; i < active.length; i += 8) {
-    const ch = active.slice(i, i + 8);
+  for (let i = 0; i < base.length; i += 8) {
+    const ch = base.slice(i, i + 8);
     const rs = await Promise.all(ch.map(async (c: any) => {
       const mIds = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
       const gIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
@@ -1296,24 +1320,32 @@ async function waAgentAllClientsSummary(days: number): Promise<string[]> {
         mIds.length ? metaAdsInsights({ accounts: mIds.map((id: string) => ({ id, name: id })), since, until }).catch(() => null) : Promise.resolve(null),
         gIds.length ? googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until }).catch(() => null) : Promise.resolve(null),
       ]);
-      const mt = (m && m.total && (m.total.spend || 0) > 0) ? m.total : null;
-      const gt = (g && g.total && (g.total.spend || 0) > 0) ? g.total : null;
-      return { nome: c.name, meta: mt, google: gt };
+      return { nome: c.name, meta: (m && m.total) || null, google: (g && g.total) || null, restr: escopo === "com_restricao" ? _clientRestrictions(c, restr) : [] };
     }));
     results.push(...rs);
   }
   results.sort((a, b) => ((b.meta?.spend || 0) + (b.google?.spend || 0)) - ((a.meta?.spend || 0) + (a.google?.spend || 0)));
   const blocks: string[] = [];
   for (const r of results) {
-    if (!r.meta && !r.google) continue;
+    const mS = r.meta?.spend || 0, gS = r.google?.spend || 0, ran = mS > 0 || gS > 0;
+    if (escopo === "com_restricao") {
+      const rt = r.restr.map((x: any) => `${x.canal}: ${x.txt}`).join(" · ");
+      let b = `*${r.nome}* — 🚫 ${rt}`;
+      if (ran) { if (mS > 0) b += `\n📘 Meta — Gasto ${_fmtR(mS)} · ${_objMetric(r.meta, false)}`; if (gS > 0) b += `\n🔎 Google — Gasto ${_fmtR(gS)} · ${_objMetric(r.google, true)}`; }
+      else b += `\n⏸ não rodou no período`;
+      blocks.push(b); continue;
+    }
+    if (!ran) { if (!showNon) continue; blocks.push(`*${r.nome}* — ⏸ não rodou no período`); continue; }
     let b = `*${r.nome}*`;
-    if (r.meta) b += `\n📘 Meta — Gasto ${_fmtR(r.meta.spend)} · ${_objMetric(r.meta, false)}`;
-    if (r.google) b += `\n🔎 Google — Gasto ${_fmtR(r.google.spend)} · ${_objMetric(r.google, true)}`;
-    if (r.meta && r.google) b += `\n➕ Total — Gasto ${_fmtR((r.meta.spend || 0) + (r.google.spend || 0))}`;
+    if (mS > 0) b += `\n📘 Meta — Gasto ${_fmtR(mS)} · ${_objMetric(r.meta, false)}`;
+    if (gS > 0) b += `\n🔎 Google — Gasto ${_fmtR(gS)} · ${_objMetric(r.google, true)}`;
+    if (mS > 0 && gS > 0) b += `\n➕ Total — Gasto ${_fmtR(mS + gS)}`;
     blocks.push(b);
   }
-  if (!blocks.length) return [`Nenhum cliente com investimento nos últimos ${days} dias.`];
-  const msgs: string[] = []; let cur = `📊 Resumo dos últimos ${days} dias por cliente:\n`;
+  const escLbl = ESCOPO_LABEL[escopo] || ESCOPO_LABEL.padrao;
+  if (!blocks.length) return [escopo === "com_restricao" ? `✅ Nenhum cliente com restrição de conta.` : `Nenhum cliente (${escLbl}) com dados nos últimos ${days} dias.`];
+  const cab = escopo === "com_restricao" ? `🚫 Clientes com restrição de conta (últimos ${days} dias):\n` : `📊 Resumo dos últimos ${days} dias — ${escLbl}:\n`;
+  const msgs: string[] = []; let cur = cab;
   for (const b of blocks) { if ((cur + "\n\n" + b).length > 3000) { msgs.push(cur); cur = b; } else cur += "\n\n" + b; }
   if (cur.trim()) msgs.push(cur);
   return msgs;
@@ -1700,14 +1732,16 @@ async function waAgentOneShot(prompt: string): Promise<string> {
   }
   return "";
 }
-async function waAutoText(tipo: string): Promise<string[]> {
-  if (tipo === "resumo7") return await waAgentAllClientsSummary(7);
-  if (tipo === "resumo30") return await waAgentAllClientsSummary(30);
+async function waAutoText(tipo: string, escopo = "padrao"): Promise<string[]> {
+  const escNota = escopo && escopo !== "padrao" ? ` Considere apenas os clientes do escopo "${ESCOPO_LABEL[escopo] || escopo}".` : "";
+  if (tipo === "resumo7") return await waAgentAllClientsSummary(7, escopo);
+  if (tipo === "resumo30") return await waAgentAllClientsSummary(30, escopo);
+  if (tipo === "restricoes") return await waAgentAllClientsSummary(7, "com_restricao");
   if (tipo === "receber") return [_waFmtFinanceiro(await waFinanceiro({ tipo: "receita", status: "pendente", mes: _mesAtual() }), "💰 *A receber este mês*")];
   if (tipo === "pagar") return [_waFmtFinanceiro(await waFinanceiro({ tipo: "despesa", status: "pendente", mes: _mesAtual() }), "💸 *A pagar este mês*")];
   if (tipo === "pendencias") return [await waPendenciasText()];
-  if (tipo === "atencao") return [await waAgentOneShot("Quem precisa de atenção hoje? Analise TODOS os clientes ativos (use resumo_todos_clientes e, se precisar, meta_insights por cliente) e destaque só os que estão abaixo da meta, gastando sem resultado, ou parados. Se estiver tudo bem, diga que está tudo em ordem. Curto.")];
-  if (tipo === "recomendacoes") return [await waAgentOneShot("Recomendações da semana: com base nos dados reais dos clientes ativos, liste 2 a 3 ações priorizadas (o que pausar, escalar ou ajustar), citando o cliente. Curto e prático.")];
+  if (tipo === "atencao") return [await waAgentOneShot(`Quem precisa de atenção hoje? Analise os clientes ativos (use resumo_todos_clientes e, se precisar, meta_insights por cliente) e destaque só os que estão abaixo da meta, gastando sem resultado, ou parados. Se estiver tudo bem, diga que está tudo em ordem. Curto.${escNota}`)];
+  if (tipo === "recomendacoes") return [await waAgentOneShot(`Recomendações da semana: com base nos dados reais dos clientes ativos, liste 2 a 3 ações priorizadas (o que pausar, escalar ou ajustar), citando o cliente. Curto e prático.${escNota}`)];
   return [];
 }
 async function _andreiaGroupInst() {
@@ -1725,7 +1759,7 @@ async function waAutomationRunNow(id: string) {
   const a = (await sbGet("andreia_automations", `id=eq.${encodeURIComponent(id)}&select=*`))[0];
   if (!a) return { erro: "automação não encontrada" };
   const g = await _andreiaGroupInst(); if ((g as any).erro) return g;
-  const msgs = await waAutoText(a.tipo); if (!msgs.length) return { erro: "tipo desconhecido" };
+  const msgs = await waAutoText(a.tipo, a.escopo || "padrao"); if (!msgs.length) return { erro: "tipo desconhecido" };
   await _sendGroup(g, msgs);
   await sbPatchD("andreia_automations", `id=eq.${encodeURIComponent(id)}`, { last_run: _spNow().toISOString().slice(0, 10) });
   return { ok: true, enviados: msgs.length };
@@ -1743,7 +1777,7 @@ async function waAutomationsTick() {
     const diaOk = dias.includes("todos") || (dias.includes("uteis") && day >= 1 && day <= 5) || dias.includes(String(day));
     if (!diaOk) continue;
     if ((a.hora || "08:00") > hhmm) continue; // ainda não chegou a hora hoje
-    try { const msgs = await waAutoText(a.tipo); await _sendGroup(g, msgs); await sbPatchD("andreia_automations", `id=eq.${encodeURIComponent(a.id)}`, { last_run: today }); ran++; feitas.push(a.titulo || a.tipo); } catch (e) { /* segue as demais */ }
+    try { const msgs = await waAutoText(a.tipo, a.escopo || "padrao"); await _sendGroup(g, msgs); await sbPatchD("andreia_automations", `id=eq.${encodeURIComponent(a.id)}`, { last_run: today }); ran++; feitas.push(a.titulo || a.tipo); } catch (e) { /* segue as demais */ }
   }
   return { ran, feitas, hhmm, day, today };
 }

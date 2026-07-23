@@ -1986,16 +1986,27 @@ async function loadWhatsappTab(){
 }
 /* ===== Central de Automações / Notificações da AndréIA ===== */
 const AUTO_TIPOS=[
-  {tipo:'resumo7',label:'Resumo dos clientes (7 dias)',emoji:'📊'},
-  {tipo:'resumo30',label:'Resumo dos clientes (30 dias)',emoji:'📊'},
-  {tipo:'atencao',label:'Quem precisa de atenção',emoji:'🚨'},
-  {tipo:'recomendacoes',label:'Recomendações da semana',emoji:'💡'},
+  {tipo:'resumo7',label:'Resumo dos clientes (7 dias)',emoji:'📊',escopo:true},
+  {tipo:'resumo30',label:'Resumo dos clientes (30 dias)',emoji:'📊',escopo:true},
+  {tipo:'atencao',label:'Quem precisa de atenção',emoji:'🚨',escopo:true},
+  {tipo:'recomendacoes',label:'Recomendações da semana',emoji:'💡',escopo:true},
+  {tipo:'restricoes',label:'Clientes com restrição de conta',emoji:'🚫'},
   {tipo:'receber',label:'A receber este mês',emoji:'💰'},
   {tipo:'pagar',label:'A pagar este mês',emoji:'💸'},
   {tipo:'pendencias',label:'Tarefas em aberto',emoji:'✅'},
 ];
+const AUTO_ESCOPOS=[
+  ['padrao','Clientes com investimento (só quem rodou)'],
+  ['todos','Todos os clientes'],
+  ['ativos','Somente ativos'],
+  ['ativos_sem_restricao','Ativos e sem restrições'],
+  ['rodaram','Somente os que rodaram no período'],
+  ['com_restricao','Somente os com restrição de conta'],
+];
 const AUTO_DIAS=[['todos','Todos os dias'],['uteis','Dias úteis'],['1','Segunda'],['2','Terça'],['3','Quarta'],['4','Quinta'],['5','Sexta'],['6','Sábado'],['0','Domingo']];
 function _autoTipoLabel(t){const x=AUTO_TIPOS.find(a=>a.tipo===t);return x?(x.emoji+' '+x.label):t;}
+function _autoEscopoLabel(e){const x=AUTO_ESCOPOS.find(a=>a[0]===e);return x?x[1]:'';}
+function _autoTemEscopo(t){const x=AUTO_TIPOS.find(a=>a.tipo===t);return!!(x&&x.escopo);}
 function _autoDiasLabel(d){const arr=Array.isArray(d)?d.map(String):['todos'];if(arr.includes('todos'))return'Todos os dias';if(arr.includes('uteis'))return'Dias úteis';return arr.map(x=>{const f=AUTO_DIAS.find(y=>y[0]===x);return f?f[1].slice(0,3):x;}).join(', ');}
 async function renderAutomations(){
   const el=document.getElementById('autoList');if(!el)return;
@@ -2009,7 +2020,7 @@ async function renderAutomations(){
       <label class="switch" style="flex:none"><input type="checkbox" ${a.enabled?'checked':''} onchange="autoToggle('${a.id}',this.checked)"><span class="slider"></span></label>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:13px">${a.titulo||_autoTipoLabel(a.tipo)}</div>
-        <div style="font-size:11.5px;color:var(--muted)">${_autoTipoLabel(a.tipo)} · ${_autoDiasLabel(a.dias)} às ${a.hora||'08:00'}${a.last_run?` · último envio ${_brDateJs(a.last_run)}`:''}</div>
+        <div style="font-size:11.5px;color:var(--muted)">${_autoTipoLabel(a.tipo)}${_autoTemEscopo(a.tipo)&&a.escopo&&a.escopo!=='padrao'?` · <span style="color:var(--accent)">${_autoEscopoLabel(a.escopo)}</span>`:''} · ${_autoDiasLabel(a.dias)} às ${a.hora||'08:00'}${a.last_run?` · último envio ${_brDateJs(a.last_run)}`:''}</div>
       </div>
       <button class="btn xs ghost" title="Enviar agora" onclick="autoRunNow('${a.id}',this)">Testar</button>
       <button class="btn xs ghost" onclick="autoEdit('${a.id}')">Editar</button>
@@ -2028,7 +2039,11 @@ async function autoEdit(id){
     <label style="font-size:12px;color:var(--muted)">Nome (opcional)</label>
     <input id="autoTitulo" class="inp" value="${(a.titulo||'').replace(/"/g,'&quot;')}" placeholder="Ex: Resumo de segunda" style="margin-bottom:10px">
     <label style="font-size:12px;color:var(--muted)">O que enviar</label>
-    <select id="autoTipo" class="inp" style="margin-bottom:10px">${AUTO_TIPOS.map(t=>`<option value="${t.tipo}" ${a.tipo===t.tipo?'selected':''}>${t.emoji} ${t.label}</option>`).join('')}</select>
+    <select id="autoTipo" class="inp" style="margin-bottom:10px" onchange="autoTipoChange()">${AUTO_TIPOS.map(t=>`<option value="${t.tipo}" ${a.tipo===t.tipo?'selected':''}>${t.emoji} ${t.label}</option>`).join('')}</select>
+    <div id="autoEscopoWrap" style="display:${_autoTemEscopo(a.tipo)?'block':'none'}">
+      <label style="font-size:12px;color:var(--muted)">Quais clientes</label>
+      <select id="autoEscopo" class="inp" style="margin-bottom:10px">${AUTO_ESCOPOS.map(e=>`<option value="${e[0]}" ${(a.escopo||'padrao')===e[0]?'selected':''}>${e[1]}</option>`).join('')}</select>
+    </div>
     <label style="font-size:12px;color:var(--muted)">Quando</label>
     <div id="autoDias" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px">${AUTO_DIAS.map(d=>`<label style="display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:4px 8px;cursor:pointer"><input type="checkbox" class="autoDia" value="${d[0]}" ${dias.includes(d[0])?'checked':''}> ${d[1]}</label>`).join('')}</div>
     <label style="font-size:12px;color:var(--muted)">Horário</label>
@@ -2042,10 +2057,13 @@ async function autoEdit(id){
     if(cb.checked){if(v==='todos'||v==='uteis'){all.forEach(o=>{if(o!==cb)o.checked=false;});}else{all.forEach(o=>{if(o.value==='todos'||o.value==='uteis')o.checked=false;});}}
   }));
 }
+function autoTipoChange(){const t=document.getElementById('autoTipo').value;const w=document.getElementById('autoEscopoWrap');if(w)w.style.display=_autoTemEscopo(t)?'block':'none';}
 async function autoSave(id){
   const dias=[...document.querySelectorAll('.autoDia:checked')].map(c=>c.value);
   if(!dias.length){alert('Escolha pelo menos um dia.');return;}
-  const row={titulo:document.getElementById('autoTitulo').value.trim(),tipo:document.getElementById('autoTipo').value,dias,hora:document.getElementById('autoHora').value||'08:00',enabled:true};
+  const tipo=document.getElementById('autoTipo').value;
+  const escEl=document.getElementById('autoEscopo');
+  const row={titulo:document.getElementById('autoTitulo').value.trim(),tipo,escopo:(_autoTemEscopo(tipo)&&escEl)?escEl.value:'padrao',dias,hora:document.getElementById('autoHora').value||'08:00',enabled:true};
   if(id){await sb.from('andreia_automations').update(row).eq('id',id);}
   else{row.id='auto_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);await sb.from('andreia_automations').insert(row);}
   document.getElementById('autoOverlay').remove();renderAutomations();
