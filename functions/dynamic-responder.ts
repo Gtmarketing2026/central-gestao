@@ -1228,10 +1228,10 @@ async function waAgentExec(pending: any, clientId: string | null) {
   try {
     if (pending.tipo === "criar_tarefa") {
       const nome = pending.nome || "Tarefa (via AndréIA)";
-      const res = await sbInsertOk("tasks", { id: _wuid(), name: nome, client: cid || null, owner: "eu", status: "todo", prio: pending.prio || "media", notes: pending.obs || "", urgent: false });
+      const res = await sbInsertOk("tasks", { id: _wuid(), name: nome, client: cid || null, owner: pending._owner || "eu", status: "todo", prio: pending.prio || "media", notes: pending.obs || "", due: pending._due || null, urgent: false });
       if (!res.ok) return "❌ Não consegui salvar a tarefa: " + res.err;
       const cn = await _waClientNome(cid);
-      return `✅ Tarefa criada${cn ? ` pro cliente ${cn}` : ""}: ${nome}`;
+      return `✅ Tarefa criada${cn ? ` pro cliente ${cn}` : ""}${pending.responsavel ? ` · resp. ${pending.responsavel}` : ""}${pending._due ? ` · ${pending._due}` : ""}: ${nome}`;
     }
     if (pending.tipo === "pausar_campanha" || pending.tipo === "reativar_campanha") {
       if (!cid) return "De qual cliente é a campanha?";
@@ -1342,7 +1342,7 @@ const WA_TOOLS = [
   { type: "function", function: { name: "google_insights", description: "Métricas de Google Ads AO VIVO de UM cliente no período.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "resumo_todos_clientes", description: "Resumo de TODOS os clientes no período (gasto + métrica do objetivo, Meta/Google separados). Use quando pedirem panorama/todos os clientes.", parameters: { type: "object", properties: { dias: { type: "integer" } } } } },
   { type: "function", function: { name: "financeiro", description: "Consulta financeira com TOTAL e itens já com o nome do cliente resolvido e a soma correta. USE ISSO pra qualquer pergunta de dinheiro (a receber, a pagar, recebido, pago, fluxo do mês).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["receita", "despesa"] }, status: { type: "string", enum: ["pendente", "pago"] }, mes: { type: "string", description: "AAAA-MM, ex: 2026-07" }, cliente: { type: "string" } } } } },
-  { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"] }, cliente: { type: "string" }, nome: { type: "string" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
+  { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM). Para criar_tarefa, o RESPONSÁVEL (quem faz) e o QUANDO (data) são obrigatórios — se o usuário não disser, PERGUNTE antes.", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"] }, cliente: { type: "string" }, nome: { type: "string", description: "título da tarefa" }, responsavel: { type: "string", description: "nome de quem vai fazer a tarefa (membro da equipe)" }, quando: { type: "string", description: "data da tarefa em AAAA-MM-DD (calcule 'amanhã', 'sexta' etc. a partir de hoje)" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
 ];
 function _waResolveClient(nomeOuId: string, clients: any[]) { if (!nomeOuId) return null; const q = String(nomeOuId).toLowerCase().trim(); return clients.find((c) => c.id === nomeOuId) || clients.find((c) => c.name.toLowerCase() === q) || clients.find((c) => c.name.toLowerCase().includes(q)) || null; }
 let _waCliMap: Record<string, string> | null = null, _waCliMapT = 0;
@@ -1421,7 +1421,7 @@ async function waExecTool(name: string, args: any, clients: any[]) {
 }
 function _waConfirmText(p: any, clients: any[]) {
   const cn = (clients.find((c) => c.id === p.client_id) || {}).name || ""; const cli = cn ? `📌 Cliente: ${cn}\n` : "";
-  if (p.tipo === "criar_tarefa") return `${cli}Crio a tarefa "${p.nome || ""}"${p.obs ? ` (${p.obs})` : ""}. Confirma? (responda SIM)`;
+  if (p.tipo === "criar_tarefa") return `${cli}Crio a tarefa "${p.nome || ""}"${p.obs ? ` (${p.obs})` : ""}${p.responsavel ? ` — resp. *${p.responsavel}*` : ""}${p._due ? ` — pra *${p._due}*` : ""}. Confirma? (responda SIM)`;
   if (p.tipo === "pausar_campanha") return `${cli}Pausar a campanha "${p.campanha || ""}". Confirma?`;
   if (p.tipo === "reativar_campanha") return `${cli}Reativar a campanha "${p.campanha || ""}". Confirma?`;
   if (p.tipo === "orcamento") return `${cli}Ajustar o orçamento diário da "${p.campanha || ""}" pra R$${p.novoValor}. Confirma?`;
@@ -1473,6 +1473,7 @@ async function waAgentHandle(w: any) {
 - Formato WhatsApp: NÃO use markdown de título (nada de ### ou **). Negrito é com UM asterisco (*assim*). Listas com "• ". Seja enxuta.
 - Ao pedirem detalhes/campanhas de um cliente, use meta_insights e liste CADA campanha do array 'campanhas' com os KPIs que a ferramenta já trouxe pra ela (gasto, orçamento e a métrica do objetivo dela). Use SOMENTE os campos que vieram — NÃO invente nem puxe métrica de fora (ex: não some conversas num total de venda). O consolidado é o campo 'total'.
 - Para AÇÕES (criar tarefa, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
+- CRIAR TAREFA: o RESPONSÁVEL (quem vai fazer) e a DATA são OBRIGATÓRIOS. Se o usuário não informar os dois, PERGUNTE (não invente responsável nem data, não assuma você mesma). Passe 'responsavel' (nome da pessoa) e 'quando' já como data ISO AAAA-MM-DD — calcule "amanhã", "hoje", "sexta" a partir de hoje.
 - DINHEIRO/FINANCEIRO: para QUALQUER pergunta de valores (a receber, a pagar, recebido, pago, fluxo do mês) use a ferramenta **financeiro** — ela já devolve o TOTAL correto e os ITENS com o nome certo do cliente. "a receber" = {tipo:'receita',status:'pendente'}; "a pagar" = {tipo:'despesa',status:'pendente'}; "este mês" = mes:'${new Date().toISOString().slice(0, 7)}'. NUNCA some você mesma nem adivinhe o nome do cliente — use os campos 'total' e 'itens' que a ferramenta retorna, exatamente.
 - Datas: hoje é ${new Date().toISOString().slice(0, 10)}. Ao filtrar por um cliente específico use o id dele (está na lista abaixo entre colchetes, ou consulte a tabela clients). Clientes: ${clients.slice(0, 150).map((c: any) => `${c.name}[${c.id}]`).join(" | ")}.`;
   const hist0 = ((sess && sess.history) || []).slice(-8).map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text }));
@@ -1494,6 +1495,21 @@ async function waAgentHandle(w: any) {
             else reply = `🤔 Não achei o cliente "${args.cliente}" no sistema. Confere o nome pra mim? (se quiser, peço a lista de clientes)`;
           }
           if (!reply && !cid) reply = "De qual cliente é essa ação? Me diz o nome do cliente.";
+          // TAREFA: exige responsável (da equipe) + data — senão PERGUNTA
+          if (!reply && args.tipo === "criar_tarefa") {
+            const team = await sbGet("team", "select=id,name");
+            let ownerId: string | null = null;
+            if (args.responsavel) { const q = String(args.responsavel).toLowerCase(); const tm = team.find((t: any) => t.name.toLowerCase() === q) || team.find((t: any) => t.name.toLowerCase().includes(q)); if (tm) ownerId = tm.id; }
+            const dataOk = args.quando && /^\d{4}-\d{2}-\d{2}$/.test(String(args.quando));
+            if (args.responsavel && !ownerId) reply = `Não achei "${args.responsavel}" na equipe. Os responsáveis são: ${team.map((t: any) => t.name).join(", ")}. Pra quem é a tarefa?`;
+            else {
+              const faltam: string[] = [];
+              if (!ownerId) faltam.push("o *responsável* (quem vai fazer)");
+              if (!dataOk) faltam.push("a *data* (pra quando)");
+              if (faltam.length) reply = `Pra criar a tarefa, faltou ${faltam.join(" e ")}. Pode me informar?`;
+              else { args._owner = ownerId; args._due = args.quando; }
+            }
+          }
           if (!reply) { const pending = { ...args, client_id: cid }; reply = _waConfirmText(pending, clients); const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16); await saveSess({ client_id: cid, pending, last_msgid: w.msgid, history: hist }); }
           else { const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16); await saveSess({ pending: null, last_msgid: w.msgid, history: hist }); }
           await send(reply); acted = true; break;
