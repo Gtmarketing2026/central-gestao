@@ -1212,23 +1212,26 @@ async function waCall(host: string, token: string, path: string, method = "GET",
 async function waResolveAd(adId: string): Promise<Record<string, string> | null> {
   const token = Deno.env.get("META_USER_TOKEN"); if (!token || !adId) return null;
   try {
-    const r = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(adId)}?fields=name,adset{name},campaign{name}&access_token=${token}`);
+    const r = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(adId)}?fields=name,adset{name},campaign{name},account_id&access_token=${token}`);
     const j = await r.json(); if (!j || j.error) return null;
-    return { ad: j.name || "", adset: (j.adset && j.adset.name) || "", campaign: (j.campaign && j.campaign.name) || "" };
+    return { ad: j.name || "", adset: (j.adset && j.adset.name) || "", campaign: (j.campaign && j.campaign.name) || "", account: String(j.account_id || "") };
   } catch { return null; }
 }
 // Fallback (via C): resolve o anúncio pelo TÍTULO/corpo do criativo, procurando nos ad accounts do cliente.
 function _adNorm(s: any) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim(); }
-async function waResolveAdByTitle(title: string, accountIds: string[]): Promise<Record<string, string> | null> {
-  const token = Deno.env.get("META_USER_TOKEN"); const target = _adNorm(title); if (!token || !target || !accountIds.length) return null;
+async function waResolveAdByTitle(title: string, accountIds: string[], body?: string): Promise<Record<string, string> | null> {
+  const token = Deno.env.get("META_USER_TOKEN"); const target = _adNorm(title); const bTarget = _adNorm(body); if (!token || (!target && !bTarget) || !accountIds.length) return null;
   for (const acc of accountIds) {
     try {
       const r = await fetch(`https://graph.facebook.com/v21.0/act_${acc}/ads?fields=name,adset{name},campaign{name},creative{title,body}&limit=400&access_token=${token}`);
       const j = await r.json(); if (j.error || !Array.isArray(j.data)) continue;
       for (const ad of j.data) {
         const ct = _adNorm(ad.creative?.title), cb = _adNorm(ad.creative?.body);
-        if ((ct && ct === target) || (cb && cb.includes(target)) || (ct && ct.length > 8 && (target.includes(ct) || ct.includes(target)))) {
-          return { ad: ad.name || "", adset: (ad.adset && ad.adset.name) || "", campaign: (ad.campaign && ad.campaign.name) || "" };
+        const titleHit = target && ((ct && ct === target) || (cb && cb.includes(target)) || (ct && ct.length > 8 && (target.includes(ct) || ct.includes(target))));
+        // corpo do anúncio (copy) do CTWA casa com o body do criativo — mais confiável que o título (que costuma ser o nome da página)
+        const bodyHit = bTarget && bTarget.length > 15 && cb && (cb === bTarget || cb.includes(bTarget) || bTarget.includes(cb));
+        if (titleHit || bodyHit) {
+          return { ad: ad.name || "", adset: (ad.adset && ad.adset.name) || "", campaign: (ad.campaign && ad.campaign.name) || "", account: acc };
         }
       }
     } catch { /* segue pra próxima conta */ }
@@ -2208,7 +2211,7 @@ async function waHandler(w: any) {
       // (A) Meta: id do anúncio (source_id) → Graph direto
       if (o.source_id) { const key = String(o.source_id); if (cache[key] === undefined) cache[key] = await waResolveAd(key); res = cache[key]; }
       // (C) Meta: casar pelo TÍTULO do criativo nas contas do cliente
-      if (!res && o.title && accIds.length) { const tk = String(o.title); if (titleCache[tk] === undefined) titleCache[tk] = await waResolveAdByTitle(o.title, accIds); res = titleCache[tk]; }
+      if (!res && (o.title || o.body) && accIds.length) { const tk = String(o.title || "") + "␟" + String(o.body || ""); if (titleCache[tk] === undefined) titleCache[tk] = await waResolveAdByTitle(String(o.title || ""), accIds, String(o.body || "")); res = titleCache[tk]; }
       // Google: ValueTrack {campaignid}/{adgroupid} → nomes
       if (!res && o.channel === "google" && gAccIds.length) { const gr = await waResolveGoogleCampaign(/^\d+$/.test(String(o.campaign || "")) ? String(o.campaign) : "", /^\d+$/.test(String(o.adgroup || "")) ? String(o.adgroup) : "", gAccIds); if (gr) res = { campaign: gr.campaign || o.campaign || "", adset: gr.adgroup || o.adset || "" }; }
       if (res) { await sbPatchD("wa_conversations", `id=eq.${cv.id}`, { origin: { ...o, ...res } }); done++; }
@@ -2216,6 +2219,36 @@ async function waHandler(w: any) {
     return { resolved: done };
   }
   throw new Error("op inválida");
+}
+
+// Resolve origem (campanha › conjunto › anúncio) de anúncios de TODOS os clientes automaticamente,
+// usando as contas Meta/Google de cada cliente. Chamado por cron — não depende de clique manual.
+async function waResolveAllOrigins(): Promise<{ resolved: number; clients: number }> {
+  // conversas de anúncio ainda não resolvidas (campanha vazia ou ainda em id numérico do ValueTrack)
+  const convs = await sbGet("wa_conversations", "origin_type=eq.anuncio&select=id,client_id,origin&limit=2000");
+  const pend = (convs || []).filter((cv: any) => { const o = cv.origin || {}; return cv.client_id && (!o.campaign || /^\d+$/.test(String(o.campaign))); });
+  if (!pend.length) return { resolved: 0, clients: 0 };
+  // agrupa por cliente
+  const byClient: Record<string, any[]> = {};
+  for (const cv of pend) { (byClient[cv.client_id] = byClient[cv.client_id] || []).push(cv); }
+  const cids = Object.keys(byClient);
+  const clis = await sbGet("clients", `id=in.(${cids.map((x) => encodeURIComponent(x)).join(",")})&select=id,meta_account_id,google_account_id`);
+  const cliMap: Record<string, any> = {}; (clis || []).forEach((c: any) => { cliMap[c.id] = c; });
+  let done = 0;
+  for (const cid of cids) {
+    const c = cliMap[cid]; if (!c) continue;
+    const accIds = String(c.meta_account_id || "").split(",").map((s: string) => s.trim().replace(/^act_/, "").replace(/[^0-9]/g, "")).filter(Boolean);
+    const gAccIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim().replace(/-/g, "").replace(/[^0-9]/g, "")).filter(Boolean);
+    const cache: Record<string, Record<string, string> | null> = {}; const titleCache: Record<string, Record<string, string> | null> = {};
+    for (const cv of byClient[cid]) {
+      const o = cv.origin || {}; let res: Record<string, string> | null = null;
+      if (o.source_id) { const key = String(o.source_id); if (cache[key] === undefined) cache[key] = await waResolveAd(key); res = cache[key]; }
+      if (!res && (o.title || o.body) && accIds.length) { const tk = String(o.title || "") + "␟" + String(o.body || ""); if (titleCache[tk] === undefined) titleCache[tk] = await waResolveAdByTitle(String(o.title || ""), accIds, String(o.body || "")); res = titleCache[tk]; }
+      if (!res && o.channel === "google" && gAccIds.length) { const gr = await waResolveGoogleCampaign(/^\d+$/.test(String(o.campaign || "")) ? String(o.campaign) : "", /^\d+$/.test(String(o.adgroup || "")) ? String(o.adgroup) : "", gAccIds); if (gr) res = { campaign: gr.campaign || o.campaign || "", adset: gr.adgroup || o.adset || "" }; }
+      if (res) { await sbPatchD("wa_conversations", `id=eq.${cv.id}`, { origin: { ...o, ...res } }); done++; }
+    }
+  }
+  return { resolved: done, clients: cids.length };
 }
 
 // ===== AndréIA — Automações / Central de notificações =====
@@ -2404,6 +2437,10 @@ Deno.serve(async (req) => {
     }
     if (body.waConnCheck) {
       const r = await waConnectivityCheck();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.resolveAllOrigins) {
+      const r = await waResolveAllOrigins();
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.automationRunNow) {

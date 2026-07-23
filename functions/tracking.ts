@@ -537,8 +537,8 @@ Deno.serve(async (req) => {
   if (p === "/google/disconnect") { await saveAcctData({ google_cal: null }); return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, "Content-Type": "application/json" } }); }
 
   // /automations/tick -> dispara as automações da AndréIA que estão no horário (chamado pelo cron)
-  if (p === "/automations/tick" || p === "/automations/reminders" || p === "/wa/connectivity") {
-    const payload = p === "/automations/reminders" ? { reminderTick: true } : (p === "/wa/connectivity" ? { waConnCheck: true } : { automationsTick: true });
+  if (p === "/automations/tick" || p === "/automations/reminders" || p === "/wa/connectivity" || p === "/wa/resolve-origins") {
+    const payload = p === "/automations/reminders" ? { reminderTick: true } : (p === "/wa/connectivity" ? { waConnCheck: true } : (p === "/wa/resolve-origins" ? { resolveAllOrigins: true } : { automationsTick: true }));
     try {
       const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const t = await r.text();
