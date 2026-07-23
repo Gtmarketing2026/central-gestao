@@ -2144,6 +2144,7 @@ const AUTO_SUGGESTIONS=[
 function _autoTipoLabel(t){const x=AUTO_TIPOS.find(a=>a.tipo===t);return x?(x.emoji+' '+x.label):(t==='custom'?'✍️ Personalizado':t);}
 function _autoEscopoLabel(e){const x=AUTO_ESCOPOS.find(a=>a[0]===e);return x?x[1]:'';}
 function _autoTemEscopo(t){if(t==='custom')return true;const x=AUTO_TIPOS.find(a=>a.tipo===t);return!!(x&&x.escopo);}
+function _autoTemNivel(t){return t==='resumo7'||t==='resumo30';}
 function _autoDiasLabel(d){const arr=Array.isArray(d)?d.map(String):['todos'];if(arr.includes('todos'))return'Todos os dias';if(arr.includes('uteis'))return'Dias úteis';return arr.map(x=>{const f=AUTO_DIAS.find(y=>y[0]===x);return f?f[1].slice(0,3):x;}).join(', ');}
 async function renderAutomations(){
   const el=document.getElementById('autoList');if(!el)return;
@@ -2157,7 +2158,7 @@ async function renderAutomations(){
       <label class="switch" style="flex:none"><input type="checkbox" ${a.enabled?'checked':''} onchange="autoToggle('${a.id}',this.checked)"><span class="slider"></span></label>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:13px">${a.titulo||(a.tipo==='custom'?(a.prompt||'✍️ Personalizado'):_autoTipoLabel(a.tipo))}</div>
-        <div style="font-size:11.5px;color:var(--muted)">${a.tipo==='custom'?'✍️ Personalizado':_autoTipoLabel(a.tipo)}${_autoTemEscopo(a.tipo)&&a.escopo&&a.escopo!=='padrao'?` · <span style="color:var(--accent)">${_autoEscopoLabel(a.escopo)}</span>`:''} · ${_autoDiasLabel(a.dias)} às ${a.hora||'08:00'}${a.last_run?` · último envio ${_brDateJs(a.last_run)}`:''}</div>
+        <div style="font-size:11.5px;color:var(--muted)">${a.tipo==='custom'?'✍️ Personalizado':_autoTipoLabel(a.tipo)}${_autoTemEscopo(a.tipo)&&a.escopo&&a.escopo!=='padrao'?` · <span style="color:var(--accent)">${_autoEscopoLabel(a.escopo)}</span>`:''}${_autoTemNivel(a.tipo)&&a.nivel==='completo'?` · <span style="color:var(--accent)">completo</span>`:''} · ${_autoDiasLabel(a.dias)} às ${a.hora||'08:00'}${a.last_run?` · último envio ${_brDateJs(a.last_run)}`:''}</div>
       </div>
       <button class="btn xs ghost" title="Enviar agora" onclick="autoRunNow('${a.id}',this)">Testar</button>
       <button class="btn xs ghost" onclick="autoEdit('${a.id}')">Editar</button>
@@ -2179,16 +2180,25 @@ async function autoEdit(id){
     <input type="hidden" id="autoTipo" value="${a.tipo||'custom'}">
     <textarea id="autoPrompt" class="inp" rows="2" placeholder="Ex: Resumo dos clientes de venda com ROAS e gasto dos últimos 7 dias" oninput="autoPromptEdited()" style="margin-bottom:6px;resize:vertical">${(a.tipo&&a.tipo!=='custom')?(_autoTipoLabel(a.tipo)):((a.prompt||'').replace(/</g,'&lt;'))}</textarea>
     <div id="autoTipoNote" style="font-size:11px;margin-bottom:8px;min-height:14px"></div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:5px">💡 Sugestões (clique para usar):</div>
-    <div id="autoSugs" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${AUTO_SUGGESTIONS.map((s,i)=>`<span class="ch-tag" style="cursor:pointer;font-size:11.5px;padding:4px 9px;border:1px solid var(--border);border-radius:14px" onclick="autoPickSug(${i})">${s.label}</span>`).join('')}</div>
+    <details style="margin-bottom:12px"><summary style="cursor:pointer;font-size:11.5px;color:var(--muted)">💡 Sugestões prontas (clique para usar)</summary>
+      <div id="autoSugs" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${AUTO_SUGGESTIONS.map((s,i)=>`<span class="ch-tag" style="cursor:pointer;font-size:11.5px;padding:4px 9px;border:1px solid var(--border);border-radius:14px" onclick="autoPickSug(${i})">${s.label}</span>`).join('')}</div>
+    </details>
     <div id="autoEscopoWrap" style="display:${_autoTemEscopo(a.tipo)?'block':'none'}">
       <label style="font-size:12px;color:var(--muted)">Quais clientes</label>
       <select id="autoEscopo" class="inp" style="margin-bottom:10px">${AUTO_ESCOPOS.map(e=>`<option value="${e[0]}" ${(a.escopo||'padrao')===e[0]?'selected':''}>${e[1]}</option>`).join('')}</select>
     </div>
-    <label style="font-size:12px;color:var(--muted)">Quando</label>
-    <div id="autoDias" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px">${AUTO_DIAS.map(d=>`<label style="display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:4px 8px;cursor:pointer"><input type="checkbox" class="autoDia" value="${d[0]}" ${dias.includes(d[0])?'checked':''}> ${d[1]}</label>`).join('')}</div>
-    <label style="font-size:12px;color:var(--muted)">Horário</label>
-    <input id="autoHora" type="time" class="inp" value="${a.hora||'08:00'}" style="margin-bottom:14px">
+    <div id="autoNivelWrap" style="display:${_autoTemNivel(a.tipo)?'block':'none'}">
+      <label style="font-size:12px;color:var(--muted)">Nível do relatório</label>
+      <select id="autoNivel" class="inp" style="margin-bottom:10px">
+        <option value="resumido" ${(a.nivel||'resumido')==='resumido'?'selected':''}>Resumido — gasto + métrica principal + custo</option>
+        <option value="completo" ${a.nivel==='completo'?'selected':''}>Completo — todos os KPIs + análise do gestor</option>
+      </select>
+    </div>
+    <details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:12px;color:var(--muted)">Quando: <b id="autoDiasSum" style="color:var(--text)">${_autoDiasLabel(dias)}</b> · <span id="autoHoraSum">${a.hora||'08:00'}</span></summary>
+      <div id="autoDias" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px">${AUTO_DIAS.map(d=>`<label style="display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:4px 8px;cursor:pointer"><input type="checkbox" class="autoDia" value="${d[0]}" ${dias.includes(d[0])?'checked':''}> ${d[1]}</label>`).join('')}</div>
+      <label style="font-size:12px;color:var(--muted)">Horário</label>
+      <input id="autoHora" type="time" class="inp" value="${a.hora||'08:00'}" oninput="autoUpdSum()" style="margin-bottom:6px">
+    </details>
     <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sm ghost" onclick="document.getElementById('autoOverlay').remove()">Cancelar</button><button class="btn sm primary" onclick="autoSave('${id||''}')">Salvar</button></div>
   </div>`;
   document.body.appendChild(ov);
@@ -2197,7 +2207,13 @@ async function autoEdit(id){
   ov.querySelectorAll('.autoDia').forEach(cb=>cb.addEventListener('change',()=>{
     const v=cb.value;const all=[...ov.querySelectorAll('.autoDia')];
     if(cb.checked){if(v==='todos'||v==='uteis'){all.forEach(o=>{if(o!==cb)o.checked=false;});}else{all.forEach(o=>{if(o.value==='todos'||o.value==='uteis')o.checked=false;});}}
+    autoUpdSum();
   }));
+}
+function autoUpdSum(){
+  const dias=[...document.querySelectorAll('.autoDia:checked')].map(c=>c.value);
+  const s=document.getElementById('autoDiasSum');if(s)s.textContent=dias.length?_autoDiasLabel(dias):'—';
+  const h=document.getElementById('autoHoraSum'),hi=document.getElementById('autoHora');if(h&&hi)h.textContent=hi.value||'08:00';
 }
 function autoPickSug(i){
   const s=AUTO_SUGGESTIONS[i];if(!s)return;
@@ -2215,6 +2231,7 @@ function autoPromptEdited(){
 function autoRefreshTipoNote(){
   const t=document.getElementById('autoTipo').value;
   const w=document.getElementById('autoEscopoWrap');if(w)w.style.display=_autoTemEscopo(t)?'block':'none';
+  const nv=document.getElementById('autoNivelWrap');if(nv)nv.style.display=_autoTemNivel(t)?'block':'none';
   const n=document.getElementById('autoTipoNote');if(!n)return;
   n.innerHTML=(t==='custom')?'<span style="color:var(--accent)">✍️ A AndréIA vai montar o aviso pelo texto acima (consulta os dados reais na hora).</span>':'<span style="color:#34d399">✓ Relatório pronto — dados exatos e garantidos.</span>';
 }
@@ -2224,8 +2241,8 @@ async function autoSave(id){
   const tipo=document.getElementById('autoTipo').value;
   const prompt=(document.getElementById('autoPrompt').value||'').trim();
   if(tipo==='custom'&&!prompt){alert('Escreva o que a AndréIA deve enviar (ou escolha uma sugestão).');return;}
-  const escEl=document.getElementById('autoEscopo');
-  const row={titulo:document.getElementById('autoTitulo').value.trim(),tipo,prompt:tipo==='custom'?prompt:null,escopo:(_autoTemEscopo(tipo)&&escEl)?escEl.value:'padrao',dias,hora:document.getElementById('autoHora').value||'08:00',enabled:true};
+  const escEl=document.getElementById('autoEscopo'),nvEl=document.getElementById('autoNivel');
+  const row={titulo:document.getElementById('autoTitulo').value.trim(),tipo,prompt:tipo==='custom'?prompt:null,escopo:(_autoTemEscopo(tipo)&&escEl)?escEl.value:'padrao',nivel:(_autoTemNivel(tipo)&&nvEl)?nvEl.value:'resumido',dias,hora:document.getElementById('autoHora').value||'08:00',enabled:true};
   if(id){await sb.from('andreia_automations').update(row).eq('id',id);}
   else{row.id='auto_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);await sb.from('andreia_automations').insert(row);}
   document.getElementById('autoOverlay').remove();renderAutomations();

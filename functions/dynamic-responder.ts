@@ -1341,8 +1341,35 @@ function _clientRestrictions(c: any, restr: any): any[] {
   return out;
 }
 const ESCOPO_LABEL: Record<string, string> = { padrao: "clientes com investimento", todos: "todos os clientes", ativos: "clientes ativos", ativos_sem_restricao: "ativos sem restrição", rodaram: "só os que rodaram", com_restricao: "com restrição de conta" };
-// Resumo de clientes no período (por cliente, Meta/Google separados). `escopo` filtra QUEM entra. Retorna mensagens (chunked).
-async function waAgentAllClientsSummary(days: number, escopo = "padrao"): Promise<string[]> {
+// Linha de KPIs COMPLETA de um canal (usada no relatório "completo")
+function _waKpiFull(t: any, google: boolean) {
+  const L: string[] = [];
+  L.push(`Gasto ${_fmtR(t.spend || 0)}`);
+  L.push(`Impr. ${Math.round(t.impressions || 0).toLocaleString("pt-BR")}`);
+  if (!google && (t.reach || 0) > 0) L.push(`Alcance ${Math.round(t.reach).toLocaleString("pt-BR")}`);
+  L.push(`Cliques ${Math.round(t.clicks || 0).toLocaleString("pt-BR")}`);
+  const ctr = t.ctr != null ? t.ctr : (t.impressions ? t.clicks / t.impressions * 100 : 0);
+  const cpc = t.cpc != null ? t.cpc : (t.clicks ? t.spend / t.clicks : 0);
+  const cpm = t.cpm != null ? t.cpm : (t.impressions ? t.spend / t.impressions * 1000 : 0);
+  L.push(`CTR ${(ctr || 0).toFixed(2)}%`); L.push(`CPC ${_fmtR(cpc)}`); L.push(`CPM ${_fmtR(cpm)}`);
+  if ((t.purchases || 0) > 0) { const roas = t.roas != null ? t.roas : (t.spend ? (t.revenue || 0) / t.spend : 0); L.push(`Compras ${Math.round(t.purchases)}`); L.push(`ROAS ${(roas || 0).toFixed(2)}`); L.push(`CPA ${_fmtR(t.purchases ? t.spend / t.purchases : 0)}`); if (t.revenue) L.push(`Receita ${_fmtR(t.revenue)}`); }
+  if (!google && (t.leads || 0) > 0) { L.push(`Leads ${t.leads}`); L.push(`CPL ${_fmtR(t.leads ? t.spend / t.leads : 0)}`); }
+  if (!google && (t.conversas || 0) > 0) { L.push(`Conversas ${t.conversas}`); L.push(`Custo/conversa ${_fmtR(t.conversas ? t.spend / t.conversas : 0)}`); }
+  if ((t.videoViews || 0) > 0) L.push(`Views ${Math.round(t.videoViews).toLocaleString("pt-BR")}`);
+  return L.join(" · ");
+}
+// Uma frase de análise do gestor por cliente (1 chamada LLM sobre os dados compilados)
+async function _waAnalises(items: any[]): Promise<Record<string, string>> {
+  try {
+    const data = items.map((r: any) => ({ cliente: r.nome, meta: r.meta ? `${_objMetric(r.meta, false)} (gasto ${Math.round(r.meta.spend)})` : null, google: r.google ? `${_objMetric(r.google, true)} (gasto ${Math.round(r.google.spend)})` : null }));
+    const sys = `Você é a AndréIA, gestora de tráfego sênior. Para CADA cliente, escreva UMA frase curta (máx ~18 palavras) de análise do gestor: o que está bom ou ruim pelo OBJETIVO do cliente e o próximo passo. Direto, sem enrolação. Responda em JSON: {"analises":[{"cliente":"nome exato","texto":"..."}]}`;
+    const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content: JSON.stringify(data) }], response_format: { type: "json_object" }, max_tokens: 1200, temperature: 0.4 });
+    const parsed = JSON.parse(j.choices[0].message.content || "{}");
+    const map: Record<string, string> = {}; (parsed.analises || []).forEach((a: any) => { if (a && a.cliente) map[a.cliente] = a.texto; }); return map;
+  } catch (_e) { return {}; }
+}
+// Resumo de clientes no período (por cliente, Meta/Google separados). `escopo` filtra QUEM entra; `nivel` = resumido|completo. Retorna mensagens (chunked).
+async function waAgentAllClientsSummary(days: number, escopo = "padrao", nivel = "resumido"): Promise<string[]> {
   const since = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
   const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,status&limit=500");
   const withAcct = clients.filter((c: any) => String(c.meta_account_id || "").trim() || String(c.google_account_id || "").trim());
@@ -1369,6 +1396,8 @@ async function waAgentAllClientsSummary(days: number, escopo = "padrao"): Promis
     results.push(...rs);
   }
   results.sort((a, b) => ((b.meta?.spend || 0) + (b.google?.spend || 0)) - ((a.meta?.spend || 0) + (a.google?.spend || 0)));
+  const completo = nivel === "completo" && escopo !== "com_restricao";
+  const analises = completo ? await _waAnalises(results.filter((r: any) => (r.meta?.spend || 0) > 0 || (r.google?.spend || 0) > 0)) : {};
   const blocks: string[] = [];
   for (const r of results) {
     const mS = r.meta?.spend || 0, gS = r.google?.spend || 0, ran = mS > 0 || gS > 0;
@@ -1381,14 +1410,21 @@ async function waAgentAllClientsSummary(days: number, escopo = "padrao"): Promis
     }
     if (!ran) { if (!showNon) continue; blocks.push(`*${r.nome}* — ⏸ não rodou no período`); continue; }
     let b = `*${r.nome}*`;
-    if (mS > 0) b += `\n📘 Meta — Gasto ${_fmtR(mS)} · ${_objMetric(r.meta, false)}`;
-    if (gS > 0) b += `\n🔎 Google — Gasto ${_fmtR(gS)} · ${_objMetric(r.google, true)}`;
-    if (mS > 0 && gS > 0) b += `\n➕ Total — Gasto ${_fmtR(mS + gS)}`;
+    if (completo) {
+      if (mS > 0) b += `\n📘 Meta — ${_waKpiFull(r.meta, false)}`;
+      if (gS > 0) b += `\n🔎 Google — ${_waKpiFull(r.google, true)}`;
+      if (mS > 0 && gS > 0) b += `\n➕ Total — Gasto ${_fmtR(mS + gS)}`;
+      if (analises[r.nome]) b += `\n💬 _${analises[r.nome]}_`;
+    } else {
+      if (mS > 0) b += `\n📘 Meta — Gasto ${_fmtR(mS)} · ${_objMetric(r.meta, false)}`;
+      if (gS > 0) b += `\n🔎 Google — Gasto ${_fmtR(gS)} · ${_objMetric(r.google, true)}`;
+      if (mS > 0 && gS > 0) b += `\n➕ Total — Gasto ${_fmtR(mS + gS)}`;
+    }
     blocks.push(b);
   }
   const escLbl = ESCOPO_LABEL[escopo] || ESCOPO_LABEL.padrao;
   if (!blocks.length) return [escopo === "com_restricao" ? `✅ Nenhum cliente com restrição de conta.` : `Nenhum cliente (${escLbl}) com dados nos últimos ${days} dias.`];
-  const cab = escopo === "com_restricao" ? `🚫 Clientes com restrição de conta (últimos ${days} dias):\n` : `📊 Resumo dos últimos ${days} dias — ${escLbl}:\n`;
+  const cab = escopo === "com_restricao" ? `🚫 Clientes com restrição de conta (últimos ${days} dias):\n` : `📊 Resumo ${completo ? "completo " : ""}dos últimos ${days} dias — ${escLbl}:\n`;
   const msgs: string[] = []; let cur = cab;
   for (const b of blocks) { if ((cur + "\n\n" + b).length > 3000) { msgs.push(cur); cur = b; } else cur += "\n\n" + b; }
   if (cur.trim()) msgs.push(cur);
@@ -1825,11 +1861,11 @@ async function waAgentOneShot(prompt: string): Promise<string> {
   }
   return "";
 }
-async function waAutoText(tipo: string, escopo = "padrao", prompt = ""): Promise<string[]> {
+async function waAutoText(tipo: string, escopo = "padrao", prompt = "", nivel = "resumido"): Promise<string[]> {
   const escNota = escopo && escopo !== "padrao" ? ` Considere apenas os clientes do escopo "${ESCOPO_LABEL[escopo] || escopo}".` : "";
   if (tipo === "custom") { const p = String(prompt || "").trim(); if (!p) return []; const t = await waAgentOneShot(p + escNota); return t ? [t] : ["Não consegui montar esse aviso agora."]; }
-  if (tipo === "resumo7") return await waAgentAllClientsSummary(7, escopo);
-  if (tipo === "resumo30") return await waAgentAllClientsSummary(30, escopo);
+  if (tipo === "resumo7") return await waAgentAllClientsSummary(7, escopo, nivel);
+  if (tipo === "resumo30") return await waAgentAllClientsSummary(30, escopo, nivel);
   if (tipo === "restricoes") return await waAgentAllClientsSummary(7, "com_restricao");
   if (tipo === "receber") return [_waFmtFinanceiro(await waFinanceiro({ tipo: "receita", status: "pendente", mes: _mesAtual() }), "💰 *A receber este mês*")];
   if (tipo === "pagar") return [_waFmtFinanceiro(await waFinanceiro({ tipo: "despesa", status: "pendente", mes: _mesAtual() }), "💸 *A pagar este mês*")];
@@ -1853,7 +1889,7 @@ async function waAutomationRunNow(id: string) {
   const a = (await sbGet("andreia_automations", `id=eq.${encodeURIComponent(id)}&select=*`))[0];
   if (!a) return { erro: "automação não encontrada" };
   const g = await _andreiaGroupInst(); if ((g as any).erro) return g;
-  const msgs = await waAutoText(a.tipo, a.escopo || "padrao", a.prompt || ""); if (!msgs.length) return { erro: "tipo desconhecido ou aviso vazio" };
+  const msgs = await waAutoText(a.tipo, a.escopo || "padrao", a.prompt || "", a.nivel || "resumido"); if (!msgs.length) return { erro: "tipo desconhecido ou aviso vazio" };
   await _sendGroup(g, msgs);
   await sbPatchD("andreia_automations", `id=eq.${encodeURIComponent(id)}`, { last_run: _spNow().toISOString().slice(0, 10) });
   return { ok: true, enviados: msgs.length };
@@ -1871,7 +1907,7 @@ async function waAutomationsTick() {
     const diaOk = dias.includes("todos") || (dias.includes("uteis") && day >= 1 && day <= 5) || dias.includes(String(day));
     if (!diaOk) continue;
     if ((a.hora || "08:00") > hhmm) continue; // ainda não chegou a hora hoje
-    try { const msgs = await waAutoText(a.tipo, a.escopo || "padrao", a.prompt || ""); await _sendGroup(g, msgs); await sbPatchD("andreia_automations", `id=eq.${encodeURIComponent(a.id)}`, { last_run: today }); ran++; feitas.push(a.titulo || a.tipo); } catch (e) { /* segue as demais */ }
+    try { const msgs = await waAutoText(a.tipo, a.escopo || "padrao", a.prompt || "", a.nivel || "resumido"); await _sendGroup(g, msgs); await sbPatchD("andreia_automations", `id=eq.${encodeURIComponent(a.id)}`, { last_run: today }); ran++; feitas.push(a.titulo || a.tipo); } catch (e) { /* segue as demais */ }
   }
   return { ran, feitas, hhmm, day, today };
 }
