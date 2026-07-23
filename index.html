@@ -8327,7 +8327,7 @@ function templatePanelHTML(tpl,agg){
   }).join('');
   const km=METRIC_CATALOG[tpl.keyMetric]?METRIC_CATALOG[tpl.keyMetric].label:tpl.keyMetric;
   return`<div class="rt-sec">
-      <div class="rt-sec-hdr"><div class="rt-sec-num">◆</div><div class="rt-sec-title">Modelo: ${(tpl.name||'').replace(/</g,'&lt;')}</div><span style="font-size:10px;font-weight:800;letter-spacing:.04em;color:#a5b4fc;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.4);border-radius:8px;padding:2px 8px;margin-left:8px">🌐 GERAL · TODOS OS CANAIS</span><div class="rt-sec-ln"></div></div>
+      <div class="rt-sec-hdr"><div class="rt-sec-num">◆</div><div class="rt-sec-title">Modelo: ${(tpl.name||'').replace(/</g,'&lt;')}</div><span style="font-size:10px;font-weight:800;letter-spacing:.04em;color:#a5b4fc;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.4);border-radius:8px;padding:2px 8px;margin-left:8px">🌐 GERAL · TODOS OS CANAIS</span><div class="rt-sec-ln"></div><button class="btn sm ghost rt-no-print" type="button" onclick="rtEditMainMetrics()" title="Escolher quais métricas/KPIs aparecem aqui">✎ Editar métricas</button></div>
       <div style="font-size:11.5px;color:var(--rt2);margin-bottom:10px">Métrica-chave: <b>${km}</b> · ${tpl.isBase?'modelo-base (automático pelo objetivo do Meta)':'modelo personalizado'} · <span style="color:var(--rtm)">números somam <b>todos os canais</b> (Meta + Google + planilha). O detalhe por canal está no Resumo Executivo, e as campanhas por canal na aba Campanhas (Meta / Google).</span></div>
       <div class="rt-kpi-grid">${cards}</div>
     </div>
@@ -8664,7 +8664,11 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
   const comprasFunil=noSales?0:(useOrders?aprovadosCount:chSum.sales);
   const receitaFunil=noSales?0:(useOrders?aprovadosVal:chSum.revenue);
   const tplAgg={spend:chSum.spend,impressions:chSum.impressions,clicks:chSum.clicks,reach:chSum.reach,revenue:receitaFunil,compras:comprasFunil,leads:metaSum.leads,addCarrinho:metaSum.addCarrinho,checkout:(checkoutCount||0)||metaSum.checkout,conversas:metaSum.conversas,videoViews:metaSum.videoViews,engajamentos:metaSum.engajamentos,frequencia:chSum.reach?chSum.impressions/chSum.reach:0};
-  const clientTpl=resolveClientTemplate(c,metaAds);
+  let clientTpl=resolveClientTemplate(c,metaAds);
+  // override das métricas da 1ª seção (por cliente, guardado no report_layout — não altera o modelo-base)
+  const _mainOv=(c.reportLayout&&c.reportLayout.mainMetrics)||null;
+  if(_mainOv&&_mainOv.length)clientTpl={...clientTpl,metrics:_mainOv.filter(k=>METRIC_CATALOG[k]),keyMetric:((c.reportLayout&&c.reportLayout.mainKey)&&METRIC_CATALOG[c.reportLayout.mainKey])?c.reportLayout.mainKey:clientTpl.keyMetric};
+  _rtMainMetricsCur=(clientTpl.metrics||[]).slice();_rtMainKeyCur=clientTpl.keyMetric;
 
   const weeks=weekBucketsForMonth(month);
   const weekly=weeks.map(w=>{
@@ -9010,7 +9014,7 @@ function rtRerender(){
   renderClientTemplate({...real,reportOrdersTab:_rtLast.ordersTab},_rtLast.month,_rtLast.dataByTab,_rtLast.adTabs,_rtLast.checkoutCount,_rtLast.metaChStats,_rtLast.metaAds,_rtLast.since,_rtLast.until);
 }
 async function rtSaveClientLayout(c){try{await sb.from('clients').update({report_layout:c.reportLayout}).eq('id',c.id);}catch(e){console.warn('salvar layout',e);}}
-function _rtSetLayout(secs){const c=_rtClient();if(!c)return;c.reportLayout={sections:secs};rtSaveClientLayout(c);rtRerender();}
+function _rtSetLayout(secs){const c=_rtClient();if(!c)return;c.reportLayout={...(c.reportLayout||{}),sections:secs};rtSaveClientLayout(c);rtRerender();}
 function rtLayoutMove(key,dir){const secs=rtResolveLayout(_rtClient());const i=secs.findIndex(s=>s.key===key);const j=i+dir;if(i<0||j<0||j>=secs.length)return;const t=secs[i];secs[i]=secs[j];secs[j]=t;_rtSetLayout(secs);}
 function rtLayoutToggle(key){const secs=rtResolveLayout(_rtClient());const e=secs.find(s=>s.key===key);if(e)e.on=false;_rtSetLayout(secs);}
 function rtLayoutToggleOn(key){if(!key)return;const secs=rtResolveLayout(_rtClient());const e=secs.find(s=>s.key===key);if(e)e.on=true;_rtSetLayout(secs);}
@@ -9026,7 +9030,7 @@ async function rtLayoutSaveLibrary(){
   if(error){alert('Erro ao salvar layout: '+error.message);return;}
   await rtLoadLayouts();rtRerender();alert('✓ Layout "'+name+'" salvo na biblioteca — já pode aplicar em qualquer cliente.');
 }
-function rtLayoutApply(id){if(!id)return;const ly=_rtLayouts.find(l=>l.id===id);if(!ly)return;const c=_rtClient();if(!c)return;c.reportLayout={sections:(ly.sections||[]).map(s=>({...s}))};rtSaveClientLayout(c);rtRerender();}
+function rtLayoutApply(id){if(!id)return;const ly=_rtLayouts.find(l=>l.id===id);if(!ly)return;const c=_rtClient();if(!c)return;c.reportLayout={...(c.reportLayout||{}),sections:(ly.sections||[]).map(s=>({...s}))};rtSaveClientLayout(c);rtRerender();}
 function rtLayoutAddCustom(editKey){
   const c=_rtClient();if(!c)return;const secs=rtResolveLayout(c);
   const ex=editKey?secs.find(s=>s.key===editKey):null;
@@ -9042,7 +9046,7 @@ function rtLayoutAddCustom(editKey){
     <input id="rtcTitle" value="${(cur.title||'').replace(/"/g,'&quot;')}" placeholder="Ex: Desempenho de Mídia" style="width:100%;margin-bottom:14px">
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Canal</div>
     <div style="display:flex;gap:16px;margin-bottom:14px">${chan('geral','🌐 Geral')}${chan('meta','Ⓜ️ Meta')}${chan('google','🔎 Google')}</div>
-    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Métricas</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Métricas / KPIs (o que puxar)</div><div><a onclick="document.querySelectorAll('.rtcMetric').forEach(x=>x.checked=true)" style="font-size:11px;color:var(--accent);cursor:pointer">marcar todas</a> · <a onclick="document.querySelectorAll('.rtcMetric').forEach(x=>x.checked=false)" style="font-size:11px;color:var(--accent);cursor:pointer">limpar</a></div></div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${metOpts}</div>
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Formato</div>
     <select id="rtcFmt" style="width:auto;margin-bottom:18px">${fmtOpt('cards','Cards')}${fmtOpt('tabela','Tabela')}${fmtOpt('destaque','Destaque (números grandes)')}${fmtOpt('grafico','Gráfico (barras comparando canais)')}</select>
@@ -9064,6 +9068,42 @@ function rtLayoutSaveCustom(editKey){
   else secs.push({key:'custom_'+uid(),on:true,title,channel,metrics,format});
   const ov=document.getElementById('rtCustomOverlay');if(ov)ov.remove();
   _rtSetLayout(secs);
+}
+// ===== Editar as métricas/KPIs da 1ª seção (modelo) — override por cliente =====
+let _rtMainMetricsCur=[],_rtMainKeyCur='';
+function rtEditMainMetrics(){
+  const c=_rtClient();if(!c)return;
+  const cur=_rtMainMetricsCur.slice(),curKey=_rtMainKeyCur;
+  const met=Object.entries(METRIC_CATALOG).map(([k,v])=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:4px 8px;cursor:pointer"><input type="checkbox" class="rtMainMet" value="${k}" ${cur.includes(k)?'checked':''}> ${v.label}</label>`).join('');
+  const keyOpts=Object.entries(METRIC_CATALOG).map(([k,v])=>`<option value="${k}" ${curKey===k?'selected':''}>${v.label}</option>`).join('');
+  const isOv=!!(c.reportLayout&&c.reportLayout.mainMetrics&&c.reportLayout.mainMetrics.length);
+  let ov=document.getElementById('rtMainOverlay');if(!ov){ov=document.createElement('div');ov.id='rtMainOverlay';document.body.appendChild(ov);}
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;width:min(680px,94vw);max-height:88vh;overflow:auto">
+    <h3 style="margin:0 0 6px;font-size:17px">Editar métricas da 1ª seção</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Escolha quais KPIs aparecem no topo do relatório. Vale só pra este cliente.${isOv?'':' <i>(usando o modelo automático — ao salvar vira personalizado)</i>'}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Métricas / KPIs</div><div><a onclick="document.querySelectorAll('.rtMainMet').forEach(x=>x.checked=true)" style="font-size:11px;color:var(--accent);cursor:pointer">marcar todas</a> · <a onclick="document.querySelectorAll('.rtMainMet').forEach(x=>x.checked=false)" style="font-size:11px;color:var(--accent);cursor:pointer">limpar</a></div></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">${met}</div>
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Métrica-chave ★ (destaque)</div>
+    <select id="rtMainKey" style="width:auto;margin-bottom:18px">${keyOpts}</select>
+    <div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
+      <button class="btn sm ghost" type="button" onclick="rtResetMainMetrics()" title="voltar ao modelo automático por objetivo">↺ Usar modelo padrão</button>
+      <div style="display:flex;gap:8px"><button class="btn ghost" type="button" onclick="document.getElementById('rtMainOverlay').remove()">Cancelar</button><button class="btn primary" type="button" onclick="rtSaveMainMetrics()">Salvar</button></div>
+    </div></div>`;
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+}
+function rtSaveMainMetrics(){
+  const metrics=[...document.querySelectorAll('.rtMainMet:checked')].map(x=>x.value);
+  if(!metrics.length){alert('Escolha ao menos uma métrica.');return;}
+  const key=document.getElementById('rtMainKey').value;
+  const c=_rtClient();if(!c)return;
+  c.reportLayout={...(c.reportLayout||{}),mainMetrics:metrics,mainKey:metrics.includes(key)?key:metrics[0]};
+  rtSaveClientLayout(c);const ov=document.getElementById('rtMainOverlay');if(ov)ov.remove();rtRerender();
+}
+function rtResetMainMetrics(){
+  const c=_rtClient();if(!c)return;
+  if(c.reportLayout){delete c.reportLayout.mainMetrics;delete c.reportLayout.mainKey;}
+  rtSaveClientLayout(c);const ov=document.getElementById('rtMainOverlay');if(ov)ov.remove();rtRerender();
 }
 // Visibilidade das abas de foco (escolha feita no relatório, salva por cliente em report_focos)
 function applyReportFocoVis(clientId){
