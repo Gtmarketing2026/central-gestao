@@ -924,8 +924,9 @@
       <div class="form-row"><label>💬 WhatsApp do cliente <span style="font-size:11px;color:var(--faint);font-weight:400">— destino padrão dos links de tracking (bio/WhatsApp) quando você não informar um destino</span></label>
         <input id="cWhatsapp" placeholder="Ex: 5521999998888 (DDI+DDD+número, só dígitos)">
       </div>
-      <div class="form-row"><label>🎯 Pixel do Meta (opcional) <span style="font-size:11px;color:var(--faint);font-weight:400">— ID do pixel pra enviar eventos do CRM (CAPI). Só preencha se o automático não achar; senão usa o 1º pixel da conta de anúncio</span></label>
-        <input id="cPixelId" placeholder="Ex: 123456789012345 (só dígitos)">
+      <div class="form-row"><label>🎯 Pixel do Meta (opcional) <span style="font-size:11px;color:var(--faint);font-weight:400">— ID do pixel pra enviar eventos do CRM (CAPI). Deixe vazio pra usar o 1º da conta, ou puxe do Meta</span></label>
+        <div style="display:flex;gap:8px;align-items:center"><input id="cPixelId" placeholder="Ex: 123456789012345 (só dígitos)" style="flex:1"><button type="button" class="btn sm ghost" onclick="cPixelPull(this)" title="Buscar os pixels da conta Meta do cliente">🔄 Puxar do Meta</button></div>
+        <div id="cPixelMsg" style="font-size:11px;color:var(--faint);margin-top:4px"></div>
       </div>
       <div class="form-row"><label>Fonte de vendas do funil <span style="font-size:11px;color:var(--faint);font-weight:400">— de onde vem o nº de vendas/conversões</span></label>
         <select id="cConversionSource">
@@ -4915,6 +4916,20 @@ const typeLabels={mensal:'Mensal',funil:'Funil',show:'Show',evento:'Show/evento'
 function clientType(id){const c=DB.clients.find(x=>x.id===id);if(!c)return'';return c.category||c.billing||'mensal'}
 function clientTypeLabel(cat){return typeLabels[cat]||cat||'—'}
 
+async function cPixelPull(btn){
+  const accs=(typeof metaSelectedIds!=='undefined'?metaSelectedIds:[]).slice();
+  const msg=document.getElementById('cPixelMsg');
+  if(!accs.length){if(msg)msg.textContent='⚠ Selecione a conta do Meta do cliente primeiro (aba Mídia & Integrações).';return;}
+  const o=btn.textContent;btn.textContent='…';btn.disabled=true;if(msg)msg.textContent='Buscando pixels no Meta…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaPixels:{accountIds:accs}}});
+    if(error)throw error;const list=(data&&data.data)||data||[];
+    if(!list.length){if(msg)msg.textContent='Nenhum pixel encontrado na(s) conta(s) desse cliente.';}
+    else if(list.length===1){document.getElementById('cPixelId').value=list[0].id;if(msg)msg.innerHTML='✓ Pixel: <b>'+(list[0].name||'').replace(/</g,'&lt;')+'</b> ('+list[0].id+')';}
+    else{const pick=prompt('Vários pixels encontrados — digite o número:\n'+list.map((p,i)=>`${i+1}) ${p.name||p.id} — ${p.id}`).join('\n'));const idx=parseInt(pick)-1;if(list[idx]){document.getElementById('cPixelId').value=list[idx].id;if(msg)msg.innerHTML='✓ Pixel: <b>'+(list[idx].name||'').replace(/</g,'&lt;')+'</b>';}}
+  }catch(e){if(msg)msg.textContent='Erro: '+(e.message||e);}
+  btn.textContent=o;btn.disabled=false;
+}
 /* ---- BUDGET CHANNELS ---- */
 let budgetRows=[];
 const BUDGET_CHANNELS=['Meta Ads','Google Ads','TikTok Ads','LinkedIn Ads','Pinterest Ads','Kwai Ads','Taboola','Bing Ads','YouTube Ads','Outro'];
@@ -5172,7 +5187,7 @@ function openClientModal(id){
   fillTemplatePicker(tplIds);
   document.getElementById('cSiteUrl').value=c.siteUrl||'';
   document.getElementById('cWhatsapp').value=c.whatsapp||'';
-  document.getElementById('cPixelId').value=c.pixelId||'';
+  document.getElementById('cPixelId').value=c.pixelId||'';const _pm=document.getElementById('cPixelMsg');if(_pm)_pm.textContent='';
   document.getElementById('cConversionSource').value=c.conversionSource||'';
   {const bm=c.benchmarkMetas||{};const setM=(id,v)=>{document.getElementById(id).value=(v||v===0)?v:''};
    setM('cMetaCtr',bm.ctr);setM('cMetaCpc',bm.cpc);setM('cMetaCpm',bm.cpm);setM('cMetaRoas',bm.roas);setM('cMetaCpa',bm.cpa);setM('cMetaCpl',bm.cpl);setM('cMetaConversa',bm.custoConversa);setM('cMetaView',bm.custoView);

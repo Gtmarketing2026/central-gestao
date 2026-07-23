@@ -527,6 +527,16 @@ async function metaFunding(m: any) {
   return { accounts: out };
 }
 
+// Lista os pixels das contas de anúncio do cliente (pra puxar automático no cadastro).
+async function metaListPixels(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
+  const accs = (Array.isArray(m.accountIds) ? m.accountIds : []).map((x: any) => String(x).replace(/[^0-9]/g, "")).filter(Boolean);
+  const out: any[] = []; const seen = new Set<string>();
+  for (const acc of accs) {
+    try { const r = await fetch(`https://graph.facebook.com/v21.0/act_${acc}/adspixels?fields=id,name&limit=50&access_token=${token}`); const j = await r.json(); (j.data || []).forEach((p: any) => { if (p.id && !seen.has(p.id)) { seen.add(p.id); out.push({ id: p.id, name: p.name || p.id }); } }); } catch { /* */ }
+  }
+  return out;
+}
 async function metaListAccounts() {
   const token = Deno.env.get("META_USER_TOKEN");
   if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
@@ -2384,6 +2394,10 @@ Deno.serve(async (req) => {
     }
     if (body.metaAccounts) {
       const r = await metaListAccounts();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.metaPixels) {
+      const r = await metaListPixels(body.metaPixels);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.metaFunding) {
