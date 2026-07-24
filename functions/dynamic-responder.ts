@@ -1440,6 +1440,14 @@ async function waResolveCampaign(clientId: string, nome: string) {
   return cs.find((c: any) => c.nome.toLowerCase() === q) || cs.find((c: any) => c.nome.toLowerCase().includes(q)) || cs.find((c: any) => q && q.includes(c.nome.toLowerCase())) || null;
 }
 async function _waClientNome(cid: string | null) { if (!cid) return ""; const c = (await sbGet("clients", `id=eq.${encodeURIComponent(cid)}&select=name`))[0]; return c?.name || ""; }
+// Lista as campanhas (nome/id/status) das contas Meta do cliente — pra oferecer opções quando a campanha não foi identificada.
+async function waListCampaigns(clientId: string): Promise<any[]> {
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=meta_account_id`))[0];
+  const ids = String(c?.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+  if (!ids.length) return [];
+  const ent = await metaEntities({ accounts: ids.map((id: string) => ({ id, name: id })) }).catch(() => null);
+  return (ent && ent.campaigns) || [];
+}
 async function waAgentExec(pending: any, clientId: string | null) {
   const cid = pending.client_id || clientId;
   try {
@@ -2153,6 +2161,18 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
               if (!dataOk) faltam.push("a *data* (pra quando)");
               if (faltam.length) reply = `Pra criar a tarefa, faltou ${faltam.join(" e ")}. Pode me informar?`;
               else { args._owner = ownerId; args._due = args.quando; }
+            }
+          }
+          // CAMPANHA: resolve o nome EXATO antes de confirmar; se veio vazia/errada, lista as opções em vez de confirmar em branco
+          const _campActs: Record<string, string> = { pausar_campanha: "pausar", reativar_campanha: "reativar", orcamento: "ajustar o orçamento da", duplicar_campanha: "duplicar" };
+          if (!reply && _campActs[args.tipo] && cid) {
+            const camp = (args.campanha && String(args.campanha).trim()) ? await waResolveCampaign(cid, args.campanha) : null;
+            if (camp) args.campanha = camp.nome; // nome exato → confirmação mostra certo
+            else {
+              const list = await waListCampaigns(cid); const names = list.map((c: any) => c.nome).filter(Boolean);
+              reply = names.length
+                ? `Qual campanha do ${await _waClientNome(cid)} você quer ${_campActs[args.tipo]}? Me diz o nome exato:\n${names.slice(0, 25).map((n: string) => "• " + n).join("\n")}`
+                : `Não achei campanhas Meta nesse cliente pra ${_campActs[args.tipo]}.`;
             }
           }
           if (!reply) { const pending = { ...args, client_id: cid }; reply = _waConfirmText(pending, clients); const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16); await saveSess({ client_id: cid, pending, last_msgid: w.msgid, history: hist }); }
