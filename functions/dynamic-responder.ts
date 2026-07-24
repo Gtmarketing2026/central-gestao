@@ -2169,10 +2169,16 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
             const camp = (args.campanha && String(args.campanha).trim()) ? await waResolveCampaign(cid, args.campanha) : null;
             if (camp) args.campanha = camp.nome; // nome exato → confirmação mostra certo
             else {
-              const list = await waListCampaigns(cid); const names = list.map((c: any) => c.nome).filter(Boolean);
+              const list = await waListCampaigns(cid);
+              const isActive = (c: any) => String(c.status || c.entrega || "").toUpperCase() === "ACTIVE";
+              // pausar/orçamento/duplicar → só faz sentido nas ATIVAS; reativar → só nas PAUSADAS
+              const filt = args.tipo === "reativar_campanha" ? list.filter((c: any) => !isActive(c)) : list.filter(isActive);
+              const use = filt.length ? filt : list; // se o filtro zerar, mostra todas
+              const names = use.map((c: any) => c.nome).filter(Boolean);
+              const rot = args.tipo === "reativar_campanha" ? "pausadas" : "ativas";
               reply = names.length
-                ? `Qual campanha do ${await _waClientNome(cid)} você quer ${_campActs[args.tipo]}? Me diz o nome exato:\n${names.slice(0, 25).map((n: string) => "• " + n).join("\n")}`
-                : `Não achei campanhas Meta nesse cliente pra ${_campActs[args.tipo]}.`;
+                ? `Qual campanha ${rot} do ${await _waClientNome(cid)} você quer ${_campActs[args.tipo]}? Me diz o nome exato:\n${names.slice(0, 25).map((n: string) => "• " + n).join("\n")}${names.length > 25 ? `\n…e mais ${names.length - 25}` : ""}`
+                : `Não achei campanhas ${rot} nesse cliente pra ${_campActs[args.tipo]}.`;
             }
           }
           if (!reply) { const pending = { ...args, client_id: cid }; reply = _waConfirmText(pending, clients); const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16); await saveSess({ client_id: cid, pending, last_msgid: w.msgid, history: hist }); }
