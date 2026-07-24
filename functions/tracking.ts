@@ -292,14 +292,16 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
     const ts = waTs(m.messageTimestamp);
     const msgid = m.messageid || m.id || uid();
     // conversa (upsert por client_id + chat_id)
-    const existing = (await sbSelect("wa_conversations", `client_id=${clientId ? "eq." + encodeURIComponent(clientId) : "is.null"}&chat_id=eq.${encodeURIComponent(phone)}&select=id,origin_type&limit=1`))[0];
+    const existing = (await sbSelect("wa_conversations", `client_id=${clientId ? "eq." + encodeURIComponent(clientId) : "is.null"}&chat_id=eq.${encodeURIComponent(phone)}&select=id,origin_type,name&limit=1`))[0];
     let convId = existing?.id;
     let origin = fromMe ? null : waExtractOrigin(m);
     if (!fromMe) { const rf = await refOrigin(text); if (rf) origin = rf; }
     if (!convId) {
       convId = uid();
+      // nome vem SÓ de mensagem do LEAD (inbound) — em msg enviada, senderName é o dono da instância (ficava tudo com o mesmo nome)
+      const leadName = (!fromMe && (m.senderName || m.pushName)) ? (m.senderName || m.pushName) : phone;
       await sbInsert("wa_conversations", {
-        id: convId, client_id: clientId, chat_id: phone, name: m.senderName || m.pushName || phone,
+        id: convId, client_id: clientId, chat_id: phone, name: leadName,
         last_text: text, last_at: ts, unread: fromMe ? 0 : 1,
         origin_type: origin ? origin.type : "organico", origin: origin ? origin.data : null,
       });
@@ -307,7 +309,9 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
     } else {
       const patch: Record<string, unknown> = { last_text: text, last_at: ts };
       if (!fromMe) patch.unread = 1;
-      if (m.senderName) patch.name = m.senderName;
+      // atualiza o nome só com mensagem do LEAD (inbound); nunca com o nome do dono da instância (msg enviada)
+      const _curName = existing.name || "";
+      if (!fromMe && m.senderName && m.senderName !== _curName) patch.name = m.senderName;
       // grava atribuição só se ainda não tiver (primeira toca ganha)
       if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; if (origin.type === "anuncio") needResolve = true; }
       await sbPatch("wa_conversations", `id=eq.${convId}`, patch);
