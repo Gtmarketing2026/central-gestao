@@ -280,6 +280,7 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
     return ok();
   }
   let needResolve = false;
+  const toClassify = new Set<string>();
   for (const m of msgs) {
     const isGroup = m.isGroup || String(m.chatid || "").endsWith("@g.us");
     if (isGroup) continue; // CRM é só 1:1
@@ -315,6 +316,11 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
       id: uid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: String(msgid),
       direction: fromMe ? "out" : "in", msg_type: m.messageType || "text", text, ts, raw: m,
     });
+    if (!fromMe && convId) toClassify.add(convId); // msg nova do lead → IA classifica sozinha (não depende do gestor abrir o CRM)
+  }
+  // classificação automática por IA das conversas que receberam msg do lead (independe do gestor estar online)
+  for (const cid of [...toClassify].slice(0, 8)) {
+    try { fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ wa: { op: "extract", convId: cid, autoApply: true } }) }).catch(() => {}); } catch (_e) {}
   }
   // chegou conversa de anúncio → resolve campanha›conjunto›anúncio na hora (não espera o cron de 20min)
   if (needResolve) {

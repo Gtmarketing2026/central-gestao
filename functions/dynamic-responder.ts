@@ -1223,16 +1223,29 @@ async function waResolveAdByTitle(title: string, accountIds: string[], body?: st
   const token = Deno.env.get("META_USER_TOKEN"); const target = _adNorm(title); const bTarget = _adNorm(body); if (!token || (!target && !bTarget) || !accountIds.length) return null;
   for (const acc of accountIds) {
     try {
-      const r = await fetch(`https://graph.facebook.com/v21.0/act_${acc}/ads?fields=name,adset{name},campaign{name},creative{title,body}&limit=400&access_token=${token}`);
-      const j = await r.json(); if (j.error || !Array.isArray(j.data)) continue;
-      for (const ad of j.data) {
-        const ct = _adNorm(ad.creative?.title), cb = _adNorm(ad.creative?.body);
-        const titleHit = target && ((ct && ct === target) || (cb && cb.includes(target)) || (ct && ct.length > 8 && (target.includes(ct) || ct.includes(target))));
-        // corpo do anúncio (copy) do CTWA casa com o body do criativo — mais confiável que o título (que costuma ser o nome da página)
-        const bodyHit = bTarget && bTarget.length > 15 && cb && (cb === bTarget || cb.includes(bTarget) || bTarget.includes(cb));
-        if (titleHit || bodyHit) {
-          return { ad: ad.name || "", adset: (ad.adset && ad.adset.name) || "", campaign: (ad.campaign && ad.campaign.name) || "", account: acc };
+      // inclui object_story_spec e asset_feed_spec: em criativo DINÂMICO o title/body de topo vêm VAZIOS e o texto real fica nesses campos
+      let url: string | null = `https://graph.facebook.com/v21.0/act_${acc}/ads?fields=name,adset{name},campaign{name},creative{title,body,object_story_spec,asset_feed_spec}&limit=200&access_token=${token}`;
+      let pages = 0;
+      while (url && pages < 6) {
+        pages++;
+        const r = await fetch(url); const j = await r.json(); if (j.error || !Array.isArray(j.data)) break;
+        for (const ad of j.data) {
+          const cr = ad.creative || {};
+          const texts: string[] = [];
+          const push = (s: any) => { const n = _adNorm(s); if (n) texts.push(n); };
+          push(cr.title); push(cr.body);
+          const oss = cr.object_story_spec;
+          if (oss) { const ld = oss.link_data || {}; push(ld.message); push(ld.name); push(ld.description); const vd = oss.video_data || {}; push(vd.message); push(vd.title); }
+          const afs = cr.asset_feed_spec;
+          if (afs) { (afs.bodies || []).forEach((b: any) => push(b.text)); (afs.titles || []).forEach((t: any) => push(t.text)); (afs.descriptions || []).forEach((d: any) => push(d.text)); }
+          // corpo (copy) do CTWA casa com algum texto do criativo — mais confiável que o título (headline curto)
+          const bodyHit = bTarget && bTarget.length > 15 && texts.some((t) => t.length > 15 && (t === bTarget || t.includes(bTarget) || bTarget.includes(t)));
+          const titleHit = target && texts.some((t) => t === target || (t.length > 8 && (t.includes(target) || target.includes(t))));
+          if (bodyHit || titleHit) {
+            return { ad: ad.name || "", adset: (ad.adset && ad.adset.name) || "", campaign: (ad.campaign && ad.campaign.name) || "", account: acc };
+          }
         }
+        url = (j.paging && j.paging.next) || null;
       }
     } catch { /* segue pra próxima conta */ }
   }
