@@ -1448,6 +1448,21 @@ async function waListCampaigns(clientId: string): Promise<any[]> {
   const ent = await metaEntities({ accounts: ids.map((id: string) => ({ id, name: id })) }).catch(() => null);
   return (ent && ent.campaigns) || [];
 }
+const _waAcaoLabel: Record<string, string> = { pausar_campanha: "pausar", reativar_campanha: "reativar", orcamento: "ajustar o orçamento da", duplicar_campanha: "duplicar" };
+// Texto perguntando QUAL campanha, já filtrando pelo estado que faz sentido (pausar→ativas, reativar→pausadas).
+async function _waCampaignPickText(cid: string, tipo: string): Promise<string> {
+  const list = await waListCampaigns(cid);
+  const isActive = (c: any) => String(c.status || c.entrega || "").toUpperCase() === "ACTIVE";
+  const filt = tipo === "reativar_campanha" ? list.filter((c: any) => !isActive(c)) : list.filter(isActive);
+  const use = filt.length ? filt : list;
+  const names = use.map((c: any) => c.nome).filter(Boolean);
+  const rot = tipo === "reativar_campanha" ? "pausadas" : "ativas";
+  const lab = _waAcaoLabel[tipo] || "ajustar";
+  const nm = await _waClientNome(cid);
+  return names.length
+    ? `Qual campanha ${rot} do ${nm} você quer ${lab}? Me diz o nome exato:\n${names.slice(0, 25).map((n: string) => "• " + n).join("\n")}${names.length > 25 ? `\n…e mais ${names.length - 25}` : ""}`
+    : `Não achei campanhas ${rot} nesse cliente pra ${lab}.`;
+}
 async function waAgentExec(pending: any, clientId: string | null) {
   const cid = pending.client_id || clientId;
   try {
@@ -2066,7 +2081,24 @@ async function waAgentHandle(w: any) {
   }
   const text = (w.text || "").trim(); if (!text && !visionParts.length) return { skip: true };
   const saveSess = async (patch: any) => { const row = { phone: skey, updated_at: new Date().toISOString(), ...patch }; if (sess) await sbPatchD("wa_agent_sessions", `phone=eq.${encodeURIComponent(skey)}`, row); else await sbPost("wa_agent_sessions", row); };
-  if (sess && sess.pending) {
+  // Espera pelo NOME da campanha (depois de "qual campanha?") — determinístico, não depende do modelo
+  if (sess && sess.pending && sess.pending._awaitCampaign) {
+    const tl0 = text.toLowerCase().replace(/[\s.!,]+/g, " ").trim();
+    if (/^(nao|n|cancela|cancelar|deixa|esquece|para|negativo)$/.test(tl0)) { await saveSess({ pending: null, last_msgid: w.msgid }); await send("Ok, cancelei 👍"); return { ok: true }; }
+    const cidp = sess.pending.client_id || null;
+    const camp = cidp ? await waResolveCampaign(cidp, text) : null;
+    if (camp) {
+      const pending = { ...sess.pending, campanha: camp.nome }; delete pending._awaitCampaign;
+      const cls = await sbGet("clients", "select=id,name&limit=1000");
+      const confirm = _waConfirmText(pending, cls);
+      await saveSess({ pending, last_msgid: w.msgid });
+      await send(confirm); return { ok: true };
+    }
+    await saveSess({ last_msgid: w.msgid });
+    await send(`Não achei a campanha "${text}" nesse cliente. Copia o nome EXATO de uma da lista, por favor.`);
+    return { ok: true };
+  }
+  if (sess && sess.pending && !sess.pending._awaitCampaign) {
     const tl = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[\s.!,]+/g, " ").trim();
     const isYes = /^(sim|s|ss|isso|isso mesmo|pode|pode sim|confirmo|confirmado|confirmar|ok|okay|blz|beleza|claro|positivo|certo|faz|fazer|manda|manda ver|vai|bora|com certeza|👍|✅)$/.test(tl);
     const isNo = /^(nao|n|cancela|cancelar|deixa|esquece|para|negativo|nem|melhor nao)$/.test(tl);
@@ -2164,24 +2196,14 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
             }
           }
           // CAMPANHA: resolve o nome EXATO antes de confirmar; se veio vazia/errada, lista as opções em vez de confirmar em branco
-          const _campActs: Record<string, string> = { pausar_campanha: "pausar", reativar_campanha: "reativar", orcamento: "ajustar o orçamento da", duplicar_campanha: "duplicar" };
-          if (!reply && _campActs[args.tipo] && cid) {
+          let _awaitCamp = false;
+          if (!reply && _waAcaoLabel[args.tipo] && cid) {
             const camp = (args.campanha && String(args.campanha).trim()) ? await waResolveCampaign(cid, args.campanha) : null;
             if (camp) args.campanha = camp.nome; // nome exato → confirmação mostra certo
-            else {
-              const list = await waListCampaigns(cid);
-              const isActive = (c: any) => String(c.status || c.entrega || "").toUpperCase() === "ACTIVE";
-              // pausar/orçamento/duplicar → só faz sentido nas ATIVAS; reativar → só nas PAUSADAS
-              const filt = args.tipo === "reativar_campanha" ? list.filter((c: any) => !isActive(c)) : list.filter(isActive);
-              const use = filt.length ? filt : list; // se o filtro zerar, mostra todas
-              const names = use.map((c: any) => c.nome).filter(Boolean);
-              const rot = args.tipo === "reativar_campanha" ? "pausadas" : "ativas";
-              reply = names.length
-                ? `Qual campanha ${rot} do ${await _waClientNome(cid)} você quer ${_campActs[args.tipo]}? Me diz o nome exato:\n${names.slice(0, 25).map((n: string) => "• " + n).join("\n")}${names.length > 25 ? `\n…e mais ${names.length - 25}` : ""}`
-                : `Não achei campanhas ${rot} nesse cliente pra ${_campActs[args.tipo]}.`;
-            }
+            else { reply = await _waCampaignPickText(cid, args.tipo); _awaitCamp = true; } // guarda estado de espera pela campanha
           }
           if (!reply) { const pending = { ...args, client_id: cid }; reply = _waConfirmText(pending, clients); const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16); await saveSess({ client_id: cid, pending, last_msgid: w.msgid, history: hist }); }
+          else if (_awaitCamp) { const pending = { ...args, client_id: cid, _awaitCampaign: true }; const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16); await saveSess({ client_id: cid, pending, last_msgid: w.msgid, history: hist }); }
           else { const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16); await saveSess({ pending: null, last_msgid: w.msgid, history: hist }); }
           await send(reply); acted = true; break;
         }
