@@ -2936,23 +2936,23 @@ function _isLostStage(s){return /perd|lost|desqualific/i.test(String((s&&s.key)|
 function crmFunnelSVG(items){
   const n=items.length;if(!n)return '<div class="empty" style="padding:18px">Sem dados no período.</div>';
   const esc=s=>String(s||'').replace(/</g,'&lt;');
-  const W=900,segH=76,H=n*segH+14,cx=340,maxHW=318,minHW=46;
+  const W=900,segH=48,H=n*segH+10,cx=330,maxHW=300,minHW=40;
   const top=items[0].value||0;
   const hw=v=>{const p=top>0?Math.max(0,Math.min(1,(v||0)/top)):0;return minHW+(maxHW-minHW)*p;};
   let body='';
   items.forEach((it,i)=>{
-    const y=8+i*segH,yb=y+segH-12,mid=y+(yb-y)/2,col=it.color||'#60a5fa';
+    const y=6+i*segH,yb=y+segH-7,mid=y+(yb-y)/2,col=it.color||'#60a5fa';
     const w1=hw(it.value),w2=hw(i+1<n?items[i+1].value:(it.value||0)*0.82);
-    body+=`<polygon points="${(cx-w1).toFixed(1)},${y} ${(cx+w1).toFixed(1)},${y} ${(cx+w2).toFixed(1)},${yb} ${(cx-w2).toFixed(1)},${yb}" fill="${col}" fill-opacity="0.92" stroke="rgba(0,0,0,.22)" stroke-width="1"/>`;
-    body+=`<text x="${cx}" y="${mid-3}" text-anchor="middle" font-size="13.5" font-weight="700" fill="#0f1115">${esc(it.label)}</text>`;
-    body+=`<text x="${cx}" y="${mid+17}" text-anchor="middle" font-size="18" font-weight="800" fill="#0f1115">${(it.value||0).toLocaleString('pt-BR')}</text>`;
+    body+=`<polygon points="${(cx-w1).toFixed(1)},${y} ${(cx+w1).toFixed(1)},${y} ${(cx+w2).toFixed(1)},${yb} ${(cx-w2).toFixed(1)},${yb}" fill="${col}" fill-opacity="0.92" stroke="rgba(0,0,0,.22)" stroke-width="0.8"/>`;
+    body+=`<text x="${cx}" y="${mid+1}" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1115">${esc(it.label)}</text>`;
+    body+=`<text x="${cx}" y="${mid+16}" text-anchor="middle" font-size="14" font-weight="800" fill="#0f1115">${(it.value||0).toLocaleString('pt-BR')}</text>`;
     const pctTotal=top?((it.value||0)/top*100):0;
     const prev=i>0?(items[i-1].value||0):null;
     const pctStep=(prev!=null&&prev>0)?((it.value||0)/prev*100):null;
-    body+=`<text x="${W-14}" y="${mid-2}" text-anchor="end" font-size="14" font-weight="800" fill="${col}">${pctTotal.toFixed(pctTotal>0&&pctTotal<10?1:0)}%</text>`;
-    body+=`<text x="${W-14}" y="${mid+15}" text-anchor="end" font-size="10.5" fill="#8a94a3">${pctStep!=null?('▼ '+pctStep.toFixed(0)+'% da etapa anterior'):'do total que chegou'}</text>`;
+    body+=`<text x="${W-12}" y="${mid+1}" text-anchor="end" font-size="12.5" font-weight="800" fill="${col}">${pctTotal.toFixed(pctTotal>0&&pctTotal<10?1:0)}%</text>`;
+    body+=`<text x="${W-12}" y="${mid+15}" text-anchor="end" font-size="9.5" fill="#8a94a3">${pctStep!=null?('▼ '+pctStep.toFixed(0)+'% da etapa anterior'):'do total que chegou'}</text>`;
   });
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:660px;height:auto;display:block;margin:0 auto" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
 }
 /* ---- Funil de JORNADA: quantos leads JÁ PASSARAM por cada etapa (acumulado), não onde estão agora ----
    Fonte: histórico (wa_journey) + a etapa atual como piso — quem está em SQL necessariamente passou por MQL. */
