@@ -4629,13 +4629,15 @@ async function renderBudgetBanner(c,elId){
   el.innerHTML='';
   if(!(c.metaAccountIds&&c.metaAccountIds.length))return;
   const teto=clientMetaTeto(c);
+  const hasCampBudget=(c.budgetCampaigns||[]).some(b=>+b.val>0);
   const min=+c.minBalance||0;
   const since=today().slice(0,8)+'01';
-  const [t,f]=await Promise.all([
-    teto?fetchMetaTotals(c,since,today()):Promise.resolve(null),
+  const [bd,f]=await Promise.all([
+    (teto||hasCampBudget)?fetchMetaBudgetData(c,since,today()):Promise.resolve(null),
     min?fetchMetaFunding(c):Promise.resolve(null),
   ]);
   const el2=document.getElementById(elId);if(!el2)return;
+  const t=bd&&bd.total;
   let html='';
   if(t&&teto){
     const spend=+t.spend||0,pct=spend/teto*100;
@@ -4644,6 +4646,17 @@ async function renderBudgetBanner(c,elId){
       html+=`<div style="background:${over?'rgba(248,113,113,.08)':'rgba(245,158,11,.08)'};border:1px solid ${over?'rgba(248,113,113,.5)':'rgba(245,158,11,.5)'};border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:12.5px">
         <b style="color:${over?'#f87171':'#f59e0b'}">${over?'⛔ TETO DE INVESTIMENTO ESTOURADO':'⚠ Aproximando do teto de investimento'}</b>
         — gasto do mês no Meta: <b>${fmt(spend)}</b> de <b>${fmt(teto)}</b> (${pct.toFixed(0)}%)${over?'':' · ajuste os orçamentos pra não passar'}.</div>`;
+    }
+  }
+  // verba POR campanha: aponta exatamente qual campanha estourou/está perto
+  if(hasCampBudget&&bd){
+    const st=campBudgetStatus(c,bd.campaigns).filter(x=>x.pct>=80).sort((a,b)=>b.pct-a.pct);
+    if(st.length){
+      html+=`<div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.4);border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:12.5px">
+        <div style="font-weight:700;color:#f59e0b;margin-bottom:6px">🎯 Verba por campanha — atenção</div>
+        ${st.map(x=>{const over=x.pct>=100;return `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-top:1px solid rgba(255,255,255,.05)">
+          <span>${over?'⛔':'⚠'} <b>${String(x.name).replace(/</g,'&lt;')}</b>${x.matched?'':' <span style="color:var(--faint)">(sem campanha do Meta com esse nome ainda)</span>'}</span>
+          <span style="color:${over?'#f87171':'#f59e0b'};white-space:nowrap">${fmt(x.spend)} de ${fmt(x.budget)} (${x.pct.toFixed(0)}%)${over?' · ESTOUROU':''}</span></div>`;}).join('')}</div>`;
     }
   }
   if(f&&f.saldoTotal!=null&&min&&f.saldoTotal<=min){
@@ -4677,17 +4690,18 @@ async function checkBudgetAlerts(){
   try{
     const KEY='budgetAlertCache';
     let cache=null;try{cache=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){}
-    let itemsB,fundItems;
-    if(cache&&Date.now()-cache.ts<6*3600*1000){itemsB=cache.items||[];fundItems=cache.fund||[];}
+    let itemsB,fundItems,campItems;
+    if(cache&&Date.now()-cache.ts<6*3600*1000){itemsB=cache.items||[];fundItems=cache.fund||[];campItems=cache.camp||[];}
     else{
-      itemsB=[];fundItems=[];
+      itemsB=[];fundItems=[];campItems=[];
       const since=today().slice(0,8)+'01';
-      const list=DB.clients.filter(c=>c.status==='Ativo'&&c.metaAccountIds&&c.metaAccountIds.length&&clientMetaTeto(c)>0);
+      const list=DB.clients.filter(c=>c.status==='Ativo'&&c.metaAccountIds&&c.metaAccountIds.length&&(clientMetaTeto(c)>0||(c.budgetCampaigns||[]).some(b=>+b.val>0)));
       for(const c of list){
-        const t=await fetchMetaTotals(c,since,today());
-        if(!t)continue;
-        const teto=clientMetaTeto(c),spend=+t.spend||0,pct=spend/teto*100;
-        if(pct>=80)itemsB.push({name:c.name,spend,teto,pct});
+        const bd=await fetchMetaBudgetData(c,since,today());
+        if(!bd)continue;
+        const teto=clientMetaTeto(c),spend=+((bd.total&&bd.total.spend)||0),pct=teto?spend/teto*100:0;
+        if(teto&&pct>=80)itemsB.push({name:c.name,spend,teto,pct});
+        campBudgetStatus(c,bd.campaigns).filter(x=>x.pct>=80).forEach(x=>campItems.push({client:c.name,name:x.name,spend:x.spend,budget:x.budget,pct:x.pct}));
       }
       // verba pré-paga (pix/boleto): clientes com verba mínima configurada
       const listF=DB.clients.filter(c=>c.status==='Ativo'&&c.metaAccountIds&&c.metaAccountIds.length&&(+c.minBalance||0)>0);
@@ -4700,7 +4714,7 @@ async function checkBudgetAlerts(){
         }
       }
       fundHealthTransitions(fundSaldos); // sino: zerou / recarregou
-      localStorage.setItem(KEY,JSON.stringify({ts:Date.now(),items:itemsB,fund:fundItems}));
+      localStorage.setItem(KEY,JSON.stringify({ts:Date.now(),items:itemsB,fund:fundItems,camp:campItems}));
     }
     if(fundItems.length&&!alertDismissed('funding')){
       const sn0=localStorage.getItem('alerts_snooze');
@@ -4716,6 +4730,7 @@ async function checkBudgetAlerts(){
         }
       }
     }
+    _renderCampBudgetAlert(campItems); // verba por campanha (roda mesmo se não houver teto geral)
     if(!itemsB.length||alertDismissed('budget'))return;
     const sn=localStorage.getItem('alerts_snooze');if(sn&&Date.now()<+sn)return;
     const body=document.getElementById('alertsPopupBody'),bg=document.getElementById('alertsPopupBg');
@@ -4727,6 +4742,19 @@ async function checkBudgetAlerts(){
     </div>`);
     bg.style.display='flex';renderMutedNote();
   }catch(e){}
+}
+// Bloco do popup: verba POR campanha estourando/quase (diz exatamente qual campanha de qual cliente)
+function _renderCampBudgetAlert(campItems){
+  if(!campItems||!campItems.length||alertDismissed('campbudget'))return;
+  const sn=localStorage.getItem('alerts_snooze');if(sn&&Date.now()<+sn)return;
+  const body=document.getElementById('alertsPopupBody'),bg=document.getElementById('alertsPopupBg');
+  if(!body||document.getElementById('campBudgetAlertBlock'))return;
+  const est=campItems.filter(x=>x.pct>=100).length;
+  body.insertAdjacentHTML('beforeend',`<div id="campBudgetAlertBlock" class="alertBlock" data-akey="campbudget" style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:12px 14px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px"><div style="font-size:13px;font-weight:700;color:#f59e0b">🎯 ${campItems.length} campanha${campItems.length!==1?'s':''} perto ou acima da verba definida${est?' · '+est+' estourou'+(est!==1?'ram':''):''}</div>${alertX('campbudget')}</div>
+    ${campItems.sort((a,b)=>b.pct-a.pct).map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)"><span><strong>${String(x.client).replace(/</g,'&lt;')}</strong> · ${String(x.name).replace(/</g,'&lt;')}${x.pct>=100?' · <span style="color:#f87171;font-weight:700">ESTOUROU</span>':''}</span><span style="color:${x.pct>=100?'#f87171':'#f59e0b'};white-space:nowrap;margin-left:12px">${fmt(x.spend)} de ${fmt(x.budget)} (${x.pct.toFixed(0)}%)</span></div>`).join('')}
+  </div>`);
+  bg.style.display='flex';renderMutedNote();
 }
 async function saveMinBalance(){
   const v=parseFloat(document.getElementById('ccMinBal').value);
@@ -7276,6 +7304,24 @@ async function fetchMetaTotals(c,since,until){
   try{const {data}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until}}});const d=(data&&data.data)||data;return (d&&d.total)||null;}catch(e){return null;}
 }
 function metaTotalResumo(t){if(!t)return null;return{investimento:Math.round(t.spend||0),impressoes:t.impressions||0,cliques:t.clicks||0,ctrPct:+(t.ctr||0).toFixed(2),cpc:+(t.cpc||0).toFixed(2),cpm:+(t.cpm||0).toFixed(2),roas:+(t.roas||0).toFixed(2),compras:Math.round(t.purchases||0),leads:Math.round(t.leads||0),conversas:Math.round(t.conversas||0),videoViews:Math.round(t.videoViews||0)};}
+// Total + gasto POR campanha (Meta) — usado nos avisos de estouro de verba por campanha
+async function fetchMetaBudgetData(c,since,until){
+  const ids=c.metaAccountIds||[];if(!ids.length)return null;
+  const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
+  try{const {data}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,byCampaign:true}}});const d=(data&&data.data)||data;return d?{total:d.total||null,campaigns:d.campaigns||[]}:null;}catch(e){return null;}
+}
+// Casa a verba por campanha (nome livre no cadastro) com o gasto real das campanhas do Meta (match por nome, flexível)
+function campBudgetStatus(c,campaigns){
+  const budgets=(c.budgetCampaigns||[]).filter(b=>+b.val>0);
+  if(!budgets.length||!campaigns||!campaigns.length)return [];
+  const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+  return budgets.map(b=>{
+    const bn=norm(b.name);
+    const matched=campaigns.filter(cp=>{const cn=norm(cp.campaign);return cn&&bn&&(cn.includes(bn)||bn.includes(cn));});
+    const spend=matched.reduce((s,cp)=>s+(+cp.spend||0),0);
+    return {name:b.name,budget:+b.val,spend,pct:b.val?spend/b.val*100:0,matched:matched.length};
+  });
+}
 function pctDelta(cur,prev){if(!prev)return null;return +(((cur-prev)/prev)*100).toFixed(1);}
 let _metaDashChart=null,_metaDashDays=30,_metaDashSince='',_metaDashUntil='',_metaDashPreset='30';
 function metaDashRange(clientId,days){_metaDashDays=days;_metaDashSince='';_metaDashUntil='';_metaDashPreset=String(days);const c=DB.clients.find(x=>x.id===clientId);if(c)loadMetaDashboard(c,++_tplLoadToken,days);}
