@@ -2932,6 +2932,17 @@ function crmAnaDownload(mode){
   else{const blob=new Blob([doc],{type:'text/html'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='crm-analytics-'+cn.replace(/[^a-z0-9]/gi,'_')+'-'+_crmAnaDays+'d.html';document.body.appendChild(a);a.click();a.remove();}
 }
 /* ---- Funil desenhado (SVG): trapézios com % do total e % da etapa anterior ---- */
+// zoom do funil (o gestor regula o tamanho; fica salvo no navegador)
+let _funZoom=(()=>{const v=+(localStorage.getItem('funnelZoom')||100);return (v>=50&&v<=260)?v:100;})();
+function setFunnelZoom(v){
+  _funZoom=Math.max(50,Math.min(260,+v||100));localStorage.setItem('funnelZoom',_funZoom);
+  document.querySelectorAll('svg.gt-funnel').forEach(s=>{s.style.maxWidth=Math.round(660*_funZoom/100)+'px';});
+  document.querySelectorAll('.gtFunZoomVal').forEach(e=>{e.textContent=_funZoom+'%';});
+  document.querySelectorAll('.gtFunZoomIn').forEach(e=>{e.value=_funZoom;});
+}
+function funnelZoomBar(){
+  return `<span style="display:inline-flex;align-items:center;gap:6px;font-size:10.5px;color:var(--faint);white-space:nowrap" title="Tamanho do funil (fica salvo)">🔍 <input class="gtFunZoomIn" type="range" min="50" max="260" step="10" value="${_funZoom}" oninput="setFunnelZoom(this.value)" style="width:88px;accent-color:var(--accent);cursor:pointer"><span class="gtFunZoomVal" style="min-width:32px;text-align:right">${_funZoom}%</span></span>`;
+}
 function _isLostStage(s){return /perd|lost|desqualific/i.test(String((s&&s.key)||'')+' '+String((s&&s.label)||''));}
 function crmFunnelSVG(items){
   const n=items.length;if(!n)return '<div class="empty" style="padding:18px">Sem dados no período.</div>';
@@ -2952,7 +2963,7 @@ function crmFunnelSVG(items){
     body+=`<text x="${W-12}" y="${mid+1}" text-anchor="end" font-size="12.5" font-weight="800" fill="${col}">${pctTotal.toFixed(pctTotal>0&&pctTotal<10?1:0)}%</text>`;
     body+=`<text x="${W-12}" y="${mid+15}" text-anchor="end" font-size="9.5" fill="#8a94a3">${pctStep!=null?('▼ '+pctStep.toFixed(0)+'% da etapa anterior'):'do total que chegou'}</text>`;
   });
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:660px;height:auto;display:block;margin:0 auto" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
+  return `<svg class="gt-funnel" viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${Math.round(660*_funZoom/100)}px;height:auto;display:block;margin:0 auto" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
 }
 /* ---- Funil de JORNADA: quantos leads JÁ PASSARAM por cada etapa (acumulado), não onde estão agora ----
    Fonte: histórico (wa_journey) + a etapa atual como piso — quem está em SQL necessariamente passou por MQL. */
@@ -3067,7 +3078,7 @@ function crmAnaRender(C,meta,capi){
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:4px">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">🔻 Funil de Jornada — acumulado</div>
-        <div style="font-size:11px;color:var(--faint)">quantos leads <b>já passaram</b> por cada etapa (não onde estão agora)</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="font-size:11px;color:var(--faint)">quantos leads <b>já passaram</b> por cada etapa (não onde estão agora)</span>${funnelZoomBar()}</div>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 6px">${jrnKpis}</div>
       ${crmFunnelSVG(_jrn.items)}
@@ -8154,9 +8165,9 @@ function dashShareHTML(){
   const kpis=dashKpiKeys().map(k=>{const mc=METRIC_CATALOG[k];const key=_dashTpl&&k===_dashTpl.keyMetric;return `<div class="kpi${key?' star':''}"><div class="l">${mc.label}${key?' ★':''}</div><div class="v">${fmtMetric(mc.calc(agg),mc.fmt)}</div></div>`}).join('');
   const img=id=>{const cv=document.getElementById(id);try{return cv?`<img src="${cv.toDataURL('image/png')}" alt="">`:''}catch(e){return ''}};
   const fun=dashFunnelAgg()||{};
-  const stages=dashFunnelStages().map(k=>({label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(fun)||0)})).filter(s=>s.value>0);
-  const funBars=stages.length?stages.map((s,i)=>{const pct=stages[0].value?(s.value/stages[0].value*100):0;const step=i>0&&stages[i-1].value?(s.value/stages[i-1].value*100):100;
-    return `<div class="fs"><div class="fl"><span>${s.label}</span><span>${s.value.toLocaleString('pt-BR')}${i>0?` <em>(${step.toFixed(1)}%)</em>`:''}</span></div><div class="fb"><div style="width:${Math.max(pct,3).toFixed(1)}%"></div></div></div>`;}).join(''):'';
+  const stages=dashFunnelStages().map(k=>({key:k,label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(fun)||0)})).filter(s=>s.value>0);
+  // funil do compartilhamento: mesmo desenho do sistema, com cores fixas (o HTML exportado não tem as CSS vars)
+  const funBars=stages.length?gtFunnelBlock(stages,{muted:'#9aa0aa',cardBg:'#191922',cardBorder:'#2a2a35'}):'';
   const benchEl=document.getElementById('dashBenchCard');
   const bench=(benchEl&&benchEl.style.display!=='none')?`<div class="sec"><h2>🎯 Benchmark</h2>${benchEl.innerHTML.replace(/<h3[\s\S]*?<\/div>/,'')}</div>`:'';
   const segEl=document.getElementById('dashSegCard'),gEl=document.getElementById('dashGoogleCard');
@@ -8299,19 +8310,9 @@ function renderDashFunnel(){
   const box=document.getElementById('dashFunnelBox');if(!box)return;
   renderDashFunnelFilters();
   const agg=dashFunnelAgg()||{};
-  const stages=dashFunnelStages().map(k=>({label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(agg)||0)}));
+  const stages=dashFunnelStages().map(k=>({key:k,label:FUNNEL_CATALOG[k].label,value:Math.round(FUNNEL_CATALOG[k].calc(agg)||0)}));
   if(!stages.length||!stages[0].value){box.innerHTML='<div class="empty">Sem dados pras etapas escolhidas — clique em ⚙ Etapas pra ajustar.</div>';return;}
-  box.innerHTML='<div style="padding:4px 2px">'+stages.map((s,i)=>{
-    const pct=stages[0].value?(s.value/stages[0].value*100):0;
-    const step=i>0?(stages[i-1].value?(s.value/stages[i-1].value*100):0):null;
-    return `<div style="display:flex;align-items:center;gap:10px;margin:7px 0">
-      <div style="width:140px;font-size:12px;color:var(--muted);text-align:right;flex:none">${s.label}</div>
-      <div style="flex:1;background:rgba(255,255,255,.05);border-radius:7px;height:26px;overflow:hidden">
-        <div style="width:${Math.max(pct,2).toFixed(1)}%;height:100%;background:linear-gradient(90deg,var(--accent),#f59e0b);border-radius:7px"></div>
-      </div>
-      <div style="width:190px;font-size:12.5px;flex:none"><b>${s.value.toLocaleString('pt-BR')}</b>${step!=null?` <span style="color:var(--faint)">(${step.toFixed(1)}% da anterior)</span>`:''}</div>
-    </div>`;
-  }).join('')+'</div>';
+  box.innerHTML=`<div style="display:flex;justify-content:flex-end;margin-bottom:6px">${funnelZoomBar()}</div>`+gtFunnelBlock(stages,{emptyMsg:'Sem dados pras etapas escolhidas — clique em ⚙ Etapas pra ajustar.'});
 }
 function applyDashFilters(){
   const grid=document.getElementById('dashKpiGrid');
@@ -9481,13 +9482,26 @@ function renderRtFunnelEditor(){
     <div style="font-size:11px;color:var(--rtm);margin-bottom:10px">◀ ▶ mudam a ordem · × remove · 💾 grava como padrão do cliente (equipe toda) · ↺ volta pro funil do objetivo setado. Etapas sem dado no mês (ex: leads = 0) ficam ocultas automaticamente.</div>`;
 }
 let _funnelTplRef=null;
+/* ---- Bloco de funil padrão do sistema (cards + desenho SVG) — usado no Dashboard e no Relatório ---- */
+const FUNNEL_COLORS={impressoes:'#60a5fa',alcance:'#38bdf8',videoViews:'#818cf8',cliques:'#22d3ee',engajamentos:'#a78bfa',conversas:'#f0c040',addCarrinho:'#fbbf24',checkout:'#fb923c',leads:'#f0c040',compras:'#34d399'};
+function gtFunnelBlock(stages,o){
+  o=o||{};
+  const all=(stages||[]).filter(s=>s&&s.label!=null);
+  if(!all.length||!all[0].value)return `<div class="empty" style="padding:20px">${o.emptyMsg||'Sem dados de funil no período.'}</div>`;
+  // etapa sem dado (0) no MEIO do funil é pulada; a primeira e a última ficam (0 no fim é informação: ninguém chegou)
+  const st=all.filter((s,i)=>s.value>0||i===0||i===all.length-1);
+  const first=st[0],last=st[st.length-1];
+  const conv=first.value?(last.value/first.value*100):0;
+  const mut=o.muted||'var(--muted)',bg=o.cardBg||'var(--surface2)',bd=o.cardBorder||'var(--border)';
+  const card=(lbl,val,sub,cor)=>`<div style="background:${bg};border:1px solid ${bd};border-radius:10px;padding:10px 14px;flex:1;min-width:145px"><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:${mut}">${lbl}</div><div style="font-size:19px;font-weight:800;margin-top:2px${cor?';color:'+cor:''}">${val}</div><div style="font-size:10.5px;color:${mut};margin-top:1px">${sub}</div></div>`;
+  const cards=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+    ${card('Entraram no funil',(first.value||0).toLocaleString('pt-BR'),first.label)}
+    ${st.length>1?card('Chegaram ao final',(last.value||0).toLocaleString('pt-BR'),`${last.label} · ${conv.toFixed(conv>0&&conv<10?1:0)}% do topo`,'#34d399'):''}
+    ${o.extraCard||''}</div>`;
+  return cards+crmFunnelSVG(st.map(s=>({label:s.label,value:s.value,color:s.color||FUNNEL_COLORS[s.key]||'#60a5fa'})));
+}
 function funnelBarsHTML(stages){
-  if(!stages.length||!stages[0].value)return '<div class="empty" style="padding:20px">Sem dados de funil para este canal.</div>';
-  return `<div class="rt-tc"><div style="padding:18px">${stages.map((s,i)=>{
-    const pct=stages[0].value?(s.value/stages[0].value*100):0;
-    const stepPct=i>0&&stages[i-1].value?(s.value/stages[i-1].value*100):100;
-    return `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--rt2);margin-bottom:4px"><span>${s.label}</span><span>${s.value.toLocaleString('pt-BR')}${i>0?` <span style="color:var(--rtm)">(${stepPct.toFixed(1)}% da etapa anterior)</span>`:''}</span></div><div style="height:28px;background:rgba(255,255,255,.05);border-radius:8px;overflow:hidden"><div style="height:100%;width:${Math.max(pct,3).toFixed(1)}%;background:linear-gradient(90deg,#1d4ed8,#60a5fa);border-radius:8px"></div></div></div>`;
-  }).join('')}</div></div>`;
+  return `<div class="rt-tc"><div style="padding:16px">${gtFunnelBlock(stages,{muted:'var(--rtm)',cardBg:'var(--rbg2)',cardBorder:'var(--rbr)',emptyMsg:'Sem dados de funil para este canal.'})}</div></div>`;
 }
 function renderFunnel(key){
   _funnelChannel=key||'';
@@ -9663,7 +9677,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
         </div>
       </div>`:'';
   const secFunil=(funnelStages[0]&&funnelStages[0].value)?`<div class="rt-sec">
-        <div class="rt-sec-hdr"><div class="rt-sec-num">🔻</div><div class="rt-sec-title">Funil de Conversão</div><div class="rt-sec-ln"></div><button class="btn sm ghost rt-no-print" type="button" onclick="toggleRtFunnelEditor()" title="Editar as etapas do funil">✎ Editar etapas</button></div>
+        <div class="rt-sec-hdr"><div class="rt-sec-num">🔻</div><div class="rt-sec-title">Funil de Conversão</div><div class="rt-sec-ln"></div><span class="rt-no-print" style="margin-right:10px">${funnelZoomBar()}</span><button class="btn sm ghost rt-no-print" type="button" onclick="toggleRtFunnelEditor()" title="Editar as etapas do funil">✎ Editar etapas</button></div>
         <div style="font-size:11.5px;color:var(--rt2);margin-bottom:8px">Padrão <b>Geral</b> (todos os canais). Filtre por canal pra ver as etapas E a venda só daquele canal — tudo coerente.</div>
         <div class="rt-no-print" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">${funnelChips}</div>
         <div id="rtFunnelEditor" class="rt-no-print" style="display:none"></div>
