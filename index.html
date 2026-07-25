@@ -713,7 +713,9 @@
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0">
       <div id="pubFilters" style="display:flex;gap:6px;flex-wrap:wrap"></div>
       <span style="flex:1"></span>
-      <input id="pubSearch" placeholder="🔍 Buscar público…" oninput="pubRender()" style="width:280px;max-width:55vw;font-size:12.5px">
+      <select id="pubAcct" onchange="_pubAccFilter=this.value;_pubSources=null;pubRender()" style="width:auto;font-size:12px;max-width:220px;display:none"></select>
+      <select id="pubRet" onchange="_pubRetFilter=this.value;pubRender()" style="width:auto;font-size:12px"><option value="">Qualquer retenção</option></select>
+      <input id="pubSearch" placeholder="🔍 Buscar público…" oninput="pubRender()" style="width:240px;max-width:55vw;font-size:12.5px">
     </div>
     <div id="pubBody"><div class="empty">Selecione um cliente com conta Meta para ver os públicos.</div></div>
   </section>
@@ -2008,9 +2010,10 @@ function goToTab(tabId){
   if(tabId==='publicos')loadAudiences();
 }
 /* ===== PÚBLICOS (Meta Custom/Saved Audiences) ===== */
-let _pubData=null,_pubFilter='all',_pubClientId='',_pubSources=null;
+let _pubData=null,_pubFilter='all',_pubClientId='',_pubSources=null,_pubAccFilter='',_pubRetFilter='';
 function _pubClient(){return DB.clients.find(x=>x.id===(activeClientId||_pubClientId));}
 function _pubAccounts(c){return (c&&c.metaAccountIds||[]).map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));}
+function _pubTargetAccount(c){const accs=_pubAccounts(c);if(_pubAccFilter){const m=accs.find(a=>a.name===_pubAccFilter||a.id===_pubAccFilter);if(m)return m;}return accs[0];}
 const PUB_KINDS=[['all','Todos'],['engagement','Engagement'],['custom','Custom'],['lookalike','Lookalike'],['interesse','Interesse']];
 async function loadAudiences(force){
   const c=_pubClient();const body=document.getElementById('pubBody');const sub=document.getElementById('pubSub');
@@ -2020,7 +2023,7 @@ async function loadAudiences(force){
   const accs=_pubAccounts(c);
   if(!accs.length){body.innerHTML='<div class="empty">Este cliente não tem conta Meta vinculada.</div>';return;}
   if(_pubData&&!force&&_pubData._cid===c.id){pubRender();return;}
-  _pubData=null;_pubSources=null;body.innerHTML='<div class="empty">Carregando públicos…</div>';
+  _pubData=null;_pubSources=null;_pubAccFilter='';_pubRetFilter='';body.innerHTML='<div class="empty">Carregando públicos…</div>';
   try{
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAudiences:{accounts:accs}}});
     if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);
@@ -2032,11 +2035,22 @@ function _pubFmtSize(a){const n=v=>v==null?null:(v>=1e6?(v/1e6).toFixed(1).repla
 function pubRender(){
   const body=document.getElementById('pubBody'),fbox=document.getElementById('pubFilters');if(!body||!_pubData)return;
   const list=_pubData.list,qq=((document.getElementById('pubSearch')||{}).value||'').toLowerCase().trim();
-  const counts={all:list.length};list.forEach(a=>{counts[a.kind]=(counts[a.kind]||0)+1;});
+  const accNm=(typeof metaAccName==='function')?metaAccName:(x=>x);
+  // seletor de conta de anúncio (só aparece com >1 conta)
+  const accts=[...new Set(list.map(a=>String(a.account||'')).filter(Boolean))].sort();
+  const accSel=document.getElementById('pubAcct');
+  if(accSel){if(accts.length>1){accSel.style.display='';accSel.innerHTML=`<option value="">🏢 Todas as contas</option>`+accts.map(a=>`<option value="${a.replace(/"/g,'&quot;')}" ${_pubAccFilter===a?'selected':''}>${String(accNm(a)).replace(/</g,'&lt;')}</option>`).join('');}else{accSel.style.display='none';_pubAccFilter='';}}
+  // filtro de retenção
+  const rets=[...new Set(list.map(a=>a.retention).filter(v=>v!=null))].sort((a,b)=>a-b);
+  const retSel=document.getElementById('pubRet');
+  if(retSel){retSel.innerHTML=`<option value="">Qualquer retenção</option>`+rets.map(r=>`<option value="${r}" ${String(_pubRetFilter)===String(r)?'selected':''}>${r} dias</option>`).join('');retSel.style.display=rets.length?'':'none';}
+  // aplica conta + retenção antes de contar os chips
+  const base=list.filter(a=>!_pubAccFilter||String(a.account||'')===_pubAccFilter).filter(a=>!_pubRetFilter||String(a.retention)===String(_pubRetFilter));
+  const counts={all:base.length};base.forEach(a=>{counts[a.kind]=(counts[a.kind]||0)+1;});
   if(fbox)fbox.innerHTML=PUB_KINDS.map(([k,l])=>`<button class="btn sm ${_pubFilter===k?'primary':'ghost'}" onclick="pubSetFilter('${k}')">${l} <span style="opacity:.65">${counts[k]||0}</span></button>`).join('');
-  let rows=list.filter(a=>_pubFilter==='all'||a.kind===_pubFilter).filter(a=>!qq||a.name.toLowerCase().includes(qq));
+  let rows=base.filter(a=>_pubFilter==='all'||a.kind===_pubFilter).filter(a=>!qq||a.name.toLowerCase().includes(qq));
   const kindLbl={engagement:'Engagement',custom:'Custom',lookalike:'Lookalike',interesse:'Interesse'},kindDot={engagement:'#34d399',custom:'#f0c040',lookalike:'#a78bfa',interesse:'#60a5fa'};
-  const rowHTML=a=>`<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="width:7px;height:7px;border-radius:50%;background:${kindDot[a.kind]||'#94a3b8'};flex:none"></span><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.name.replace(/</g,'&lt;')}</div>${a.account?`<div style="font-size:10.5px;color:var(--faint)">${String(a.account).replace(/</g,'&lt;')}${a.retention?' · '+a.retention+'d':''}</div>`:''}</div><div style="font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums">${_pubFmtSize(a)}</div></div>`;
+  const rowHTML=a=>`<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="width:7px;height:7px;border-radius:50%;background:${kindDot[a.kind]||'#94a3b8'};flex:none"></span><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.name.replace(/</g,'&lt;')}</div>${a.account?`<div style="font-size:10.5px;color:var(--faint)">${String(accNm(a.account)).replace(/</g,'&lt;')}${a.retention?' · '+a.retention+'d':''}</div>`:''}</div><div style="font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums">${_pubFmtSize(a)}</div></div>`;
   if(!rows.length){body.innerHTML='<div class="empty" style="padding:20px">Nenhum público'+(qq?' encontrado':' nesse tipo')+'.</div>'+(_pubData.errors?`<div style="font-size:11px;color:#f87171;margin-top:8px">${_pubData.errors.join(' · ')}</div>`:'');return;}
   let html='';
   if(_pubFilter==='all'){['engagement','custom','lookalike','interesse'].forEach(k=>{const g=rows.filter(a=>a.kind===k);if(!g.length)return;html+=`<div style="font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:16px 4px 5px">${kindLbl[k]} · ${g.length}</div><div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">${g.map(rowHTML).join('')}</div>`;});}
@@ -2069,7 +2083,7 @@ let _pubEng={src:{},srcId:{},ret:{},preview:null};
 async function pubEngOpen(){
   const c=_pubClient();_pubEng={src:{},srcId:{},videoIds:{},ret:{3:1,7:1,14:1,30:1,60:1,90:1},preview:null};
   _pubOverlay('<div style="text-align:center;padding:30px;color:var(--muted)">Carregando fontes da conta (pixel, página, IG…)…</div>');
-  if(!_pubSources){try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAudienceSources:{accounts:_pubAccounts(c)}}});if(error)throw error;_pubSources=(data&&data.data)||data;}catch(e){_pubSources={pixels:[],pages:[],igs:[],videos:[],forms:[],_err:e.message};}}
+  if(!_pubSources){try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAudienceSources:{accounts:[_pubTargetAccount(c)]}}});if(error)throw error;_pubSources=(data&&data.data)||data;}catch(e){_pubSources={pixels:[],pages:[],igs:[],videos:[],forms:[],_err:e.message};}}
   pubEngRender();
 }
 function _pubSrcAvail(k){const s=_pubSources||{};if(k==='pixel')return s.pixels||[];if(k==='facebook')return s.pages||[];if(k==='instagram')return s.igs||[];if(k==='video')return s.videos||[];if(k==='form')return s.forms||[];return[];}
@@ -2130,7 +2144,7 @@ async function pubEngCreate(btn){
   if(!items.length){alert('Nada selecionado.');return;}
   if(!confirm(`Criar ${items.length} públicos de verdade na conta Meta de ${c.name}? Isso é aplicado no gerenciador.`))return;
   const msg=document.getElementById('pubEngMsg');btn.disabled=true;btn.textContent='Criando…';if(msg)msg.textContent='Criando '+items.length+' públicos no Meta…';
-  const acc=_pubAccounts(c)[0];
+  const acc=_pubTargetAccount(c);
   try{
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaCreateAudiences:{accountId:acc.id,audiences:items}}});
     if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);
@@ -2162,7 +2176,7 @@ async function pubListCreate(btn){
     const norm=v=>type==='phone'?v.replace(/[^0-9]/g,''):v.toLowerCase().trim();
     const hashed=[];for(const v of raw){const n=norm(v);if(n)hashed.push(await _sha256(n));}
     if(msg)msg.textContent='Enviando pro Meta…';btn.textContent='Enviando…';
-    const acc=_pubAccounts(c)[0];
+    const acc=_pubTargetAccount(c);
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaCreateCustomList:{accountId:acc.id,name,schema:type==='phone'?'PHONE':'EMAIL',usersHashed:hashed}}});
     if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);
     if(msg)msg.innerHTML=`✅ Público "${d.name}" criado com ${d.added} contatos.`;btn.textContent='Concluído';loadAudiences(true);
@@ -2207,7 +2221,7 @@ async function pubIntCreate(btn){
   if(_pubInt.geos.length){const g={countries:[],regions:[],cities:[]};_pubInt.geos.forEach(x=>{if(x.type==='country')g.countries.push(x.key||x.id);else if(x.type==='region')g.regions.push({key:x.key||x.id});else g.cities.push({key:x.key||x.id});});targeting.geo_locations=Object.fromEntries(Object.entries(g).filter(([,v])=>v.length));}
   else targeting.geo_locations={countries:['BR']};
   btn.disabled=true;btn.textContent='Criando…';
-  try{const acc=_pubAccounts(c)[0];const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaCreateSavedAudience:{accountId:acc.id,name,targeting}}});if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);if(msg)msg.innerHTML=`✅ Público "${d.name}" criado.`;btn.textContent='Concluído';loadAudiences(true);}catch(e){if(msg)msg.innerHTML='<span style="color:#f87171">Erro: '+(e.message||e)+'</span>';btn.disabled=false;btn.textContent='Criar público salvo';}
+  try{const acc=_pubTargetAccount(c);const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaCreateSavedAudience:{accountId:acc.id,name,targeting}}});if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);if(msg)msg.innerHTML=`✅ Público "${d.name}" criado.`;btn.textContent='Concluído';loadAudiences(true);}catch(e){if(msg)msg.innerHTML='<span style="color:#f87171">Erro: '+(e.message||e)+'</span>';btn.disabled=false;btn.textContent='Criar público salvo';}
 }
 /* ===== Reuniões (calendário do Google Agenda) ===== */
 let _reunTasks=[], _reunRef=null;
