@@ -1830,41 +1830,79 @@ async function _contratoTexto(f: any): Promise<{ text: string; faltando: string[
 }
 // tira caracteres fora do WinAnsi (Helvetica não codifica emoji etc.)
 function _winAnsi(s: string): string { return String(s || "").normalize("NFC").replace(/[•]/g, "•").replace(/[^\x20-\x7E\xA0-\xFF–—‘’“”•…]/g, ""); }
-// gera o PDF do contrato (layout limpo GT: título dourado, seções em negrito, rodapé com página)
+// gera o PDF do contrato na identidade GT (faixa escura + dourado, seções com barra dourada, rodapé de marca)
 async function _contratoPdf(text: string): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const GOLD = rgb(0.72, 0.55, 0.12), INK = rgb(0.12, 0.12, 0.14), MUT = rgb(0.45, 0.45, 0.48);
+  const GOLD = rgb(0.784, 0.627, 0.306);     // #c8a04e — dourado GT
+  const DARK = rgb(0.071, 0.082, 0.106);     // #12151b — fundo da marca
+  const INK = rgb(0.104, 0.114, 0.141);      // texto
+  const MUT = rgb(0.42, 0.45, 0.50);
+  const HAIR = rgb(0.87, 0.88, 0.90);
   const W = 595.28, H = 841.89, M = 56, LW = W - M * 2;
-  let page = doc.addPage([W, H]); let y = H - M;
-  const newPage = () => { page = doc.addPage([W, H]); y = H - M; };
+  let page: any, y = 0, first = true;
+  const header = () => {
+    if (first) { // capa: faixa escura com a marca
+      page.drawRectangle({ x: 0, y: H - 96, width: W, height: 96, color: DARK });
+      page.drawText("GT MARKETING", { x: M, y: H - 52, size: 21, font: bold, color: GOLD });
+      page.drawText(_winAnsi("G E S T A O   D E   T R A F E G O   D I G I T A L"), { x: M, y: H - 70, size: 7.2, font, color: rgb(0.62, 0.65, 0.70) });
+      y = H - 96 - 34;
+    } else { // demais páginas: linha fina dourada + marca discreta
+      page.drawText("GT MARKETING", { x: M, y: H - 44, size: 8, font: bold, color: GOLD });
+      page.drawLine({ start: { x: M, y: H - 52 }, end: { x: W - M, y: H - 52 }, thickness: 0.6, color: HAIR });
+      y = H - 76;
+    }
+    first = false;
+  };
+  const newPage = () => { page = doc.addPage([W, H]); header(); };
+  newPage();
   const wrap = (s: string, f: any, size: number, width: number): string[] => {
     const words = s.split(/\s+/); const out: string[] = []; let line = "";
     for (const wd of words) { const t = line ? line + " " + wd : wd; if (f.widthOfTextAtSize(t, size) > width && line) { out.push(line); line = wd; } else line = t; }
     if (line) out.push(line); return out;
   };
-  const draw = (s: string, f: any, size: number, color: any, indent = 0, spacing = 4) => {
+  const draw = (s: string, f: any, size: number, color: any, indent = 0, spacing = 4.5) => {
     for (const ln of wrap(s, f, size, LW - indent)) {
-      if (y < M + 30) newPage();
+      if (y < M + 34) newPage();
       page.drawText(ln, { x: M + indent, y, size, font: f, color });
       y -= size + spacing;
     }
   };
-  // cabeçalho da marca (1ª página)
-  page.drawText("GT MARKETING", { x: M, y, size: 20, font: bold, color: GOLD }); y -= 16;
-  page.drawText("G E S T Ã O   D E   T R Á F E G O   D I G I T A L".normalize("NFC"), { x: M, y, size: 8, font, color: MUT }); y -= 26;
   for (const raw of text.split("\n")) {
     const line = _winAnsi(raw.trim());
-    if (!line) { y -= 6; continue; }
-    if (raw.startsWith("# ")) { y -= 4; draw(line.slice(2), bold, 14, INK, 0, 5); y -= 6; continue; }
-    if (raw.startsWith("## ")) { y -= 8; if (y < M + 60) newPage(); draw(line.slice(3), bold, 11, GOLD, 0, 4); y -= 2; continue; }
-    if (raw.trim().startsWith("•") || raw.trim().startsWith("•")) { draw(line, font, 10, INK, 14, 3.5); continue; }
-    draw(line, font, 10, INK, 0, 3.5);
+    if (!line) { y -= 6.5; continue; }
+    if (raw.startsWith("# ")) { // título do contrato: centralizado + régua dourada
+      y -= 6;
+      const t = line.slice(2), size = 15;
+      for (const ln of wrap(t, bold, size, LW)) { if (y < M + 60) newPage(); page.drawText(ln, { x: (W - bold.widthOfTextAtSize(ln, size)) / 2, y, size, font: bold, color: INK }); y -= size + 5; }
+      page.drawLine({ start: { x: W / 2 - 40, y: y + 4 }, end: { x: W / 2 + 40, y: y + 4 }, thickness: 2, color: GOLD });
+      y -= 18; continue;
+    }
+    if (raw.startsWith("## ")) { // seção: barra dourada + título
+      y -= 12; if (y < M + 70) newPage();
+      const t = line.slice(3), size = 10.5;
+      page.drawRectangle({ x: M, y: y - 1.5, width: 3, height: size + 2, color: GOLD });
+      for (const ln of wrap(t, bold, size, LW - 12)) { page.drawText(ln, { x: M + 11, y, size, font: bold, color: INK }); y -= size + 4; }
+      page.drawLine({ start: { x: M, y: y + 5 }, end: { x: W - M, y: y + 5 }, thickness: 0.5, color: HAIR });
+      y -= 10; continue;
+    }
+    if (line.startsWith("•")) { // bullet com ponto dourado
+      const t = line.replace(/^•\s*/, "");
+      if (y < M + 34) newPage();
+      page.drawCircle({ x: M + 6, y: y + 3, size: 1.6, color: GOLD });
+      draw(t, font, 10, INK, 16, 3.8); continue;
+    }
+    draw(line, font, 10, INK, 0, 3.8);
   }
-  // rodapé com nº da página
+  // rodapé de marca em todas as páginas
   const pages = doc.getPages();
-  pages.forEach((p, i) => { p.drawText(`GT Marketing · página ${i + 1} de ${pages.length}`, { x: M, y: 30, size: 7.5, font, color: MUT }); });
+  pages.forEach((p, i) => {
+    p.drawLine({ start: { x: M, y: 44 }, end: { x: W - M, y: 44 }, thickness: 0.5, color: HAIR });
+    p.drawText(_winAnsi("GT Marketing · Gestao de Trafego Digital"), { x: M, y: 31, size: 7.5, font, color: MUT });
+    const pg = `${i + 1} / ${pages.length}`;
+    p.drawText(pg, { x: W - M - font.widthOfTextAtSize(pg, 7.5), y: 31, size: 7.5, font, color: GOLD });
+  });
   return await doc.save();
 }
 // sobe o PDF pro Storage (bucket público docs; cria na primeira vez) e devolve a URL pública
@@ -1895,6 +1933,32 @@ function _canaisNorm(canais: any): string[] {
   return [...new Set(out)];
 }
 
+// ESTADO do processo de cliente novo (guardado na sessão) — é o que impede a IA de repetir uma etapa já feita
+const _FLOW_STEPS: Record<string, string> = { gerar_contrato: "contrato", cadastrar_cliente: "cadastro", criar_tarefas_onboarding: "tarefas", criar_lancamento: "financeiro" };
+function _flowAfter(pending: any, flow: any) {
+  const step = _FLOW_STEPS[pending?.tipo];
+  if (!step) return flow || null;
+  const nome = pending.nomeSistema || pending.nome || pending.razaoSocial || pending.cliente || (flow && flow.nome) || "";
+  // contrato inicia (ou reinicia, se for outro cliente) o processo
+  const mesmoCliente = flow && flow.nome && nome && String(flow.nome).toLowerCase() === String(nome).toLowerCase();
+  const base = (pending.tipo === "gerar_contrato" && !mesmoCliente) ? { tipo: "cliente_novo", nome, feito: {}, desde: new Date().toISOString() } : (flow || { tipo: "cliente_novo", nome, feito: {}, desde: new Date().toISOString() });
+  if (!base.nome && nome) base.nome = nome;
+  base.feito = { ...(base.feito || {}), [step]: new Date().toISOString() };
+  return base;
+}
+// texto injetado no prompt: o que já foi feito e qual é o próximo passo
+function _flowPrompt(flow: any): string {
+  if (!flow || !flow.feito) return "";
+  const ordem = [["contrato", "gerar o contrato em PDF"], ["cadastro", "cadastrar o cliente no sistema"], ["tarefas", "criar as tarefas de onboarding"], ["financeiro", "criar o lançamento financeiro (fee)"]];
+  const feitos = ordem.filter(([k]) => flow.feito[k]).map(([, l]) => l);
+  const prox = ordem.find(([k]) => !flow.feito[k]);
+  if (!feitos.length) return "";
+  const hAgo = Math.round((Date.now() - new Date(flow.desde || Date.now()).getTime()) / 60000);
+  return `\n\n⚠️ PROCESSO DE CLIENTE NOVO EM ANDAMENTO${flow.nome ? ` — cliente: ${flow.nome}` : ""} (iniciado há ${hAgo} min):
+- JÁ CONCLUÍDO nesta conversa: ${feitos.join(", ")}. **NUNCA proponha nem repita essas etapas de novo** — já estão feitas.
+- PRÓXIMO PASSO: ${prox ? prox[1] : "nada — o processo terminou; feche com um resumo do que foi feito"}.
+Se o usuário responder algo que não é "sim/não" (ex: informar o nicho, a verba, os canais, ou dizer "isso você já fez"), NÃO volte pra etapa anterior: entenda o que ele disse, use como dado do próximo passo e siga em frente.`;
+}
 async function waAgentExec(pending: any, clientId: string | null, waCtx?: { host: string; token: string; number: string }) {
   const cid = pending.client_id || clientId;
   try {
@@ -2655,8 +2719,15 @@ async function waAgentHandle(w: any) {
     const tl = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[\s.!,]+/g, " ").trim();
     const isYes = /^(sim|s|ss|isso|isso mesmo|pode|pode sim|confirmo|confirmado|confirmar|ok|okay|blz|beleza|claro|positivo|certo|faz|fazer|manda|manda ver|vai|bora|com certeza|👍|✅)$/.test(tl);
     const isNo = /^(nao|n|cancela|cancelar|deixa|esquece|para|negativo|nem|melhor nao)$/.test(tl);
-    if (isYes) { const msg = await waAgentExec(sess.pending, sess.client_id, { host: inst.uaz_host, token: inst.uaz_token, number: dest }); await saveSess({ pending: null, last_msgid: w.msgid }); await send(msg); return { ok: true }; }
-    if (isNo) { await saveSess({ pending: null, last_msgid: w.msgid }); await send("Ok, cancelei 👍"); return { ok: true }; }
+    if (isYes) {
+      const p = sess.pending;
+      const msg = await waAgentExec(p, sess.client_id, { host: inst.uaz_host, token: inst.uaz_token, number: dest });
+      // grava no HISTÓRICO o que foi executado (senão a IA "esquece" e repete a etapa) + atualiza o estado do processo
+      const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: `[EXECUTADO: ${p.tipo}] ${msg}` }].slice(-16);
+      await saveSess({ pending: null, last_msgid: w.msgid, history: hist, flow: _flowAfter(p, (sess && sess.flow) || null) });
+      await send(msg); return { ok: true };
+    }
+    if (isNo) { const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: "[CANCELADO pelo usuário]" }].slice(-16); await saveSess({ pending: null, last_msgid: w.msgid, history: hist }); await send("Ok, cancelei 👍"); return { ok: true }; }
   }
   // menu de comandos
   if (/^(menu|ajuda|comandos|opções|opcoes|\?|o que voce faz|o que você faz|help)[.!?]*$/i.test(text.trim())) {
@@ -2712,11 +2783,12 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
   4) FINANCEIRO: por fim pergunte se quer criar o lançamento (fee mensal) — preparar_acao tipo=criar_lancamento. Se disser não, encerre com um resumo do que foi feito.
   Nunca pule etapa nem execute duas de uma vez; cada etapa passa pela confirmação (SIM) do sistema.
 - DINHEIRO/FINANCEIRO: para QUALQUER pergunta de valores (a receber, a pagar, recebido, pago, fluxo do mês) use a ferramenta **financeiro** — ela já devolve o TOTAL correto e os ITENS com o nome certo do cliente. "a receber" = {tipo:'receita',status:'pendente'}; "a pagar" = {tipo:'despesa',status:'pendente'}; "este mês" = mes:'${new Date().toISOString().slice(0, 7)}'. NUNCA some você mesma nem adivinhe o nome do cliente — use os campos 'total' e 'itens' que a ferramenta retorna, exatamente.
+- 🗣 VOCÊ É CONVERSACIONAL, não um robô de script: LEIA o histórico antes de responder. Mensagens marcadas "[EXECUTADO: x]" no histórico são coisas que VOCÊ JÁ FEZ — nunca proponha de novo. Se a pessoa responder algo fora do "sim/não" (informar um dado, corrigir você, dizer "isso você já fez", "já fizemos isso", "pula essa"), ENTENDA e siga em frente: reconheça em 1 linha e vá pro próximo passo pendente, sem repetir a confirmação anterior. Se estiver em dúvida sobre onde parou, PERGUNTE ("já gerei o contrato — quer que eu siga pro cadastro?") em vez de repetir a etapa.${_flowPrompt(sess && sess.flow)}
 - Datas: hoje é ${new Date().toISOString().slice(0, 10)}. Ao filtrar por um cliente específico use o id dele (está na lista abaixo entre colchetes, ou consulte a tabela clients). Clientes: ${clients.slice(0, 150).map((c: any) => `${c.name}[${c.id}]`).join(" | ")}.`;
   const hist0 = ((sess && sess.history) || []).slice(-8).map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text }));
   const userContent: any = visionParts.length ? [{ type: "text", text: text || "" }, ...visionParts] : text;
   const messages: any[] = [{ role: "system", content: sys }, ...hist0, { role: "user", content: userContent }];
-  const agentModel = visionParts.length ? "gpt-4o" : "gpt-4o-mini"; // gpt-4o lê imagem/PDF + usa ferramentas
+  const agentModel = "gpt-4o"; // conversacional de verdade (segue o histórico e o estado do processo); também lê imagem/PDF
   let clientId = (sess && sess.client_id) || null;
   for (let it = 0; it < 6; it++) {
     const j = await callOpenAI({ model: agentModel, messages, tools: WA_TOOLS, tool_choice: "auto", max_tokens: 900, temperature: 0.3 });
@@ -2728,6 +2800,17 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
         let args: any = {}; try { args = JSON.parse(tc.function.arguments || "{}"); } catch { args = {}; }
         if (tc.function.name === "preparar_acao") {
           let cid = clientId; let reply = "";
+          // TRAVA: etapa do processo de cliente novo já concluída → não repete; empurra pro próximo passo
+          const _fl = (sess && sess.flow) || null; const _stp = _FLOW_STEPS[args.tipo];
+          if (_fl && _fl.feito && _stp && _fl.feito[_stp]) {
+            const ordem = [["contrato", "cadastrar o cliente no sistema"], ["cadastro", "criar as tarefas de onboarding"], ["tarefas", "criar o lançamento financeiro (fee)"], ["financeiro", ""]];
+            const prox = (ordem.find(([k]) => k === _stp) || [])[1];
+            const done: Record<string, string> = { contrato: "o contrato já foi gerado", cadastro: "o cliente já foi cadastrado", tarefas: "as tarefas já foram criadas", financeiro: "o lançamento já foi criado" };
+            const msg = `Isso já está feito ✅ — ${done[_stp]}${_fl.nome ? ` (${_fl.nome})` : ""}.${prox ? ` Quer que eu siga pra ${prox}?` : " O processo de cliente novo está completo."}`;
+            const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: msg }].slice(-16);
+            await saveSess({ pending: null, last_msgid: w.msgid, history: hist });
+            await send(msg); return { ok: true };
+          }
           if (args.cliente) {
             const rc = _waResolveClient(args.cliente, clients);
             if (rc) cid = rc.id;
