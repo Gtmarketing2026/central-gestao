@@ -2083,7 +2083,7 @@ let _pubEng={src:{},srcId:{},ret:{},preview:null};
 async function pubEngOpen(){
   const c=_pubClient();_pubEng={src:{},srcId:{},videoIds:{},vidPlat:'all',ret:{3:1,7:1,14:1,30:1,60:1,90:1},preview:null};
   _pubOverlay('<div style="text-align:center;padding:30px;color:var(--muted)">Carregando fontes da conta (pixel, página, IG…)…</div>');
-  if(!_pubSources){try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAudienceSources:{accounts:[_pubTargetAccount(c)]}}});if(error)throw error;_pubSources=(data&&data.data)||data;}catch(e){_pubSources={pixels:[],pages:[],igs:[],videos:[],forms:[],_err:e.message};}}
+  if(!_pubSources){try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAudienceSources:{accounts:_pubAccounts(c)}}});if(error)throw error;_pubSources=(data&&data.data)||data;}catch(e){_pubSources={pixels:[],pages:[],igs:[],videos:[],forms:[],_err:e.message};}}
   pubEngRender();
 }
 function _pubSrcAvail(k){const s=_pubSources||{};if(k==='pixel')return s.pixels||[];if(k==='facebook')return s.pages||[];if(k==='instagram')return s.igs||[];if(k==='video')return s.videos||[];if(k==='form')return s.forms||[];return[];}
@@ -2093,10 +2093,12 @@ function pubEngSetId(k,id){_pubEng.srcId[k]=id;}
 function pubEngToggleRet(w){if(_pubEng.ret[w])delete _pubEng.ret[w];else _pubEng.ret[w]=1;pubEngRender();}
 function _pubEngCombos(){
   const out=[];Object.keys(_pubEng.src).forEach(k=>{const srcDef=PUB_SRC.find(s=>s.k===k);const av=_pubSrcAvail(k);const evs=Object.keys(_pubEng.src[k]);const wins=PUB_WINS.filter(w=>_pubEng.ret[w]&&w<=srcDef.max);
-    if(k==='video'){const vsel=Object.keys(_pubEng.videoIds||{}).filter(id=>_pubEng.videoIds[id]);if(!vsel.length)return;const videos=vsel.map(id=>({id,page:(av.find(v=>v.id===id)||{}).page}));
-      evs.forEach(ev=>wins.forEach(w=>{const evLbl=(PUB_EV.video.find(e=>e[0]===ev)||[,''])[1];const nm=`[VIDEO] VIEW ${evLbl.toUpperCase().replace('%','PC').replace(/[()]/g,'').trim()} ${w}D`;out.push({name:nm.slice(0,80),sourceType:'video',videos,event:ev,retentionDays:w});}));return;}
-    const srcId=_pubEng.srcId[k]||(av[0]&&av[0].id);
-    evs.forEach(ev=>wins.forEach(w=>{const evLbl=(PUB_EV[k].find(e=>e[0]===ev)||[,''])[1];const nm=`[${srcDef.lbl.toUpperCase()}] ${(ev==='ALL'?'TODOS':evLbl).toUpperCase()} ${w}D`;out.push({name:nm.slice(0,80),sourceType:k,sourceId:srcId,event:ev,retentionDays:w});}));});
+    if(k==='video'){const vsel=Object.keys(_pubEng.videoIds||{}).filter(id=>_pubEng.videoIds[id]);if(!vsel.length)return;
+      // agrupa os vídeos por CONTA (FB e IG podem estar em contas diferentes; cada público numa conta só)
+      const byAcc={};vsel.forEach(id=>{const vo=av.find(v=>v.id===id)||{};const ac=vo.account||'';(byAcc[ac]=byAcc[ac]||[]).push({id,page:vo.page,account:ac});});
+      Object.keys(byAcc).forEach(ac=>{const videos=byAcc[ac];evs.forEach(ev=>wins.forEach(w=>{const evLbl=(PUB_EV.video.find(e=>e[0]===ev)||[,''])[1];const nm=`[VIDEO] VIEW ${evLbl.toUpperCase().replace('%','PC').replace(/[()]/g,'').trim()} ${w}D`;out.push({name:nm.slice(0,80),sourceType:'video',videos,event:ev,retentionDays:w,account:ac});}));});return;}
+    const srcId=_pubEng.srcId[k]||(av[0]&&av[0].id);const srcObj=av.find(x=>x.id===srcId)||{};
+    evs.forEach(ev=>wins.forEach(w=>{const evLbl=(PUB_EV[k].find(e=>e[0]===ev)||[,''])[1];const nm=`[${srcDef.lbl.toUpperCase()}] ${(ev==='ALL'?'TODOS':evLbl).toUpperCase()} ${w}D`;out.push({name:nm.slice(0,80),sourceType:k,sourceId:srcId,event:ev,retentionDays:w,account:srcObj.account});}));});
   return out;
 }
 function pubEngToggleVideo(id){_pubEng.videoIds=_pubEng.videoIds||{};if(_pubEng.videoIds[id])delete _pubEng.videoIds[id];else _pubEng.videoIds[id]=1;pubEngRender();}
@@ -2150,11 +2152,11 @@ function pubEngPreviewRender(){
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button class="btn ghost" onclick="pubClose()">Cancelar</button><button class="btn primary" onclick="pubEngCreate(this)">✓ Criar ${ativos.length} públicos de verdade</button></div>`,820);
 }
 async function pubEngCreate(btn){
-  const c=_pubClient();const items=_pubEng.preview.filter(x=>x.keep).map(x=>({name:x.name,sourceType:x.sourceType,sourceId:x.sourceId,event:x.event,retentionDays:x.retentionDays}));
+  const c=_pubClient();const acc=_pubTargetAccount(c);
+  const items=_pubEng.preview.filter(x=>x.keep).map(x=>({name:x.name,sourceType:x.sourceType,sourceId:x.sourceId,videos:x.videos,event:x.event,retentionDays:x.retentionDays,accountId:x.account||acc.id}));
   if(!items.length){alert('Nada selecionado.');return;}
   if(!confirm(`Criar ${items.length} públicos de verdade na conta Meta de ${c.name}? Isso é aplicado no gerenciador.`))return;
   const msg=document.getElementById('pubEngMsg');btn.disabled=true;btn.textContent='Criando…';if(msg)msg.textContent='Criando '+items.length+' públicos no Meta…';
-  const acc=_pubTargetAccount(c);
   try{
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaCreateAudiences:{accountId:acc.id,audiences:items}}});
     if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);

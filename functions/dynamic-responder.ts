@@ -755,14 +755,15 @@ async function metaAudienceSources(m: any) {
 async function metaCreateAudiences(m: any) {
   const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
   const base = "https://graph.facebook.com/v21.0";
-  const acct = String(m.accountId || "").replace(/^act_/, "");
   const items = Array.isArray(m.audiences) ? m.audiences : [];
-  if (!acct || !items.length) throw new Error("accountId e audiences obrigatórios");
+  if (!items.length) throw new Error("audiences obrigatório");
   const post = async (path: string, params: Record<string, string>) => { const r = await fetch(`${base}/${path}`, { method: "POST", body: new URLSearchParams({ ...params, access_token: token }) }); const j = await r.json(); if (j.error) throw new Error(j.error.message); return j; };
   const typeMap: Record<string, string> = { pixel: "pixel", facebook: "page", instagram: "ig_business", video: "video", form: "page" };
   const results: any[] = [];
   for (const a of items) {
     try {
+      const acct = String(a.accountId || m.accountId || "").replace(/^act_/, ""); // cada público é criado na conta da sua fonte
+      if (!acct) throw new Error("conta da fonte não definida");
       const secs = (Number(a.retentionDays) || 30) * 86400;
       let params: Record<string, string>;
       if (a.sourceType === "video") {
