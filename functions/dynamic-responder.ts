@@ -1022,10 +1022,10 @@ async function googleAdsInsights(g: any) {
     for (const row of campRows) {
       const label = row.campaign?.name || "Google Ads";
       const s = gadsShape(row.metrics);
-      if (!byCamp[label]) byCamp[label] = { campaign: label, campaignId: row.campaign?.id ? String(row.campaign.id) : null, account: acc.name || acc.id, accountId: acc.id, objetivo: googleObjetivo(row.campaign?.advertisingChannelType), _google: true, orcamentoDiario: row.campaignBudget?.amountMicros ? +row.campaignBudget.amountMicros / 1e6 : null, budgetResource: row.campaignBudget?.resourceName || null, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
+      if (!byCamp[label]) byCamp[label] = { campaign: label, campaignId: row.campaign?.id ? String(row.campaign.id) : null, account: acc.name || acc.id, accountId: acc.id, objetivo: googleObjetivo(row.campaign?.advertisingChannelType), _google: true, orcamentoDiario: row.campaignBudget?.amountMicros ? +row.campaignBudget.amountMicros / 1e6 : null, budgetResource: row.campaignBudget?.resourceName || null, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0, records: [] };
       const c = byCamp[label];
       c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks;
-      c.revenue += s.revenue; c.purchases += s.purchases;
+      c.revenue += s.revenue; c.purchases += s.purchases; c.videoViews += s.videoViews; c.engajamentos += s.engajamentos;
       if (g.daily && row.segments?.date) c.records.push({ date: row.segments.date, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: 0, leads: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos });
     }
     for (const row of adRows) {
@@ -1993,7 +1993,7 @@ const WA_TABLES: Record<string, string> = {
 };
 const WA_TOOLS = [
   { type: "function", function: { name: "consultar_banco", description: "Consulta SOMENTE LEITURA de qualquer tabela do sistema pra buscar dados reais (cliente, financeiro, tarefas, conversas do CRM, RD, pedidos etc). SEMPRE use antes de responder sobre dados guardados.", parameters: { type: "object", properties: { tabela: { type: "string", enum: Object.keys(WA_TABLES) }, colunas: { type: "string", description: "colunas separadas por vírgula ou '*'" }, filtro: { type: "string", description: "filtro no formato PostgREST, ex: 'client=eq.<id>&status=eq.pendente'; datas: 'due=gte.2026-07-01&due=lte.2026-07-31'; texto: 'description=ilike.*fee*'. Vazio = sem filtro." }, ordenar: { type: "string", description: "ex: 'created_at.desc' ou 'due.asc'" }, limite: { type: "integer" } }, required: ["tabela"] } } },
-  { type: "function", function: { name: "meta_insights", description: "Métricas de Meta Ads AO VIVO de UM cliente no período: 'total' (consolidado, já filtrado pela métrica do objetivo) e 'campanhas' (CADA campanha com gasto, orçamento diário e os KPIs do objetivo DELA). Use pra 'como tá o cliente X', 'campanhas do X', detalhes por campanha.", parameters: { type: "object", properties: { cliente: { type: "string", description: "nome do cliente" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" } }, required: ["cliente"] } } },
+  { type: "function", function: { name: "meta_insights", description: "Métricas de Meta Ads AO VIVO de UM cliente no período. Retorna consolidado + campanhas (KPIs pelo objetivo). Use nivel='campanha' (PADRÃO) pro resumo; só use nivel='conjunto' ou 'anuncio' quando pedirem EXPLICITAMENTE pra detalhar conjuntos/anúncios de uma campanha.", parameters: { type: "object", properties: { cliente: { type: "string", description: "nome do cliente" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" }, nivel: { type: "string", enum: ["campanha", "conjunto", "anuncio"], description: "profundidade do detalhamento. PADRÃO 'campanha'. Só desça se o usuário pedir." } }, required: ["cliente"] } } },
   { type: "function", function: { name: "google_insights", description: "Métricas de Google Ads AO VIVO de UM cliente no período.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "google_keywords", description: "Palavras-chave e termos de busca do Google Ads de UM cliente no período (por palavra: gasto, cliques, conversões, CPC). USE isto quando perguntarem 'como está cada palavra-chave', keywords, termos de busca ou o que as pessoas pesquisaram.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "resumo_todos_clientes", description: "Resumo de TODOS os clientes no período (gasto + métrica do objetivo, Meta/Google separados). Use quando pedirem panorama/todos os clientes.", parameters: { type: "object", properties: { dias: { type: "integer" } } } } },
@@ -2104,7 +2104,8 @@ function _waCampKpi(c: any) {
   return { kpi: `Gasto ${_fmtR(c.spend || 0)} · ${_objRC(c, false, tipo)}` };
 }
 // Resumo de UM cliente com KPIs POR CAMPANHA (cada uma pela métrica do objetivo dela) + total filtrado, pro período pedido
-async function waMetaResumo(clientId: string, dias: number) {
+async function waMetaResumo(clientId: string, dias: number, nivel = "campanha") {
+  const detalhar = nivel === "conjunto" || nivel === "anuncio"; // conjunto/anúncio só quando pedido
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,meta_account_id`))[0];
   if (!c) return { erro: "cliente não encontrado" };
   const ids = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
@@ -2112,7 +2113,7 @@ async function waMetaResumo(clientId: string, dias: number) {
   const accounts = ids.map((id: string) => ({ id, name: id }));
   const since = new Date(Date.now() - dias * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
   const [r, ent] = await Promise.all([
-    metaAdsInsights({ accounts, since, until, byCampaign: true, byAd: true }).catch(() => null),
+    metaAdsInsights({ accounts, since, until, byCampaign: true, byAd: detalhar }).catch(() => null),
     metaEntities({ accounts }).catch(() => null),
   ]);
   const gasto = (r && r.total && r.total.spend) || 0;
@@ -2120,9 +2121,9 @@ async function waMetaResumo(clientId: string, dias: number) {
   if (gasto <= 0) return { cliente: c.name, dias, objetivo: _objLabel(objM), semGastoNoPeriodo: true, campanhas: [] };
   const budgetByName: Record<string, number> = {};
   if (ent) (ent.campaigns || []).forEach((x: any) => { if (x.status === "ACTIVE" || x.entrega === "ACTIVE") budgetByName[x.nome] = x.orcamentoDiario; });
-  // hierarquia campanha › conjunto › anúncio (dos anúncios com gasto) — pra detalhar quando pedirem
+  // hierarquia campanha › conjunto › anúncio (dos anúncios com gasto) — SÓ quando pedirem detalhe
   const hier: Record<string, any> = {};
-  ((r && r.ads) || []).filter((a: any) => (a.spend || 0) > 0).forEach((a: any) => {
+  if (detalhar) ((r && r.ads) || []).filter((a: any) => (a.spend || 0) > 0).forEach((a: any) => {
     const cn = a.campaign || "—"; if (!hier[cn]) hier[cn] = {};
     const sn = a.adset || "—"; const S = hier[cn][sn] || (hier[cn][sn] = { nome: sn, spend: 0, clicks: 0, impressions: 0, reach: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, videoViews: 0, engajamentos: 0, ads: [] });
     ["spend", "clicks", "impressions", "reach", "purchases", "revenue", "leads", "conversas", "videoViews", "engajamentos"].forEach((k) => S[k] += (a[k] || 0));
@@ -2130,9 +2131,11 @@ async function waMetaResumo(clientId: string, dias: number) {
   });
   const campanhas = ((r && r.campaigns) || []).filter((x: any) => (x.spend || 0) > 0).slice(0, 20).map((x: any) => {
     const tipo = (x.objetivo && x.objetivo.tipo) || "";
+    const base: any = { nome: x.campaign, objetivo: (x.objetivo && x.objetivo.rotulo) || "", orcamentoDiario: budgetByName[x.campaign] || undefined, ..._waCampKpi(x) };
+    if (!detalhar) return base; // resumo padrão = só campanha
     const H = hier[x.campaign] || {};
-    const conjuntos = Object.values(H).sort((a: any, b: any) => b.spend - a.spend).slice(0, 10).map((S: any) => ({ nome: S.nome, kpi: `Gasto ${_fmtR(S.spend)} · ${_objRC(S, false, tipo)}`, anuncios: S.ads.sort((a: any, b: any) => b.spend - a.spend).slice(0, 10).map((ad: any) => ({ nome: ad.nome, kpi: `Gasto ${_fmtR(ad.spend)} · ${_objRC(ad, false, tipo)}` })) }));
-    return { nome: x.campaign, objetivo: (x.objetivo && x.objetivo.rotulo) || "", orcamentoDiario: budgetByName[x.campaign] || undefined, ..._waCampKpi(x), conjuntos };
+    base.conjuntos = Object.values(H).sort((a: any, b: any) => b.spend - a.spend).slice(0, 10).map((S: any) => { const conj: any = { nome: S.nome, kpi: `Gasto ${_fmtR(S.spend)} · ${_objRC(S, false, tipo)}` }; if (nivel === "anuncio") conj.anuncios = S.ads.sort((a: any, b: any) => b.spend - a.spend).slice(0, 10).map((ad: any) => ({ nome: ad.nome, kpi: `Gasto ${_fmtR(ad.spend)} · ${_objRC(ad, false, tipo)}` })); return conj; });
+    return base;
   });
   // consolidado = SÓ Gasto · Resultado · CPR pelo objetivo dominante (nada de dump de métricas cruas)
   return { cliente: c.name, dias, objetivo: _objLabel(objM), kpi: `Gasto ${_fmtR(gasto)} · ${_objRC(r.total, false, objM)}`, campanhas };
@@ -2210,7 +2213,7 @@ async function waExecTool(name: string, args: any, clients: any[]) {
   if (name === "crm_funil") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const s = await waCrmStats(c.id, Number(args.dias) || 30); return s ? { cliente: c.name, ...s } : { cliente: c.name, aviso: "cliente sem CRM/leads no período" }; }
   if (name === "reunioes") return await waReunioes(args);
   if (name === "resumo_todos_clientes") { const msgs = await waAgentAllClientsSummary(Number(args.dias) || 7); return { texto: msgs.join("\n\n") }; }
-  if (name === "meta_insights") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const r = await waMetaResumo(c.id, Number(args.dias) || 7); return { _cid: c.id, ...r }; }
+  if (name === "meta_insights") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const r = await waMetaResumo(c.id, Number(args.dias) || 7, args.nivel || "campanha"); return { _cid: c.id, ...r }; }
   if (name === "google_insights") {
     const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" };
     const gIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean); if (!gIds.length) return { cliente: c.name, aviso: "cliente sem Google Ads vinculado" };
@@ -2385,7 +2388,7 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
 - Formato WhatsApp: NÃO use markdown de título (nada de ### ou **). Negrito é com UM asterisco (*assim*). Listas com "• ". Seja enxuta.
 - ATALHOS que a equipe pode pedir: "quem precisa de atenção?" → use resumo_todos_clientes e destaque os clientes abaixo da meta, com gasto sem resultado, ou parados; "saúde da carteira" → visão geral (gasto total do período, quantos performando/abaixo, e financeiro a receber/pagar via a ferramenta financeiro); "pendências operacionais" → tarefas em aberto (consultar_banco tabela tasks, filtro status=neq.done, ordena por due); "recomendações da semana" → 2-3 ações priorizadas (o que pausar/escalar/ajustar) com base nos dados. Sempre com dado real, curto.
 - RESUMO de um cliente (meta_insights/google_insights): por canal mostre SÓ a linha do campo **'kpi' VERBATIM** do consolidado (Gasto · Resultado · CPR pelo objetivo do canal) e, abaixo, cada campanha com o SEU 'kpi' verbatim. **NUNCA** liste métricas soltas (Impressões, CTR, CPC, CPM, Alcance, Conversas, Compras, Leads) — só Gasto · Resultado · CPR. Mostre APENAS campanhas e canais que TIVERAM GASTO no período; se vier 'semGastoNoPeriodo', diga só que o canal não teve gasto no período (não invente 0s). Se tiver 'orcamentoDiario' pode citar junto.
-- DETALHAR por conjunto/anúncio: cada campanha traz 'conjuntos' (cada um com 'kpi' e 'anuncios', cada anúncio com 'kpi'). Quando pedirem "detalhe/abre a campanha X", "por conjunto", "por anúncio" ou "quais anúncios" — desça o nível: liste os conjuntos da campanha com o 'kpi' de cada, e dentro os anúncios com o 'kpi' de cada (verbatim, Gasto · Resultado · CPR). Se pedirem só o resumo, fique no nível de campanha e não despeje conjuntos/anúncios.
+- DETALHAR por conjunto/anúncio: no resumo padrão chame meta_insights SEM 'nivel' (ou nivel='campanha') — vem SÓ campanhas, NUNCA mostre conjuntos/anúncios. SÓ passe nivel='conjunto' (ou nivel='anuncio') quando o usuário pedir EXPLICITAMENTE ("detalhe/abre a campanha X", "por conjunto", "por anúncio", "quais anúncios"); aí cada campanha traz 'conjuntos' (com 'kpi', e 'anuncios' se nivel='anuncio') — liste-os com o 'kpi' verbatim de cada. Se o payload não trouxer 'conjuntos', é porque não foi pedido detalhe: fique no nível de campanha.
 - google_insights (Google Ads): use o campo **'kpi' VERBATIM** do consolidado (Gasto · Resultado · CPR pelo objetivo do Google — ex: Vídeo→Views/Custo por view; Pesquisa→Compras/CPA; Display→Alcance/CPM) e, se listar campanhas, o 'kpi' de cada uma. NÃO despeje uma lista de Impressões/Cliques/CTR/CPC/Conversas/Compras/Leads todos juntos — mostre só o resultado do OBJETIVO daquele canal.
 - (assist.): vendas/compras/ROAS/CPA POR CAMPANHA vêm do GERENCIADOR (pixel), não da planilha — ao mostrá-las escreva "(assist.)" ao lado do número (ex: "Compras 12 (assist.) · ROAS 3,1 (assist.)"), porque a venda REAL da agência vem da planilha e o pixel não divide venda por campanha. No consolidado do cliente que usa planilha, a venda é a real (sem "(assist.)").
 - Para AÇÕES (criar tarefa, criar/cancelar reunião na agenda, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao. Reunião: passe o título em 'nome', o dia em 'quando' (AAAA-MM-DD) e o horário em 'hora' (HH:MM) se disser. Cliente é opcional em reunião. — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
