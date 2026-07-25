@@ -3978,9 +3978,34 @@ async function campCloneRun(btn){
 }
 /* ---- Google: Termos & Limpeza (palavras-chave, termos de busca, negativas por IA) ---- */
 let _gTermsData=null,_gTermsTab='keywords';
+let _gtClient=null,_gtDays=30,_gtSince='',_gtUntil='',_gtPreset='30';
+function _gtRangeBounds(){const until=_gtUntil||today();const since=_gtSince||(_gtPreset==='mes'?monthBounds(0).since:daysAgoISO(_gtDays));return {since,until};}
+function _gtDateBar(){
+  const rb=(key,lbl,fn)=>`<button class="btn sm ${_gtPreset===key?'primary':'ghost'}" type="button" onclick="${fn}">${lbl}</button>`;
+  return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span style="font-size:11px;color:var(--faint);margin-right:2px">Período:</span>${rb('7','7 dias','_gtSetRange(7)')}${rb('30','30 dias','_gtSetRange(30)')}${rb('90','90 dias','_gtSetRange(90)')}${rb('mes','Este mês','_gtSetMonth()')}${rb('custom','📅 Personalizado','_gtToggleCustom()')}
+    <span id="gtDateWrap" style="display:none;gap:6px;align-items:center"><input type="date" id="gtDateFrom" style="font-size:12px;width:auto"><span style="color:var(--faint)">a</span><input type="date" id="gtDateTo" style="font-size:12px;width:auto"><button class="btn sm primary" type="button" onclick="_gtCustom()">Aplicar</button></span></div>`;
+}
+function _gtSetRange(d){_gtDays=d;_gtSince='';_gtUntil='';_gtPreset=String(d);_gtLoad();}
+function _gtSetMonth(){const b=monthBounds(0);_gtSince=b.since;_gtUntil=today();_gtPreset='mes';_gtLoad();}
+function _gtToggleCustom(){const w=document.getElementById('gtDateWrap');if(!w)return;const show=w.style.display==='none';w.style.display=show?'inline-flex':'none';const f=document.getElementById('gtDateFrom');if(show&&f&&!f.value){f.value=_gtSince||daysAgoISO(_gtDays);document.getElementById('gtDateTo').value=_gtUntil||today();}}
+function _gtCustom(){const f=document.getElementById('gtDateFrom'),t=document.getElementById('gtDateTo');if(!f||!f.value||!t||!t.value)return;_gtSince=f.value;_gtUntil=t.value;_gtPreset='custom';_gtLoad();}
+async function _gtLoad(){
+  if(!_gtClient)return;
+  const bar=document.getElementById('gtDateBarWrap');if(bar)bar.innerHTML=_gtDateBar();
+  const b=document.getElementById('gTermsBody');if(b)b.innerHTML='<div class="empty" style="padding:20px">Carregando…</div>';
+  try{
+    const accounts=_gtClient.googleAccountIds.map(id=>({id}));
+    const {since,until}=_gtRangeBounds();
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleBreakdowns:{accounts,since,until}}});
+    if(error)throw error;if(data&&data.error)throw new Error(data.error);
+    _gTermsData=(data&&data.data)||{keywords:[],termos:[]};_gTermsCleanup=null;_gTermsMining=null;_gtAdGroups=null;
+    gTermsRender();
+  }catch(e){const b2=document.getElementById('gTermsBody');if(b2)b2.innerHTML='<div class="empty" style="padding:20px">Erro: '+(e.message||e)+'</div>';}
+}
 async function gTermsOpen(){
   const c=DB.clients.find(x=>x.id===_campClientId);
   if(!c||!(c.googleAccountIds&&c.googleAccountIds.length)){alert('Cliente sem Google Ads vinculado.');return;}
+  _gtClient=c;_gtDays=_campDays||30;_gtSince=_campSince||'';_gtUntil=_campUntil||'';_gtPreset=_campPreset||String(_campDays||30);
   const ov=document.createElement('div');ov.id='gTermsOverlay';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px';
   ov.innerHTML=`<div class="card" style="max-width:900px;width:96%;max-height:90vh;overflow:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b>🔑 Termos & Limpeza — ${c.name.replace(/</g,'&lt;')}</b><button class="btn xs ghost" onclick="document.getElementById('gTermsOverlay').remove()">✕</button></div>
@@ -3990,21 +4015,16 @@ async function gTermsOpen(){
       <button class="btn sm ghost" id="gtTabGa" onclick="gTermsTab('garimpo')">⛏️ Garimpo (IA)</button>
       <button class="btn sm ghost" id="gtTabCl" onclick="gTermsTab('limpeza')">🧹 Limpeza (IA)</button>
     </div>
+    <div id="gtDateBarWrap">${_gtDateBar()}</div>
     <div id="gTermsBody"><div class="empty" style="padding:20px">Carregando palavras-chave e termos de busca…</div></div>
   </div>`;
   document.body.appendChild(ov);
-  try{
-    const accounts=c.googleAccountIds.map(id=>({id}));
-    const since=_campSince||daysAgoISO(_campDays),until=_campUntil||today();
-    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleBreakdowns:{accounts,since,until}}});
-    if(error)throw error;if(data&&data.error)throw new Error(data.error);
-    _gTermsData=(data&&data.data)||{keywords:[],termos:[]};_gTermsCleanup=null;_gTermsMining=null;_gtAdGroups=null;
-    gTermsRender();
-  }catch(e){const b=document.getElementById('gTermsBody');if(b)b.innerHTML='<div class="empty" style="padding:20px">Erro: '+(e.message||e)+'</div>';}
+  _gtLoad();
 }
 function gTermsTab(t){_gTermsTab=t;gTermsRender();}
 let _gTermsCleanup=null;
-let _gtSort={col:'spend',dir:'desc'},_gtFilter='',_gtList=[],_gtNameLbl='';
+let _gtSort={col:'spend',dir:'desc'},_gtFilter='',_gtList=[],_gtNameLbl='',_gtHideInAcc=false;
+function _gtToggleHideInAcc(){_gtHideInAcc=!_gtHideInAcc;const b=document.getElementById('gtHideBtn');if(b){b.className='btn sm '+(_gtHideInAcc?'primary':'ghost');}_gtApply();}
 function _gtVal(r,col){switch(col){case'key':return String(r.key||'').toLowerCase();case'spend':return r.spend||0;case'clicks':return r.clicks||0;case'ctr':return r.impressions?r.clicks/r.impressions:0;case'cpc':return r.clicks?r.spend/r.clicks:0;case'conv':return r.conversions||0;case'heat':return _gtHeat(r);default:return 0;}}
 // termômetro: frio↔quente por clique+conversão (conversão pesa mais; clique sem conversão esfria)
 function _gtHeat(r){const clicks=r.clicks||0,conv=r.conversions||0,ctr=r.impressions?r.clicks/r.impressions:0;let s;if(conv>0){const cr=clicks?conv/clicks:0;s=65+Math.min(35,cr*350);}else if(clicks>=5)s=8;else if(clicks>=2)s=25;else s=45;if(ctr>0.06)s+=8;if(ctr<0.01&&clicks>2)s-=8;return Math.round(Math.max(0,Math.min(100,s)));}
@@ -4016,7 +4036,7 @@ function _gtTable(list,nameLbl){
   if(!_gtList.length)return '<div class="empty" style="padding:16px">Sem dados no período.</div>';
   const arr=col=>_gtSort.col===col?(_gtSort.dir==='desc'?'▼':'▲'):'<span style="opacity:.3">↕</span>';
   const th=(s,col,l)=>`<th onclick="_gtSetSort('${col}')" title="ordenar" style="cursor:pointer;user-select:none;text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap">${s} ${arr(col)}</th>`;
-  return `<div style="margin-bottom:10px"><input id="gtFilter" oninput="_gtSetFilter(this.value)" value="${_gtFilter.replace(/"/g,'&quot;')}" placeholder="🔍 filtrar ${nameLbl.toLowerCase()}…" style="width:100%;max-width:340px;font-size:13px"></div>
+  return `<div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input id="gtFilter" oninput="_gtSetFilter(this.value)" value="${_gtFilter.replace(/"/g,'&quot;')}" placeholder="🔍 filtrar ${nameLbl.toLowerCase()}…" style="flex:1;min-width:200px;max-width:340px;font-size:13px">${_gTermsTab==='termos'?`<button id="gtHideBtn" class="btn sm ${_gtHideInAcc?'primary':'ghost'}" onclick="_gtToggleHideInAcc()" title="Some com os termos que já são palavra-chave na conta — sobram só os novos pra adicionar">🙈 Ocultar os que já estão na conta</button>`:''}</div>
   <div style="overflow-x:auto;max-height:54vh"><table style="width:100%;border-collapse:collapse">
     <thead><tr>${th(nameLbl,'key',1)}${th('Invest.','spend')}${th('Cliques','clicks')}${th('CTR','ctr')}${th('CPC','cpc')}${th('Conv.','conv')}${th('🌡 Temp.','heat')}${_gTermsTab==='termos'?'<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Na conta</th><th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Ações</th>':''}</tr></thead>
     <tbody id="gtRows"></tbody>
@@ -4027,6 +4047,7 @@ function _gtApply(){
   const td=(s,l)=>`<td style="padding:6px 10px;font-size:12px;text-align:${l?'left':'right'};border-bottom:1px solid rgba(255,255,255,.04)">${s}</td>`;
   const f=_gtFilter.toLowerCase().trim();
   let rows=_gtList.filter(r=>!f||String(r.key||'').toLowerCase().includes(f));
+  if(_gtHideInAcc&&_gTermsTab==='termos')rows=rows.filter(r=>!_gtInAccount(r.key)); // esconder os que já são keyword na conta
   const dir=_gtSort.dir==='asc'?1:-1;
   rows.sort((a,b)=>{const va=_gtVal(a,_gtSort.col),vb=_gtVal(b,_gtSort.col);if(_gtSort.col==='key')return va<vb?-dir:va>vb?dir:0;return (va-vb)*dir;});
   const shown=rows.slice(0,300);
@@ -4143,7 +4164,11 @@ async function gTermsMine(btn,refine){
 function gTermAddKw(btn){gTermPickInclude(btn.getAttribute('data-kw'),btn,btn.getAttribute('data-mt')||'phrase',btn.getAttribute('data-bt'));}
 // ---- "Na conta": termo já é palavra-chave? ----
 function _gtNorm(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();}
-function _gtKwSet(){if(!_gTermsData)return new Set();if(!_gTermsData._kwset)_gTermsData._kwset=new Set((_gTermsData.keywords||[]).map(k=>_gtNorm(k.key)));return _gTermsData._kwset;}
+function _gtKwSet(){if(!_gTermsData)return new Set();if(!_gTermsData._kwset){
+  // usa a lista COMPLETA de keywords da conta (todas as campanhas, sem filtro de impressão); fallback: as com métrica no período
+  const base=(_gTermsData.contaKeywords&&_gTermsData.contaKeywords.length)?_gTermsData.contaKeywords:((_gTermsData.keywords||[]).map(k=>k.key));
+  _gTermsData._kwset=new Set(base.map(k=>_gtNorm(k)));}
+  return _gTermsData._kwset;}
 function _gtInAccount(term){return _gtKwSet().has(_gtNorm(term));}
 // ---- Incluir escolhendo a campanha/conjunto ----
 let _gtAdGroups=null;

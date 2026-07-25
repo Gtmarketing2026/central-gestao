@@ -1242,6 +1242,7 @@ async function googleBreakdowns(g: any) {
   const token = await googleAdsAccessToken();
   const M = "metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value";
   const conv: Record<string, any> = {}, kw: Record<string, any> = {}, st: Record<string, any> = {};
+  const contaKwSet = new Set<string>(); // TODAS as palavras-chave positivas da CONTA (todas as campanhas, sem filtro de impressão) — pro "na conta"
   const addRow = (map: Record<string, any>, key: string, m: any) => {
     if (!map[key]) map[key] = { key, spend: 0, impressions: 0, clicks: 0, conversions: 0, value: 0 };
     const o = map[key];
@@ -1250,6 +1251,10 @@ async function googleBreakdowns(g: any) {
   };
   const errors: string[] = [];
   await Promise.all(accounts.flatMap((cid) => [
+    // TODAS as palavras-chave positivas da conta (entidade, sem métricas/período) — pra saber se o termo já é keyword em QUALQUER campanha
+    gadsSearch(cid, `SELECT ad_group_criterion.keyword.text FROM ad_group_criterion WHERE ad_group_criterion.type = 'KEYWORD' AND ad_group_criterion.negative = FALSE AND ad_group_criterion.status != 'REMOVED' LIMIT 10000`, token)
+      .then((rows) => rows.forEach((r: any) => { const t = r.adGroupCriterion?.keyword?.text; if (t) contaKwSet.add(String(t).toLowerCase().trim()); }))
+      .catch((e) => errors.push("keywords da conta: " + e.message)),
     gadsSearch(cid, `SELECT segments.conversion_action_name, metrics.conversions, metrics.conversions_value FROM campaign WHERE ${range} AND metrics.conversions > 0`, token)
       .then((rows) => rows.forEach((r: any) => addRow(conv, r.segments?.conversionActionName || "—", r.metrics)))
       .catch((e) => errors.push("conversões: " + e.message)),
@@ -1266,7 +1271,7 @@ async function googleBreakdowns(g: any) {
       .catch((e) => errors.push("termos: " + e.message)),
   ]));
   const sorted = (o: Record<string, any>, by = "spend") => Object.values(o).sort((a: any, b: any) => b[by] - a[by]).slice(0, 100);
-  return { conversoes: sorted(conv, "conversions"), keywords: sorted(kw), termos: sorted(st), errors: errors.length ? errors : undefined };
+  return { conversoes: sorted(conv, "conversions"), keywords: sorted(kw), termos: sorted(st), contaKeywords: [...contaKwSet], errors: errors.length ? errors : undefined };
 }
 
 /* ================= RD STATION ================= */
