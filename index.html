@@ -875,6 +875,15 @@
       </div>
       <div id="cBudgetChannels"></div>
       <div id="cBudgetAlert" style="display:none;font-size:12px;color:var(--red);margin-bottom:10px"></div>
+      <div class="cad-collapse" id="cBudgetCampBox" style="margin-top:4px">
+        <div class="cad-collapse-hd" onclick="this.parentElement.classList.toggle('open')"><span class="t">🎯 Verba por campanha <span style="font-size:11px;color:var(--faint);font-weight:400">(opcional)</span></span><span class="cad-caret">▾</span></div>
+        <div class="cad-collapse-bd">
+          <div class="cad-sub">Pra quem trabalha com verba por <b>campanha/projeto</b> (ex.: por show, por evento) em vez de por mês. Defina quanto vai pra cada campanha — <b>independente</b> da divisão por canal acima. Deixe vazio se não usa.</div>
+          <div id="cBudgetCampaigns"></div>
+          <button class="btn sm" type="button" onclick="addBudgetCampaign()" style="margin-top:4px">+ Campanha</button>
+          <div id="cBudgetCampTot" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+        </div>
+      </div>
       <hr class="budget-divider">
       <style>
         .cad-collapse{border:1px solid var(--border);border-radius:10px;margin:0 0 10px;overflow:hidden}
@@ -1771,8 +1780,8 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||''});
-const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,whatsapp:o.whatsapp||null,pixel_id:o.pixelId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||''});
+const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],budget_campaigns:o.budgetCampaigns||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,whatsapp:o.whatsapp||null,pixel_id:o.pixelId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||'',category:r.category||'',fixedType:r.fixed_type||''});
@@ -2655,6 +2664,8 @@ function _crmDur(ms){if(!ms||ms<0)return '';const s=Math.floor(ms/1000);if(s<60)
 function _crmDH(ts){if(!ts)return '';const d=new Date(ts);return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}
 function _crmFmtFone(p){p=String(p||'').replace(/[^0-9]/g,'');if(!p)return '';const m=p.match(/^(\d{2})(\d{2})(\d{4,5})(\d{4})$/);return m?`+${m[1]} (${m[2]}) ${m[3]}-${m[4]}`:p;}
 function _crmSrcLabel(s){s=String(s||'').toLowerCase();const map={bio:'BIO',site:'SITE',organico:'ORG','wa':'WHATSAPP',whatsapp:'WHATSAPP',ad:'ANÚNCIO',anuncio:'ANÚNCIO'};return map[s]||s.toUpperCase()||'LINK';}
+// rótulo de anúncio Meta quando ainda não temos campanha (CTWA sem sourceId): mostra plataforma e sinaliza que está identificando
+function _crmAdMetaLabel(o){o=o||{};const p=String(o.platform||'').toLowerCase();const plat=p.includes('insta')?'Instagram':p.includes('face')?'Facebook':(o.channel==='google'?'Google':'Meta');return 'Anúncio '+plat+(o.ctwa_only?' · identificando campanha…':'');}
 // chave de origem granular: anuncio, organico, ou 'utm:<track_source>' (bio, site, etc.)
 function _crmOriginKey(cv){const t=cv.origin_type||'organico';if(t==='utm')return 'utm:'+(((cv.origin||{}).track_source||'link').toLowerCase());return t;}
 function crmOriginBadge(cv){
@@ -2728,7 +2739,7 @@ function crmCardHTML(cv){
   // origem detalhada (campanha › conjunto › anúncio, ou título, ou link)
   const adPath=[o.campaign,o.adset,o.ad].filter(Boolean);
   let origem='';
-  if(cv.origin_type==='anuncio'){const lines=adPath.length?adPath:(o.title?[o.title]:[]);if(lines.length)origem=`<div style="margin-top:6px;font-size:10px;color:#93c5fd;line-height:1.5">${lines.map(l=>`<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${String(l).replace(/"/g,'&quot;')}">📣 ${String(l).replace(/</g,'&lt;')}</div>`).join('')}</div>`;}
+  if(cv.origin_type==='anuncio'){let lines=adPath.length?adPath:(o.title?[o.title]:[]);if(!lines.length)lines=[_crmAdMetaLabel(o)];origem=`<div style="margin-top:6px;font-size:10px;color:#93c5fd;line-height:1.5">${lines.map(l=>`<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${String(l).replace(/"/g,'&quot;')}">📣 ${String(l).replace(/</g,'&lt;')}</div>`).join('')}</div>`;}
   // métricas: nº msgs · tempo de conversa · direção última + espera
   const dur=(cv._first&&cv.last_at)?_crmDur(new Date(cv.last_at)-new Date(cv._first)):'';
   const arrow=cv._lastdir==='in'?'<span style="color:#34d399" title="última recebida">↙</span>':(cv._lastdir==='out'?'<span style="color:#93c5fd" title="última enviada">↗</span>':'');
@@ -2779,7 +2790,7 @@ function renderCrmDrawer(){
   const o=cv.origin||{};let orig='';
   if(cv.origin_type==='anuncio'){
     const path=[o.campaign,o.adset,o.ad].filter(Boolean).map(s=>String(s).replace(/</g,'&lt;')).join(' <span style="color:var(--faint)">›</span> ');
-    orig=`<div style="font-size:11.5px;color:#93c5fd;margin-top:4px">📣 ${path?'<b>'+path+'</b>':('Anúncio'+(o.title?': <b>'+String(o.title).replace(/</g,'&lt;')+'</b>':'')+(o.source_id?' · ad '+o.source_id:''))}</div>`;
+    orig=`<div style="font-size:11.5px;color:#93c5fd;margin-top:4px">📣 ${path?'<b>'+path+'</b>':(o.title?'Anúncio: <b>'+String(o.title).replace(/</g,'&lt;')+'</b>'+(o.source_id?' · ad '+o.source_id:''):_crmAdMetaLabel(o))}</div>`;
   }else if(cv.origin_type==='utm')orig=`<div style="font-size:11.5px;color:#c4b5fd;margin-top:4px">🔗 ${o.track_source||'UTM'}${o.track_id?' · '+o.track_id:''}</div>`;
   const _st=crmStages();const _fk=_st[0]?_st[0].key:'sem';
   const stageBtns=_st.map(s=>`<button class="btn sm ${(cv.stage||_fk)===s.key?'primary':'ghost'}" style="font-size:10.5px;padding:2px 8px" onclick="crmSetStage('${cv.id}','${s.key}')">${(s.label||'').replace(/</g,'&lt;')}</button>`).join('');
@@ -5142,7 +5153,7 @@ function renderClients(){
     const cat=c.category||c.billing||'mensal';const catL=clientTypeLabel(cat);
     const catP={funil:'blue',show:'amber',agencia:'blue'}[cat]||'gray';
     const valTxt=(c.billing==='parceria'||c.billing==='permuta')?'—':fmt(c.fee);
-    const budgetTxt=c.budget?`<div style="font-weight:600">${fmt(c.budget)}</div>${(c.budgetChannels||[]).map(ch=>`<div style="font-size:11px;color:var(--muted)">${ch.name}: ${fmt(ch.val)}</div>`).join('')}`:'—';
+    const budgetTxt=c.budget||(c.budgetCampaigns||[]).length?`${c.budget?`<div style="font-weight:600">${fmt(c.budget)}</div>`:''}${(c.budgetChannels||[]).map(ch=>`<div style="font-size:11px;color:var(--muted)">${ch.name}: ${fmt(ch.val)}</div>`).join('')}${(c.budgetCampaigns||[]).map(cp=>`<div style="font-size:11px;color:#93c5fd" title="verba por campanha">🎯 ${String(cp.name).replace(/</g,'&lt;')}: ${fmt(cp.val)}</div>`).join('')}`:'—';
     const saldo=c.usesBalance?calcBalance(c.id):null;
     const balanceTxt=saldo!==null?`<div style="font-weight:700;color:${saldo>=0?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div><button class="btn sm ghost" style="margin-top:4px;font-size:11px" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:'—';
     const reportBtn=c.reportSheetUrl?`<button class="btn sm ghost" onclick="selectReportClient('${c.id}')" title="Ver relatório de anúncios">📊 Relatório</button>`:'';
@@ -5431,6 +5442,26 @@ function renderBudgetChannels(){
 }
 function budgetSetChannel(i,v){budgetRows[i].name=v;renderBudgetChannels();}
 function addBudgetChannel(){budgetRows.push({name:'',val:0});renderBudgetChannels()}
+// ---- Verba por campanha (opcional): total 2000, campanha X 500, Y 400... independente da divisão por canal ----
+let budgetCampRows=[];
+function renderBudgetCampaigns(){
+  const el=document.getElementById('cBudgetCampaigns');if(!el)return;
+  el.innerHTML=budgetCampRows.map((r,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+      <input placeholder="Nome da campanha (ex.: Show — Cidade/data)" value="${(r.name||'').replace(/"/g,'&quot;')}" style="flex:1" oninput="budgetCampRows[${i}].name=this.value">
+      <input type="number" placeholder="R$" value="${r.val||''}" style="width:100px" oninput="budgetCampRows[${i}].val=+this.value;budgetCampCalc()">
+      <button class="btn sm ghost danger" type="button" onclick="budgetCampRows.splice(${i},1);renderBudgetCampaigns()">✕</button></div>`).join('');
+  budgetCampCalc();
+}
+function addBudgetCampaign(){budgetCampRows.push({name:'',val:0});renderBudgetCampaigns();const b=document.getElementById('cBudgetCampBox');if(b)b.classList.add('open');}
+function budgetCampCalc(){
+  const el=document.getElementById('cBudgetCampTot');if(!el)return;
+  if(!budgetCampRows.length){el.textContent='';return;}
+  const total=+document.getElementById('cBudget').value||0;
+  const soma=budgetCampRows.reduce((s,r)=>s+(+r.val||0),0);
+  let msg=`Soma das campanhas: <b>${fmt(soma)}</b>`;
+  if(total>0){const dif=soma-total;if(Math.abs(dif)>0.01)msg+=` · <span style="color:var(--muted)">${dif>0?'ultrapassa':'abaixo d'}a verba total em ${fmt(Math.abs(dif))}</span>`;else msg+=` · <span style="color:#4ade80">bate com a verba total ✓</span>`;}
+  el.innerHTML=msg;
+}
 function budgetAutoCalc(){
   const total=+document.getElementById('cBudget').value||0;
   const soma=budgetRows.reduce((s,r)=>s+(+r.val||0),0);
@@ -5644,6 +5675,7 @@ function openClientModal(id){
   document.getElementById('cPayDelay').value=c.payDelay!=null?c.payDelay:'';
   document.getElementById('cBudget').value=c.budget||'';
   budgetRows=(c.budgetChannels||[]).map(r=>({...r}));renderBudgetChannels();
+  budgetCampRows=(c.budgetCampaigns||[]).map(r=>({...r}));renderBudgetCampaigns();
   document.getElementById('cUsesBalance').checked=c.usesBalance||false;
   activeClientChannels=c.activeChannels||[];renderClientChannelPicker();
   document.getElementById('cOnboardingBtn').style.display=id?'block':'none';
@@ -5807,6 +5839,7 @@ async function saveClient(){
   let cat=document.getElementById('cCategory').value,customType='';
   if(cat==='custom'){customType=document.getElementById('cCustomType').value.trim()||'Outro';cat=customType}
   const channels=budgetRows.filter(r=>r.name||r.val).map(r=>({name:r.name||'',val:+r.val||0}));
+  const campaignBudgets=budgetCampRows.filter(r=>(r.name&&r.name.trim())||r.val).map(r=>({name:(r.name||'').trim(),val:+r.val||0}));
   const prevTemp=(DB.clients.find(x=>x.id===cId.value)||{}).temp||'';
   const tempChanged=currentTemp!==prevTemp;
   const prevSince=(DB.clients.find(x=>x.id===cId.value)||{}).tempSince||'';
@@ -5815,7 +5848,7 @@ async function saveClient(){
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
   const reportWeekly=document.getElementById('cReportWeekly').checked;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),googleAccountIds:googleSelectedIds.slice(),reportTemplateIds:getSelectedTemplateIds(),reportTemplateId:(getSelectedTemplateIds()[0]||''),siteUrl:document.getElementById('cSiteUrl').value.trim(),whatsapp:(document.getElementById('cWhatsapp').value||'').replace(/[^0-9]/g,''),pixelId:(document.getElementById('cPixelId').value||'').replace(/[^0-9]/g,''),conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:[...new Set(getSelectedTemplateIds().map(id=>(templateById(id)||{}).objectiveType).filter(Boolean))],benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,budgetCampaigns:campaignBudgets,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),googleAccountIds:googleSelectedIds.slice(),reportTemplateIds:getSelectedTemplateIds(),reportTemplateId:(getSelectedTemplateIds()[0]||''),siteUrl:document.getElementById('cSiteUrl').value.trim(),whatsapp:(document.getElementById('cWhatsapp').value||'').replace(/[^0-9]/g,''),pixelId:(document.getElementById('cPixelId').value||'').replace(/[^0-9]/g,''),conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:[...new Set(getSelectedTemplateIds().map(id=>(templateById(id)||{}).objectiveType).filter(Boolean))],benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
@@ -8179,7 +8212,7 @@ function clientSnapshot(c){
   return{
     nome:c.name,status:c.status,tipo:clientTypeLabel(c.category||c.billing||'mensal'),
     segmento:c.seg||'',plataformas:c.plat||'',temperatura:c.temp||'sem avaliação',
-    feeMensal:+c.fee||0,verbaMidiaMensal:+c.budget||0,canaisAtivos:c.activeChannels||[],
+    feeMensal:+c.fee||0,verbaMidiaMensal:+c.budget||0,verbaPorCampanha:(c.budgetCampaigns||[]).map(cp=>({campanha:cp.name,valor:+cp.val||0})),canaisAtivos:c.activeChannels||[],
     tarefasPendentes:tarefas.map(t=>t.name),tarefasAtrasadas:atrasadas.map(t=>t.name),
     relatorioMensalAtrasado:!!(c.report&&daysUntil(c.report)<0),
     cobrancasVencidas:cobrancas.length,observacoes:c.notes||'',

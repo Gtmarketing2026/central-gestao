@@ -2586,7 +2586,8 @@ async function waHandler(w: any) {
 async function waResolveAllOrigins(): Promise<{ resolved: number; clients: number }> {
   // conversas de anúncio ainda não resolvidas (campanha vazia ou ainda em id numérico do ValueTrack)
   const convs = await sbGet("wa_conversations", "origin_type=eq.anuncio&select=id,client_id,origin&limit=2000");
-  const pend = (convs || []).filter((cv: any) => { const o = cv.origin || {}; return cv.client_id && (!o.campaign || /^\d+$/.test(String(o.campaign))); });
+  // ctwa_only (sem sourceId/título) não tem como resolver campanha pela API — não fica re-tentando
+  const pend = (convs || []).filter((cv: any) => { const o = cv.origin || {}; if (o.ctwa_only && !o.source_id && !o.title) return false; return cv.client_id && (!o.campaign || /^\d+$/.test(String(o.campaign))); });
   if (!pend.length) return { resolved: 0, clients: 0 };
   // agrupa por cliente
   const byClient: Record<string, any[]> = {};

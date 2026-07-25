@@ -211,8 +211,23 @@ function waExtractOrigin(m: any): { type: string; data: Record<string, unknown> 
   if (ad && (ad.sourceId || ad.sourceUrl || ad.ctwaClid || ad.title)) {
     return { type: "anuncio", data: {
       source_id: ad.sourceId || "", source_type: ad.sourceType || "", source_url: ad.sourceUrl || "",
-      ctwa_clid: ad.ctwaClid || ci.ctwaClid || "", title: ad.title || "", body: ad.body || "",
+      ctwa_clid: ad.ctwaClid || ci.ctwaClid || ci.ctwaPayload || "", title: ad.title || "", body: ad.body || "",
       thumbnail: ad.thumbnailUrl || ad.thumbnail || "", media_type: ad.mediaType || "",
+      platform: ad.entryPointConversionApp || ci.entryPointConversionApp || "",
+    } };
+  }
+  // CTWA sem externalAdReply: formato novo/opaco traz só sinais no contextInfo (ctwaPayload, conversionSource FB_Ads, entryPointConversionSource ctwa_ad).
+  // É anúncio pago do Meta (mesmo sem o sourceId do anúncio) — não deixar cair como orgânico.
+  const epSrc = String(ci.entryPointConversionSource || "").toLowerCase();
+  const convSrc = String(ci.conversionSource || ci.entryPointConversionExternalSource || "");
+  if (ci.ctwaPayload || ci.ctwaSignals || /ctwa|ad/.test(epSrc) || /fb_ads|ig_ads|instagram_ads|facebook_ads/i.test(convSrc)) {
+    const app = String(ci.entryPointConversionApp || "").toLowerCase();
+    return { type: "anuncio", data: {
+      source_id: "", source_type: "ctwa_ad", source_url: "",
+      ctwa_clid: ci.ctwaPayload || ci.ctwaClid || "", title: "", body: "",
+      thumbnail: "", media_type: "",
+      platform: app.includes("insta") ? "instagram" : app.includes("face") ? "facebook" : (app || (/fb_ads/i.test(convSrc) ? "facebook" : "")),
+      conversion_source: convSrc || "", ctwa_only: true, // sem sourceId: sabemos que é Meta pago, mas não a campanha exata
     } };
   }
   // uazapi às vezes já traz origem em track_source/track_id (do rastreamento). NÃO usar m.source: é a plataforma do device (ios/web/android), não anúncio.
