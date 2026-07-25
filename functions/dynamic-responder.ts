@@ -961,6 +961,32 @@ async function googleUpdateBudget(m: any) {
   if (j.error) throw new Error(j?.error?.details?.[0]?.errors?.[0]?.message || j.error.message || "erro no Google Ads");
   return { ok: true, detail: `Orçamento diário ajustado para R$${novo.toFixed(2)}` };
 }
+// Incluir termo como palavra-chave (no conjunto) ou negativá-lo (na campanha) direto no Google Ads.
+async function googleTermAction(m: any) {
+  const action = String(m.action || ""); const termo = String(m.termo || "").trim();
+  const cid = String(m.accountId || "").replace(/-/g, "");
+  if (!cid || !termo) throw new Error("conta e termo obrigatórios");
+  const mt = /exact/i.test(m.matchType) ? "EXACT" : /broad/i.test(m.matchType) ? "BROAD" : "PHRASE";
+  const token = await googleAdsAccessToken();
+  const devToken = Deno.env.get("GOOGLE_ADS_DEV_TOKEN"); const mcc = String(Deno.env.get("GOOGLE_ADS_MCC_ID") || "").replace(/-/g, "");
+  const H = { "Authorization": `Bearer ${token}`, "developer-token": devToken!, "login-customer-id": mcc, "Content-Type": "application/json" };
+  let url = "", body: any = {};
+  if (action === "negative") {
+    const campId = String(m.campaignId || "").replace(/[^0-9]/g, "");
+    if (!campId) throw new Error("campanha não identificada para negativar este termo");
+    url = `https://googleads.googleapis.com/${GADS_VER}/customers/${cid}/campaignCriteria:mutate`;
+    body = { operations: [{ create: { campaign: `customers/${cid}/campaigns/${campId}`, negative: true, keyword: { text: termo, matchType: mt } } }] };
+  } else {
+    const agId = String(m.adGroupId || "").replace(/[^0-9]/g, "");
+    if (!agId) throw new Error("conjunto (ad group) não identificado para incluir este termo");
+    url = `https://googleads.googleapis.com/${GADS_VER}/customers/${cid}/adGroupCriteria:mutate`;
+    body = { operations: [{ create: { adGroup: `customers/${cid}/adGroups/${agId}`, status: "ENABLED", keyword: { text: termo, matchType: mt } } }] };
+  }
+  const r = await fetch(url, { method: "POST", headers: H, body: JSON.stringify(body) });
+  const j = await r.json();
+  if (j.error) throw new Error(j?.error?.details?.[0]?.errors?.[0]?.message || j.error.message || "erro no Google Ads");
+  return { ok: true, detail: action === "negative" ? `🚫 "${termo}" adicionada como NEGATIVA (${mt}).` : `➕ "${termo}" incluída como palavra-chave (${mt}).` };
+}
 // Sugestão de LIMPEZA de termos de busca (palavras-chave negativas) com base no DNA do cliente.
 async function googleTermCleanup(m: any) {
   const termos: any[] = (m.termos || []).slice(0, 80);
@@ -979,7 +1005,9 @@ async function googleTermCleanup(m: any) {
   };
   const lista = termos.map((t: any) => ({ termo: t.key, gasto: Math.round(t.spend || 0), cliques: Math.round(t.clicks || 0), conversoes: +(t.conversions || 0).toFixed(1) }));
   const sys = `Você é especialista em Google Ads e gestão de palavras-chave NEGATIVAS. Recebe o DNA do cliente (o que vende, personas, palavras que ressoam e proibidas) e a lista de TERMOS DE BUSCA reais que dispararam os anúncios. Sua tarefa: identificar termos IRRELEVANTES / fora do público / que não têm a ver com o que o cliente vende (candidatos a palavra-chave NEGATIVA), para limpar o tráfego. Seja criterioso: só marque como negativar se realmente foge do negócio/persona (ex: busca por concorrente, produto que não vende, intenção errada, gratuito quando é pago, localidade errada). Termos com CONVERSÃO geralmente NÃO devem ser negativados. Responda SOMENTE JSON: {"negativar":[{"termo":"...","motivo":"curto"}],"observacao":"1 frase geral"}.`;
-  const user = `DNA do cliente:\n${JSON.stringify(ctx)}\n\nTermos de busca (com gasto/cliques/conversões):\n${JSON.stringify(lista)}`;
+  const nota = String(m.nota || "").trim();
+  const notaTxt = nota ? `\n\nORIENTAÇÃO DO GESTOR (siga à risca, tem prioridade sobre o resto): ${nota.slice(0, 500)}` : "";
+  const user = `DNA do cliente:\n${JSON.stringify(ctx)}\n\nTermos de busca (com gasto/cliques/conversões):\n${JSON.stringify(lista)}${notaTxt}`;
   try {
     const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content: user }], response_format: { type: "json_object" }, max_tokens: 1500, temperature: 0.3 });
     const parsed = JSON.parse(j.choices[0].message.content || "{}");
@@ -1011,8 +1039,13 @@ async function googleBreakdowns(g: any) {
     gadsSearch(cid, `SELECT ad_group_criterion.keyword.text, ${M} FROM keyword_view WHERE ${range} AND metrics.impressions > 0 ORDER BY metrics.cost_micros DESC LIMIT 200`, token)
       .then((rows) => rows.forEach((r: any) => addRow(kw, r.adGroupCriterion?.keyword?.text || "—", r.metrics)))
       .catch((e) => errors.push("keywords: " + e.message)),
-    gadsSearch(cid, `SELECT search_term_view.search_term, ${M} FROM search_term_view WHERE ${range} ORDER BY metrics.cost_micros DESC LIMIT 200`, token)
-      .then((rows) => rows.forEach((r: any) => addRow(st, r.searchTermView?.searchTerm || "—", r.metrics)))
+    gadsSearch(cid, `SELECT search_term_view.search_term, campaign.id, campaign.name, ad_group.id, ad_group.name, ${M} FROM search_term_view WHERE ${range} ORDER BY metrics.cost_micros DESC LIMIT 200`, token)
+      .then((rows) => rows.forEach((r: any) => {
+        const key = r.searchTermView?.searchTerm || "—"; addRow(st, key, r.metrics);
+        const o = st[key]; const cost = (Number(r.metrics?.costMicros) || 0) / 1e6;
+        // guarda a campanha/conjunto onde o termo mais gastou (alvo pra incluir/negativar)
+        if (!o._top || cost > o._top.cost) o._top = { cost, accountId: cid, campaignId: r.campaign?.id ? String(r.campaign.id) : null, campaignName: r.campaign?.name || "", adGroupId: r.adGroup?.id ? String(r.adGroup.id) : null, adGroupName: r.adGroup?.name || "" };
+      }))
       .catch((e) => errors.push("termos: " + e.message)),
   ]));
   const sorted = (o: Record<string, any>, by = "spend") => Object.values(o).sort((a: any, b: any) => b[by] - a[by]).slice(0, 100);
@@ -2599,6 +2632,10 @@ Deno.serve(async (req) => {
     }
     if (body.googleBudget) {
       const r = await googleUpdateBudget(body.googleBudget);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleTermAction) {
+      const r = await googleTermAction(body.googleTermAction);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.googleAds) {

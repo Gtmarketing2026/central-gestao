@@ -3675,7 +3675,7 @@ function _gtTable(list,nameLbl){
   const th=(s,col,l)=>`<th onclick="_gtSetSort('${col}')" title="ordenar" style="cursor:pointer;user-select:none;text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap">${s} ${arr(col)}</th>`;
   return `<div style="margin-bottom:10px"><input id="gtFilter" oninput="_gtSetFilter(this.value)" value="${_gtFilter.replace(/"/g,'&quot;')}" placeholder="🔍 filtrar ${nameLbl.toLowerCase()}…" style="width:100%;max-width:340px;font-size:13px"></div>
   <div style="overflow-x:auto;max-height:54vh"><table style="width:100%;border-collapse:collapse">
-    <thead><tr>${th(nameLbl,'key',1)}${th('Invest.','spend')}${th('Cliques','clicks')}${th('CTR','ctr')}${th('CPC','cpc')}${th('Conv.','conv')}</tr></thead>
+    <thead><tr>${th(nameLbl,'key',1)}${th('Invest.','spend')}${th('Cliques','clicks')}${th('CTR','ctr')}${th('CPC','cpc')}${th('Conv.','conv')}${_gTermsTab==='termos'?'<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Ações</th>':''}</tr></thead>
     <tbody id="gtRows"></tbody>
   </table></div><div id="gtCount" style="font-size:11px;color:var(--faint);margin-top:6px"></div>`;
 }
@@ -3687,7 +3687,9 @@ function _gtApply(){
   const dir=_gtSort.dir==='asc'?1:-1;
   rows.sort((a,b)=>{const va=_gtVal(a,_gtSort.col),vb=_gtVal(b,_gtSort.col);if(_gtSort.col==='key')return va<vb?-dir:va>vb?dir:0;return (va-vb)*dir;});
   const shown=rows.slice(0,300);
-  body.innerHTML=shown.map(r=>`<tr>${td(String(r.key).replace(/</g,'&lt;'),1)}${td(fmt(r.spend))}${td(Math.round(r.clicks).toLocaleString('pt-BR'))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${td((r.conversions||0).toFixed(1))}</tr>`).join('')||`<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--faint)">Nada encontrado.</td></tr>`;
+  const isTermos=_gTermsTab==='termos';
+  const actCell=r=>{if(!isTermos)return '';const esc=String(r.key).replace(/"/g,'&quot;');return `<td style="text-align:center;padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.04);white-space:nowrap"><button class="btn xs ghost" title="Incluir como palavra-chave no conjunto de origem" data-t="${esc}" onclick="gTermAction('keyword',this.getAttribute('data-t'),this)">➕</button> <button class="btn xs ghost" title="Negativar (bloquear) na campanha de origem" style="color:#f87171" data-t="${esc}" onclick="gTermAction('negative',this.getAttribute('data-t'),this)">🚫</button></td>`;};
+  body.innerHTML=shown.map(r=>`<tr>${td(String(r.key).replace(/</g,'&lt;'),1)}${td(fmt(r.spend))}${td(Math.round(r.clicks).toLocaleString('pt-BR'))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${td((r.conversions||0).toFixed(1))}${actCell(r)}</tr>`).join('')||`<tr><td colspan="${isTermos?7:6}" style="padding:14px;text-align:center;color:var(--faint)">Nada encontrado.</td></tr>`;
   const cnt=document.getElementById('gtCount');if(cnt)cnt.textContent=`${rows.length} ${_gtNameLbl.toLowerCase()}${rows.length>300?' · mostrando as 300 primeiras':''}`;
 }
 function gTermsRender(){
@@ -3712,11 +3714,16 @@ function gTermsRenderCleanup(b){
   const th=(s,l)=>`<th style="text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">${s}</th>`;
   b.innerHTML=`${r.temDna?'':'<div style="font-size:11.5px;color:var(--warn,#d97706);margin-bottom:10px">⚠ Este cliente ainda não tem DNA preenchido — a análise fica limitada. Preencha o DNA pra sugestões mais precisas.</div>'}
     <div style="font-size:12.5px;margin-bottom:8px">${r.observacao?r.observacao.replace(/</g,'&lt;'):''}</div>
-    <div style="display:flex;gap:8px;margin-bottom:10px"><button class="btn sm ghost" onclick="gTermsCopyNegs()">📋 Copiar negativas (${negs.length})</button><button class="btn sm ghost" onclick="_gTermsCleanup=null;gTermsRender()">↻ Refazer</button></div>
-    <div style="overflow-x:auto;max-height:55vh"><table style="width:100%;border-collapse:collapse">
-      <tr>${th('Termo a negativar',1)}${th('Motivo',1)}</tr>
-      ${negs.map(n=>`<tr><td style="padding:6px 10px;font-size:12px;border-bottom:1px solid rgba(255,255,255,.04);color:#f87171">${String(n.termo).replace(/</g,'&lt;')}</td><td style="padding:6px 10px;font-size:11.5px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.04)">${String(n.motivo||'').replace(/</g,'&lt;')}</td></tr>`).join('')}
-    </table></div>`;
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn sm ghost" onclick="gTermsCopyNegs()">📋 Copiar negativas (${negs.length})</button><button class="btn sm ghost" onclick="_gTermsCleanup=null;gTermsRender()">↻ Refazer</button></div>
+    <div style="overflow-x:auto;max-height:48vh"><table style="width:100%;border-collapse:collapse">
+      <tr>${th('Termo a negativar',1)}${th('Motivo',1)}${th('Ação')}</tr>
+      ${negs.map(n=>{const esc=String(n.termo).replace(/"/g,'&quot;');return `<tr><td style="padding:6px 10px;font-size:12px;border-bottom:1px solid rgba(255,255,255,.04);color:#f87171">${String(n.termo).replace(/</g,'&lt;')}</td><td style="padding:6px 10px;font-size:11.5px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.04)">${String(n.motivo||'').replace(/</g,'&lt;')}</td><td style="padding:5px 10px;text-align:right;border-bottom:1px solid rgba(255,255,255,.04);white-space:nowrap"><button class="btn xs ghost" style="color:#f87171" data-t="${esc}" onclick="gTermAction('negative',this.getAttribute('data-t'),this)">🚫 Negativar</button></td></tr>`}).join('')}
+    </table></div>
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">💬 Refinar com a IA — dê uma orientação e ela reavalia (ex.: <i>"o cliente vende no atacado, não negative termos de atacado"</i>)</div>
+      <div style="display:flex;gap:6px"><input id="gtNota" placeholder="Escreva sua orientação…" style="flex:1;font-size:12.5px" onkeydown="if(event.key==='Enter')gTermsRefine()"><button class="btn sm primary" onclick="gTermsRefine()">Refinar</button></div>
+      <div id="gtRefMsg" style="font-size:11px;color:var(--faint);margin-top:6px"></div>
+    </div>`;
 }
 async function gTermsAnalyze(btn){
   const msg=document.getElementById('gtClMsg');btn.disabled=true;btn.textContent='Analisando…';if(msg)msg.textContent='A IA está lendo os termos e o DNA…';
@@ -3726,6 +3733,32 @@ async function gTermsAnalyze(btn){
   }catch(e){if(msg)msg.textContent='Erro: '+(e.message||e);btn.disabled=false;btn.textContent='🧹 Analisar termos com IA (DNA)';}
 }
 function gTermsCopyNegs(){const negs=(_gTermsCleanup&&_gTermsCleanup.negativar)||[];const txt=negs.map(n=>n.termo).join('\n');navigator.clipboard.writeText(txt).then(()=>alert('Negativas copiadas! Cole no Google Ads → Palavras-chave negativas.')).catch(()=>{});}
+// acha a campanha/conjunto de origem de um termo (pra incluir/negativar direto)
+function _gtFindTarget(termo){const t=(_gTermsData&&_gTermsData.termos||[]).find(x=>x.key===termo);return t&&t._top;}
+async function gTermAction(action,termo,btn){
+  const tg=_gtFindTarget(termo);
+  if(!tg){alert('Não achei a campanha/conjunto de origem desse termo. Recarregue os termos e tente de novo.');return;}
+  const need=action==='negative'?tg.campaignId:tg.adGroupId;
+  if(!need){alert('Esse termo não tem '+(action==='negative'?'campanha':'conjunto')+' identificado no período.');return;}
+  const alvo=action==='negative'?('campanha "'+(tg.campaignName||'—')+'"'):('conjunto "'+(tg.adGroupName||'—')+'"');
+  if(!confirm((action==='negative'?'NEGATIVAR (bloquear)':'INCLUIR como palavra-chave')+' o termo "'+termo+'" no '+alvo+'?\n\nIsso altera de verdade no Google Ads.'))return;
+  const old=btn?btn.innerHTML:'';if(btn){btn.disabled=true;btn.innerHTML='…';}
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleTermAction:{clientId:_campClientId,action,termo,accountId:tg.accountId,campaignId:tg.campaignId,adGroupId:tg.adGroupId}}});
+    if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);if(!d||!d.ok)throw new Error((d&&d.detail)||'Falha');
+    if(btn){btn.innerHTML=action==='negative'?'🚫 feito':'➕ feito';btn.classList.remove('ghost');btn.classList.add('primary');}else alert(d.detail);
+  }catch(e){alert('Erro: '+(e.message||e));if(btn){btn.disabled=false;btn.innerHTML=old;}}
+}
+// refina a limpeza conversando com a IA (orientação do gestor)
+async function gTermsRefine(){
+  const el=document.getElementById('gtNota');const nota=(el&&el.value||'').trim();
+  if(!nota){alert('Escreva uma orientação pra IA. Ex: "o cliente vende no atacado, não negative termos de atacado".');return;}
+  const msg=document.getElementById('gtRefMsg');if(msg)msg.textContent='A IA está reavaliando com sua orientação…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleTermCleanup:{clientId:_campClientId,termos:(_gTermsData.termos||[]).slice(0,80),nota}}});
+    if(error)throw error;_gTermsCleanup=(data&&data.data)||{};gTermsRender();
+  }catch(e){if(msg)msg.textContent='Erro: '+(e.message||e);}
+}
 async function googleExecuteBudget(payload){
   const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleBudget:payload}});
   if(error)throw new Error(error.message||error);
