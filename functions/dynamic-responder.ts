@@ -296,7 +296,7 @@ async function metaAdsInsights(m: any) {
   let range = "";
   if (m.since && m.until) range = `&time_range=${encodeURIComponent(JSON.stringify({ since: m.since, until: m.until }))}`;
   else range = `&date_preset=${m.datePreset || "last_30d"}`;
-  const fields = "spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,action_values,purchase_roas";
+  const fields = "spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,action_values,purchase_roas,video_thruplay_watched_actions,video_30_sec_watched_actions";
 
   async function fetchInsights(acct: string, level: string, extra = "") {
     let lvlFields = "";
@@ -387,7 +387,8 @@ async function metaAdsInsights(m: any) {
       addToCart: pickOne(row.actions, ["omni_add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "add_to_cart"]),
       initiateCheckout: pickOne(row.actions, ["omni_initiated_checkout", "offsite_conversion.fb_pixel_initiate_checkout", "initiate_checkout"]),
       conversas: pickOne(row.actions, ["onsite_conversion.messaging_conversation_started_7d", "messaging_conversation_started_7d", "onsite_conversion.total_messaging_connection"]),
-      videoViews: pickOne(row.actions, ["video_thruplay_watched_actions", "video_view", "video_3_sec_watched_actions"]),
+      // ThruPlay é o "Resultado" das campanhas de vídeo — vem em campo PRÓPRIO (não no array actions). Fallback: 3s (video_view) / 30s.
+      videoViews: Number((row.video_thruplay_watched_actions && row.video_thruplay_watched_actions[0] && row.video_thruplay_watched_actions[0].value) || 0) || pickOne(row.actions, ["video_view"]) || Number((row.video_30_sec_watched_actions && row.video_30_sec_watched_actions[0] && row.video_30_sec_watched_actions[0].value) || 0),
       engajamentos: pickOne(row.actions, ["post_engagement"]),
     };
   }
@@ -2113,11 +2114,14 @@ async function waMetaResumo(clientId: string, dias: number) {
     metaAdsInsights({ accounts, since, until, byCampaign: true }).catch(() => null),
     metaEntities({ accounts }).catch(() => null),
   ]);
-  const total = (r && r.total) ? _waResumoMeta(r.total) : null;
+  const gasto = (r && r.total && r.total.spend) || 0;
+  const objM = _domObj(r);
+  if (gasto <= 0) return { cliente: c.name, dias, objetivo: _objLabel(objM), semGastoNoPeriodo: true, campanhas: [] };
   const budgetByName: Record<string, number> = {};
   if (ent) (ent.campaigns || []).forEach((x: any) => { if (x.status === "ACTIVE" || x.entrega === "ACTIVE") budgetByName[x.nome] = x.orcamentoDiario; });
   const campanhas = ((r && r.campaigns) || []).filter((x: any) => (x.spend || 0) > 0).slice(0, 20).map((x: any) => ({ nome: x.campaign, objetivo: (x.objetivo && x.objetivo.rotulo) || "", orcamentoDiario: budgetByName[x.campaign] || undefined, ..._waCampKpi(x) }));
-  return { cliente: c.name, dias, total, campanhas };
+  // consolidado = SÓ Gasto · Resultado · CPR pelo objetivo dominante (nada de dump de métricas cruas)
+  return { cliente: c.name, dias, objetivo: _objLabel(objM), kpi: `Gasto ${_fmtR(gasto)} · ${_objRC(r.total, false, objM)}`, campanhas };
 }
 // Relatório VISUAL de UM cliente, pronto pra enviar pro cliente (layout limpo pro WhatsApp).
 function _fmtN(v: number) { return Math.round(v || 0).toLocaleString("pt-BR"); }
@@ -2203,9 +2207,11 @@ async function waExecTool(name: string, args: any, clients: any[]) {
     // objetivo DOMINANTE do Google (por gasto) — pra mostrar o resultado certo (ex: Vídeo → views)
     let objG: string | null = null;
     if (r && r.campaigns && r.campaigns.length) { const bs: any = {}; r.campaigns.forEach((x: any) => { const tp = (x.objetivo && x.objetivo.tipo) || "conversao"; bs[tp] = (bs[tp] || 0) + (x.spend || 0); }); const dom = Object.entries(bs).sort((a: any, b: any) => b[1] - a[1])[0]; objG = dom ? dom[0] : null; }
-    const kpi = total ? `Gasto ${_fmtR(total.spend || 0)} · ${_objRC(total, true, objG)}` : null;
+    const gasto = (total && total.spend) || 0;
+    if (gasto <= 0) return { cliente: c.name, _cid: c.id, dias: d, objetivo: objG, semGastoNoPeriodo: true, campanhas: [] };
+    const kpi = `Gasto ${_fmtR(gasto)} · ${_objRC(total, true, objG)}`;
     const campanhas = ((r && r.campaigns) || []).filter((x: any) => (x.spend || 0) > 0).slice(0, 20).map((x: any) => ({ nome: x.campaign, objetivo: (x.objetivo && x.objetivo.rotulo) || "", kpi: `Gasto ${_fmtR(x.spend || 0)} · ${_objRC(x, true, x.objetivo && x.objetivo.tipo)}` }));
-    return { cliente: c.name, _cid: c.id, dias: d, objetivo: objG, kpi, total, campanhas };
+    return { cliente: c.name, _cid: c.id, dias: d, objetivo: objG, kpi, campanhas };
   }
   if (name === "google_keywords") {
     const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" };
@@ -2364,7 +2370,7 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
 - Traga SÓ o que tem dado, e a métrica do OBJETIVO do cliente. O snapshot já traz o campo 'objetivo' e só as métricas certas dele: venda→compras/ROAS/CPA; leads→leads/CPL; mensagens→conversas/custo por conversa; tráfego→cliques/CTR/CPC. NUNCA misture (ex: cliente de VENDA não mostra "custo por conversa").
 - Formato WhatsApp: NÃO use markdown de título (nada de ### ou **). Negrito é com UM asterisco (*assim*). Listas com "• ". Seja enxuta.
 - ATALHOS que a equipe pode pedir: "quem precisa de atenção?" → use resumo_todos_clientes e destaque os clientes abaixo da meta, com gasto sem resultado, ou parados; "saúde da carteira" → visão geral (gasto total do período, quantos performando/abaixo, e financeiro a receber/pagar via a ferramenta financeiro); "pendências operacionais" → tarefas em aberto (consultar_banco tabela tasks, filtro status=neq.done, ordena por due); "recomendações da semana" → 2-3 ações priorizadas (o que pausar/escalar/ajustar) com base nos dados. Sempre com dado real, curto.
-- Ao pedirem detalhes/campanhas de um cliente, use meta_insights e liste CADA campanha do array 'campanhas'. Para cada campanha mostre a linha do campo **'kpi' VERBATIM** — são os KPIs principais dela (Gasto · Resultado · CPR pelo objetivo). NÃO invente nem acrescente métricas fora do 'kpi' (ex: NÃO mostre CTR/CPC numa campanha de alcance/vídeo). Se tiver 'orcamentoDiario', pode citar junto. O consolidado é o campo 'total'.
+- RESUMO de um cliente (meta_insights/google_insights): por canal mostre SÓ a linha do campo **'kpi' VERBATIM** do consolidado (Gasto · Resultado · CPR pelo objetivo do canal) e, abaixo, cada campanha com o SEU 'kpi' verbatim. **NUNCA** liste métricas soltas (Impressões, CTR, CPC, CPM, Alcance, Conversas, Compras, Leads) — só Gasto · Resultado · CPR. Mostre APENAS campanhas e canais que TIVERAM GASTO no período; se vier 'semGastoNoPeriodo', diga só que o canal não teve gasto no período (não invente 0s). Se tiver 'orcamentoDiario' pode citar junto.
 - google_insights (Google Ads): use o campo **'kpi' VERBATIM** do consolidado (Gasto · Resultado · CPR pelo objetivo do Google — ex: Vídeo→Views/Custo por view; Pesquisa→Compras/CPA; Display→Alcance/CPM) e, se listar campanhas, o 'kpi' de cada uma. NÃO despeje uma lista de Impressões/Cliques/CTR/CPC/Conversas/Compras/Leads todos juntos — mostre só o resultado do OBJETIVO daquele canal.
 - (assist.): vendas/compras/ROAS/CPA POR CAMPANHA vêm do GERENCIADOR (pixel), não da planilha — ao mostrá-las escreva "(assist.)" ao lado do número (ex: "Compras 12 (assist.) · ROAS 3,1 (assist.)"), porque a venda REAL da agência vem da planilha e o pixel não divide venda por campanha. No consolidado do cliente que usa planilha, a venda é a real (sem "(assist.)").
 - Para AÇÕES (criar tarefa, criar/cancelar reunião na agenda, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao. Reunião: passe o título em 'nome', o dia em 'quando' (AAAA-MM-DD) e o horário em 'hora' (HH:MM) se disser. Cliente é opcional em reunião. — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
