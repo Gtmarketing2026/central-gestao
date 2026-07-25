@@ -1131,6 +1131,25 @@ async function googleTermCleanup(m: any) {
     return { negativar: (parsed.negativar || []).slice(0, 60), observacao: parsed.observacao || "", cliente: c?.name || "", temDna: !!(dna && Object.keys(dna).length) };
   } catch (e) { return { erro: String((e as any)?.message || e) }; }
 }
+// IA GARIMPO: a partir dos termos de busca reais + DNA, sugere NOVAS palavras-chave pra COMPRAR (oportunidades).
+async function googleTermMining(m: any) {
+  const termos: any[] = (m.termos || []).slice(0, 120);
+  const keywords: string[] = (m.keywords || []).map((k: any) => String(k.key || k).toLowerCase());
+  if (!termos.length) return { sugestoes: [], observacao: "Sem termos de busca no período." };
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(m.clientId || "")}&select=name,dna,seg`))[0];
+  const dna = (c && c.dna) || {};
+  const ctx = { marca: dna?.identidade?.marca || c?.name || "", segmento: c?.seg || "", produtos: (dna?.produtos || []).map((p: any) => p.nome).filter(Boolean).slice(0, 15), personas: (dna?.personas || []).map((p: any) => p.titulo).filter(Boolean).slice(0, 8), ressoam: (dna?.diretrizes?.palavrasRessoam || []).slice(0, 20) };
+  // só termos que já mostram intenção de compra (clique e/ou conversão), que ainda NÃO são palavra-chave
+  const cand = termos.filter((t: any) => (t.clicks || 0) >= 1 && !keywords.includes(String(t.key || "").toLowerCase())).map((t: any) => ({ termo: t.key, cliques: Math.round(t.clicks || 0), conversoes: +(+(t.conversions || 0)).toFixed(1), gasto: Math.round(t.spend || 0) }));
+  const nota = String(m.nota || "").trim();
+  const sys = `Você é especialista em Google Ads. Recebe o DNA do cliente e os TERMOS DE BUSCA reais que geraram cliques/conversões mas ainda NÃO são palavras-chave. Sua tarefa: garimpar OPORTUNIDADES — sugerir novas PALAVRAS-CHAVE pra COMPRAR (adicionar à conta), priorizando as com intenção de compra e alinhadas ao que o cliente vende. Para cada sugestão, escolha o tipo de correspondência ('phrase' na dúvida; 'exact' se for muito específica; 'broad' só se for ampla e segura) e explique curto por quê. Baseie CADA sugestão num termo real da lista (campo baseTermo = o termo exato de onde veio). NÃO invente termos sem base. Ignore termos irrelevantes/curiosos. Responda SOMENTE JSON: {"sugestoes":[{"palavra":"...","baseTermo":"...","match":"phrase|exact|broad","motivo":"curto"}],"observacao":"1 frase"}.`;
+  const user = `DNA:\n${JSON.stringify(ctx)}\n\nTermos candidatos (cliques/conversões/gasto):\n${JSON.stringify(cand.slice(0, 80))}${nota ? `\n\nORIENTAÇÃO DO GESTOR (prioridade): ${nota.slice(0, 400)}` : ""}`;
+  try {
+    const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content: user }], response_format: { type: "json_object" }, max_tokens: 1500, temperature: 0.4 });
+    const parsed = JSON.parse(j.choices[0].message.content || "{}");
+    return { sugestoes: (parsed.sugestoes || []).slice(0, 50), observacao: parsed.observacao || "", cliente: c?.name || "", temDna: !!(dna && Object.keys(dna).length) };
+  } catch (e) { return { erro: String((e as any)?.message || e) }; }
+}
 // Detalhes específicos do Google: conversões por ação, palavras-chave e termos de busca (agregados entre contas)
 async function googleBreakdowns(g: any) {
   let accounts: string[] = [];
@@ -2753,6 +2772,10 @@ Deno.serve(async (req) => {
     }
     if (body.googleTermAction) {
       const r = await googleTermAction(body.googleTermAction);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleTermMining) {
+      const r = await googleTermMining(body.googleTermMining);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.googleAds) {

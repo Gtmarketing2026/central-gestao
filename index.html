@@ -3886,6 +3886,7 @@ async function gTermsOpen(){
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
       <button class="btn sm primary" id="gtTabKw" onclick="gTermsTab('keywords')">Palavras-chave</button>
       <button class="btn sm ghost" id="gtTabTm" onclick="gTermsTab('termos')">Termos de busca</button>
+      <button class="btn sm ghost" id="gtTabGa" onclick="gTermsTab('garimpo')">⛏️ Garimpo (IA)</button>
       <button class="btn sm ghost" id="gtTabCl" onclick="gTermsTab('limpeza')">🧹 Limpeza (IA)</button>
     </div>
     <div id="gTermsBody"><div class="empty" style="padding:20px">Carregando palavras-chave e termos de busca…</div></div>
@@ -3896,14 +3897,17 @@ async function gTermsOpen(){
     const since=_campSince||daysAgoISO(_campDays),until=_campUntil||today();
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleBreakdowns:{accounts,since,until}}});
     if(error)throw error;if(data&&data.error)throw new Error(data.error);
-    _gTermsData=(data&&data.data)||{keywords:[],termos:[]};_gTermsCleanup=null;
+    _gTermsData=(data&&data.data)||{keywords:[],termos:[]};_gTermsCleanup=null;_gTermsMining=null;
     gTermsRender();
   }catch(e){const b=document.getElementById('gTermsBody');if(b)b.innerHTML='<div class="empty" style="padding:20px">Erro: '+(e.message||e)+'</div>';}
 }
 function gTermsTab(t){_gTermsTab=t;gTermsRender();}
 let _gTermsCleanup=null;
 let _gtSort={col:'spend',dir:'desc'},_gtFilter='',_gtList=[],_gtNameLbl='';
-function _gtVal(r,col){switch(col){case'key':return String(r.key||'').toLowerCase();case'spend':return r.spend||0;case'clicks':return r.clicks||0;case'ctr':return r.impressions?r.clicks/r.impressions:0;case'cpc':return r.clicks?r.spend/r.clicks:0;case'conv':return r.conversions||0;default:return 0;}}
+function _gtVal(r,col){switch(col){case'key':return String(r.key||'').toLowerCase();case'spend':return r.spend||0;case'clicks':return r.clicks||0;case'ctr':return r.impressions?r.clicks/r.impressions:0;case'cpc':return r.clicks?r.spend/r.clicks:0;case'conv':return r.conversions||0;case'heat':return _gtHeat(r);default:return 0;}}
+// termômetro: frio↔quente por clique+conversão (conversão pesa mais; clique sem conversão esfria)
+function _gtHeat(r){const clicks=r.clicks||0,conv=r.conversions||0,ctr=r.impressions?r.clicks/r.impressions:0;let s;if(conv>0){const cr=clicks?conv/clicks:0;s=65+Math.min(35,cr*350);}else if(clicks>=5)s=8;else if(clicks>=2)s=25;else s=45;if(ctr>0.06)s+=8;if(ctr<0.01&&clicks>2)s-=8;return Math.round(Math.max(0,Math.min(100,s)));}
+function _gtHeatCell(r){const s=_gtHeat(r);const hue=Math.round(210-(s/100)*210);const emo=s>=70?'🔥':s>=45?'🌡️':'❄️';const lbl=s>=70?'quente':s>=45?'morno':'frio';return `<td style="text-align:center;padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.04)" title="${lbl} · ${s}/100 (clique+conversão)"><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:34px;height:6px;border-radius:4px;background:linear-gradient(90deg,hsl(${hue},75%,50%) ${s}%,rgba(255,255,255,.08) ${s}%)"></span>${emo}</span></td>`;}
 function _gtSetSort(col){if(_gtSort.col===col)_gtSort.dir=_gtSort.dir==='asc'?'desc':'asc';else{_gtSort.col=col;_gtSort.dir=col==='key'?'asc':'desc';}const b=document.getElementById('gTermsBody');if(b){b.innerHTML=_gtTable(_gtList,_gtNameLbl);_gtApply();}}
 function _gtSetFilter(v){_gtFilter=v;_gtApply();} // só re-desenha as linhas (mantém o foco do input)
 function _gtTable(list,nameLbl){
@@ -3913,7 +3917,7 @@ function _gtTable(list,nameLbl){
   const th=(s,col,l)=>`<th onclick="_gtSetSort('${col}')" title="ordenar" style="cursor:pointer;user-select:none;text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap">${s} ${arr(col)}</th>`;
   return `<div style="margin-bottom:10px"><input id="gtFilter" oninput="_gtSetFilter(this.value)" value="${_gtFilter.replace(/"/g,'&quot;')}" placeholder="🔍 filtrar ${nameLbl.toLowerCase()}…" style="width:100%;max-width:340px;font-size:13px"></div>
   <div style="overflow-x:auto;max-height:54vh"><table style="width:100%;border-collapse:collapse">
-    <thead><tr>${th(nameLbl,'key',1)}${th('Invest.','spend')}${th('Cliques','clicks')}${th('CTR','ctr')}${th('CPC','cpc')}${th('Conv.','conv')}${_gTermsTab==='termos'?'<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Ações</th>':''}</tr></thead>
+    <thead><tr>${th(nameLbl,'key',1)}${th('Invest.','spend')}${th('Cliques','clicks')}${th('CTR','ctr')}${th('CPC','cpc')}${th('Conv.','conv')}${th('🌡 Temp.','heat')}${_gTermsTab==='termos'?'<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Ações</th>':''}</tr></thead>
     <tbody id="gtRows"></tbody>
   </table></div><div id="gtCount" style="font-size:11px;color:var(--faint);margin-top:6px"></div>`;
 }
@@ -3927,14 +3931,15 @@ function _gtApply(){
   const shown=rows.slice(0,300);
   const isTermos=_gTermsTab==='termos';
   const actCell=r=>{if(!isTermos)return '';const esc=String(r.key).replace(/"/g,'&quot;');return `<td style="text-align:center;padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.04);white-space:nowrap"><button class="btn xs ghost" title="Incluir como palavra-chave no conjunto de origem" data-t="${esc}" onclick="gTermAction('keyword',this.getAttribute('data-t'),this)">➕</button> <button class="btn xs ghost" title="Negativar (bloquear) na campanha de origem" style="color:#f87171" data-t="${esc}" onclick="gTermAction('negative',this.getAttribute('data-t'),this)">🚫</button></td>`;};
-  body.innerHTML=shown.map(r=>`<tr>${td(String(r.key).replace(/</g,'&lt;'),1)}${td(fmt(r.spend))}${td(Math.round(r.clicks).toLocaleString('pt-BR'))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${td((r.conversions||0).toFixed(1))}${actCell(r)}</tr>`).join('')||`<tr><td colspan="${isTermos?7:6}" style="padding:14px;text-align:center;color:var(--faint)">Nada encontrado.</td></tr>`;
+  body.innerHTML=shown.map(r=>`<tr>${td(String(r.key).replace(/</g,'&lt;'),1)}${td(fmt(r.spend))}${td(Math.round(r.clicks).toLocaleString('pt-BR'))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${td((r.conversions||0).toFixed(1))}${_gtHeatCell(r)}${actCell(r)}</tr>`).join('')||`<tr><td colspan="${isTermos?8:7}" style="padding:14px;text-align:center;color:var(--faint)">Nada encontrado.</td></tr>`;
   const cnt=document.getElementById('gtCount');if(cnt)cnt.textContent=`${rows.length} ${_gtNameLbl.toLowerCase()}${rows.length>300?' · mostrando as 300 primeiras':''}`;
 }
 function gTermsRender(){
   const b=document.getElementById('gTermsBody');if(!b||!_gTermsData)return;
-  ['Kw','Tm','Cl'].forEach(s=>{const el=document.getElementById('gtTab'+s);if(el){const on=(s==='Kw'&&_gTermsTab==='keywords')||(s==='Tm'&&_gTermsTab==='termos')||(s==='Cl'&&_gTermsTab==='limpeza');el.className='btn sm '+(on?'primary':'ghost');}});
+  ['Kw','Tm','Ga','Cl'].forEach(s=>{const el=document.getElementById('gtTab'+s);if(el){const on=(s==='Kw'&&_gTermsTab==='keywords')||(s==='Tm'&&_gTermsTab==='termos')||(s==='Ga'&&_gTermsTab==='garimpo')||(s==='Cl'&&_gTermsTab==='limpeza');el.className='btn sm '+(on?'primary':'ghost');}});
   if(_gTermsTab==='keywords'){b.innerHTML=_gtTable(_gTermsData.keywords,'Palavra-chave');_gtApply();}
   else if(_gTermsTab==='termos'){b.innerHTML=_gtTable(_gTermsData.termos,'Termo de busca');_gtApply();}
+  else if(_gTermsTab==='garimpo')gTermsRenderMining(b);
   else gTermsRenderCleanup(b);
 }
 function gTermsRenderCleanup(b){
@@ -3996,6 +4001,54 @@ async function gTermsRefine(){
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleTermCleanup:{clientId:_campClientId,termos:(_gTermsData.termos||[]).slice(0,80),nota}}});
     if(error)throw error;_gTermsCleanup=(data&&data.data)||{};gTermsRender();
   }catch(e){if(msg)msg.textContent='Erro: '+(e.message||e);}
+}
+/* ---- Garimpo (IA): sugere novas palavras-chave pra comprar ---- */
+let _gTermsMining=null;
+function gTermsRenderMining(b){
+  if(!_gTermsMining){
+    b.innerHTML=`<div class="card" style="background:var(--surface2)">
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">A IA garimpa os <b>termos de busca</b> que já geraram cliques/conversões (e ainda não são palavra-chave) e sugere <b>novas palavras-chave pra comprar</b> — as oportunidades escondidas no tráfego.</div>
+      <button class="btn sm primary" onclick="gTermsMine(this)">⛏️ Garimpar oportunidades (IA)</button>
+      <div id="gtMiMsg" style="font-size:11.5px;color:var(--faint);margin-top:8px"></div>
+    </div>`;return;
+  }
+  const r=_gTermsMining;
+  if(r.erro){b.innerHTML='<div class="empty" style="padding:16px">Erro: '+r.erro+'</div>';return;}
+  const sg=r.sugestoes||[];
+  if(!sg.length){b.innerHTML=`<div style="padding:16px">${r.observacao||'Nenhuma oportunidade clara encontrada agora.'}</div>`;return;}
+  const th=(s,l)=>`<th style="text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">${s}</th>`;
+  b.innerHTML=`${r.temDna?'':'<div style="font-size:11.5px;color:var(--warn,#d97706);margin-bottom:10px">⚠ Cliente sem DNA — sugestões limitadas. Preencha o DNA pra garimpo mais preciso.</div>'}
+    <div style="font-size:12.5px;margin-bottom:10px">${r.observacao?r.observacao.replace(/</g,'&lt;'):''}</div>
+    <div style="overflow-x:auto;max-height:48vh"><table style="width:100%;border-collapse:collapse">
+      <tr>${th('Nova palavra-chave',1)}${th('Match')}${th('Baseada em',1)}${th('Por quê',1)}${th('Ação')}</tr>
+      ${sg.map(s=>{const kw=String(s.palavra||'').replace(/"/g,'&quot;'),bt=String(s.baseTermo||'').replace(/"/g,'&quot;');return `<tr><td style="padding:6px 10px;font-size:12px;font-weight:600;color:#34d399;border-bottom:1px solid rgba(255,255,255,.04)">${String(s.palavra||'').replace(/</g,'&lt;')}</td><td style="padding:6px 10px;text-align:right;font-size:11px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.04)">${(s.match||'phrase').toUpperCase()}</td><td style="padding:6px 10px;font-size:11px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.04)">${String(s.baseTermo||'').replace(/</g,'&lt;')}</td><td style="padding:6px 10px;font-size:11px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.04)">${String(s.motivo||'').replace(/</g,'&lt;')}</td><td style="padding:5px 10px;text-align:right;border-bottom:1px solid rgba(255,255,255,.04);white-space:nowrap"><button class="btn xs primary" data-kw="${kw}" data-bt="${bt}" data-mt="${s.match||'phrase'}" onclick="gTermAddKw(this)">➕ Adicionar</button></td></tr>`;}).join('')}
+    </table></div>
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">💬 Refinar o garimpo — dê uma orientação (ex.: <i>"foca em intenção de compra, ignora institucional"</i>)</div>
+      <div style="display:flex;gap:6px"><input id="gtMiNota" placeholder="Escreva sua orientação…" style="flex:1;font-size:12.5px" onkeydown="if(event.key==='Enter')gTermsMine(null,true)"><button class="btn sm primary" onclick="gTermsMine(null,true)">Refinar</button></div>
+      <div id="gtMiMsg2" style="font-size:11px;color:var(--faint);margin-top:6px"></div>
+    </div>`;
+}
+async function gTermsMine(btn,refine){
+  const nota=refine?((document.getElementById('gtMiNota')||{}).value||'').trim():'';
+  const msg=document.getElementById(refine?'gtMiMsg2':'gtMiMsg');
+  if(btn){btn.disabled=true;btn.textContent='Garimpando…';}if(msg)msg.textContent='A IA está garimpando oportunidades…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleTermMining:{clientId:_campClientId,termos:(_gTermsData.termos||[]).slice(0,120),keywords:(_gTermsData.keywords||[]).map(k=>k.key),nota}}});
+    if(error)throw error;_gTermsMining=(data&&data.data)||{};gTermsRender();
+  }catch(e){if(msg)msg.textContent='Erro: '+(e.message||e);if(btn){btn.disabled=false;btn.textContent='⛏️ Garimpar oportunidades (IA)';}}
+}
+async function gTermAddKw(btn){
+  const kw=btn.getAttribute('data-kw'),bt=btn.getAttribute('data-bt'),mt=btn.getAttribute('data-mt')||'phrase';
+  const tg=_gtFindTarget(bt);
+  if(!tg||!tg.adGroupId){alert('Não achei o conjunto de origem do termo base "'+bt+'". Recarregue os termos.');return;}
+  if(!confirm('INCLUIR a palavra-chave "'+kw+'" ('+mt.toUpperCase()+') no conjunto "'+(tg.adGroupName||'—')+'"?\n\nIsso altera de verdade no Google Ads.'))return;
+  const old=btn.innerHTML;btn.disabled=true;btn.innerHTML='…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleTermAction:{clientId:_campClientId,action:'keyword',termo:kw,matchType:mt,accountId:tg.accountId,adGroupId:tg.adGroupId,campaignId:tg.campaignId}}});
+    if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);if(!d||!d.ok)throw new Error((d&&d.detail)||'Falha');
+    btn.innerHTML='➕ incluído';btn.classList.remove('primary');
+  }catch(e){alert('Erro: '+(e.message||e));btn.disabled=false;btn.innerHTML=old;}
 }
 async function googleExecuteBudget(payload){
   const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleBudget:payload}});
