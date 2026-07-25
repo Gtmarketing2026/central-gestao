@@ -3664,20 +3664,37 @@ async function gTermsOpen(){
 }
 function gTermsTab(t){_gTermsTab=t;gTermsRender();}
 let _gTermsCleanup=null;
+let _gtSort={col:'spend',dir:'desc'},_gtFilter='',_gtList=[],_gtNameLbl='';
+function _gtVal(r,col){switch(col){case'key':return String(r.key||'').toLowerCase();case'spend':return r.spend||0;case'clicks':return r.clicks||0;case'ctr':return r.impressions?r.clicks/r.impressions:0;case'cpc':return r.clicks?r.spend/r.clicks:0;case'conv':return r.conversions||0;default:return 0;}}
+function _gtSetSort(col){if(_gtSort.col===col)_gtSort.dir=_gtSort.dir==='asc'?'desc':'asc';else{_gtSort.col=col;_gtSort.dir=col==='key'?'asc':'desc';}const b=document.getElementById('gTermsBody');if(b){b.innerHTML=_gtTable(_gtList,_gtNameLbl);_gtApply();}}
+function _gtSetFilter(v){_gtFilter=v;_gtApply();} // só re-desenha as linhas (mantém o foco do input)
 function _gtTable(list,nameLbl){
-  if(!list||!list.length)return '<div class="empty" style="padding:16px">Sem dados no período.</div>';
-  const th=(s,l)=>`<th style="text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">${s}</th>`;
+  _gtList=list||[];_gtNameLbl=nameLbl;
+  if(!_gtList.length)return '<div class="empty" style="padding:16px">Sem dados no período.</div>';
+  const arr=col=>_gtSort.col===col?(_gtSort.dir==='desc'?'▼':'▲'):'<span style="opacity:.3">↕</span>';
+  const th=(s,col,l)=>`<th onclick="_gtSetSort('${col}')" title="ordenar" style="cursor:pointer;user-select:none;text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap">${s} ${arr(col)}</th>`;
+  return `<div style="margin-bottom:10px"><input id="gtFilter" oninput="_gtSetFilter(this.value)" value="${_gtFilter.replace(/"/g,'&quot;')}" placeholder="🔍 filtrar ${nameLbl.toLowerCase()}…" style="width:100%;max-width:340px;font-size:13px"></div>
+  <div style="overflow-x:auto;max-height:54vh"><table style="width:100%;border-collapse:collapse">
+    <thead><tr>${th(nameLbl,'key',1)}${th('Invest.','spend')}${th('Cliques','clicks')}${th('CTR','ctr')}${th('CPC','cpc')}${th('Conv.','conv')}</tr></thead>
+    <tbody id="gtRows"></tbody>
+  </table></div><div id="gtCount" style="font-size:11px;color:var(--faint);margin-top:6px"></div>`;
+}
+function _gtApply(){
+  const body=document.getElementById('gtRows');if(!body)return;
   const td=(s,l)=>`<td style="padding:6px 10px;font-size:12px;text-align:${l?'left':'right'};border-bottom:1px solid rgba(255,255,255,.04)">${s}</td>`;
-  return `<div style="overflow-x:auto;max-height:60vh"><table style="width:100%;border-collapse:collapse">
-    <tr>${th(nameLbl,1)}${th('Invest.')}${th('Cliques')}${th('CTR')}${th('CPC')}${th('Conv.')}</tr>
-    ${list.slice(0,150).map(r=>`<tr>${td(String(r.key).replace(/</g,'&lt;'),1)}${td(fmt(r.spend))}${td(Math.round(r.clicks).toLocaleString('pt-BR'))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${td((r.conversions||0).toFixed(1))}</tr>`).join('')}
-  </table></div>`;
+  const f=_gtFilter.toLowerCase().trim();
+  let rows=_gtList.filter(r=>!f||String(r.key||'').toLowerCase().includes(f));
+  const dir=_gtSort.dir==='asc'?1:-1;
+  rows.sort((a,b)=>{const va=_gtVal(a,_gtSort.col),vb=_gtVal(b,_gtSort.col);if(_gtSort.col==='key')return va<vb?-dir:va>vb?dir:0;return (va-vb)*dir;});
+  const shown=rows.slice(0,300);
+  body.innerHTML=shown.map(r=>`<tr>${td(String(r.key).replace(/</g,'&lt;'),1)}${td(fmt(r.spend))}${td(Math.round(r.clicks).toLocaleString('pt-BR'))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${td((r.conversions||0).toFixed(1))}</tr>`).join('')||`<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--faint)">Nada encontrado.</td></tr>`;
+  const cnt=document.getElementById('gtCount');if(cnt)cnt.textContent=`${rows.length} ${_gtNameLbl.toLowerCase()}${rows.length>300?' · mostrando as 300 primeiras':''}`;
 }
 function gTermsRender(){
   const b=document.getElementById('gTermsBody');if(!b||!_gTermsData)return;
   ['Kw','Tm','Cl'].forEach(s=>{const el=document.getElementById('gtTab'+s);if(el){const on=(s==='Kw'&&_gTermsTab==='keywords')||(s==='Tm'&&_gTermsTab==='termos')||(s==='Cl'&&_gTermsTab==='limpeza');el.className='btn sm '+(on?'primary':'ghost');}});
-  if(_gTermsTab==='keywords')b.innerHTML=_gtTable(_gTermsData.keywords,'Palavra-chave');
-  else if(_gTermsTab==='termos')b.innerHTML=_gtTable(_gTermsData.termos,'Termo de busca');
+  if(_gTermsTab==='keywords'){b.innerHTML=_gtTable(_gTermsData.keywords,'Palavra-chave');_gtApply();}
+  else if(_gTermsTab==='termos'){b.innerHTML=_gtTable(_gTermsData.termos,'Termo de busca');_gtApply();}
   else gTermsRenderCleanup(b);
 }
 function gTermsRenderCleanup(b){
