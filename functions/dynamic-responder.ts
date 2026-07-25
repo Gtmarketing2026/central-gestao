@@ -705,6 +705,112 @@ async function metaCloneCampaign(m: any) {
   return { ok: true, campanhaId: newCampId, campanhaNome: campParams.name, criados, falhas, pixelDestino: tgtPixel };
 }
 
+// ===== PÚBLICOS (Custom/Saved Audiences do Meta) =====
+function _audKind(subtype: string) { const s = String(subtype || "").toUpperCase(); if (s === "LOOKALIKE") return "lookalike"; if (s === "CUSTOM") return "custom"; if (["WEBSITE", "ENGAGEMENT", "VIDEO", "APP", "IG_BUSINESS", "OFFLINE_CONVERSION", "PAGE", "CLAIM", "BAG_OF_ACCOUNTS"].includes(s)) return "engagement"; return "custom"; }
+// Lista os públicos (custom + salvos/interesse) das contas do cliente.
+async function metaAudiences(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const base = "https://graph.facebook.com/v21.0";
+  const accounts = (Array.isArray(m.accounts) ? m.accounts : []).map((a: any) => ({ id: String(a.id).replace(/^act_/, ""), name: a.name || "" }));
+  if (!accounts.length) throw new Error("accounts obrigatorio");
+  const out: any[] = []; const errors: string[] = [];
+  for (const acc of accounts) {
+    try {
+      const r = await fetch(`${base}/act_${acc.id}/customaudiences?fields=id,name,subtype,approximate_count_lower_bound,approximate_count_upper_bound,retention_days,operation_status,description&limit=1000&access_token=${token}`);
+      const j = await r.json();
+      if (j.error) errors.push(`${acc.name || acc.id}: ${j.error.message}`);
+      else (j.data || []).forEach((a: any) => out.push({ id: a.id, name: a.name || "(sem nome)", subtype: a.subtype || "", lo: a.approximate_count_lower_bound ?? null, hi: a.approximate_count_upper_bound ?? null, retention: a.retention_days ?? null, status: (a.operation_status && a.operation_status.description) || "", account: acc.name || acc.id, kind: _audKind(a.subtype) }));
+    } catch (e) { errors.push(`${acc.name || acc.id}: ${String((e as any)?.message || e)}`); }
+    try {
+      const r2 = await fetch(`${base}/act_${acc.id}/saved_audiences?fields=id,name,approximate_count_lower_bound,approximate_count_upper_bound&limit=500&access_token=${token}`);
+      const j2 = await r2.json();
+      if (!j2.error) (j2.data || []).forEach((a: any) => out.push({ id: a.id, name: a.name || "(sem nome)", subtype: "SAVED", lo: a.approximate_count_lower_bound ?? null, hi: a.approximate_count_upper_bound ?? null, account: acc.name || acc.id, kind: "interesse" }));
+    } catch (_e) { /* saved audiences é opcional */ }
+  }
+  return { audiences: out, errors: errors.length ? errors : undefined };
+}
+// Fontes pra criar públicos de engajamento: pixels, páginas, contas IG, vídeos, formulários.
+async function metaAudienceSources(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const base = "https://graph.facebook.com/v21.0";
+  const accounts = (Array.isArray(m.accounts) ? m.accounts : []).map((a: any) => ({ id: String(a.id).replace(/^act_/, ""), name: a.name || "" }));
+  const out: any = { pixels: [], pages: [], igs: [], videos: [], forms: [] };
+  for (const acc of accounts) {
+    try { const r = await fetch(`${base}/act_${acc.id}/adspixels?fields=id,name&limit=50&access_token=${token}`); const j = await r.json(); if (!j.error) (j.data || []).forEach((p: any) => out.pixels.push({ id: p.id, name: p.name || p.id, account: acc.id })); } catch (_e) { /* */ }
+    try { const r = await fetch(`${base}/act_${acc.id}/promote_pages?fields=id,name&limit=50&access_token=${token}`); const j = await r.json(); if (!j.error) (j.data || []).forEach((p: any) => { if (!out.pages.some((x: any) => x.id === p.id)) out.pages.push({ id: p.id, name: p.name || p.id, account: acc.id }); }); } catch (_e) { /* */ }
+  }
+  for (const pg of out.pages.slice(0, 10)) {
+    try { const r = await fetch(`${base}/${pg.id}?fields=connected_instagram_account{id,username},instagram_accounts{id,username}&access_token=${token}`); const j = await r.json(); const ig = j.connected_instagram_account || (j.instagram_accounts && j.instagram_accounts.data && j.instagram_accounts.data[0]); if (ig && ig.id && !out.igs.some((x: any) => x.id === ig.id)) out.igs.push({ id: ig.id, name: "@" + (ig.username || ig.id), page: pg.id, account: pg.account }); } catch (_e) { /* */ }
+    try { const r = await fetch(`${base}/${pg.id}/videos?fields=id,title&limit=50&access_token=${token}`); const j = await r.json(); if (!j.error) (j.data || []).forEach((v: any) => out.videos.push({ id: v.id, name: v.title || v.id, page: pg.id, account: pg.account })); } catch (_e) { /* */ }
+    try { const r = await fetch(`${base}/${pg.id}/leadgen_forms?fields=id,name&limit=50&access_token=${token}`); const j = await r.json(); if (!j.error) (j.data || []).forEach((f: any) => out.forms.push({ id: f.id, name: f.name || f.id, page: pg.id, account: pg.account })); } catch (_e) { /* */ }
+  }
+  return out;
+}
+// Cria em massa públicos de ENGAJAMENTO (site/pixel, página FB, IG, vídeo, formulário). Retorna resultado por item.
+async function metaCreateAudiences(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const base = "https://graph.facebook.com/v21.0";
+  const acct = String(m.accountId || "").replace(/^act_/, "");
+  const items = Array.isArray(m.audiences) ? m.audiences : [];
+  if (!acct || !items.length) throw new Error("accountId e audiences obrigatórios");
+  const post = async (path: string, params: Record<string, string>) => { const r = await fetch(`${base}/${path}`, { method: "POST", body: new URLSearchParams({ ...params, access_token: token }) }); const j = await r.json(); if (j.error) throw new Error(j.error.message); return j; };
+  const typeMap: Record<string, string> = { pixel: "pixel", facebook: "page", instagram: "ig_business", video: "video", form: "page" };
+  const results: any[] = [];
+  for (const a of items) {
+    try {
+      const secs = (Number(a.retentionDays) || 30) * 86400;
+      const src = { type: typeMap[a.sourceType] || "page", id: String(a.sourceId) };
+      const rule: any = { event_sources: [src], retention_seconds: secs };
+      if (a.event && a.event !== "ALL") rule.filter = { operator: "and", filters: [{ field: "event", operator: "eq", value: a.event }] };
+      const subtype = a.sourceType === "pixel" ? "WEBSITE" : "ENGAGEMENT";
+      const params: Record<string, string> = { name: String(a.name).slice(0, 80), subtype, retention_days: String(a.retentionDays || 30), rule: JSON.stringify({ inclusions: { operator: "or", rules: [rule] } }) };
+      if (a.sourceType === "pixel") params.prefill = "true";
+      const j = await post(`act_${acct}/customaudiences`, params);
+      results.push({ name: a.name, ok: true, id: j.id });
+    } catch (e) { results.push({ name: a.name, ok: false, erro: String((e as any)?.message || e).slice(0, 200) }); }
+  }
+  return { results, criados: results.filter((r) => r.ok).length, falhas: results.filter((r) => !r.ok).length };
+}
+// Cria público CUSTOM a partir de lista (e-mails/telefones JÁ hasheados SHA-256 no front — LGPD).
+async function metaCreateCustomList(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const base = "https://graph.facebook.com/v21.0";
+  const acct = String(m.accountId || "").replace(/^act_/, "");
+  const name = String(m.name || "Lista importada").slice(0, 80);
+  const users: string[] = Array.isArray(m.usersHashed) ? m.usersHashed : [];
+  const schema = /phone/i.test(m.schema || "") ? "PHONE" : "EMAIL";
+  if (!acct || !users.length) throw new Error("accountId e usersHashed obrigatórios");
+  const post = async (path: string, params: Record<string, string>) => { const r = await fetch(`${base}/${path}`, { method: "POST", body: new URLSearchParams({ ...params, access_token: token }) }); const j = await r.json(); if (j.error) throw new Error(j.error.message); return j; };
+  const ca = await post(`act_${acct}/customaudiences`, { name, subtype: "CUSTOM", customer_file_source: "USER_PROVIDED_ONLY", description: String(m.description || "Importada via Central de Gestão").slice(0, 100) });
+  let added = 0; const chunks: string[][] = [];
+  for (let i = 0; i < users.length; i += 5000) chunks.push(users.slice(i, i + 5000));
+  for (const ch of chunks) { try { await post(`${ca.id}/users`, { payload: JSON.stringify({ schema, data: ch }) }); added += ch.length; } catch (_e) { /* segue */ } }
+  return { ok: true, id: ca.id, name, added, total: users.length };
+}
+// Cria público SALVO (interesse + geo + demografia).
+async function metaCreateSavedAudience(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const base = "https://graph.facebook.com/v21.0";
+  const acct = String(m.accountId || "").replace(/^act_/, "");
+  const name = String(m.name || "Público de interesse").slice(0, 80);
+  if (!acct || !m.targeting) throw new Error("accountId e targeting obrigatórios");
+  const r = await fetch(`${base}/act_${acct}/saved_audiences`, { method: "POST", body: new URLSearchParams({ name, targeting: JSON.stringify(m.targeting), access_token: token }) });
+  const j = await r.json(); if (j.error) throw new Error(j.error.message);
+  return { ok: true, id: j.id, name };
+}
+// Busca de interesses/comportamentos pra segmentação (autocomplete do público de interesse).
+async function metaTargetingSearch(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const base = "https://graph.facebook.com/v21.0";
+  const q = String(m.q || "").trim(); if (!q) return { results: [] };
+  const cls = m.type === "geo" ? "adgeolocations" : "adinterests";
+  const url = m.type === "geo"
+    ? `${base}/search?type=adgeolocation&location_types=["city","region","country"]&q=${encodeURIComponent(q)}&limit=15&access_token=${token}`
+    : `${base}/search?type=adinterest&q=${encodeURIComponent(q)}&limit=20&access_token=${token}`;
+  const r = await fetch(url); const j = await r.json(); if (j.error) throw new Error(j.error.message);
+  return { results: (j.data || []).map((x: any) => ({ id: x.id || x.key, name: x.name, type: x.type, path: x.path, audience: x.audience_size_lower_bound || x.audience_size, key: x.key })) };
+}
+
 // Performance por segmentação (sexo / plataforma / posicionamento) — nível de conta, agregada entre contas
 async function metaBreakdowns(m: any) {
   const token = Deno.env.get("META_USER_TOKEN");
@@ -2674,6 +2780,12 @@ Deno.serve(async (req) => {
       const r = await metaCloneCampaign(body.metaCloneCampaign);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    if (body.metaAudiences) { const r = await metaAudiences(body.metaAudiences); return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
+    if (body.metaAudienceSources) { const r = await metaAudienceSources(body.metaAudienceSources); return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
+    if (body.metaCreateAudiences) { const r = await metaCreateAudiences(body.metaCreateAudiences); return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
+    if (body.metaCreateCustomList) { const r = await metaCreateCustomList(body.metaCreateCustomList); return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
+    if (body.metaCreateSavedAudience) { const r = await metaCreateSavedAudience(body.metaCreateSavedAudience); return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
+    if (body.metaTargetingSearch) { const r = await metaTargetingSearch(body.metaTargetingSearch); return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
     if (body.dnaExtract) {
       let text = body.dnaExtract.text || "";
       if (!text && body.dnaExtract.url) text = await fetchUrlText(body.dnaExtract.url);

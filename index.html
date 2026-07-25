@@ -256,7 +256,7 @@
       <button class="tab" data-tab="campanhas" style="position:relative">📣 Campanha<span id="campSubArrow" onclick="event.stopPropagation();toggleCampSubmenu()" title="Canais (Meta / Google)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
       <div id="campSubmenu" style="display:none">
         <button class="tab" id="campSubMeta" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('meta')"><svg width="15" height="15" viewBox="0 0 24 24" style="flex:none"><path fill="#0866FF" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.25h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07z"/></svg>Meta</button>
-        <button class="tab" style="padding-left:44px;font-size:12px" onclick="showComingSoon('Público (Meta)','Performance por público/segmentação do Meta (sexo, plataforma, posicionamento) como visão dedicada. Hoje já está no Dashboard → Performance por Segmentação.')">👥 Público</button>
+        <button class="tab" data-tab="publicos" style="padding-left:44px;font-size:12px">👥 Públicos</button>
         <button class="tab" id="campSubGoogle" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('google')"><svg width="15" height="15" viewBox="0 0 48 48" style="flex:none"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>Google</button>
       </div>
       </div>
@@ -696,6 +696,26 @@
     </div>
     <div id="campBudgetWarn"></div>
     <div id="campBody"></div>
+  </section>
+
+  <section class="panel" id="publicos">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:6px">
+      <div>
+        <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700">— Meta Ads</div>
+        <h2 style="margin:2px 0 4px">Públicos</h2>
+        <div id="pubSub" style="font-size:13px;color:var(--muted);max-width:560px">Públicos salvos e personalizados — crie, edite e acompanhe o tamanho de cada audiência.</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn sm ghost" onclick="loadAudiences(true)">🔄 Atualizar</button>
+        <button class="btn sm primary" onclick="pubCreateOpen()">+ Criar público</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0">
+      <div id="pubFilters" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <span style="flex:1"></span>
+      <input id="pubSearch" placeholder="🔍 Buscar público…" oninput="pubRender()" style="width:280px;max-width:55vw;font-size:12.5px">
+    </div>
+    <div id="pubBody"><div class="empty">Selecione um cliente com conta Meta para ver os públicos.</div></div>
   </section>
 
   <!-- RAIO-X DO CLIENTE (análise profunda) -->
@@ -1970,7 +1990,7 @@ function goToTab(tabId){
   if(tab)tab.classList.add('active');
   const panel=document.getElementById(tabId);
   if(panel)panel.classList.add('active');
-  const _mn=document.querySelector('.main');if(_mn)_mn.classList.toggle('wide',tabId==='crm'||tabId==='campanhas');
+  const _mn=document.querySelector('.main');if(_mn)_mn.classList.toggle('wide',tabId==='crm'||tabId==='campanhas'||tabId==='publicos');
   if(tabId==='modelos')renderModelosPage();
   if(tabId==='clients')document.querySelectorAll('[data-csub]').forEach(b=>{const on=b.dataset.csub==='clientes';b.classList.toggle('primary',on);b.classList.toggle('ghost',!on)});
   // cliente ativo (sidebar) segue entre as telas
@@ -1985,6 +2005,204 @@ function goToTab(tabId){
   if(tabId==='whatsapp')loadWhatsappTab();
   if(tabId==='tasks')calendarAutoSync();
   if(tabId==='reunioes')loadReunioes();
+  if(tabId==='publicos')loadAudiences();
+}
+/* ===== PÚBLICOS (Meta Custom/Saved Audiences) ===== */
+let _pubData=null,_pubFilter='all',_pubClientId='',_pubSources=null;
+function _pubClient(){return DB.clients.find(x=>x.id===(activeClientId||_pubClientId));}
+function _pubAccounts(c){return (c&&c.metaAccountIds||[]).map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));}
+const PUB_KINDS=[['all','Todos'],['engagement','Engagement'],['custom','Custom'],['lookalike','Lookalike'],['interesse','Interesse']];
+async function loadAudiences(force){
+  const c=_pubClient();const body=document.getElementById('pubBody');const sub=document.getElementById('pubSub');
+  if(!c){body.innerHTML='<div class="empty">Selecione um cliente no menu lateral.</div>';return;}
+  _pubClientId=c.id;
+  if(sub)sub.innerHTML='Públicos salvos e personalizados de <b>'+c.name.replace(/</g,'&lt;')+'</b> — crie, edite e acompanhe o tamanho de cada audiência.';
+  const accs=_pubAccounts(c);
+  if(!accs.length){body.innerHTML='<div class="empty">Este cliente não tem conta Meta vinculada.</div>';return;}
+  if(_pubData&&!force&&_pubData._cid===c.id){pubRender();return;}
+  _pubData=null;_pubSources=null;body.innerHTML='<div class="empty">Carregando públicos…</div>';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAudiences:{accounts:accs}}});
+    if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);
+    _pubData={list:d.audiences||[],_cid:c.id,errors:d.errors};pubRender();
+  }catch(e){body.innerHTML='<div class="empty">Erro ao carregar: '+(e.message||e)+'</div>';}
+}
+function pubSetFilter(k){_pubFilter=k;pubRender();}
+function _pubFmtSize(a){const n=v=>v==null?null:(v>=1e6?(v/1e6).toFixed(1).replace('.0','')+'M':v>=1000?Math.round(v/1000)+'K':String(v));const lo=n(a.lo),hi=n(a.hi);if(lo==null&&hi==null)return '—';if(lo===hi||hi==null)return String(lo||hi);return lo+' – '+hi;}
+function pubRender(){
+  const body=document.getElementById('pubBody'),fbox=document.getElementById('pubFilters');if(!body||!_pubData)return;
+  const list=_pubData.list,qq=((document.getElementById('pubSearch')||{}).value||'').toLowerCase().trim();
+  const counts={all:list.length};list.forEach(a=>{counts[a.kind]=(counts[a.kind]||0)+1;});
+  if(fbox)fbox.innerHTML=PUB_KINDS.map(([k,l])=>`<button class="btn sm ${_pubFilter===k?'primary':'ghost'}" onclick="pubSetFilter('${k}')">${l} <span style="opacity:.65">${counts[k]||0}</span></button>`).join('');
+  let rows=list.filter(a=>_pubFilter==='all'||a.kind===_pubFilter).filter(a=>!qq||a.name.toLowerCase().includes(qq));
+  const kindLbl={engagement:'Engagement',custom:'Custom',lookalike:'Lookalike',interesse:'Interesse'},kindDot={engagement:'#34d399',custom:'#f0c040',lookalike:'#a78bfa',interesse:'#60a5fa'};
+  const rowHTML=a=>`<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="width:7px;height:7px;border-radius:50%;background:${kindDot[a.kind]||'#94a3b8'};flex:none"></span><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.name.replace(/</g,'&lt;')}</div>${a.account?`<div style="font-size:10.5px;color:var(--faint)">${String(a.account).replace(/</g,'&lt;')}${a.retention?' · '+a.retention+'d':''}</div>`:''}</div><div style="font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums">${_pubFmtSize(a)}</div></div>`;
+  if(!rows.length){body.innerHTML='<div class="empty" style="padding:20px">Nenhum público'+(qq?' encontrado':' nesse tipo')+'.</div>'+(_pubData.errors?`<div style="font-size:11px;color:#f87171;margin-top:8px">${_pubData.errors.join(' · ')}</div>`:'');return;}
+  let html='';
+  if(_pubFilter==='all'){['engagement','custom','lookalike','interesse'].forEach(k=>{const g=rows.filter(a=>a.kind===k);if(!g.length)return;html+=`<div style="font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:16px 4px 5px">${kindLbl[k]} · ${g.length}</div><div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">${g.map(rowHTML).join('')}</div>`;});}
+  else html=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">${rows.map(rowHTML).join('')}</div>`;
+  body.innerHTML=html;
+}
+// ---- Modal base ----
+function _pubOverlay(inner,w){let ov=document.getElementById('pubOverlay');if(!ov){ov=document.createElement('div');ov.id='pubOverlay';document.body.appendChild(ov);}ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999;padding:18px';ov.innerHTML=`<div class="card" style="width:min(${w||880}px,96vw);max-height:92vh;overflow:auto;padding:22px">${inner}</div>`;ov.onclick=e=>{if(e.target===ov)ov.remove();};return ov;}
+function pubClose(){const o=document.getElementById('pubOverlay');if(o)o.remove();}
+function pubCreateOpen(){
+  const c=_pubClient();if(!c||!_pubAccounts(c).length){alert('Selecione um cliente com conta Meta.');return;}
+  const opt=(ic,t,d,fn)=>`<div onclick="${fn}" style="flex:1;min-width:200px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:22px 18px;text-align:center;cursor:pointer;transition:.15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'"><div style="font-size:26px">${ic}</div><div style="font-weight:700;margin-top:8px">${t}</div><div style="font-size:11.5px;color:var(--muted);margin-top:5px;line-height:1.5">${d}</div></div>`;
+  _pubOverlay(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><h3 style="margin:0">Criar público</h3><button class="btn sm ghost" onclick="pubClose()">✕</button></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      ${opt('⚡','Engagement em massa','Envolvidos IG/FB, vídeo, site — em lote','pubEngOpen()')}
+      ${opt('⬆️','Importar lista','E-mails ou telefones · SHA-256 (LGPD)','pubListOpen()')}
+      ${opt('＋','Público de interesse','Interesses + geo + demografia salvos','pubIntOpen()')}
+    </div>`,720);
+}
+// ---- 1) Engagement em massa ----
+const PUB_SRC=[{k:'pixel',lbl:'Site/Pixel',ico:'🌐',max:180},{k:'facebook',lbl:'Facebook',ico:'📘',max:730},{k:'instagram',lbl:'Instagram',ico:'📸',max:730},{k:'video',lbl:'Video Views',ico:'🎬',max:365},{k:'form',lbl:'Formulários',ico:'📄',max:90}];
+const PUB_EV={
+  pixel:[['ALL','Todos os visitantes'],['ViewContent','Visualizou conteúdo'],['AddToCart','Adicionou ao carrinho'],['InitiateCheckout','Iniciou checkout'],['Purchase','Compra'],['Lead','Lead'],['CompleteRegistration','Cadastro'],['Search','Busca'],['AddToWishlist','Lista de desejos'],['Contact','Contato']],
+  facebook:[['page_engaged','Engajou'],['page_visited','Visitou a página'],['page_messaged','Mandou mensagem'],['page_liked','Curtiu'],['page_cta_clicked','Clicou no CTA'],['page_or_post_save','Salvou'],['page_post_interaction','Interagiu c/ post']],
+  instagram:[['ig_business_profile_all','Qualquer interação'],['ig_business_profile_engaged','Engajou'],['ig_business_profile_visited','Visitou o perfil'],['ig_business_profile_messaged','Mandou DM'],['ig_business_profile_ad_saved','Salvou anúncio'],['ig_business_profile_post_saved','Salvou post']],
+  video:[['ALL','Assistiu']],form:[['ALL','Abriu / enviou']]
+};
+const PUB_WINS=[3,7,14,30,60,90,120,180,365,545,730];
+let _pubEng={src:{},srcId:{},ret:{},preview:null};
+async function pubEngOpen(){
+  const c=_pubClient();_pubEng={src:{},srcId:{},ret:{3:1,7:1,14:1,30:1,60:1,90:1},preview:null};
+  _pubOverlay('<div style="text-align:center;padding:30px;color:var(--muted)">Carregando fontes da conta (pixel, página, IG…)…</div>');
+  if(!_pubSources){try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAudienceSources:{accounts:_pubAccounts(c)}}});if(error)throw error;_pubSources=(data&&data.data)||data;}catch(e){_pubSources={pixels:[],pages:[],igs:[],videos:[],forms:[],_err:e.message};}}
+  pubEngRender();
+}
+function _pubSrcAvail(k){const s=_pubSources||{};if(k==='pixel')return s.pixels||[];if(k==='facebook')return s.pages||[];if(k==='instagram')return s.igs||[];if(k==='video')return s.videos||[];if(k==='form')return s.forms||[];return[];}
+function pubEngToggleSrc(k){if(_pubEng.src[k]){delete _pubEng.src[k];}else{const av=_pubSrcAvail(k);if(!av.length){alert('Nenhuma fonte "'+k+'" encontrada nessa conta (pode faltar permissão de página/IG no token).');return;}_pubEng.src[k]={};(PUB_EV[k]||[]).forEach(([ev])=>_pubEng.src[k][ev]=1);if(!_pubEng.srcId[k])_pubEng.srcId[k]=av[0].id;}pubEngRender();}
+function pubEngToggleEv(k,ev){if(!_pubEng.src[k])return;if(_pubEng.src[k][ev])delete _pubEng.src[k][ev];else _pubEng.src[k][ev]=1;pubEngRender();}
+function pubEngSetId(k,id){_pubEng.srcId[k]=id;}
+function pubEngToggleRet(w){if(_pubEng.ret[w])delete _pubEng.ret[w];else _pubEng.ret[w]=1;pubEngRender();}
+function _pubEngCombos(){
+  const out=[];Object.keys(_pubEng.src).forEach(k=>{const srcDef=PUB_SRC.find(s=>s.k===k);const av=_pubSrcAvail(k);const srcId=_pubEng.srcId[k]||(av[0]&&av[0].id);const evs=Object.keys(_pubEng.src[k]);const wins=PUB_WINS.filter(w=>_pubEng.ret[w]&&w<=srcDef.max);
+    evs.forEach(ev=>wins.forEach(w=>{const evLbl=(PUB_EV[k].find(e=>e[0]===ev)||[,''])[1];const nm=`[${srcDef.lbl.toUpperCase()}] ${(ev==='ALL'?'TODOS':evLbl).toUpperCase()} ${w}D`;out.push({name:nm.slice(0,80),sourceType:k,sourceId:srcId,event:ev,retentionDays:w});}));});
+  return out;
+}
+function pubEngRender(){
+  const c=_pubClient();const combos=_pubEngCombos();
+  const srcCard=s=>{const on=!!_pubEng.src[s.k];const av=_pubSrcAvail(s.k);const evs=PUB_EV[s.k]||[];
+    return `<div style="border:1px solid ${on?'var(--accent)':'var(--border)'};border-radius:12px;padding:12px;background:var(--surface2)">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px"><input type="checkbox" ${on?'checked':''} onchange="pubEngToggleSrc('${s.k}')" style="width:auto">${s.ico} ${s.lbl} <span style="font-weight:400;color:var(--faint);font-size:11px">${av.length} fonte(s) · max ${s.max}d</span></label>
+      ${on?`<div style="margin-top:10px">
+        ${av.length>1?`<select onchange="pubEngSetId('${s.k}',this.value)" style="width:100%;font-size:12px;margin-bottom:8px">${av.map(x=>`<option value="${x.id}" ${_pubEng.srcId[s.k]===x.id?'selected':''}>${(x.name||x.id).replace(/</g,'&lt;')}</option>`).join('')}</select>`:''}
+        <div style="display:flex;flex-wrap:wrap;gap:5px">${evs.map(([ev,l])=>`<button class="btn xs ${_pubEng.src[s.k][ev]?'primary':'ghost'}" onclick="pubEngToggleEv('${s.k}','${ev}')">${l}</button>`).join('')}</div>
+      </div>`:''}
+    </div>`;};
+  _pubOverlay(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><h3 style="margin:0">⚡ Engagement em massa</h3><button class="btn sm ghost" onclick="pubClose()">✕</button></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Selecione fontes, eventos e janelas de retenção — o sistema monta os públicos combinando tudo.${_pubSources&&_pubSources._err?` <span style="color:#f87171">(⚠ ${_pubSources._err})</span>`:''}</div>
+    <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px">Fontes e eventos</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:16px">${PUB_SRC.map(srcCard).join('')}</div>
+    <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px">Janelas de retenção</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">${PUB_WINS.map(w=>`<button class="btn sm ${_pubEng.ret[w]?'primary':'ghost'}" onclick="pubEngToggleRet(${w})">${w}D</button>`).join('')}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:14px">
+      <div style="font-size:13px"><b>${combos.length}</b> públicos serão criados${combos.length?` <span style="color:var(--faint)">na conta de ${c.name.replace(/</g,'&lt;')}</span>`:''}</div>
+      <button class="btn primary" ${combos.length?'':'disabled'} onclick="pubEngPreview()">Pré-visualizar (editável) →</button>
+    </div>`,900);
+}
+function pubEngPreview(){
+  const combos=_pubEngCombos();if(!combos.length)return;_pubEng.preview=combos.map((c,i)=>({...c,_i:i,keep:true}));pubEngPreviewRender();
+}
+function pubEngPreviewRender(){
+  const pv=_pubEng.preview,ativos=pv.filter(x=>x.keep);
+  _pubOverlay(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><h3 style="margin:0">Revisar públicos — ${ativos.length} de ${pv.length}</h3><button class="btn sm ghost" onclick="pubEngRender()">← Voltar</button></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Edite os nomes ou desmarque os que não quer. Só os marcados serão criados.</div>
+    <div style="max-height:56vh;overflow:auto;border:1px solid var(--border);border-radius:10px">
+      ${pv.map(x=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.05);${x.keep?'':'opacity:.4'}">
+        <input type="checkbox" ${x.keep?'checked':''} onchange="_pubEng.preview[${x._i}].keep=this.checked;pubEngPreviewRender()" style="width:auto">
+        <input value="${x.name.replace(/"/g,'&quot;')}" oninput="_pubEng.preview[${x._i}].name=this.value" style="flex:1;font-size:12px" ${x.keep?'':'disabled'}>
+        <span style="font-size:10px;color:var(--faint);white-space:nowrap">${x.sourceType} · ${x.retentionDays}d</span>
+      </div>`).join('')}
+    </div>
+    <div id="pubEngMsg" style="font-size:12px;color:var(--faint);margin-top:10px"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button class="btn ghost" onclick="pubClose()">Cancelar</button><button class="btn primary" onclick="pubEngCreate(this)">✓ Criar ${ativos.length} públicos de verdade</button></div>`,820);
+}
+async function pubEngCreate(btn){
+  const c=_pubClient();const items=_pubEng.preview.filter(x=>x.keep).map(x=>({name:x.name,sourceType:x.sourceType,sourceId:x.sourceId,event:x.event,retentionDays:x.retentionDays}));
+  if(!items.length){alert('Nada selecionado.');return;}
+  if(!confirm(`Criar ${items.length} públicos de verdade na conta Meta de ${c.name}? Isso é aplicado no gerenciador.`))return;
+  const msg=document.getElementById('pubEngMsg');btn.disabled=true;btn.textContent='Criando…';if(msg)msg.textContent='Criando '+items.length+' públicos no Meta…';
+  const acc=_pubAccounts(c)[0];
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaCreateAudiences:{accountId:acc.id,audiences:items}}});
+    if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);
+    const falhas=(d.results||[]).filter(r=>!r.ok);
+    if(msg)msg.innerHTML=`✅ ${d.criados} criados${d.falhas?` · <span style="color:#f87171">${d.falhas} falharam</span>`:''}`+ (falhas.length?`<div style="margin-top:6px;font-size:11px;color:#f87171;max-height:120px;overflow:auto">${falhas.slice(0,10).map(f=>`• ${f.name}: ${f.erro}`).join('<br>')}</div>`:'');
+    btn.textContent='Concluído';loadAudiences(true);
+  }catch(e){if(msg)msg.innerHTML='<span style="color:#f87171">Erro: '+(e.message||e)+'</span>';btn.disabled=false;btn.textContent='✓ Tentar de novo';}
+}
+// ---- 2) Importar lista (SHA-256 / LGPD) ----
+function pubListOpen(){
+  _pubOverlay(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><h3 style="margin:0">⬆️ Importar lista</h3><button class="btn sm ghost" onclick="pubClose()">✕</button></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Cole e-mails <b>ou</b> telefones (um por linha). São <b>criptografados com SHA-256 no seu navegador</b> antes de enviar — o Meta e nós nunca vemos o dado puro (LGPD).</div>
+    <input id="pubListName" placeholder="Nome do público (ex: Clientes 2024)" style="width:100%;font-size:13px;margin-bottom:8px">
+    <div style="display:flex;gap:10px;margin-bottom:8px"><label style="font-size:12.5px"><input type="radio" name="pubListType" value="email" checked style="width:auto"> E-mails</label><label style="font-size:12.5px"><input type="radio" name="pubListType" value="phone" style="width:auto"> Telefones (com DDI, ex: 5521999...)</label></div>
+    <textarea id="pubListData" rows="9" placeholder="joao@email.com&#10;maria@email.com&#10;…" style="width:100%;font-size:12.5px;font-family:monospace"></textarea>
+    <div id="pubListMsg" style="font-size:12px;color:var(--faint);margin-top:8px"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button class="btn ghost" onclick="pubClose()">Cancelar</button><button class="btn primary" onclick="pubListCreate(this)">Criar público</button></div>`,640);
+}
+async function _sha256(s){const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');}
+async function pubListCreate(btn){
+  const c=_pubClient();const name=(document.getElementById('pubListName').value||'').trim();
+  const type=(document.querySelector('input[name=pubListType]:checked')||{}).value||'email';
+  const raw=(document.getElementById('pubListData').value||'').split(/[\n,;]+/).map(s=>s.trim()).filter(Boolean);
+  const msg=document.getElementById('pubListMsg');
+  if(!name){alert('Dê um nome ao público.');return;}
+  if(!raw.length){alert('Cole ao menos um contato.');return;}
+  btn.disabled=true;btn.textContent='Criptografando…';if(msg)msg.textContent='Aplicando SHA-256 em '+raw.length+' contatos…';
+  try{
+    const norm=v=>type==='phone'?v.replace(/[^0-9]/g,''):v.toLowerCase().trim();
+    const hashed=[];for(const v of raw){const n=norm(v);if(n)hashed.push(await _sha256(n));}
+    if(msg)msg.textContent='Enviando pro Meta…';btn.textContent='Enviando…';
+    const acc=_pubAccounts(c)[0];
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaCreateCustomList:{accountId:acc.id,name,schema:type==='phone'?'PHONE':'EMAIL',usersHashed:hashed}}});
+    if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);
+    if(msg)msg.innerHTML=`✅ Público "${d.name}" criado com ${d.added} contatos.`;btn.textContent='Concluído';loadAudiences(true);
+  }catch(e){if(msg)msg.innerHTML='<span style="color:#f87171">Erro: '+(e.message||e)+'</span>';btn.disabled=false;btn.textContent='Criar público';}
+}
+// ---- 3) Público de interesse (saved audience) ----
+let _pubInt={interests:[],geos:[],age_min:18,age_max:65,genders:0};
+function pubIntOpen(){
+  _pubInt={interests:[],geos:[],age_min:18,age_max:65,genders:0};pubIntRender();
+}
+function pubIntRender(){
+  const chip=(arr,i,lbl)=>`<span style="display:inline-flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px;margin:2px">${lbl}<a onclick="${arr}.splice(${i},1);pubIntRender()" style="cursor:pointer;color:var(--faint)">✕</a></span>`;
+  _pubOverlay(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><h3 style="margin:0">＋ Público de interesse</h3><button class="btn sm ghost" onclick="pubClose()">✕</button></div>
+    <input id="pubIntName" placeholder="Nome do público (ex: Interesses - Gastronomia RJ)" style="width:100%;font-size:13px;margin-bottom:14px">
+    <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:5px">Interesses</div>
+    <div style="position:relative"><input id="pubIntSearch" placeholder="🔍 buscar interesse (ex: gastronomia, vinho, viagem)…" oninput="pubIntSearch('int')" style="width:100%;font-size:12.5px"><div id="pubIntRes" style="position:absolute;z-index:5;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-top:2px;max-height:200px;overflow:auto"></div></div>
+    <div style="margin:8px 0 14px">${_pubInt.interests.map((x,i)=>chip('_pubInt.interests',i,x.name.replace(/</g,'&lt;'))).join('')||'<span style="font-size:11px;color:var(--faint)">nenhum interesse ainda</span>'}</div>
+    <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:5px">Localização (geo)</div>
+    <div style="position:relative"><input id="pubIntGeo" placeholder="🔍 buscar cidade / estado / país…" oninput="pubIntSearch('geo')" style="width:100%;font-size:12.5px"><div id="pubIntGeoRes" style="position:absolute;z-index:5;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-top:2px;max-height:200px;overflow:auto"></div></div>
+    <div style="margin:8px 0 14px">${_pubInt.geos.map((x,i)=>chip('_pubInt.geos',i,x.name.replace(/</g,'&lt;'))).join('')||'<span style="font-size:11px;color:var(--faint)">Brasil inteiro (padrão)</span>'}</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <div><div style="font-size:10.5px;text-transform:uppercase;color:var(--muted)">Idade</div><input type="number" min="13" max="65" value="${_pubInt.age_min}" oninput="_pubInt.age_min=+this.value" style="width:60px;font-size:12px"> – <input type="number" min="13" max="65" value="${_pubInt.age_max}" oninput="_pubInt.age_max=+this.value" style="width:60px;font-size:12px"></div>
+      <div><div style="font-size:10.5px;text-transform:uppercase;color:var(--muted)">Gênero</div><select onchange="_pubInt.genders=+this.value" style="font-size:12px"><option value="0">Todos</option><option value="1">Homens</option><option value="2">Mulheres</option></select></div>
+    </div>
+    <div id="pubIntMsg" style="font-size:12px;color:var(--faint);margin-top:8px"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button class="btn ghost" onclick="pubClose()">Cancelar</button><button class="btn primary" onclick="pubIntCreate(this)">Criar público salvo</button></div>`,680);
+}
+let _pubIntT=null;
+function pubIntSearch(kind){clearTimeout(_pubIntT);const inp=document.getElementById(kind==='geo'?'pubIntGeo':'pubIntSearch');const box=document.getElementById(kind==='geo'?'pubIntGeoRes':'pubIntRes');const q=(inp.value||'').trim();if(q.length<2){box.innerHTML='';return;}
+  _pubIntT=setTimeout(async()=>{try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaTargetingSearch:{q,type:kind==='geo'?'geo':'interest'}}});if(error)throw error;const d=(data&&data.data)||data;const res=(d.results||[]).slice(0,12);
+    box.innerHTML=res.map(r=>`<div onclick='pubIntAdd(${JSON.stringify(kind)},${JSON.stringify(r).replace(/'/g,"&#39;")})' style="padding:7px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.04)" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">${(r.name||'').replace(/</g,'&lt;')}${r.audience?` <span style="color:var(--faint);font-size:10px">~${_pubFmtSize({lo:r.audience,hi:r.audience})}</span>`:''}${r.path&&r.path.length?`<div style="font-size:10px;color:var(--faint)">${r.path.join(' › ')}</div>`:''}</div>`).join('')||'<div style="padding:8px;font-size:11px;color:var(--faint)">nada encontrado</div>';
+  }catch(e){box.innerHTML='<div style="padding:8px;font-size:11px;color:#f87171">'+(e.message||e)+'</div>';}},350);
+}
+function pubIntAdd(kind,r){if(kind==='geo'){_pubInt.geos.push(r);document.getElementById('pubIntGeo').value='';}else{_pubInt.interests.push(r);document.getElementById('pubIntSearch').value='';}pubIntRender();}
+async function pubIntCreate(btn){
+  const c=_pubClient();const name=(document.getElementById('pubIntName').value||'').trim();const msg=document.getElementById('pubIntMsg');
+  if(!name){alert('Dê um nome ao público.');return;}
+  if(!_pubInt.interests.length&&!_pubInt.geos.length){alert('Escolha ao menos um interesse ou localização.');return;}
+  const targeting={age_min:_pubInt.age_min,age_max:_pubInt.age_max};
+  if(_pubInt.genders)targeting.genders=[_pubInt.genders];
+  if(_pubInt.interests.length)targeting.flexible_spec=[{interests:_pubInt.interests.map(x=>({id:x.id,name:x.name}))}];
+  if(_pubInt.geos.length){const g={countries:[],regions:[],cities:[]};_pubInt.geos.forEach(x=>{if(x.type==='country')g.countries.push(x.key||x.id);else if(x.type==='region')g.regions.push({key:x.key||x.id});else g.cities.push({key:x.key||x.id});});targeting.geo_locations=Object.fromEntries(Object.entries(g).filter(([,v])=>v.length));}
+  else targeting.geo_locations={countries:['BR']};
+  btn.disabled=true;btn.textContent='Criando…';
+  try{const acc=_pubAccounts(c)[0];const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaCreateSavedAudience:{accountId:acc.id,name,targeting}}});if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);if(msg)msg.innerHTML=`✅ Público "${d.name}" criado.`;btn.textContent='Concluído';loadAudiences(true);}catch(e){if(msg)msg.innerHTML='<span style="color:#f87171">Erro: '+(e.message||e)+'</span>';btn.disabled=false;btn.textContent='Criar público salvo';}
 }
 /* ===== Reuniões (calendário do Google Agenda) ===== */
 let _reunTasks=[], _reunRef=null;
@@ -3500,6 +3718,7 @@ function selectSidebarClient(id){
   else if(active==='iagestora'){loadAgentProject(id);}
   else if(active==='campanhas'){loadCampanhas(id);}
   else if(active==='crm'){_crmViewAgency=false;_crmActive=null;loadCrm();}
+  else if(active==='publicos'){loadAudiences(true);}
   else{openClientConfig(id);}
 }
 /* ===== CAMPANHAS (drill-down estilo gerenciador) ===== */
