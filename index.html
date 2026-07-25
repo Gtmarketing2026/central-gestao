@@ -1521,7 +1521,7 @@
 
 <script>
 const APP_VERSION = '1.4';
-const APP_URL = 'https://gtmarketing2026.github.io/central-gestao/';
+const APP_URL = location.origin + location.pathname.replace(/[^/]*$/, ''); // relativo ao domínio atual (funciona no github.io e no domínio próprio)
 
 const SUPA_URL = 'https://mocrfqmdjwvyhqvdpimm.supabase.co';
 const SUPA_KEY = 'sb_publishable_gWzVyEm8hT0_CH16UO8UqA_kkcbfo14';
