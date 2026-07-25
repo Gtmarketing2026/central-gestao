@@ -1,4 +1,5 @@
 import { google } from "npm:googleapis@144";
+import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1378,9 +1379,9 @@ async function nuvemshopOrders(m: any) {
   return { rows: Object.values(agg), paidCount, paidRevenue, totalCount, period: { since, until } };
 }
 
-// Raio-X · leitura da IA: resumo executivo + por que cada criativo ganha/perde (Vision) + o que separa os lados.
+// Diagnóstico · leitura da IA: resumo executivo + por que cada criativo ganha/perde (Vision) + o que separa os lados.
 async function raioxAI(m: any) {
-  const sys = `Você é uma gestora de tráfego senior (nível Pedro Sobral) analisando o Raio-X de um cliente. Recebe: KPIs do período, o objetivo/modelo, o health score por dimensão, e os criativos vencedores e perdedores (com IMAGEM de cada um e a métrica do objetivo). Escreva uma análise afiada, específica e acionável, em português.
+  const sys = `Você é uma gestora de tráfego senior (nível Pedro Sobral) fazendo o Diagnóstico de um cliente. Recebe: KPIs do período, o objetivo/modelo, o health score por dimensão, e os criativos vencedores e perdedores (com IMAGEM de cada um e a métrica do objetivo). Escreva uma análise afiada, específica e acionável, em português.
 Responda SOMENTE um JSON válido, sem markdown, no formato:
 {"resumo":"2-4 frases: diagnóstico do período (o que foi bem/mal, e por quê), citando números reais","separa":"1-3 frases: o que separa os vencedores dos perdedores (padrão de hook/oferta/estética/CTA)","ads":[{"adId":"<id>","why":"1 frase curta: por que ESTE criativo ganha ou perde — olhe a imagem (hook, oferta, estética, clareza, CTA)"}],"proximos_passos":["2-4 ações concretas priorizadas"]}
 Regras: baseie-se nos números e nas imagens; nunca invente dados; avalie cada criativo pela métrica do objetivo dele.`;
@@ -1744,7 +1745,138 @@ async function _waCampaignPickText(cid: string, tipo: string): Promise<string> {
     ? `Qual campanha ${rot} do ${nm} você quer ${lab}? Me diz o nome exato:\n${names.slice(0, 25).map((n: string) => "• " + n).join("\n")}${names.length > 25 ? `\n…e mais ${names.length - 25}` : ""}`
     : `Não achei campanhas ${rot} nesse cliente pra ${lab}.`;
 }
-async function waAgentExec(pending: any, clientId: string | null) {
+// ===== CLIENTE NOVO: contrato em PDF (template no account_config) + envio como documento no WhatsApp =====
+const _EXT_N: Record<number, string> = { 1: "um", 2: "dois", 3: "três", 4: "quatro", 5: "cinco", 6: "seis", 7: "sete", 8: "oito", 9: "nove", 10: "dez", 11: "onze", 12: "doze" };
+// valor por extenso em reais (até 999.999) — pro contrato ("R$ 800,00 (oitocentos reais)")
+function _valorExtenso(v: number): string {
+  const u = ["", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez", "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove"];
+  const d = ["", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa"];
+  const c = ["", "cento", "duzentos", "trezentos", "quatrocentos", "quinhentos", "seiscentos", "setecentos", "oitocentos", "novecentos"];
+  const trio = (n: number): string => {
+    if (n === 0) return ""; if (n === 100) return "cem";
+    const cc = Math.floor(n / 100), rest = n % 100, dd = Math.floor(rest / 10), uu = rest % 10;
+    const parts: string[] = [];
+    if (cc) parts.push(c[cc]);
+    if (rest) { if (rest < 20) parts.push(u[rest]); else { parts.push(d[dd]); if (uu) parts.push(u[uu]); } }
+    return parts.join(" e ");
+  };
+  const inteiro = Math.floor(Math.abs(v)), cents = Math.round((Math.abs(v) - inteiro) * 100);
+  let s = "";
+  const mil = Math.floor(inteiro / 1000), rest = inteiro % 1000;
+  if (mil) s += (mil === 1 ? "mil" : trio(mil) + " mil") + (rest ? (rest < 100 || rest % 100 === 0 ? " e " : " ") : "");
+  if (rest) s += trio(rest);
+  if (!s) s = "zero";
+  s += inteiro === 1 ? " real" : " reais";
+  if (cents) s += " e " + trio(cents) + (cents === 1 ? " centavo" : " centavos");
+  return s;
+}
+const _MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+// preenche o template do contrato (account_config id=contract_template) com os dados do cliente; faltantes viram linha em branco
+async function _contratoTexto(f: any): Promise<{ text: string; faltando: string[] }> {
+  const row = (await sbGet("account_config", "id=eq.contract_template&select=data"))[0];
+  const tpl = row?.data?.template;
+  if (!tpl) throw new Error("Modelo de contrato não encontrado no sistema (account_config/contract_template).");
+  const BLANK = "______________________";
+  const faltando: string[] = [];
+  const get = (v: any, label: string) => { const s = String(v || "").trim(); if (!s) { faltando.push(label); return BLANK; } return s; };
+  const isPF = /^(pf|f[íi]sica|pessoa f)/i.test(String(f.tipoPessoa || "")) || (String(f.docNumero || "").replace(/\D/g, "").length === 11);
+  const valor = Number(f.valorMensal) || 0;
+  const promo = Number(f.mesesPromo) || 0;
+  const fid = Number(f.mesesFidelidade) || promo || 3;
+  const vig = Number(f.mesesVigencia) || fid;
+  let remun: string;
+  if (valor > 0 && promo > 0) remun = `Condição promocional. Pela prestação dos serviços, a CONTRATANTE pagará à CONTRATADA o valor mensal promocional de ${_fmtR(valor).replace("R$", "R$ ")} (${_valorExtenso(valor)}) durante os ${promo} (${_EXT_N[promo] || promo}) primeiros meses de vigência (período promocional).`;
+  else if (valor > 0) remun = `Pela prestação dos serviços, a CONTRATANTE pagará à CONTRATADA o valor mensal de ${_fmtR(valor).replace("R$", "R$ ")} (${_valorExtenso(valor)}), a título de honorários de gestão.`;
+  else { remun = `Pela prestação dos serviços, a CONTRATANTE pagará à CONTRATADA o valor mensal de R$ ${BLANK}.`; faltando.push("honorário mensal"); }
+  const now = _spNow();
+  const dataExt = `${now.getUTCDate()} de ${_MESES_PT[now.getUTCMonth()]} de ${now.getUTCFullYear()}`;
+  const map: Record<string, string> = {
+    RAZAO_SOCIAL: get(f.razaoSocial || f.nome, "razão social/nome"),
+    TIPO_PESSOA: isPF ? "pessoa física" : "pessoa jurídica de direito privado",
+    DOC_TIPO: isPF ? "CPF" : "CNPJ",
+    DOC_NUMERO: get(f.docNumero, isPF ? "CPF" : "CNPJ"),
+    ENDERECO: get(f.endereco, "endereço"),
+    EMAIL: get(f.email, "e-mail"),
+    TELEFONE: get(f.telefone, "telefone"),
+    REPRESENTANTE: get(f.representante, "representante"),
+    CPF_REPRESENTANTE: get(f.cpfRepresentante, "CPF do representante"),
+    TELEFONE_REPRESENTANTE: get(f.telefoneRepresentante || f.telefone, "telefone do representante"),
+    CLAUSULA_REMUNERACAO: remun,
+    MESES_FIDELIDADE: String(fid), MESES_FIDELIDADE_EXTENSO: _EXT_N[fid] || String(fid),
+    MESES_VIGENCIA: String(vig), MESES_VIGENCIA_EXTENSO: _EXT_N[vig] || String(vig),
+    DATA_EXTENSO: dataExt,
+  };
+  const text = String(tpl).replace(/\{\{(\w+)\}\}/g, (_m, k) => map[k] != null ? map[k] : "______");
+  return { text, faltando: [...new Set(faltando)] };
+}
+// tira caracteres fora do WinAnsi (Helvetica não codifica emoji etc.)
+function _winAnsi(s: string): string { return String(s || "").normalize("NFC").replace(/[•]/g, "•").replace(/[^\x20-\x7E\xA0-\xFF–—‘’“”•…]/g, ""); }
+// gera o PDF do contrato (layout limpo GT: título dourado, seções em negrito, rodapé com página)
+async function _contratoPdf(text: string): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const GOLD = rgb(0.72, 0.55, 0.12), INK = rgb(0.12, 0.12, 0.14), MUT = rgb(0.45, 0.45, 0.48);
+  const W = 595.28, H = 841.89, M = 56, LW = W - M * 2;
+  let page = doc.addPage([W, H]); let y = H - M;
+  const newPage = () => { page = doc.addPage([W, H]); y = H - M; };
+  const wrap = (s: string, f: any, size: number, width: number): string[] => {
+    const words = s.split(/\s+/); const out: string[] = []; let line = "";
+    for (const wd of words) { const t = line ? line + " " + wd : wd; if (f.widthOfTextAtSize(t, size) > width && line) { out.push(line); line = wd; } else line = t; }
+    if (line) out.push(line); return out;
+  };
+  const draw = (s: string, f: any, size: number, color: any, indent = 0, spacing = 4) => {
+    for (const ln of wrap(s, f, size, LW - indent)) {
+      if (y < M + 30) newPage();
+      page.drawText(ln, { x: M + indent, y, size, font: f, color });
+      y -= size + spacing;
+    }
+  };
+  // cabeçalho da marca (1ª página)
+  page.drawText("GT MARKETING", { x: M, y, size: 20, font: bold, color: GOLD }); y -= 16;
+  page.drawText("G E S T Ã O   D E   T R Á F E G O   D I G I T A L".normalize("NFC"), { x: M, y, size: 8, font, color: MUT }); y -= 26;
+  for (const raw of text.split("\n")) {
+    const line = _winAnsi(raw.trim());
+    if (!line) { y -= 6; continue; }
+    if (raw.startsWith("# ")) { y -= 4; draw(line.slice(2), bold, 14, INK, 0, 5); y -= 6; continue; }
+    if (raw.startsWith("## ")) { y -= 8; if (y < M + 60) newPage(); draw(line.slice(3), bold, 11, GOLD, 0, 4); y -= 2; continue; }
+    if (raw.trim().startsWith("•") || raw.trim().startsWith("•")) { draw(line, font, 10, INK, 14, 3.5); continue; }
+    draw(line, font, 10, INK, 0, 3.5);
+  }
+  // rodapé com nº da página
+  const pages = doc.getPages();
+  pages.forEach((p, i) => { p.drawText(`GT Marketing · página ${i + 1} de ${pages.length}`, { x: M, y: 30, size: 7.5, font, color: MUT }); });
+  return await doc.save();
+}
+// sobe o PDF pro Storage (bucket público docs; cria na primeira vez) e devolve a URL pública
+async function _uploadDoc(bytes: Uint8Array, path: string): Promise<string> {
+  const H = { Authorization: `Bearer ${_SB_KEY}`, apikey: _SB_KEY };
+  await fetch(`${_SB_URL}/storage/v1/bucket`, { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ id: "docs", name: "docs", public: true }) }).catch(() => null); // já existe → 400, ok
+  const up = await fetch(`${_SB_URL}/storage/v1/object/docs/${path}`, { method: "POST", headers: { ...H, "Content-Type": "application/pdf", "x-upsert": "true" }, body: bytes });
+  if (!up.ok) throw new Error("upload do PDF falhou: " + (await up.text()).slice(0, 200));
+  return `${_SB_URL}/storage/v1/object/public/docs/${path}`;
+}
+// manda um DOCUMENTO no WhatsApp via uazapi (tenta /send/media type=document; fallback /send/document)
+async function _waSendDoc(host: string, token: string, number: string, url: string, docName: string, caption = ""): Promise<boolean> {
+  try { const r = await waCall(host, token, "/send/media", "POST", { number, type: "document", file: url, docName, caption }); if (r.status >= 200 && r.status < 300) return true; } catch (_e) { /* */ }
+  try { const r = await waCall(host, token, "/send/document", "POST", { number, file: url, filename: docName, caption }); return r.status >= 200 && r.status < 300; } catch (_e) { return false; }
+}
+function _slugDoc(s: string) { return String(s || "cliente").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "cliente"; }
+// checklist de onboarding por canal (só cria as tarefas dos canais que o cliente vai trabalhar)
+const _ONB_GERAL: [string, number][] = [["Reunião de kickoff / alinhamento inicial", 1], ["Criar grupo de WhatsApp com o cliente", 1], ["Coletar acessos (BM, contas de anúncio, site, redes)", 2], ["Briefing completo / montar DNA do cliente", 3], ["Instalar pixel / configurar rastreamento", 5]];
+const _ONB_CANAL: Record<string, [string, number][]> = {
+  meta: [["Configurar conta de anúncios Meta", 3], ["Estruturar campanhas Meta (funil + públicos)", 5], ["Subir campanhas Meta", 7]],
+  google: [["Configurar conta Google Ads + ações de conversão", 3], ["Levantamento de palavras-chave (Google)", 5], ["Estruturar e subir campanhas Google", 7]],
+  tiktok: [["Configurar conta TikTok Ads", 3], ["Estruturar e subir campanhas TikTok", 7]],
+};
+function _canaisNorm(canais: any): string[] {
+  const arr = Array.isArray(canais) ? canais : String(canais || "").split(/[,e/&+]/);
+  const out: string[] = [];
+  for (const c of arr) { const s = String(c).toLowerCase(); if (/meta|face|insta/.test(s)) out.push("meta"); else if (/google|ads|pesquisa|youtube/.test(s)) out.push("google"); else if (/tik/.test(s)) out.push("tiktok"); }
+  return [...new Set(out)];
+}
+
+async function waAgentExec(pending: any, clientId: string | null, waCtx?: { host: string; token: string; number: string }) {
   const cid = pending.client_id || clientId;
   try {
     if (pending.tipo === "criar_tarefa") {
@@ -1812,6 +1944,55 @@ async function waAgentExec(pending: any, clientId: string | null) {
       if (d.error === "reconnect") return "⚠ Preciso de permissão de edição na Google Agenda — reconecte o Google no sistema.";
       if (d.error) return "❌ Não consegui excluir: " + d.error;
       return `🗑 Reunião cancelada: ${rows[0].name}.`;
+    }
+    // ===== PROCESSO CLIENTE NOVO =====
+    if (pending.tipo === "gerar_contrato") {
+      const { text, faltando } = await _contratoTexto(pending);
+      const bytes = await _contratoPdf(text);
+      const fname = `contrato-${_slugDoc(pending.razaoSocial || pending.nome)}-${Date.now()}.pdf`;
+      const url = await _uploadDoc(bytes, fname);
+      let sentDoc = false;
+      if (waCtx) sentDoc = await _waSendDoc(waCtx.host, waCtx.token, waCtx.number, url, `Contrato GT Marketing - ${pending.razaoSocial || pending.nome || "cliente"}.pdf`, "📄 Contrato pronto pra revisão e assinatura");
+      const falta = faltando.length ? `\n⚠ Ficaram em branco (preenche antes de assinar): *${faltando.join(", ")}*.` : "";
+      const link = sentDoc ? "" : `\n📎 Baixe aqui: ${url}`;
+      return `📄 *Contrato gerado!*${link}${falta}\n\n*Próximo passo:* quer que eu já *cadastre o cliente no sistema*? Me confirma (ou me passa) o *nicho*, a *verba de mídia mensal* e os *canais* (Meta/Google/TikTok) — se não tiver ainda, eu cadastro assim mesmo e você completa depois.`;
+    }
+    if (pending.tipo === "cadastrar_cliente") {
+      const nome = String(pending.nome || pending.razaoSocial || "").trim();
+      if (!nome) return "Qual o nome do cliente pra cadastrar?";
+      const dup = await sbGet("clients", `name=ilike.${encodeURIComponent(nome)}&select=id&limit=1`);
+      if (dup.length) return `Já existe um cliente "${nome}" no sistema — não dupliquei. Quer seguir pras *tarefas de onboarding* dele? Me confirma os canais (Meta/Google/TikTok) e o responsável.`;
+      const canais = _canaisNorm(pending.canais);
+      const chMap: Record<string, string> = { meta: "Meta Ads", google: "Google Ads", tiktok: "TikTok Ads" };
+      const row: Record<string, unknown> = { id: _wuid(), name: nome, seg: pending.nicho || "", status: "Ativo", fee: Number(pending.valorMensal || pending.fee) || 0, budget: Number(pending.verba) || 0, active_channels: canais.map((c) => chMap[c] || c), notes: "Criado via AndréIA (cliente novo)" + (pending.nicho ? "" : " — completar nicho") + (Number(pending.verba) ? "" : " — completar verba de mídia") };
+      const res = await sbInsertOk("clients", row);
+      if (!res.ok) return "❌ Não consegui cadastrar: " + res.err;
+      const faltou: string[] = [];
+      if (!pending.nicho) faltou.push("nicho");
+      if (!Number(pending.verba)) faltou.push("verba de mídia");
+      if (!canais.length) faltou.push("canais");
+      const faltaTxt = faltou.length ? `\n⚠ Faltou: *${faltou.join(", ")}* — completa depois no cadastro do sistema.` : "";
+      return `✅ Cliente *${nome}* cadastrado no sistema${pending.nicho ? ` · nicho: ${pending.nicho}` : ""}${Number(pending.verba) ? ` · verba: ${_fmtR(Number(pending.verba))}` : ""}${canais.length ? ` · canais: ${canais.map((c) => chMap[c]).join(" + ")}` : ""}.${faltaTxt}\n\n*Próximo passo:* quer que eu crie as *tarefas de onboarding*? Me confirma os *canais de mídia* que ele vai trabalhar (crio só as tarefas desses canais) e *quem é o responsável*.`;
+    }
+    if (pending.tipo === "criar_tarefas_onboarding") {
+      if (!cid) {
+        const nome = String(pending.cliente || pending.nome || "").trim();
+        if (nome) { const hit = await sbGet("clients", `name=ilike.*${encodeURIComponent(nome)}*&select=id&limit=1`); if (hit.length) pending.client_id = hit[0].id; }
+      }
+      const cid2 = pending.client_id || cid;
+      if (!cid2) return "De qual cliente são as tarefas de onboarding?";
+      const canais = _canaisNorm(pending.canais);
+      if (!canais.length) return "Quais canais esse cliente vai trabalhar? (Meta, Google, TikTok…) — crio só as tarefas desses canais.";
+      const team = await sbGet("team", "select=id,name");
+      let owner = "eu";
+      if (pending.responsavel) { const q = String(pending.responsavel).toLowerCase(); const tm = team.find((t: any) => t.name.toLowerCase() === q) || team.find((t: any) => t.name.toLowerCase().includes(q)); if (tm) owner = tm.id; }
+      const base = _spNow(); const dueDay = (d: number) => { const dt = new Date(base.getTime() + d * 864e5); return dt.toISOString().slice(0, 10); };
+      const lista: [string, number][] = [..._ONB_GERAL, ...canais.flatMap((c) => _ONB_CANAL[c] || [])];
+      let n = 0;
+      for (const [nomeT, dias] of lista) { const r = await sbInsertOk("tasks", { id: _wuid(), name: nomeT, client: cid2, owner, status: "todo", prio: "media", notes: "Onboarding (via AndréIA)", due: dueDay(dias) }); if (r.ok) n++; }
+      const cn = await _waClientNome(cid2);
+      const chMap: Record<string, string> = { meta: "Meta", google: "Google", tiktok: "TikTok" };
+      return `✅ *${n} tarefas de onboarding* criadas${cn ? ` pro cliente ${cn}` : ""} (${canais.map((c) => chMap[c]).join(" + ")}), distribuídas nos próximos 7 dias.\n\n*Pra fechar o processo:* quer que eu crie o *lançamento financeiro* (fee mensal) desse cliente? Me diz o valor e o vencimento — ou "não" pra encerrar.`;
     }
   } catch (e) { return "❌ Não consegui executar: " + String((e as any)?.message || e); }
   return "Feito 👍";
@@ -2084,7 +2265,7 @@ const WA_TOOLS = [
   { type: "function", function: { name: "crm_funil", description: "Funil do CRM (WhatsApp) de UM cliente: leads por etapa (novo/MQL/SQL/comprou), taxa de qualificação, vendas e origem (anúncio×orgânico). USE quando pedirem sobre leads, funil, qualificação, atendimento ou conversas do cliente.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer", description: "padrão 30" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "reunioes", description: "REUNIÕES/compromissos da AGENDA (Google Agenda), que é DIFERENTE de tarefa operacional. USE isto quando perguntarem sobre reuniões, agenda, compromissos, calls. NÃO liste tarefas comuns aqui.", parameters: { type: "object", properties: { quando: { type: "string", description: "'hoje', 'amanha', 'semana' ou vazio (padrão hoje)" }, data: { type: "string", description: "data específica AAAA-MM-DD (opcional)" } } } } },
   { type: "function", function: { name: "financeiro", description: "Consulta financeira com TOTAL e itens já com o nome do cliente resolvido e a soma correta. USE ISSO pra qualquer pergunta de dinheiro (a receber, a pagar, recebido, pago, fluxo do mês).", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["receita", "despesa"] }, status: { type: "string", enum: ["pendente", "pago"] }, mes: { type: "string", description: "AAAA-MM, ex: 2026-07" }, cliente: { type: "string" } } } } },
-  { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM). Para criar_tarefa, o RESPONSÁVEL (quem faz) e o QUANDO (data) são obrigatórios — se o usuário não disser, PERGUNTE antes.", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "criar_reuniao", "cancelar_reuniao", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"] }, cliente: { type: "string" }, nome: { type: "string", description: "título da tarefa OU da reunião (pra cancelar_reuniao, o título/pedaço do nome da reunião a cancelar). NÃO inclua 'urgente' nem 'revisão' no título — use os campos próprios." }, responsavel: { type: "string", description: "nome de quem vai fazer a tarefa (membro da equipe)" }, quando: { type: "string", description: "data em AAAA-MM-DD (calcule 'amanhã', 'sexta' etc. a partir de hoje) — usada por tarefa e reunião" }, hora: { type: "string", description: "horário da reunião em HH:MM (opcional)" }, urgente: { type: "boolean", description: "true se a tarefa foi pedida como URGENTE — marca a flag de urgência (NÃO escreva 'urgente' no título/obs)" }, revisao: { type: "boolean", description: "true se pediram para SOLICITAR REVISÃO da tarefa — marca a flag de revisão (NÃO escreva 'revisão' no título/obs)" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
+  { type: "function", function: { name: "preparar_acao", description: "Prepara uma AÇÃO de alto impacto pra CONFIRMAÇÃO (NÃO executa agora — o sistema pede SIM). Para criar_tarefa, o RESPONSÁVEL (quem faz) e o QUANDO (data) são obrigatórios — se o usuário não disser, PERGUNTE antes.", parameters: { type: "object", properties: { tipo: { type: "string", enum: ["criar_tarefa", "criar_reuniao", "cancelar_reuniao", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa", "gerar_contrato", "cadastrar_cliente", "criar_tarefas_onboarding"] }, cliente: { type: "string" }, razaoSocial: { type: "string", description: "razão social/nome do CONTRATANTE (gerar_contrato)" }, docNumero: { type: "string", description: "CNPJ ou CPF do contratante" }, endereco: { type: "string" }, email: { type: "string" }, telefone: { type: "string" }, representante: { type: "string" }, cpfRepresentante: { type: "string" }, telefoneRepresentante: { type: "string" }, valorMensal: { type: "number", description: "honorário mensal em R$ (contrato/fee)" }, mesesPromo: { type: "number", description: "meses de condição promocional (0 se não houver)" }, mesesFidelidade: { type: "number" }, nicho: { type: "string" }, verba: { type: "number", description: "verba de mídia mensal em R$" }, canais: { type: "array", items: { type: "string" }, description: "canais de mídia do cliente: meta, google, tiktok" }, nome: { type: "string", description: "título da tarefa OU da reunião (pra cancelar_reuniao, o título/pedaço do nome da reunião a cancelar). NÃO inclua 'urgente' nem 'revisão' no título — use os campos próprios." }, responsavel: { type: "string", description: "nome de quem vai fazer a tarefa (membro da equipe)" }, quando: { type: "string", description: "data em AAAA-MM-DD (calcule 'amanhã', 'sexta' etc. a partir de hoje) — usada por tarefa e reunião" }, hora: { type: "string", description: "horário da reunião em HH:MM (opcional)" }, urgente: { type: "boolean", description: "true se a tarefa foi pedida como URGENTE — marca a flag de urgência (NÃO escreva 'urgente' no título/obs)" }, revisao: { type: "boolean", description: "true se pediram para SOLICITAR REVISÃO da tarefa — marca a flag de revisão (NÃO escreva 'revisão' no título/obs)" }, obs: { type: "string" }, campanha: { type: "string" }, novoValor: { type: "number" }, natureza: { type: "string", enum: ["receita", "despesa"] }, descricao: { type: "string" }, valor: { type: "number" }, vencimento: { type: "string" } }, required: ["tipo"] } } },
 ];
 const WA_MENU_TEXT = `🤖 *AndréIA — o que posso fazer aqui no grupo:*
 
@@ -2112,6 +2293,9 @@ const WA_MENU_TEXT = `🤖 *AndréIA — o que posso fazer aqui no grupo:*
 ✅ *Operacional*
 • _Pendências operacionais_ / _Tarefas em aberto do [cliente]_
 • _Cria uma tarefa pro [responsável] em [cliente] pra [data]: …_
+
+🆕 *Cliente novo*
+• _Cliente novo: [nome + dados]_ → processo completo: contrato em PDF → cadastro no sistema → tarefas por canal → financeiro (confirmo cada etapa)
 
 ⚙️ *Campanhas* (peço confirmação antes)
 • _Pausa / reativa / duplica a campanha [nome]_
@@ -2337,6 +2521,9 @@ function _waConfirmText(p: any, clients: any[]) {
   if (p.tipo === "duplicar_campanha") return `${cli}Duplicar a campanha "${p.campanha || ""}" (cópia pausada). Confirma?`;
   if (p.tipo === "criar_lancamento") return `${cli}Criar lançamento ${p.natureza || "receita"} de R$${p.valor} — ${p.descricao || ""} (venc. ${p.vencimento || "hoje"}). Confirma?`;
   if (p.tipo === "dar_baixa") return `${cli}Dar baixa (marcar como pago) no lançamento "${p.descricao || ""}". Confirma?`;
+  if (p.tipo === "gerar_contrato") { const v = Number(p.valorMensal) || 0; const promo = Number(p.mesesPromo) || 0; return `📄 Gerar o *CONTRATO* em PDF pra *${p.razaoSocial || p.nome || "?"}*${v ? ` — honorário ${_fmtR(v)}/mês` : ""}${promo ? ` (promocional nos ${promo} primeiros meses)` : ""}${p.mesesFidelidade ? ` · fidelidade ${p.mesesFidelidade} meses` : ""}. Te mando o PDF aqui. Confirma?`; }
+  if (p.tipo === "cadastrar_cliente") { const canais = _canaisNorm(p.canais); return `🗂 Cadastrar o cliente *${p.nome || p.razaoSocial || "?"}* no sistema${p.nicho ? ` · nicho: ${p.nicho}` : ""}${Number(p.verba) ? ` · verba: ${_fmtR(Number(p.verba))}` : ""}${Number(p.valorMensal || p.fee) ? ` · fee: ${_fmtR(Number(p.valorMensal || p.fee))}` : ""}${canais.length ? ` · canais: ${canais.join(" + ")}` : ""}. Confirma?`; }
+  if (p.tipo === "criar_tarefas_onboarding") { const canais = _canaisNorm(p.canais); return `📋 Criar as *tarefas de onboarding*${cli ? ` de ${cli.replace("[", "").replace("] ", "")}` : ""} pros canais *${canais.length ? canais.join(" + ") : "?"}*${p.responsavel ? ` (resp. ${p.responsavel})` : ""} — checklist geral + as atividades específicas de cada canal, distribuídas nos próximos 7 dias. Confirma?`; }
   return `${cli}Confirma a ação?`;
 }
 // baixa uma URL e devolve base64 (para anexar PDF à IA)
@@ -2444,7 +2631,7 @@ async function waAgentHandle(w: any) {
     const tl = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[\s.!,]+/g, " ").trim();
     const isYes = /^(sim|s|ss|isso|isso mesmo|pode|pode sim|confirmo|confirmado|confirmar|ok|okay|blz|beleza|claro|positivo|certo|faz|fazer|manda|manda ver|vai|bora|com certeza|👍|✅)$/.test(tl);
     const isNo = /^(nao|n|cancela|cancelar|deixa|esquece|para|negativo|nem|melhor nao)$/.test(tl);
-    if (isYes) { const msg = await waAgentExec(sess.pending, sess.client_id); await saveSess({ pending: null, last_msgid: w.msgid }); await send(msg); return { ok: true }; }
+    if (isYes) { const msg = await waAgentExec(sess.pending, sess.client_id, { host: inst.uaz_host, token: inst.uaz_token, number: dest }); await saveSess({ pending: null, last_msgid: w.msgid }); await send(msg); return { ok: true }; }
     if (isNo) { await saveSess({ pending: null, last_msgid: w.msgid }); await send("Ok, cancelei 👍"); return { ok: true }; }
   }
   // menu de comandos
@@ -2493,6 +2680,13 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
 - (assist.): vendas/compras/ROAS/CPA POR CAMPANHA vêm do GERENCIADOR (pixel), não da planilha — ao mostrá-las escreva "(assist.)" ao lado do número (ex: "Compras 12 (assist.) · ROAS 3,1 (assist.)"), porque a venda REAL da agência vem da planilha e o pixel não divide venda por campanha. No consolidado do cliente que usa planilha, a venda é a real (sem "(assist.)").
 - Para AÇÕES (criar tarefa, criar/cancelar reunião na agenda, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao. Reunião: passe o título em 'nome', o dia em 'quando' (AAAA-MM-DD) e o horário em 'hora' (HH:MM) se disser. Cliente é opcional em reunião. — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
 - CRIAR TAREFA: o RESPONSÁVEL (quem vai fazer) e a DATA são OBRIGATÓRIOS. Se o usuário não informar os dois, PERGUNTE (não invente responsável nem data, não assuma você mesma). Passe 'responsavel' (nome da pessoa) e 'quando' já como data ISO AAAA-MM-DD — calcule "amanhã", "hoje", "sexta" a partir de hoje. Urgência e revisão são OPCIONAIS: só marque urgente=true se a mensagem disser explicitamente que é urgente, e revisao=true só se pedir revisão. **NUNCA pergunte se é urgente ou se precisa de revisão** — se a pessoa não citou, crie a tarefa normalmente SEM essas flags e sem perguntar nada sobre isso. (E não escreva "urgente"/"revisão" no título/obs — são só flags.)
+- 🆕 PROCESSO DE CLIENTE NOVO (inicialização de contrato — processo FECHADO, sempre nesta ordem, UMA etapa por vez, SEMPRE confirmando antes de cada uma):
+  Quando disserem "cliente novo" (ou fechamos um cliente/contrato) + dados, PRIMEIRO pergunte: "Quer que eu inicie o processo de cliente novo? (contrato → cadastro → tarefas → financeiro)". Confirmado, siga:
+  1) CONTRATO: junte os dados do CONTRATANTE (razão social/nome, CNPJ ou CPF, endereço, e-mail, telefone, representante e CPF dele) + condições (honorário mensal, meses promocionais se houver, fidelidade). Pergunte SÓ o que faltar em UMA mensagem; se a pessoa disser que não tem, siga assim mesmo (fica em branco no PDF). Aí chame preparar_acao tipo=gerar_contrato com os campos — o sistema gera o PDF e envia aqui.
+  2) CADASTRO: depois do contrato, pergunte se quer cadastrar o cliente no sistema; peça nicho, verba de mídia e canais se não tiver — sem esses dados, cadastre mesmo assim (o sistema avisa pra completar depois). preparar_acao tipo=cadastrar_cliente {nome, nicho, verba, valorMensal, canais}.
+  3) TAREFAS: pergunte se cria as tarefas de onboarding e CONFIRME os CANAIS que o cliente vai trabalhar (meta/google/tiktok) + o responsável — as tarefas criadas são SÓ dos canais confirmados. preparar_acao tipo=criar_tarefas_onboarding {cliente, canais, responsavel}.
+  4) FINANCEIRO: por fim pergunte se quer criar o lançamento (fee mensal) — preparar_acao tipo=criar_lancamento. Se disser não, encerre com um resumo do que foi feito.
+  Nunca pule etapa nem execute duas de uma vez; cada etapa passa pela confirmação (SIM) do sistema.
 - DINHEIRO/FINANCEIRO: para QUALQUER pergunta de valores (a receber, a pagar, recebido, pago, fluxo do mês) use a ferramenta **financeiro** — ela já devolve o TOTAL correto e os ITENS com o nome certo do cliente. "a receber" = {tipo:'receita',status:'pendente'}; "a pagar" = {tipo:'despesa',status:'pendente'}; "este mês" = mes:'${new Date().toISOString().slice(0, 7)}'. NUNCA some você mesma nem adivinhe o nome do cliente — use os campos 'total' e 'itens' que a ferramenta retorna, exatamente.
 - Datas: hoje é ${new Date().toISOString().slice(0, 10)}. Ao filtrar por um cliente específico use o id dele (está na lista abaixo entre colchetes, ou consulte a tabela clients). Clientes: ${clients.slice(0, 150).map((c: any) => `${c.name}[${c.id}]`).join(" | ")}.`;
   const hist0 = ((sess && sess.history) || []).slice(-8).map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text }));
@@ -2515,7 +2709,7 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
             if (rc) cid = rc.id;
             else reply = `🤔 Não achei o cliente "${args.cliente}" no sistema. Confere o nome pra mim? (se quiser, peço a lista de clientes)`;
           }
-          const semCliente = args.tipo === "criar_reuniao" || args.tipo === "cancelar_reuniao";
+          const semCliente = args.tipo === "criar_reuniao" || args.tipo === "cancelar_reuniao" || args.tipo === "gerar_contrato" || args.tipo === "cadastrar_cliente" || args.tipo === "criar_tarefas_onboarding";
           if (!reply && !cid && !semCliente) reply = "De qual cliente é essa ação? Me diz o nome do cliente.";
           // REUNIÃO: exige data pra criar; cliente é opcional
           if (!reply && args.tipo === "criar_reuniao") {
@@ -2957,6 +3151,13 @@ Deno.serve(async (req) => {
     if (body.googleTermMining) {
       const r = await googleTermMining(body.googleTermMining);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // Gera o contrato (teste/uso direto pelo sistema): devolve a URL do PDF sem enviar no WhatsApp
+    if (body.contratoPdf) {
+      const { text, faltando } = await _contratoTexto(body.contratoPdf);
+      const bytes = await _contratoPdf(text);
+      const url = await _uploadDoc(bytes, `contrato-${_slugDoc(body.contratoPdf.razaoSocial || body.contratoPdf.nome)}-${Date.now()}.pdf`);
+      return new Response(JSON.stringify({ data: { url, faltando } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     // Áudio (gravado no navegador) → texto, pra ditar a orientação da IA (garimpo/limpeza)
     if (body.transcribe) {
