@@ -3370,6 +3370,9 @@ function rxDrawCharts(rep,dominant){
 function rxShareHTML(){alert('Exportar do Raio-X vem junto com a fase da IA (resumo + confronto). Por ora use o 📤 Compartilhar do Dashboard.');}
 /* ================= RASTREAMENTO (pixel + links + jornada do lead) ================= */
 const TRACK_BASE=SUPA_URL+'/functions/v1/tracking';
+// Domínio próprio (Cloudflare Worker → tracking) só pro que o CLIENTE vê: pixel e links rastreáveis.
+// Espelha /functions/v1/tracking, então o caminho é a raiz. Callbacks internos (google/rd/nuvemshop) ficam no supabase.
+const PIXEL_BASE='https://pixel.gt-marketing.app.br';
 let _rastClientId='';
 function _rastEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 async function loadRastreamento(clientId){
@@ -3401,7 +3404,7 @@ async function loadRastreamento(clientId){
     const lastTxt=last&&last[0]?new Date(last[0].created_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
     const clicksBySlug={};lcEv.forEach(e=>{if(e.link_slug)clicksBySlug[e.link_slug]=(clicksBySlug[e.link_slug]||0)+1});
     const active=pv>0;
-    const snippet='<script src="'+TRACK_BASE+'/pixel/script/'+cfg.token+'.js" async></'+'script>';
+    const snippet='<script src="'+PIXEL_BASE+'/pixel/script/'+cfg.token+'.js" async></'+'script>';
 
     const tile=(icon,val,lbl,col)=>`<div style="flex:1;min-width:120px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 14px">
       <div style="font-size:11px;color:var(--muted)">${icon} ${lbl}</div>
@@ -3434,7 +3437,7 @@ async function loadRastreamento(clientId){
 
     // ---- Card 2: Links de Tracking ----
     const linkRows=links.length?links.map(l=>{
-      const url=TRACK_BASE+'/l/'+c.id+'/'+l.slug;
+      const url=PIXEL_BASE+'/l/'+c.id+'/'+l.slug;
       const kindIcon=l.kind==='wpp'?'💬':l.kind==='bio'?'📸':l.kind==='site'?'🌐':'🔗';
       return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05)">
         <span style="font-size:16px">${kindIcon}</span>

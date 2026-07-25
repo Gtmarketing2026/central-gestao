@@ -130,7 +130,8 @@ function clip(s: unknown, n = 400) { const v = s == null ? null : String(s); ret
 function pixelScript(cid: string, base: string) {
   return `(function(){
 "use strict";
-var CID=${JSON.stringify(cid)},BASE=${JSON.stringify(base)};
+var CID=${JSON.stringify(cid)},_FB=${JSON.stringify(base)};
+var BASE=(function(){try{var s=document.currentScript;if(!s){var a=document.getElementsByTagName('script');s=a[a.length-1]}var u=(s&&s.src)||'';var m=u.replace(/\\/pixel\\/script\\/[^/]*$/,'');return (m&&m!==u)?m:_FB}catch(e){return _FB}})();
 function q(n){try{return new URLSearchParams(location.search).get(n)||''}catch(e){return ''}}
 function ck(n,v,d){if(v===undefined){var m=document.cookie.match('(^|;)\\\\s*'+n+'\\\\s*=\\\\s*([^;]+)');return m?m.pop():''}var e=new Date();e.setTime(e.getTime()+(d||365)*864e5);document.cookie=n+'='+v+';path=/;expires='+e.toUTCString()+';SameSite=Lax'}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,10)}
