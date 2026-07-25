@@ -2087,7 +2087,33 @@ async function pubEngOpen(){
   pubEngRender();
 }
 function _pubSrcAvail(k){const s=_pubSources||{};if(k==='pixel')return s.pixels||[];if(k==='facebook')return s.pages||[];if(k==='instagram')return s.igs||[];if(k==='video')return s.videos||[];if(k==='form')return s.forms||[];return[];}
-function pubEngToggleSrc(k){if(_pubEng.src[k]){delete _pubEng.src[k];}else{const av=_pubSrcAvail(k);if(!av.length){alert('Nenhuma fonte "'+k+'" encontrada nessa conta (pode faltar permissão de página/IG no token).');return;}_pubEng.src[k]={};if(k==='video'){_pubEng.src[k]['P25']=1;_pubEng.videoIds={};av.forEach(v=>_pubEng.videoIds[v.id]=1);}else{(PUB_EV[k]||[]).forEach(([ev])=>_pubEng.src[k][ev]=1);}if(!_pubEng.srcId[k])_pubEng.srcId[k]=av[0].id;}pubEngRender();}
+function pubEngToggleSrc(k){
+  if(_pubEng.src[k]){delete _pubEng.src[k];pubEngRender();return;}
+  const lazy=(k==='video'||k==='form');
+  // vídeos/formulários carregam SOB DEMANDA (pesados) — habilita e dispara o carregamento
+  if(lazy&&_pubSources&&!_pubSources._mediaLoaded){
+    _pubEng.src[k]={};if(k==='video')_pubEng.src[k]['P25']=1;else (PUB_EV[k]||[]).forEach(([ev])=>_pubEng.src[k][ev]=1);
+    pubEngLoadMedia();pubEngRender();return;
+  }
+  const av=_pubSrcAvail(k);if(!av.length){alert(lazy?('Nenhum '+(k==='video'?'vídeo':'formulário')+' encontrado nas páginas/IG do cliente.'):'Nenhuma fonte "'+k+'" encontrada nessa conta (pode faltar permissão de página/IG no token).');return;}
+  _pubEng.src[k]={};
+  if(k==='video'){_pubEng.src[k]['P25']=1;_pubEng.videoIds={};av.forEach(v=>_pubEng.videoIds[v.id]=1);}
+  else{(PUB_EV[k]||[]).forEach(([ev])=>_pubEng.src[k][ev]=1);}
+  if(!_pubEng.srcId[k])_pubEng.srcId[k]=av[0].id;
+  pubEngRender();
+}
+async function pubEngLoadMedia(){
+  if(!_pubSources||_pubSources._mediaLoaded||_pubSources._mediaLoading)return;
+  _pubSources._mediaLoading=true;pubEngRender();
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAudienceMedia:{pages:(_pubSources.pages||[]).map(p=>({id:p.id,account:p.account})),igs:(_pubSources.igs||[]).map(g=>({id:g.id,account:g.account}))}}});
+    if(error)throw error;const d=(data&&data.data)||data;
+    _pubSources.videos=d.videos||[];_pubSources.forms=d.forms||[];
+  }catch(e){_pubSources.videos=[];_pubSources.forms=[];_pubSources._mediaErr=e.message||String(e);}
+  _pubSources._mediaLoaded=true;_pubSources._mediaLoading=false;
+  if(_pubEng.src.video){_pubEng.videoIds={};(_pubSources.videos||[]).forEach(v=>_pubEng.videoIds[v.id]=1);} // seleciona todos por padrão após carregar
+  pubEngRender();
+}
 function pubEngToggleEv(k,ev){if(!_pubEng.src[k])return;if(_pubEng.src[k][ev])delete _pubEng.src[k][ev];else _pubEng.src[k][ev]=1;pubEngRender();}
 function pubEngSetId(k,id){_pubEng.srcId[k]=id;}
 function pubEngToggleRet(w){if(_pubEng.ret[w])delete _pubEng.ret[w];else _pubEng.ret[w]=1;pubEngRender();}
@@ -2108,9 +2134,11 @@ function pubEngAllVideos(on){const vis=_pubVidsByPlat();if(on){vis.forEach(v=>_p
 function pubEngRender(){
   const c=_pubClient();const combos=_pubEngCombos();
   const _vidRow=v=>`<label style="display:flex;align-items:center;gap:7px;padding:4px 5px;font-size:11.5px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.03)"><input type="checkbox" ${_pubEng.videoIds&&_pubEng.videoIds[v.id]?'checked':''} onchange="pubEngToggleVideo('${v.id}')" style="width:auto;flex:none">${v.thumb?`<img src="${v.thumb}" referrerpolicy="no-referrer" style="width:40px;height:40px;object-fit:cover;border-radius:5px;flex:none;background:#111">`:'<div style="width:40px;height:40px;border-radius:5px;background:#1a1a22;display:flex;align-items:center;justify-content:center;flex:none">🎬</div>'}<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.platform==='ig'?'📸 ':''}${(v.name||v.id).replace(/</g,'&lt;')}${v.len?` <span style="color:var(--faint)">· ${Math.floor(v.len/60)}:${String(v.len%60).padStart(2,'0')}</span>`:''}</span>${v.url?`<a href="${v.url}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Ver o vídeo" style="flex:none;text-decoration:none">🔗</a>`:''}</label>`;
-  const srcCard=s=>{const on=!!_pubEng.src[s.k];const av=_pubSrcAvail(s.k);const evs=PUB_EV[s.k]||[];
+  const _mLoading=_pubSources&&_pubSources._mediaLoading;
+  const srcCard=s=>{const on=!!_pubEng.src[s.k];const av=_pubSrcAvail(s.k);const evs=PUB_EV[s.k]||[];const lazy=(s.k==='video'||s.k==='form');
     let cfg='';
-    if(on&&s.k==='video'){
+    if(on&&lazy&&_mLoading){cfg='<div style="padding:10px;color:var(--faint);font-size:11.5px">⏳ Carregando '+(s.k==='video'?'vídeos (FB + Instagram)':'formulários')+'…</div>';}
+    else if(on&&s.k==='video'){
       const all=av,vis=_pubVidsByPlat();const fbN=all.filter(v=>v.platform!=='ig').length,igN=all.filter(v=>v.platform==='ig').length;const selN=Object.keys(_pubEng.videoIds||{}).filter(id=>_pubEng.videoIds[id]).length;
       const pb=(p,l,n)=>`<button class="btn xs ${(_pubEng.vidPlat||'all')===p?'primary':'ghost'}" onclick="pubEngVidPlat('${p}')">${l} ${n}</button>`;
       const plat=`<div style="display:flex;gap:4px;margin-bottom:6px">${pb('all','Todos',all.length)}${fbN?pb('fb','📘 FB',fbN):''}${igN?pb('ig','📸 IG',igN):''}</div>`;
@@ -2120,7 +2148,7 @@ function pubEngRender(){
       cfg=`<select onchange="pubEngSetId('${s.k}',this.value)" style="width:100%;font-size:12px;margin-bottom:8px">${av.map(x=>`<option value="${x.id}" ${_pubEng.srcId[s.k]===x.id?'selected':''}>${(x.name||x.id).replace(/</g,'&lt;')}</option>`).join('')}</select>`;
     }
     return `<div style="border:1px solid ${on?'var(--accent)':'var(--border)'};border-radius:12px;padding:12px;background:var(--surface2)">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px"><input type="checkbox" ${on?'checked':''} onchange="pubEngToggleSrc('${s.k}')" style="width:auto">${s.ico} ${s.lbl} <span style="font-weight:400;color:var(--faint);font-size:11px">${av.length} fonte(s) · max ${s.max}d</span></label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px"><input type="checkbox" ${on?'checked':''} onchange="pubEngToggleSrc('${s.k}')" style="width:auto">${s.ico} ${s.lbl} <span style="font-weight:400;color:var(--faint);font-size:11px">${(lazy&&!(_pubSources&&_pubSources._mediaLoaded))?(_mLoading?'carregando…':'clique p/ carregar'):av.length+' fonte(s)'} · max ${s.max}d</span></label>
       ${on?`<div style="margin-top:10px">${cfg}<div style="display:flex;flex-wrap:wrap;gap:5px">${evs.map(([ev,l])=>`<button class="btn xs ${_pubEng.src[s.k][ev]?'primary':'ghost'}" onclick="pubEngToggleEv('${s.k}','${ev}')">${l}</button>`).join('')}</div></div>`:''}
     </div>`;};
   _pubOverlay(`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><h3 style="margin:0">⚡ Engagement em massa</h3><button class="btn sm ghost" onclick="pubClose()">✕</button></div>

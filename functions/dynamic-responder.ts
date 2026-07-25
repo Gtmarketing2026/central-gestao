@@ -714,19 +714,17 @@ async function metaAudiences(m: any) {
   const accounts = (Array.isArray(m.accounts) ? m.accounts : []).map((a: any) => ({ id: String(a.id).replace(/^act_/, ""), name: a.name || "" }));
   if (!accounts.length) throw new Error("accounts obrigatorio");
   const out: any[] = []; const errors: string[] = [];
-  for (const acc of accounts) {
-    try {
-      const r = await fetch(`${base}/act_${acc.id}/customaudiences?fields=id,name,subtype,approximate_count_lower_bound,approximate_count_upper_bound,retention_days,operation_status,description&limit=1000&access_token=${token}`);
-      const j = await r.json();
-      if (j.error) errors.push(`${acc.name || acc.id}: ${j.error.message}`);
-      else (j.data || []).forEach((a: any) => out.push({ id: a.id, name: a.name || "(sem nome)", subtype: a.subtype || "", lo: a.approximate_count_lower_bound ?? null, hi: a.approximate_count_upper_bound ?? null, retention: a.retention_days ?? null, status: (a.operation_status && a.operation_status.description) || "", account: acc.name || acc.id, kind: _audKind(a.subtype) }));
-    } catch (e) { errors.push(`${acc.name || acc.id}: ${String((e as any)?.message || e)}`); }
-    try {
-      const r2 = await fetch(`${base}/act_${acc.id}/saved_audiences?fields=id,name,approximate_count_lower_bound,approximate_count_upper_bound&limit=500&access_token=${token}`);
-      const j2 = await r2.json();
-      if (!j2.error) (j2.data || []).forEach((a: any) => out.push({ id: a.id, name: a.name || "(sem nome)", subtype: "SAVED", lo: a.approximate_count_lower_bound ?? null, hi: a.approximate_count_upper_bound ?? null, account: acc.name || acc.id, kind: "interesse" }));
-    } catch (_e) { /* saved audiences é opcional */ }
-  }
+  const getJson = async (url: string) => { try { const r = await fetch(url); return await r.json(); } catch (e) { return { error: { message: String((e as any)?.message || e) } }; } };
+  // custom + saved de TODAS as contas em paralelo
+  await Promise.all(accounts.flatMap((acc: any) => [
+    getJson(`${base}/act_${acc.id}/customaudiences?fields=id,name,subtype,approximate_count_lower_bound,approximate_count_upper_bound,retention_days,operation_status,description&limit=1000&access_token=${token}`).then((j: any) => {
+      if (j && j.error) errors.push(`${acc.name || acc.id}: ${j.error.message}`);
+      else if (j) (j.data || []).forEach((a: any) => out.push({ id: a.id, name: a.name || "(sem nome)", subtype: a.subtype || "", lo: a.approximate_count_lower_bound ?? null, hi: a.approximate_count_upper_bound ?? null, retention: a.retention_days ?? null, status: (a.operation_status && a.operation_status.description) || "", account: acc.name || acc.id, kind: _audKind(a.subtype) }));
+    }),
+    getJson(`${base}/act_${acc.id}/saved_audiences?fields=id,name,approximate_count_lower_bound,approximate_count_upper_bound&limit=500&access_token=${token}`).then((j: any) => {
+      if (j && !j.error) (j.data || []).forEach((a: any) => out.push({ id: a.id, name: a.name || "(sem nome)", subtype: "SAVED", lo: a.approximate_count_lower_bound ?? null, hi: a.approximate_count_upper_bound ?? null, account: acc.name || acc.id, kind: "interesse" }));
+    }),
+  ]));
   return { audiences: out, errors: errors.length ? errors : undefined };
 }
 // Fontes pra criar públicos de engajamento: pixels, páginas, contas IG, vídeos, formulários.
@@ -735,20 +733,31 @@ async function metaAudienceSources(m: any) {
   const base = "https://graph.facebook.com/v21.0";
   const accounts = (Array.isArray(m.accounts) ? m.accounts : []).map((a: any) => ({ id: String(a.id).replace(/^act_/, ""), name: a.name || "" }));
   const out: any = { pixels: [], pages: [], igs: [], videos: [], forms: [] };
-  for (const acc of accounts) {
-    try { const r = await fetch(`${base}/act_${acc.id}/adspixels?fields=id,name&limit=50&access_token=${token}`); const j = await r.json(); if (!j.error) (j.data || []).forEach((p: any) => out.pixels.push({ id: p.id, name: p.name || p.id, account: acc.id })); } catch (_e) { /* */ }
-    try { const r = await fetch(`${base}/act_${acc.id}/promote_pages?fields=id,name&limit=50&access_token=${token}`); const j = await r.json(); if (!j.error) (j.data || []).forEach((p: any) => { if (!out.pages.some((x: any) => x.id === p.id)) out.pages.push({ id: p.id, name: p.name || p.id, account: acc.id }); }); } catch (_e) { /* */ }
-    // IG: vem da CONTA DE ANÚNCIO direto (não precisa de page token, que o token de usuário não tem)
-    try { const r = await fetch(`${base}/act_${acc.id}/instagram_accounts?fields=id,username,name&limit=50&access_token=${token}`); const j = await r.json(); if (!j.error) (j.data || []).forEach((ig: any) => { if (ig.id && !out.igs.some((x: any) => x.id === ig.id)) out.igs.push({ id: ig.id, name: "@" + (ig.username || ig.name || ig.id), account: acc.id }); }); } catch (_e) { /* */ }
-  }
-  for (const pg of out.pages.slice(0, 10)) {
-    try { const r = await fetch(`${base}/${pg.id}/videos?fields=id,title,description,length,created_time,picture,permalink_url&limit=50&access_token=${token}`); const j = await r.json(); if (!j.error) (j.data || []).forEach((v: any) => out.videos.push({ id: v.id, name: v.title || (v.description ? String(v.description).slice(0, 45) : "") || (v.created_time ? v.created_time.slice(0, 10) : v.id), page: pg.id, account: pg.account, thumb: v.picture || "", url: v.permalink_url ? (String(v.permalink_url).startsWith("http") ? v.permalink_url : "https://www.facebook.com" + v.permalink_url) : ("https://www.facebook.com/" + v.id), len: v.length ? Math.round(v.length) : null, created: v.created_time || "", platform: "fb" })); } catch (_e) { /* */ }
-    try { const r = await fetch(`${base}/${pg.id}/leadgen_forms?fields=id,name&limit=50&access_token=${token}`); const j = await r.json(); if (!j.error) (j.data || []).forEach((f: any) => out.forms.push({ id: f.id, name: f.name || f.id, page: pg.id, account: pg.account })); } catch (_e) { /* */ }
-  }
-  // vídeos/reels do INSTAGRAM (context_id = a própria conta IG)
-  for (const ig of out.igs.slice(0, 5)) {
-    try { const r = await fetch(`${base}/${ig.id}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,permalink&limit=50&access_token=${token}`); const j = await r.json(); if (!j.error) (j.data || []).filter((x: any) => /VIDEO|REEL/i.test(x.media_type || "") || /REEL/i.test(x.media_product_type || "")).forEach((v: any) => out.videos.push({ id: v.id, name: v.caption ? String(v.caption).slice(0, 45) : (v.media_product_type === "REELS" ? "Reel" : "Vídeo IG"), page: ig.id, account: ig.account, thumb: v.thumbnail_url || "", url: v.permalink || "", platform: "ig" })); } catch (_e) { /* */ }
-  }
+  const getJson = async (url: string) => { try { const r = await fetch(url); return await r.json(); } catch { return null; } };
+  // Fase 1 — pixels + páginas + IG de TODAS as contas, tudo em paralelo
+  await Promise.all(accounts.flatMap((acc: any) => [
+    getJson(`${base}/act_${acc.id}/adspixels?fields=id,name&limit=50&access_token=${token}`).then((j: any) => { if (j && !j.error) (j.data || []).forEach((p: any) => out.pixels.push({ id: p.id, name: p.name || p.id, account: acc.id })); }),
+    getJson(`${base}/act_${acc.id}/promote_pages?fields=id,name&limit=50&access_token=${token}`).then((j: any) => { if (j && !j.error) (j.data || []).forEach((p: any) => { if (!out.pages.some((x: any) => x.id === p.id)) out.pages.push({ id: p.id, name: p.name || p.id, account: acc.id }); }); }),
+    getJson(`${base}/act_${acc.id}/instagram_accounts?fields=id,username,name&limit=50&access_token=${token}`).then((j: any) => { if (j && !j.error) (j.data || []).forEach((ig: any) => { if (ig.id && !out.igs.some((x: any) => x.id === ig.id)) out.igs.push({ id: ig.id, name: "@" + (ig.username || ig.name || ig.id), account: acc.id }); }); }),
+  ]));
+  // vídeos/formulários NÃO entram aqui (são pesados) — carregam sob demanda via metaAudienceMedia. Retorna já as páginas/IGs pra isso.
+  return out;
+}
+// Carrega SOB DEMANDA (lazy) os vídeos (FB+IG) e formulários das páginas/IGs — chamado só quando o gestor abre a fonte Vídeo/Formulários.
+async function metaAudienceMedia(m: any) {
+  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const base = "https://graph.facebook.com/v21.0";
+  const pages = Array.isArray(m.pages) ? m.pages : [];
+  const igs = Array.isArray(m.igs) ? m.igs : [];
+  const out: any = { videos: [], forms: [] };
+  const getJson = async (url: string) => { try { const r = await fetch(url); return await r.json(); } catch { return null; } };
+  await Promise.all([
+    ...pages.slice(0, 20).flatMap((pg: any) => [
+      getJson(`${base}/${pg.id}/videos?fields=id,title,description,length,created_time,picture,permalink_url&limit=50&access_token=${token}`).then((j: any) => { if (j && !j.error) (j.data || []).forEach((v: any) => out.videos.push({ id: v.id, name: v.title || (v.description ? String(v.description).slice(0, 45) : "") || (v.created_time ? v.created_time.slice(0, 10) : v.id), page: pg.id, account: pg.account, thumb: v.picture || "", url: v.permalink_url ? (String(v.permalink_url).startsWith("http") ? v.permalink_url : "https://www.facebook.com" + v.permalink_url) : ("https://www.facebook.com/" + v.id), len: v.length ? Math.round(v.length) : null, platform: "fb" })); }),
+      getJson(`${base}/${pg.id}/leadgen_forms?fields=id,name&limit=50&access_token=${token}`).then((j: any) => { if (j && !j.error) (j.data || []).forEach((f: any) => out.forms.push({ id: f.id, name: f.name || f.id, page: pg.id, account: pg.account })); }),
+    ]),
+    ...igs.slice(0, 10).map((ig: any) => getJson(`${base}/${ig.id}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,permalink&limit=50&access_token=${token}`).then((j: any) => { if (j && !j.error) (j.data || []).filter((x: any) => /VIDEO|REEL/i.test(x.media_type || "") || /REEL/i.test(x.media_product_type || "")).forEach((v: any) => out.videos.push({ id: v.id, name: v.caption ? String(v.caption).slice(0, 45) : (v.media_product_type === "REELS" ? "Reel" : "Vídeo IG"), page: ig.id, account: ig.account, thumb: v.thumbnail_url || "", url: v.permalink || "", platform: "ig" })); })),
+  ]);
   return out;
 }
 // Cria em massa públicos de ENGAJAMENTO (site/pixel, página FB, IG, vídeo, formulário). Retorna resultado por item.
@@ -2839,6 +2848,7 @@ Deno.serve(async (req) => {
     }
     if (body.metaAudiences) { const r = await metaAudiences(body.metaAudiences); return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
     if (body.metaAudienceSources) { const r = await metaAudienceSources(body.metaAudienceSources); return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
+    if (body.metaAudienceMedia) { const r = await metaAudienceMedia(body.metaAudienceMedia); return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
     if (body.metaCreateAudiences) { const r = await metaCreateAudiences(body.metaCreateAudiences); return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
     if (body.metaCreateCustomList) { const r = await metaCreateCustomList(body.metaCreateCustomList); return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
     if (body.metaCreateSavedAudience) { const r = await metaCreateSavedAudience(body.metaCreateSavedAudience); return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
