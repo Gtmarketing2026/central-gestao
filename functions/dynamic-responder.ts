@@ -1133,6 +1133,26 @@ async function googleAdsInsights(g: any) {
   return { total, campaigns, ads, accounts, accountErrors, period: { since, until } };
 }
 
+// Pausa/reativa palavra(s)-chave no Google (mutate status de ad_group_criterion). Pode vir 1 ou várias instâncias do mesmo texto.
+async function googleKeywordAction(m: any) {
+  const action = m.action === "enable" ? "enable" : "pause";
+  const status = action === "pause" ? "PAUSED" : "ENABLED";
+  const refs: any[] = Array.isArray(m.resources) && m.resources.length ? m.resources : (m.resourceName ? [{ accountId: m.accountId, resourceName: m.resourceName }] : []);
+  if (!refs.length) throw new Error("nenhuma palavra-chave informada");
+  const token = await googleAdsAccessToken();
+  const devToken = Deno.env.get("GOOGLE_ADS_DEV_TOKEN"); const mcc = String(Deno.env.get("GOOGLE_ADS_MCC_ID") || "").replace(/-/g, "");
+  const byAcc: Record<string, string[]> = {};
+  refs.forEach((r) => { const cid = String(r.accountId || "").replace(/-/g, ""); if (cid && r.resourceName) (byAcc[cid] = byAcc[cid] || []).push(r.resourceName); });
+  let n = 0;
+  for (const cid of Object.keys(byAcc)) {
+    const body = { operations: byAcc[cid].map((rn) => ({ updateMask: "status", update: { resourceName: rn, status } })) };
+    const r = await fetch(`https://googleads.googleapis.com/${GADS_VER}/customers/${cid}/adGroupCriteria:mutate`, { method: "POST", headers: { "Authorization": `Bearer ${token}`, "developer-token": devToken!, "login-customer-id": mcc, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (j.error) throw new Error(j?.error?.details?.[0]?.errors?.[0]?.message || j.error.message || "erro no Google Ads");
+    n += byAcc[cid].length;
+  }
+  return { ok: true, detail: `${n} palavra(s)-chave ${action === "pause" ? "pausada(s)" : "reativada(s)"}` };
+}
 // Ajusta o orçamento diário de uma campanha do Google (mutate no campaign_budget).
 async function googleUpdateBudget(m: any) {
   const cid = String(m.accountId || "").replace(/-/g, ""); const res = m.budgetResource; const novo = Number(m.novoValor);
@@ -1258,8 +1278,13 @@ async function googleBreakdowns(g: any) {
     gadsSearch(cid, `SELECT segments.conversion_action_name, metrics.conversions, metrics.conversions_value FROM campaign WHERE ${range} AND metrics.conversions > 0`, token)
       .then((rows) => rows.forEach((r: any) => addRow(conv, r.segments?.conversionActionName || "—", r.metrics)))
       .catch((e) => errors.push("conversões: " + e.message)),
-    gadsSearch(cid, `SELECT ad_group_criterion.keyword.text, ${M} FROM keyword_view WHERE ${range} AND metrics.impressions > 0 ORDER BY metrics.cost_micros DESC LIMIT 200`, token)
-      .then((rows) => rows.forEach((r: any) => addRow(kw, r.adGroupCriterion?.keyword?.text || "—", r.metrics)))
+    gadsSearch(cid, `SELECT ad_group_criterion.keyword.text, ad_group.id, ad_group_criterion.criterion_id, ad_group_criterion.status, campaign.name, ad_group.name, ${M} FROM keyword_view WHERE ${range} AND metrics.impressions > 0 ORDER BY metrics.cost_micros DESC LIMIT 200`, token)
+      .then((rows) => rows.forEach((r: any) => {
+        const text = r.adGroupCriterion?.keyword?.text || "—"; addRow(kw, text, r.metrics);
+        const o = kw[text]; const agId = r.adGroup?.id, critId = r.adGroupCriterion?.criterionId; const st = r.adGroupCriterion?.status || "";
+        if (agId && critId) { (o._refs = o._refs || []).push({ accountId: cid, resourceName: `customers/${cid}/adGroupCriteria/${agId}~${critId}`, status: st, campaign: r.campaign?.name || "", adGroup: r.adGroup?.name || "" }); }
+        if (st === "ENABLED") o._anyEnabled = true;
+      }))
       .catch((e) => errors.push("keywords: " + e.message)),
     gadsSearch(cid, `SELECT search_term_view.search_term, campaign.id, campaign.name, ad_group.id, ad_group.name, ${M} FROM search_term_view WHERE ${range} ORDER BY metrics.cost_micros DESC LIMIT 200`, token)
       .then((rows) => rows.forEach((r: any) => {
@@ -2923,6 +2948,10 @@ Deno.serve(async (req) => {
     }
     if (body.googleTermAction) {
       const r = await googleTermAction(body.googleTermAction);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleKeywordAction) {
+      const r = await googleKeywordAction(body.googleKeywordAction);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.googleTermMining) {

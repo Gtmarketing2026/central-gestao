@@ -4038,7 +4038,7 @@ function _gtTable(list,nameLbl){
   const th=(s,col,l)=>`<th onclick="_gtSetSort('${col}')" title="ordenar" style="cursor:pointer;user-select:none;text-align:${l?'left':'right'};padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap">${s} ${arr(col)}</th>`;
   return `<div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input id="gtFilter" oninput="_gtSetFilter(this.value)" value="${_gtFilter.replace(/"/g,'&quot;')}" placeholder="🔍 filtrar ${nameLbl.toLowerCase()}…" style="flex:1;min-width:200px;max-width:340px;font-size:13px">${_gTermsTab==='termos'?`<button id="gtHideBtn" class="btn sm ${_gtHideInAcc?'primary':'ghost'}" onclick="_gtToggleHideInAcc()" title="Some com os termos que já são palavra-chave na conta — sobram só os novos pra adicionar">🙈 Ocultar os que já estão na conta</button>`:''}</div>
   <div style="overflow-x:auto;max-height:54vh"><table style="width:100%;border-collapse:collapse">
-    <thead><tr>${th(nameLbl,'key',1)}${th('Invest.','spend')}${th('Cliques','clicks')}${th('CTR','ctr')}${th('CPC','cpc')}${th('Conv.','conv')}${th('🌡 Temp.','heat')}${_gTermsTab==='termos'?'<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Na conta</th><th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Ações</th>':''}</tr></thead>
+    <thead><tr>${th(nameLbl,'key',1)}${th('Invest.','spend')}${th('Cliques','clicks')}${th('CTR','ctr')}${th('CPC','cpc')}${th('Conv.','conv')}${th('🌡 Temp.','heat')}${_gTermsTab==='termos'?'<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Na conta</th><th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Ações</th>':''}${_gTermsTab==='keywords'?'<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Ações</th>':''}</tr></thead>
     <tbody id="gtRows"></tbody>
   </table></div><div id="gtCount" style="font-size:11px;color:var(--faint);margin-top:6px"></div>`;
 }
@@ -4054,7 +4054,9 @@ function _gtApply(){
   const isTermos=_gTermsTab==='termos';
   const actCell=r=>{if(!isTermos)return '';const esc=String(r.key).replace(/"/g,'&quot;');return `<td style="text-align:center;padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.04);white-space:nowrap"><button class="btn xs ghost" title="Incluir como palavra-chave (escolher campanha)" data-t="${esc}" onclick="gTermPickInclude(this.getAttribute('data-t'),this,'phrase',this.getAttribute('data-t'))">➕</button> <button class="btn xs ghost" title="Negativar (bloquear) — escolher campanha" style="color:#f87171" data-t="${esc}" onclick="gTermPickNegative(this.getAttribute('data-t'),this)">🚫</button></td>`;};
   const naConta=r=>{if(!isTermos)return '';const inAcc=_gtInAccount(r.key);return `<td style="text-align:center;padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.04)"><span title="${inAcc?'Já é palavra-chave na conta':'Ainda não é palavra-chave'}" style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:6px;${inAcc?'color:#34d399;background:rgba(52,211,153,.12)':'color:#f0c040;background:rgba(240,192,64,.12)'}">${inAcc?'✓ na conta':'novo'}</span></td>`;};
-  body.innerHTML=shown.map(r=>`<tr>${td(String(r.key).replace(/</g,'&lt;'),1)}${td(fmt(r.spend))}${td(Math.round(r.clicks).toLocaleString('pt-BR'))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${td((r.conversions||0).toFixed(1))}${_gtHeatCell(r)}${naConta(r)}${actCell(r)}</tr>`).join('')||`<tr><td colspan="${isTermos?9:7}" style="padding:14px;text-align:center;color:var(--faint)">Nada encontrado.</td></tr>`;
+  const isKw=_gTermsTab==='keywords';
+  const kwActCell=r=>{if(!isKw)return '';const refs=r._refs||[];if(!refs.length)return '<td style="text-align:center;padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--faint)">—</td>';const enabled=!!r._anyEnabled;const esc=String(r.key).replace(/"/g,'&quot;');return `<td style="text-align:center;padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.04);white-space:nowrap"><button class="btn xs ghost" data-k="${esc}" title="${enabled?'Pausar esta palavra-chave no Google Ads':'Reativar esta palavra-chave'}" style="${enabled?'':'color:#34d399'}" onclick="gTermKwToggle(this,'${enabled?'pause':'enable'}')">${enabled?'⏸ Pausar':'▶ Reativar'}</button></td>`;};
+  body.innerHTML=shown.map(r=>`<tr>${td(String(r.key).replace(/</g,'&lt;'),1)}${td(fmt(r.spend))}${td(Math.round(r.clicks).toLocaleString('pt-BR'))}${td(r.impressions?(r.clicks/r.impressions*100).toFixed(2)+'%':'—')}${td(r.clicks?fmt(r.spend/r.clicks):'—')}${td((r.conversions||0).toFixed(1))}${_gtHeatCell(r)}${naConta(r)}${kwActCell(r)}${actCell(r)}</tr>`).join('')||`<tr><td colspan="${isTermos?9:isKw?8:7}" style="padding:14px;text-align:center;color:var(--faint)">Nada encontrado.</td></tr>`;
   const cnt=document.getElementById('gtCount');if(cnt)cnt.textContent=`${rows.length} ${_gtNameLbl.toLowerCase()}${rows.length>300?' · mostrando as 300 primeiras':''}`;
 }
 function gTermsRender(){
@@ -4162,6 +4164,22 @@ async function gTermsMine(btn,refine){
   }catch(e){if(msg)msg.textContent='Erro: '+(e.message||e);if(btn){btn.disabled=false;btn.textContent='⛏️ Garimpar oportunidades (IA)';}}
 }
 function gTermAddKw(btn){gTermPickInclude(btn.getAttribute('data-kw'),btn,btn.getAttribute('data-mt')||'phrase',btn.getAttribute('data-bt'));}
+// Pausar/reativar uma palavra-chave (todas as instâncias do mesmo texto na conta) no Google Ads
+async function gTermKwToggle(btn,act){
+  const key=btn.getAttribute('data-k');
+  const row=(_gtList||[]).find(x=>String(x.key)===key);const refs=(row&&row._refs)||[];
+  if(!refs.length){alert('Não achei o identificador dessa palavra-chave. Recarregue os termos.');return;}
+  const nInst=refs.length;
+  if(!confirm((act==='pause'?'PAUSAR':'REATIVAR')+' a palavra-chave "'+key+'"'+(nInst>1?(' — em '+nInst+' conjuntos'):'')+'?\n\nIsso altera de verdade no Google Ads.'))return;
+  const old=btn.innerHTML;btn.disabled=true;btn.innerHTML='…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleKeywordAction:{action:act,resources:refs.map(r=>({accountId:r.accountId,resourceName:r.resourceName}))}}});
+    if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);if(!d||!d.ok)throw new Error((d&&d.detail)||'Falha');
+    if(row){row._anyEnabled=(act!=='pause');(row._refs||[]).forEach(r=>r.status=act==='pause'?'PAUSED':'ENABLED');}
+    btn.disabled=false;btn.innerHTML=act==='pause'?'⏸ pausada':'▶ reativada';btn.classList.remove('ghost');btn.classList.add('primary');
+    setTimeout(()=>_gtApply(),1000);
+  }catch(e){alert('Erro: '+(e.message||e));btn.disabled=false;btn.innerHTML=old;}
+}
 // ---- Refino por ÁUDIO e ANEXO (garimpo/limpeza): dita a orientação ou importa um arquivo, e cai no campo de texto ----
 let _gtRec=null,_gtRecChunks=[];
 function _gtRefTools(targetId){return `<button type="button" id="mic_${targetId}" class="btn sm ghost" title="Ditar a orientação por áudio" onclick="_gtDictate('${targetId}',this)">🎤</button>
