@@ -1601,7 +1601,17 @@ function templateById(id){return allTemplates().find(t=>t.id===id)||null}
 function baseTemplateForObjective(tipo){return BASE_TEMPLATES.find(t=>t.objectiveType===tipo)||BASE_TEMPLATES[0]}
 // Resolve o modelo do cliente: escolhido manualmente OU auto pelo objetivo dominante (do Meta)
 // Templates do cliente (multi): reportTemplateIds > legado (template único + focos) > auto por gasto.
+// objetivo dominante (por gasto) das campanhas de um canal (google=true filtra _google)
+function _autoObjFromAds(ads,google){const bySpend={};(ads||[]).filter(a=>google?a._google:!a._google).forEach(a=>{const tp=(a.objetivo&&a.objetivo.tipo)||'conversao';bySpend[tp]=(bySpend[tp]||0)+(a.spend||0)});const dom=Object.entries(bySpend).sort((a,b)=>b[1]-a[1])[0];return dom?dom[0]:null;}
 function clientTemplates(c,ads){
+  // NOVO: objetivo POR CANAL (Meta/Google) — escolhido na aba Template. _effChannelObj = efetivo do render; senão o override salvo.
+  const co=c._effChannelObj||(c.reportLayout&&c.reportLayout.channelObj)||null;
+  if(co){
+    const objs=[];const push=o=>{if(o&&!objs.includes(o))objs.push(o);};
+    push(co.meta||_autoObjFromAds(ads,false));push(co.google||_autoObjFromAds(ads,true));
+    if(objs.length)return objs.map(o=>baseTemplateForObjective(o));
+  }
+  // legado (compat): reportTemplateIds / template único / focos
   let ids=Array.isArray(c.reportTemplateIds)?c.reportTemplateIds.filter(Boolean):[];
   if(!ids.length){
     if(c.reportTemplateId)ids=[c.reportTemplateId];

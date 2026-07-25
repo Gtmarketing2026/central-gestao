@@ -387,7 +387,7 @@ async function metaAdsInsights(m: any) {
       addToCart: pickOne(row.actions, ["omni_add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "add_to_cart"]),
       initiateCheckout: pickOne(row.actions, ["omni_initiated_checkout", "offsite_conversion.fb_pixel_initiate_checkout", "initiate_checkout"]),
       conversas: pickOne(row.actions, ["onsite_conversion.messaging_conversation_started_7d", "messaging_conversation_started_7d", "onsite_conversion.total_messaging_connection"]),
-      videoViews: pickOne(row.actions, ["video_view"]),
+      videoViews: pickOne(row.actions, ["video_thruplay_watched_actions", "video_view", "video_3_sec_watched_actions"]),
       engajamentos: pickOne(row.actions, ["post_engagement"]),
     };
   }
@@ -2197,8 +2197,15 @@ async function waExecTool(name: string, args: any, clients: any[]) {
     const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" };
     const gIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean); if (!gIds.length) return { cliente: c.name, aviso: "cliente sem Google Ads vinculado" };
     const d = Number(args.dias) || 30; const since = new Date(Date.now() - d * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
-    const r = await googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until }).catch((e: any) => ({ erro: String(e?.message || e) }));
-    return { cliente: c.name, _cid: c.id, dias: d, total: r && (r as any).total };
+    const r: any = await googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until, byCampaign: true }).catch((e: any) => ({ erro: String(e?.message || e) }));
+    if (r && r.erro) return { cliente: c.name, dias: d, erro: r.erro };
+    const total = r && r.total;
+    // objetivo DOMINANTE do Google (por gasto) — pra mostrar o resultado certo (ex: Vídeo → views)
+    let objG: string | null = null;
+    if (r && r.campaigns && r.campaigns.length) { const bs: any = {}; r.campaigns.forEach((x: any) => { const tp = (x.objetivo && x.objetivo.tipo) || "conversao"; bs[tp] = (bs[tp] || 0) + (x.spend || 0); }); const dom = Object.entries(bs).sort((a: any, b: any) => b[1] - a[1])[0]; objG = dom ? dom[0] : null; }
+    const kpi = total ? `Gasto ${_fmtR(total.spend || 0)} · ${_objRC(total, true, objG)}` : null;
+    const campanhas = ((r && r.campaigns) || []).filter((x: any) => (x.spend || 0) > 0).slice(0, 20).map((x: any) => ({ nome: x.campaign, objetivo: (x.objetivo && x.objetivo.rotulo) || "", kpi: `Gasto ${_fmtR(x.spend || 0)} · ${_objRC(x, true, x.objetivo && x.objetivo.tipo)}` }));
+    return { cliente: c.name, _cid: c.id, dias: d, objetivo: objG, kpi, total, campanhas };
   }
   if (name === "google_keywords") {
     const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" };
@@ -2358,6 +2365,7 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
 - Formato WhatsApp: NÃO use markdown de título (nada de ### ou **). Negrito é com UM asterisco (*assim*). Listas com "• ". Seja enxuta.
 - ATALHOS que a equipe pode pedir: "quem precisa de atenção?" → use resumo_todos_clientes e destaque os clientes abaixo da meta, com gasto sem resultado, ou parados; "saúde da carteira" → visão geral (gasto total do período, quantos performando/abaixo, e financeiro a receber/pagar via a ferramenta financeiro); "pendências operacionais" → tarefas em aberto (consultar_banco tabela tasks, filtro status=neq.done, ordena por due); "recomendações da semana" → 2-3 ações priorizadas (o que pausar/escalar/ajustar) com base nos dados. Sempre com dado real, curto.
 - Ao pedirem detalhes/campanhas de um cliente, use meta_insights e liste CADA campanha do array 'campanhas'. Para cada campanha mostre a linha do campo **'kpi' VERBATIM** — são os KPIs principais dela (Gasto · Resultado · CPR pelo objetivo). NÃO invente nem acrescente métricas fora do 'kpi' (ex: NÃO mostre CTR/CPC numa campanha de alcance/vídeo). Se tiver 'orcamentoDiario', pode citar junto. O consolidado é o campo 'total'.
+- google_insights (Google Ads): use o campo **'kpi' VERBATIM** do consolidado (Gasto · Resultado · CPR pelo objetivo do Google — ex: Vídeo→Views/Custo por view; Pesquisa→Compras/CPA; Display→Alcance/CPM) e, se listar campanhas, o 'kpi' de cada uma. NÃO despeje uma lista de Impressões/Cliques/CTR/CPC/Conversas/Compras/Leads todos juntos — mostre só o resultado do OBJETIVO daquele canal.
 - (assist.): vendas/compras/ROAS/CPA POR CAMPANHA vêm do GERENCIADOR (pixel), não da planilha — ao mostrá-las escreva "(assist.)" ao lado do número (ex: "Compras 12 (assist.) · ROAS 3,1 (assist.)"), porque a venda REAL da agência vem da planilha e o pixel não divide venda por campanha. No consolidado do cliente que usa planilha, a venda é a real (sem "(assist.)").
 - Para AÇÕES (criar tarefa, criar/cancelar reunião na agenda, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao. Reunião: passe o título em 'nome', o dia em 'quando' (AAAA-MM-DD) e o horário em 'hora' (HH:MM) se disser. Cliente é opcional em reunião. — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
 - CRIAR TAREFA: o RESPONSÁVEL (quem vai fazer) e a DATA são OBRIGATÓRIOS. Se o usuário não informar os dois, PERGUNTE (não invente responsável nem data, não assuma você mesma). Passe 'responsavel' (nome da pessoa) e 'quando' já como data ISO AAAA-MM-DD — calcule "amanhã", "hoje", "sexta" a partir de hoje. Urgência e revisão são OPCIONAIS: só marque urgente=true se a mensagem disser explicitamente que é urgente, e revisao=true só se pedir revisão. **NUNCA pergunte se é urgente ou se precisa de revisão** — se a pessoa não citou, crie a tarefa normalmente SEM essas flags e sem perguntar nada sobre isso. (E não escreva "urgente"/"revisão" no título/obs — são só flags.)
