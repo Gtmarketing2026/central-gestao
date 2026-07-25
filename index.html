@@ -251,8 +251,8 @@
       <button class="tab active" data-tab="operacional">📋 Visão Geral</button>
       <button class="tab" data-tab="tasks">✅ Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="crm">💬 CRM</button>
-      <button class="tab" data-tab="raiox">🎯 Raio-X</button>
-      <button class="tab" onclick="showComingSoon('Orgânico','Resultados de canais orgânicos (Instagram Bio, tráfego direto, etc.) num só lugar. Em construção.')">🌱 Orgânico</button>
+      <button class="tab" data-tab="raiox">🔍 Diagnóstico</button>
+      <button class="tab" onclick="showComingSoon('Social','Resultados dos canais orgânicos e redes sociais (Instagram, bio, tráfego direto, etc.) num só lugar. Em construção.')">📸 Social</button>
       <button class="tab" data-tab="campanhas" style="position:relative">📣 Campanha<span id="campSubArrow" onclick="event.stopPropagation();toggleCampSubmenu()" title="Canais (Meta / Google)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
       <div id="campSubmenu" style="display:none">
         <button class="tab" id="campSubMeta" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('meta')"><svg width="15" height="15" viewBox="0 0 24 24" style="flex:none"><path fill="#0866FF" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.25h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07z"/></svg>Meta</button>
@@ -722,7 +722,7 @@
 
   <!-- RAIO-X DO CLIENTE (análise profunda) -->
   <section class="panel" id="raiox">
-    <div class="section-head" style="margin-top:0"><h2>🎯 Raio-X <span id="raioxClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
+    <div class="section-head" style="margin-top:0"><h2>🔍 Diagnóstico <span id="raioxClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
     <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Análise profunda do cliente — health score, winners × losers e recomendações.</div>
     <div id="raioxBody"></div>
   </section>
@@ -948,7 +948,7 @@
       <div class="form-row" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
         <div style="font-size:12px;color:var(--muted)">📋 <b>Objetivo por canal</b> agora é escolhido na aba <b>Relatório → Template</b> (detecta automático por canal e você pode editar). <button type="button" class="btn sm ghost" style="font-size:11px;margin-left:6px" onclick="openTemplatesModal()">⚙ Gerenciar modelos</button></div>
       </div>
-      <div class="form-row"><label>🌐 Site do cliente <span style="font-size:11px;color:var(--faint);font-weight:400">— usado na análise de site do Raio-X (carregamento, usabilidade, SEO)</span></label>
+      <div class="form-row"><label>🌐 Site do cliente <span style="font-size:11px;color:var(--faint);font-weight:400">— usado na análise de site do Diagnóstico (carregamento, usabilidade, SEO)</span></label>
         <div style="display:flex;gap:8px;align-items:center"><input id="cSiteUrl" placeholder="https://site-do-cliente.com.br" style="flex:1"><button type="button" class="btn sm ghost" onclick="cPullMetaInfo(this)" title="Puxar site e WhatsApp dos anúncios do Meta">🔄 Puxar do Meta</button></div>
         <div id="cMetaInfoMsg" style="font-size:11px;color:var(--faint);margin-top:4px"></div>
       </div>
@@ -3425,8 +3425,8 @@ async function loadRaioX(clientId){
   if(!hasM&&!hasG){body.innerHTML='<div class="empty">Este cliente não tem Meta nem Google vinculado.</div>';return}
   _rxClientId=c.id;
   if(!_rxUntil){_rxUntil=today();_rxSince=daysAgoISO(90);_rxPreset='90';}
-  // tenta reabrir o último Raio-X salvo deste cliente
-  body.innerHTML='<div class="empty">Carregando último Raio-X…</div>';
+  // tenta reabrir o último Diagnóstico salvo deste cliente
+  body.innerHTML='<div class="empty">Carregando último Diagnóstico…</div>';
   try{
     const {data}=await sb.from('raiox').select('since,until,data,generated_at').eq('client_id',c.id).maybeSingle();
     if(data&&data.data&&data.data.rep){
@@ -3444,7 +3444,7 @@ function rxShowGenerate(){
   const pb=(k,l,days)=>`<button class="btn sm ${_rxPreset===k?'primary':'ghost'}" onclick="rxSetPeriod('${k}',${days})">${l}</button>`;
   body.innerHTML=`<div class="card" style="text-align:center;padding:40px 24px">
     <div style="font-size:40px">🎯</div>
-    <h3 style="margin:12px 0 6px">Gerar Raio-X de ${c.name.replace(/</g,'&lt;')}</h3>
+    <h3 style="margin:12px 0 6px">Gerar Diagnóstico de ${c.name.replace(/</g,'&lt;')}</h3>
     <div style="font-size:12.5px;color:var(--muted);max-width:520px;margin:0 auto 16px">Cruza as métricas do período com o objetivo, as metas e os criativos pra gerar um health score, os rankings e o confronto vencedores × perdedores.</div>
     <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:14px">${pb('30','30 dias',30)}${pb('90','90 dias',90)}${pb('180','180 dias',180)}</div>
     <div style="font-size:11px;color:var(--faint);margin-bottom:16px">Período: ${dateBR(_rxSince)} – ${dateBR(_rxUntil)}</div>
@@ -3479,7 +3479,7 @@ function rxHealth(agg,c,dominant){
 async function rxGenerate(){
   const c=DB.clients.find(x=>x.id===_rxClientId);if(!c)return;
   const body=document.getElementById('raioxBody');
-  body.innerHTML='<div class="empty">Gerando Raio-X… cruzando métricas, objetivo e criativos.</div>';
+  body.innerHTML='<div class="empty">Gerando Diagnóstico… cruzando métricas, objetivo e criativos.</div>';
   const hasM=!!(c.metaAccountIds&&c.metaAccountIds.length),hasG=!!(c.googleAccountIds&&c.googleAccountIds.length);
   try{
     // período atual + anterior (mesma duração)
@@ -3502,10 +3502,10 @@ async function rxGenerate(){
     // venda real da planilha (se houver) entra no total pro ROAS/conversão
     if(sheet&&rep.total){rep.total.purchases=sheet.sales;rep.total.revenue=sheet.revenue;rep.total.roas=rep.total.spend?sheet.revenue/rep.total.spend:0;rep._salesFromSheet=true;}
     _rxData={rep,prev,c};_rxGeneratedAt=new Date().toISOString();
-    // salva o último Raio-X (reabre sozinho até gerar o próximo)
+    // salva o último Diagnóstico (reabre sozinho até gerar o próximo)
     sb.from('raiox').upsert({client_id:c.id,since:_rxSince,until:_rxUntil,data:{rep,prev},generated_at:_rxGeneratedAt}).then(()=>{}).catch(()=>{});
     renderRaioX();
-  }catch(e){body.innerHTML=`<div class="empty">Erro ao gerar Raio-X: ${e.message||e}</div>`;}
+  }catch(e){body.innerHTML=`<div class="empty">Erro ao gerar Diagnóstico: ${e.message||e}</div>`;}
 }
 function renderRaioX(){
   const {rep,prev,c}=_rxData;const body=document.getElementById('raioxBody');
@@ -3605,12 +3605,12 @@ async function rxGenAI(){
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{raioxAI:_rxSnap}});
     if(error)throw error;if(data&&data.error)throw new Error(data.error);
     _rxData.ai=(data&&data.data)||{};
-    // persiste junto do Raio-X salvo
+    // persiste junto do Diagnóstico salvo
     sb.from('raiox').update({data:{rep:_rxData.rep,prev:_rxData.prev,ai:_rxData.ai}}).eq('client_id',_rxClientId).then(()=>{}).catch(()=>{});
     renderRaioX();
   }catch(e){alert('Erro na leitura da IA: '+(e.message||e));if(el){el.disabled=false;el.textContent='🤖 Gerar leitura com IA';}}
 }
-// Aba Site do Raio-X
+// Aba Site do Diagnóstico
 async function rxLoadSite(){
   const el=document.getElementById('rxTabSite');if(!el)return;
   const c=DB.clients.find(x=>x.id===_rxClientId);
@@ -3664,7 +3664,7 @@ function rxDrawCharts(rep,dominant){
   if(ctxD){_rxDestroy('donut');const t7=camps.slice(0,7);const outros=camps.slice(7).reduce((s,c)=>s+c.spend,0);const labels=t7.map(c=>(c.campaign||'—').length>20?c.campaign.slice(0,20)+'…':c.campaign);const vals=t7.map(c=>c.spend);if(outros>0){labels.push('Outros');vals.push(outros);}
     _rxCharts.donut=new Chart(ctxD,{type:'doughnut',data:{labels,datasets:[{data:vals,backgroundColor:DASH_PAL,borderColor:'#131210',borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'right',labels:{color:'#9aa0aa',boxWidth:10,padding:8,font:{size:10}}}}}});}
 }
-function rxShareHTML(){alert('Exportar do Raio-X vem junto com a fase da IA (resumo + confronto). Por ora use o 📤 Compartilhar do Dashboard.');}
+function rxShareHTML(){alert('Exportar do Diagnóstico vem junto com a fase da IA (resumo + confronto). Por ora use o 📤 Compartilhar do Dashboard.');}
 /* ================= RASTREAMENTO (pixel + links + jornada do lead) ================= */
 const TRACK_BASE=SUPA_URL+'/functions/v1/tracking';
 // Domínio próprio (Cloudflare Worker → tracking) só pro que o CLIENTE vê: pixel e links rastreáveis.
@@ -7265,7 +7265,7 @@ async function loadClientTemplate(){
       if(error)throw error;
       Object.assign(dataByTab,(data&&data.data)||{});
     }
-    // checkout, Meta e Google em PARALELO (cada API numa única chamada que já traz canal + Raio-X)
+    // checkout, Meta e Google em PARALELO (cada API numa única chamada que já traz canal + Diagnóstico)
     const hasMeta=c.metaAccountIds&&c.metaAccountIds.length;
     const hasGoogle=c.googleAccountIds&&c.googleAccountIds.length;
     const [checkoutCount,metaRep,googleRep]=await Promise.all([
@@ -7352,7 +7352,7 @@ function metaChannelFromData(d){
   }
   return {META:{label:'META',spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:t.revenue||0,sales:Math.round(t.purchases||0),leads:t.leads||0,addToCart:t.addToCart||0,initiateCheckout:t.initiateCheckout||0,conversas:t.conversas||0,videoViews:t.videoViews||0,engajamentos:t.engajamentos||0,records,_meta:true}};
 }
-// UMA chamada só: traz canal META + anúncios (Raio-X) juntos (mais rápido que 2 chamadas)
+// UMA chamada só: traz canal META + anúncios (Diagnóstico) juntos (mais rápido que 2 chamadas)
 async function fetchMetaReport(c,month){
   const ids=c.metaAccountIds||[];
   if(!ids.length)return {channelStats:null,ads:null};
@@ -8328,15 +8328,15 @@ async function fetchMetaChannelStats(c,month){
   return stats?{stats,total:d.total}:null;
 }
 let _tplMetaCampaigns=[];
-// Raio-X: performance por anúncio (criativo) ao vivo. Retorna array de ads ordenado por investimento.
+// Diagnóstico: performance por anúncio (criativo) ao vivo. Retorna array de ads ordenado por investimento.
 async function fetchMetaCreatives(c,month){
   const ids=c.metaAccountIds||[];
   if(!ids.length)return null;
   const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
   const {since,until}=monthRange(month);
   const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,byAd:true}}});
-  if(error)throw new Error('Raio-X: '+(error.message||error));
-  if(data&&data.error)throw new Error('Raio-X: '+data.error);
+  if(error)throw new Error('Diagnóstico: '+(error.message||error));
+  if(data&&data.error)throw new Error('Diagnóstico: '+data.error);
   const d=(data&&data.data)||data;
   return (d&&d.ads)||[];
 }
@@ -9068,7 +9068,7 @@ function templatePanelHTML(tpl,agg){
     </div>
     <div class="rt-div"></div>`;
 }
-// Métricas do card do Raio-X conforme o objetivo do anúncio (lead→CPL/leads, tráfego→cliques/CPC, etc.)
+// Métricas do card do Diagnóstico conforme o objetivo do anúncio (lead→CPL/leads, tráfego→cliques/CPC, etc.)
 // assist=true quando a venda real do canal vem da planilha → aqui (por anúncio) a venda da API é só assistência.
 function raioXMetricRows(a,tipo,assist){
   const num=v=>Math.round(v||0).toLocaleString('pt-BR');
@@ -9161,7 +9161,7 @@ function toggleRaioXCampanha(v){
   _raioXRerender(true); // mantém o painel aberto pra marcar várias
 }
 function clearRaioXCampanhas(){_raioXCamps=[];_raioXRerender(true);}
-// status ao vivo (ativo/pausado) dos anúncios do Raio-X — chega async e re-renderiza
+// status ao vivo (ativo/pausado) dos anúncios do Diagnóstico — chega async e re-renderiza
 async function loadRaioXStatus(){
   const c=DB.clients.find(x=>x.id===_raioXClientId);
   if(!c||!(c.metaAccountIds&&c.metaAccountIds.length))return;
@@ -9182,7 +9182,7 @@ function raioXSectionHTML(ads,clientId){
   setTimeout(loadRaioXStatus,50); // depois que a seção entrar no DOM
   return `<div class="rt-div"></div>
     <div class="rt-sec">
-      <div class="rt-sec-hdr"><div class="rt-sec-num">🎯</div><div class="rt-sec-title">Raio-X de Criativos</div><span style="font-size:10px;font-weight:800;letter-spacing:.04em;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.4);border-radius:8px;padding:2px 8px;margin-left:8px">Ⓜ️ META ADS</span><div class="rt-sec-ln"></div></div>
+      <div class="rt-sec-hdr"><div class="rt-sec-num">🔍</div><div class="rt-sec-title">Diagnóstico de Criativos</div><span style="font-size:10px;font-weight:800;letter-spacing:.04em;color:#93c5fd;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.4);border-radius:8px;padding:2px 8px;margin-left:8px">Ⓜ️ META ADS</span><div class="rt-sec-ln"></div></div>
       ${channelHasSheetSales(DB.clients.find(x=>x.id===_raioXClientId),'meta')?`<div style="font-size:11.5px;color:var(--rtm);margin-bottom:8px">💡 Venda/ROAS por criativo são do <b>pixel (assistência)</b> — a venda real do canal vem da planilha. Use como leitura de quais criativos mais "tocaram", não como faturamento.</div>`:''}
       <div id="raioXWrap">${raioXInnerHTML()}</div>
     </div>`;
