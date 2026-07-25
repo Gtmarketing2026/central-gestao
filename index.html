@@ -2809,6 +2809,9 @@ function renderCrmDrawer(){
       ${extras?`<div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">Outros dados extraídos</div>${extras}`:''}
       <button class="btn primary" style="width:100%;margin-top:14px" onclick="crmSaveFields('${cv.id}')">💾 Salvar dados</button>
     </div>`;
+  }else if(_crmDrawerTab==='jornada'){
+    content=`<div style="flex:1;overflow-y:auto;padding:14px"><div id="crmJourneyBody"><div class="empty" style="padding:20px">Carregando jornada…</div></div></div>`;
+    setTimeout(()=>crmRenderJourney(cv.id),20);
   }else{
     const msgs=_crmMsgs.map(m=>{const out=m.direction==='out';return `<div style="display:flex;justify-content:${out?'flex-end':'flex-start'};margin-bottom:6px"><div style="max-width:80%;background:${out?'var(--accent)':'var(--surface2)'};color:${out?'#0a0906':'var(--text)'};border:1px solid var(--border);border-radius:${out?'12px 12px 4px 12px':'12px 12px 12px 4px'};padding:7px 11px;font-size:13px;white-space:pre-wrap;word-break:break-word">${(m.text||'').replace(/</g,'&lt;')||'<i style="opacity:.6">['+(m.msg_type||'mídia')+']</i>'}<div style="font-size:9px;opacity:.6;text-align:right;margin-top:2px">${_crmTime(m.ts)}</div></div></div>`;}).join('')||'<div class="empty" style="padding:20px">Sem mensagens.</div>';
     content=`<div id="crmThread" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column">${msgs}</div>
@@ -2821,11 +2824,44 @@ function renderCrmDrawer(){
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${(cv.name||cv.chat_id).replace(/</g,'&lt;')}</b><button class="btn sm ghost" onclick="crmCloseThread()">✕</button></div>
         <div style="font-size:11px;color:var(--faint)">📞 ${cv.chat_id}</div>${orig}
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px">${stageBtns}</div>
-        <div style="display:flex;gap:6px;margin-top:10px">${tab('conversa','💬 Conversa')}${tab('dados','📇 Dados do Lead')}</div>
+        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">${tab('conversa','💬 Conversa')}${tab('dados','📇 Dados do Lead')}${tab('jornada','🧭 Jornada')}</div>
       </div>
       ${content}
     </div>`;
   const th=document.getElementById('crmThread');if(th)th.scrollTop=th.scrollHeight;
+}
+/* ---- JORNADA do lead: histórico de etapas com o PORQUÊ (IA e correções manuais) ---- */
+function _jrnSrc(s){return s==='ia'?{ic:'🤖',lbl:'AndréIA',cor:'#93c5fd'}:s==='ia_sugestao'?{ic:'💡',lbl:'Sugestão da IA',cor:'#f0c040'}:{ic:'👤',lbl:'Manual',cor:'#34d399'};}
+function _jrnStLabel(k){if(!k)return '—';const s=crmStages().find(x=>x.key===k);return s?(s.label||k):k;}
+function _jrnStColor(k){const s=crmStages().find(x=>x.key===k);return (s&&s.color)||'var(--text)';}
+async function crmRenderJourney(convId){
+  const el=document.getElementById('crmJourneyBody');if(!el)return;
+  const {data,error}=await sb.from('wa_journey').select('*').eq('conversation_id',convId).order('created_at',{ascending:false}).limit(60);
+  if(error){el.innerHTML='<div class="empty" style="padding:16px">Erro ao carregar jornada: '+(error.message||error)+'</div>';return;}
+  const rows=data||[];
+  const head=`<div style="font-size:11.5px;color:var(--muted);margin-bottom:12px">Cada mudança de etapa e <b>por que</b> ela aconteceu. Se a IA errar, corrija a etapa no topo e registre o motivo — fica no histórico e ajuda a auditar.</div>
+    <div style="display:flex;gap:6px;margin-bottom:14px"><input id="jrnNota" placeholder="Anotar algo na jornada (ex.: não perdeu, reservou outro)…" style="flex:1;font-size:12px" onkeydown="if(event.key==='Enter')crmJourneyNote('${convId}')"><button class="btn sm primary" style="font-size:11px" onclick="crmJourneyNote('${convId}')">Anotar</button></div>`;
+  if(!rows.length){el.innerHTML=head+'<div class="empty" style="padding:16px">Ainda sem registros. A jornada começa a ser gravada na próxima classificação da IA ou quando você trocar a etapa.</div>';return;}
+  el.innerHTML=head+rows.map(r=>{
+    const s=_jrnSrc(r.source);
+    const dt=new Date(r.created_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    const isNota=r.source==='nota'||(!r.to_stage&&!r.from_stage);
+    const move=isNota?'<b>📝 Anotação</b>':`<b style="color:${_jrnStColor(r.to_stage)}">${_jrnStLabel(r.to_stage)}</b>${r.from_stage?` <span style="color:var(--faint)">← ${_jrnStLabel(r.from_stage)}</span>`:''}`;
+    return `<div style="border-left:2px solid ${s.cor};padding:0 0 14px 12px;position:relative;margin-left:4px">
+      <div style="position:absolute;left:-5px;top:2px;width:8px;height:8px;border-radius:50%;background:${s.cor}"></div>
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><div style="font-size:12.5px">${move}</div><span style="font-size:10px;color:var(--faint);white-space:nowrap">${dt}</span></div>
+      <div style="font-size:10.5px;color:${s.cor};margin-top:2px">${s.ic} ${s.lbl}${r.confidence!=null?` · confiança ${r.confidence}%`:''}${r.actor&&r.source!=='ia'?` · ${String(r.actor).replace(/</g,'&lt;')}`:''}</div>
+      ${r.why?`<div style="font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.45">${String(r.why).replace(/</g,'&lt;')}</div>`:''}
+      ${r.evidence?`<div style="font-size:11px;color:var(--faint);margin-top:4px;padding:6px 9px;background:var(--surface2);border-radius:8px;border-left:2px solid var(--border)">💬 "${String(r.evidence).replace(/</g,'&lt;')}"</div>`:''}
+    </div>`;
+  }).join('');
+}
+async function crmJourneyNote(convId){
+  const inp=document.getElementById('jrnNota');const txt=(inp&&inp.value||'').trim();if(!txt)return;
+  const cv=_crmConvs.find(x=>x.id===convId);
+  await sb.from('wa_journey').insert({id:uid(),conversation_id:convId,client_id:(cv&&cv.client_id)||null,from_stage:null,to_stage:null,source:'nota',why:txt,actor:teamName(currentTeamId)||'equipe'});
+  if(inp)inp.value='';
+  crmRenderJourney(convId);
 }
 async function crmExtractLead(id){
   const btn=document.getElementById('crmExtractBtn');if(btn){btn.textContent='🪄 lendo…';btn.disabled=true;}
@@ -3025,7 +3061,23 @@ async function crmSaveFields(id){
   const btn=event&&event.target;if(btn){const t=btn.textContent;btn.textContent='✓ Salvo';setTimeout(()=>btn.textContent=t,1500);}
 }
 function crmFireCapi(convId,stageKey){const st=crmStages().find(s=>s.key===stageKey);if(st&&st.event)sb.functions.invoke('dynamic-responder',{body:{wa:{op:'capi',convId,event:st.event}}}).catch(()=>{});}
-async function crmSetStage(id,stage){const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;cv.stage=stage;if(_crmActive&&_crmActive.id===id)_crmActive.stage=stage;renderCrmDrawer();renderCrm();await sb.from('wa_conversations').update({stage}).eq('id',id);crmFireCapi(id,stage);}
+async function crmSetStage(id,stage,motivo){
+  const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;
+  const from=cv.stage||null;
+  if(from===stage)return;
+  // corrigindo o que a IA tinha classificado? pede o motivo (fica na Jornada e serve de auditoria)
+  let why=motivo;
+  if(why===undefined&&cv.ai_stage&&cv.ai_stage===from&&from){
+    why=prompt(`Você está mudando de "${_jrnStLabel(from)}" para "${_jrnStLabel(stage)}".\n\nPor que a IA errou? (opcional — fica registrado na Jornada)`,'')||'';
+  }
+  cv.stage=stage;if(_crmActive&&_crmActive.id===id)_crmActive.stage=stage;
+  renderCrmDrawer();renderCrm();
+  await sb.from('wa_conversations').update({stage}).eq('id',id);
+  const corrigiuIA=!!(cv.ai_stage&&cv.ai_stage===from&&from);
+  await sb.from('wa_journey').insert({id:uid(),conversation_id:id,client_id:cv.client_id||null,from_stage:from,to_stage:stage,source:'manual',why:(why||'')+(corrigiuIA?(why?' ':'')+'(correção do que a IA havia classificado)':''),actor:teamName(currentTeamId)||'equipe'});
+  if(_crmDrawerTab==='jornada')crmRenderJourney(id);
+  crmFireCapi(id,stage);
+}
 async function crmSend(){
   const inp=document.getElementById('crmSendInput');if(!inp||!_crmActive)return;
   const text=inp.value.trim();if(!text)return;inp.value='';

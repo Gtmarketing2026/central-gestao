@@ -1563,6 +1563,18 @@ const CRM_DEFAULT_STAGES = [
   { key: "perdido", label: "Perdido", desc: "Desistiu, sumiu ou disse que não tem interesse." },
 ];
 // IA lê a conversa: extrai os campos configurados + CLASSIFICA a etapa do funil com um nível de confiança.
+// JORNADA do lead: registra CADA mudança de etapa (IA ou manual) com o porquê e a evidência — auditável pelo gestor.
+async function waJourneyLog(o: { conversationId: string; clientId?: string | null; from?: string | null; to?: string | null; source: string; confidence?: number | null; why?: string; evidence?: string; actor?: string | null }) {
+  try {
+    await sbPost("wa_journey", {
+      id: _wuid(), conversation_id: o.conversationId, client_id: o.clientId || null,
+      from_stage: o.from || null, to_stage: o.to || null, source: o.source,
+      confidence: o.confidence != null ? Math.round(o.confidence) : null,
+      why: (o.why || "").slice(0, 900), evidence: (o.evidence || "").slice(0, 600), actor: o.actor || null,
+      created_at: new Date().toISOString(),
+    });
+  } catch (_e) { /* jornada é log: nunca derruba o fluxo */ }
+}
 // autoApply: aplica a etapa automaticamente se a confiança >= mínimo configurado.
 async function waExtract(convId: string, autoApply = false) {
   const cv = (await sbGet("wa_conversations", `id=eq.${encodeURIComponent(convId)}&select=id,name,fields,stage,client_id,origin_type,origin&limit=1`))[0];
@@ -1584,7 +1596,7 @@ async function waExtract(convId: string, autoApply = false) {
   let adCtx = ""; const _o = cv.origin || {};
   if (cv.origin_type === "anuncio" && (_o.title || _o.body || _o.campaign || _o.ad)) adCtx = `\n\nESTE LEAD VEIO DE UM ANÚNCIO. O que foi anunciado: "${String(_o.title || "").slice(0, 120)}${_o.body ? " — " + String(_o.body).slice(0, 200) : ""}"${_o.campaign ? ` (campanha: ${_o.campaign})` : ""}. Se o interesse do lead bate com esse anúncio, ele é RELEVANTE — o cliente está pagando justamente para atrair essas pessoas.`;
   const sys = `Você é um SDR que lê uma conversa de WhatsApp entre o LEAD e o ATENDENTE. Faça: (1) extraia os campos do lead — só o que aparece claramente, NÃO invente; para tipo 'valor' devolva só o número; (2) CLASSIFIQUE a etapa do funil usando as descrições, com 'confidence' 0-100; (3) 'numeroErrado'=true SÓ se ficar CLARO que o número está errado (a pessoa diz que não é quem procuramos, mandou errado, não conhece, pediu pra parar); (4) 'irrelevante'=true SÓ em casos CLAROS de: spam, alguém VENDENDO/OFERECENDO algo (não comprando), engano total, ou assunto sem NENHUMA relação com o que o cliente anuncia/faz. REGRAS CRÍTICAS de relevância: NUNCA marque irrelevante um lead que demonstra interesse no produto/serviço que foi ANUNCIADO — mesmo que pareça fora do "segmento" do cliente, pois o cliente escolheu anunciar aquilo. NUNCA use o segmento sozinho pra decidir. ${hasDna ? "" : "Não há dados suficientes do negócio, então "}na dúvida, ou faltando contexto, deixe irrelevante=FALSE (relevante). Um lead pedindo informação/preço/visita é SEMPRE relevante. FRONTEIRA novo↔MQL: 'novo' é APENAS quando a pessoa mandou só a saudação ou a mensagem PADRÃO do anúncio, SEM nenhuma pergunta específica. Se ela pergunta COMO reservar/comprar/agendar/contratar, pede preço/data/disponibilidade, diz que quer reservar, ou faz QUALQUER pergunta concreta sobre o produto → é MQL (interesse real), não 'novo'. Na dúvida entre novo e MQL para quem demonstrou interesse, escolha MQL. Responda SOMENTE JSON.`;
-  const content = `CAMPOS A EXTRAIR:\n${spec}\n\nETAPAS DO FUNIL (escolha UMA key):\n${stageSpec}${dnaCtx}${adCtx}\n\nCONVERSA:\n${transcript}\n\nResponda JSON: {"fields":{"<key>":"<valor>"}, "stage":"<key entre: ${keys}>", "confidence":<0-100>, "stageWhy":"<motivo curto>", "numeroErrado":<bool>, "irrelevante":<bool>, "irrelevanteMotivo":"<curto se irrelevante>"}`;
+  const content = `CAMPOS A EXTRAIR:\n${spec}\n\nETAPAS DO FUNIL (escolha UMA key):\n${stageSpec}${dnaCtx}${adCtx}\n\nCONVERSA:\n${transcript}\n\nResponda JSON: {"fields":{"<key>":"<valor>"}, "stage":"<key entre: ${keys}>", "confidence":<0-100>, "stageWhy":"<explique em 1-2 frases POR QUE essa etapa, citando o que o lead fez/disse>", "evidencia":"<a FRASE do lead (copiada da conversa) que mais prova essa classificação>", "numeroErrado":<bool>, "irrelevante":<bool>, "irrelevanteMotivo":"<curto se irrelevante>"}`;
   const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content }], response_format: { type: "json_object" }, max_tokens: 800, temperature: 0.2 });
   let parsed: any = {}; try { parsed = JSON.parse(j.choices[0].message.content || "{}"); } catch { parsed = {}; }
   const outFields = { ...(cv.fields || {}), ...(parsed.fields || {}) };
@@ -1594,8 +1606,15 @@ async function waExtract(convId: string, autoApply = false) {
   const applied = !!(autoApply && stage && conf >= minConf && stage !== cv.stage);
   if (applied) patch.stage = stage;
   await sbPatchD("wa_conversations", `id=eq.${encodeURIComponent(convId)}`, patch);
+  // JORNADA: registra quando a IA MUDA a etapa; e também quando ela quis mudar mas a confiança ficou abaixo do mínimo (sugestão)
+  const _lbl = (k: string) => (stages.find((s: any) => s.key === k) || {}).label || k || "—";
+  if (applied) {
+    await waJourneyLog({ conversationId: convId, clientId: cv.client_id, from: cv.stage || null, to: stage, source: "ia", confidence: conf, why: parsed.stageWhy || "", evidence: parsed.evidencia || "", actor: "AndréIA" });
+  } else if (stage && stage !== cv.stage && conf > 0) {
+    await waJourneyLog({ conversationId: convId, clientId: cv.client_id, from: cv.stage || null, to: stage, source: "ia_sugestao", confidence: conf, why: `Sugerido (não aplicado: confiança ${conf}% < mínimo ${minConf}%). ${parsed.stageWhy || ""}`.trim(), evidence: parsed.evidencia || "", actor: "AndréIA" });
+  }
   if (applied) { const stObj = stages.find((s: any) => s.key === stage); if (stObj && stObj.event) { try { await waCapi(convId, stObj.event); } catch (_e) {} } }
-  return { fields: outFields, stage, confidence: conf, stageWhy: parsed.stageWhy || "", applied, minConf };
+  return { fields: outFields, stage, confidence: conf, stageWhy: parsed.stageWhy || "", evidencia: parsed.evidencia || "", applied, minConf, stageLabel: _lbl(stage) };
 }
 // ---- CAPI (Conversions API): manda o evento da etapa pro Meta, atribuindo ao anúncio via ctwa_clid ----
 const _pixelCache: Record<string, string | null> = {};
