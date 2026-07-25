@@ -759,8 +759,11 @@ async function metaCreateAudiences(m: any) {
   for (const a of items) {
     try {
       const secs = (Number(a.retentionDays) || 30) * 86400;
-      const src = { type: typeMap[a.sourceType] || "page", id: String(a.sourceId) };
-      const rule: any = { event_sources: [src], retention_seconds: secs };
+      // vídeo pode ter VÁRIOS vídeos no mesmo público (event_sources = lista); outras fontes = uma só
+      const evSources = (a.sourceType === "video" && Array.isArray(a.sourceIds) && a.sourceIds.length)
+        ? a.sourceIds.map((id: any) => ({ type: "video", id: String(id) }))
+        : [{ type: typeMap[a.sourceType] || "page", id: String(a.sourceId) }];
+      const rule: any = { event_sources: evSources, retention_seconds: secs };
       if (a.event && a.event !== "ALL") rule.filter = { operator: "and", filters: [{ field: "event", operator: "eq", value: a.event }] };
       const subtype = a.sourceType === "pixel" ? "WEBSITE" : "ENGAGEMENT";
       const params: Record<string, string> = { name: String(a.name).slice(0, 80), subtype, retention_days: String(a.retentionDays || 30), rule: JSON.stringify({ inclusions: { operator: "or", rules: [rule] } }) };

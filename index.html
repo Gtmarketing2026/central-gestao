@@ -2067,28 +2067,33 @@ const PUB_EV={
 const PUB_WINS=[3,7,14,30,60,90,120,180,365,545,730];
 let _pubEng={src:{},srcId:{},ret:{},preview:null};
 async function pubEngOpen(){
-  const c=_pubClient();_pubEng={src:{},srcId:{},ret:{3:1,7:1,14:1,30:1,60:1,90:1},preview:null};
+  const c=_pubClient();_pubEng={src:{},srcId:{},videoIds:{},ret:{3:1,7:1,14:1,30:1,60:1,90:1},preview:null};
   _pubOverlay('<div style="text-align:center;padding:30px;color:var(--muted)">Carregando fontes da conta (pixel, página, IG…)…</div>');
   if(!_pubSources){try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAudienceSources:{accounts:_pubAccounts(c)}}});if(error)throw error;_pubSources=(data&&data.data)||data;}catch(e){_pubSources={pixels:[],pages:[],igs:[],videos:[],forms:[],_err:e.message};}}
   pubEngRender();
 }
 function _pubSrcAvail(k){const s=_pubSources||{};if(k==='pixel')return s.pixels||[];if(k==='facebook')return s.pages||[];if(k==='instagram')return s.igs||[];if(k==='video')return s.videos||[];if(k==='form')return s.forms||[];return[];}
-function pubEngToggleSrc(k){if(_pubEng.src[k]){delete _pubEng.src[k];}else{const av=_pubSrcAvail(k);if(!av.length){alert('Nenhuma fonte "'+k+'" encontrada nessa conta (pode faltar permissão de página/IG no token).');return;}_pubEng.src[k]={};(PUB_EV[k]||[]).forEach(([ev])=>_pubEng.src[k][ev]=1);if(!_pubEng.srcId[k])_pubEng.srcId[k]=av[0].id;}pubEngRender();}
+function pubEngToggleSrc(k){if(_pubEng.src[k]){delete _pubEng.src[k];}else{const av=_pubSrcAvail(k);if(!av.length){alert('Nenhuma fonte "'+k+'" encontrada nessa conta (pode faltar permissão de página/IG no token).');return;}_pubEng.src[k]={};if(k==='video'){_pubEng.src[k]['ALL']=1;_pubEng.videoIds={};av.forEach(v=>_pubEng.videoIds[v.id]=1);}else{(PUB_EV[k]||[]).forEach(([ev])=>_pubEng.src[k][ev]=1);}if(!_pubEng.srcId[k])_pubEng.srcId[k]=av[0].id;}pubEngRender();}
 function pubEngToggleEv(k,ev){if(!_pubEng.src[k])return;if(_pubEng.src[k][ev])delete _pubEng.src[k][ev];else _pubEng.src[k][ev]=1;pubEngRender();}
 function pubEngSetId(k,id){_pubEng.srcId[k]=id;}
 function pubEngToggleRet(w){if(_pubEng.ret[w])delete _pubEng.ret[w];else _pubEng.ret[w]=1;pubEngRender();}
 function _pubEngCombos(){
-  const out=[];Object.keys(_pubEng.src).forEach(k=>{const srcDef=PUB_SRC.find(s=>s.k===k);const av=_pubSrcAvail(k);const srcId=_pubEng.srcId[k]||(av[0]&&av[0].id);const evs=Object.keys(_pubEng.src[k]);const wins=PUB_WINS.filter(w=>_pubEng.ret[w]&&w<=srcDef.max);
+  const out=[];Object.keys(_pubEng.src).forEach(k=>{const srcDef=PUB_SRC.find(s=>s.k===k);const av=_pubSrcAvail(k);const evs=Object.keys(_pubEng.src[k]);const wins=PUB_WINS.filter(w=>_pubEng.ret[w]&&w<=srcDef.max);
+    if(k==='video'){const vids=Object.keys(_pubEng.videoIds||{}).filter(id=>_pubEng.videoIds[id]);if(!vids.length)return;
+      evs.forEach(ev=>wins.forEach(w=>{const evLbl=(PUB_EV.video.find(e=>e[0]===ev)||[,''])[1];const nm=`[VIDEO] ${(ev==='ALL'?'ASSISTIU':evLbl).toUpperCase()} ${w}D`.replace('%','PC');out.push({name:nm.slice(0,80),sourceType:'video',sourceIds:vids,event:ev,retentionDays:w});}));return;}
+    const srcId=_pubEng.srcId[k]||(av[0]&&av[0].id);
     evs.forEach(ev=>wins.forEach(w=>{const evLbl=(PUB_EV[k].find(e=>e[0]===ev)||[,''])[1];const nm=`[${srcDef.lbl.toUpperCase()}] ${(ev==='ALL'?'TODOS':evLbl).toUpperCase()} ${w}D`;out.push({name:nm.slice(0,80),sourceType:k,sourceId:srcId,event:ev,retentionDays:w});}));});
   return out;
 }
+function pubEngToggleVideo(id){_pubEng.videoIds=_pubEng.videoIds||{};if(_pubEng.videoIds[id])delete _pubEng.videoIds[id];else _pubEng.videoIds[id]=1;pubEngRender();}
+function pubEngAllVideos(on){const av=_pubSrcAvail('video');_pubEng.videoIds={};if(on)av.forEach(v=>_pubEng.videoIds[v.id]=1);pubEngRender();}
 function pubEngRender(){
   const c=_pubClient();const combos=_pubEngCombos();
   const srcCard=s=>{const on=!!_pubEng.src[s.k];const av=_pubSrcAvail(s.k);const evs=PUB_EV[s.k]||[];
     return `<div style="border:1px solid ${on?'var(--accent)':'var(--border)'};border-radius:12px;padding:12px;background:var(--surface2)">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px"><input type="checkbox" ${on?'checked':''} onchange="pubEngToggleSrc('${s.k}')" style="width:auto">${s.ico} ${s.lbl} <span style="font-weight:400;color:var(--faint);font-size:11px">${av.length} fonte(s) · max ${s.max}d</span></label>
       ${on?`<div style="margin-top:10px">
-        ${av.length>1?`<select onchange="pubEngSetId('${s.k}',this.value)" style="width:100%;font-size:12px;margin-bottom:8px">${av.map(x=>`<option value="${x.id}" ${_pubEng.srcId[s.k]===x.id?'selected':''}>${(x.name||x.id).replace(/</g,'&lt;')}</option>`).join('')}</select>`:''}
+        ${s.k==='video'?`<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><span style="font-size:10.5px;color:var(--muted)">Vídeos (${Object.keys(_pubEng.videoIds||{}).filter(id=>_pubEng.videoIds[id]).length}/${av.length})</span><span><a onclick="pubEngAllVideos(true)" style="font-size:10.5px;color:var(--accent);cursor:pointer">todos</a> · <a onclick="pubEngAllVideos(false)" style="font-size:10.5px;color:var(--accent);cursor:pointer">nenhum</a></span></div><div style="max-height:140px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:4px">${av.length?av.map(v=>`<label style="display:flex;align-items:center;gap:6px;padding:3px 5px;font-size:11.5px;cursor:pointer"><input type="checkbox" ${_pubEng.videoIds&&_pubEng.videoIds[v.id]?'checked':''} onchange="pubEngToggleVideo('${v.id}')" style="width:auto">${(v.name||v.id).replace(/</g,'&lt;').slice(0,50)}</label>`).join(''):'<div style="font-size:11px;color:var(--faint);padding:6px">Nenhum vídeo encontrado na página.</div>'}</div></div>`:(av.length>1?`<select onchange="pubEngSetId('${s.k}',this.value)" style="width:100%;font-size:12px;margin-bottom:8px">${av.map(x=>`<option value="${x.id}" ${_pubEng.srcId[s.k]===x.id?'selected':''}>${(x.name||x.id).replace(/</g,'&lt;')}</option>`).join('')}</select>`:'')}
         <div style="display:flex;flex-wrap:wrap;gap:5px">${evs.map(([ev,l])=>`<button class="btn xs ${_pubEng.src[s.k][ev]?'primary':'ghost'}" onclick="pubEngToggleEv('${s.k}','${ev}')">${l}</button>`).join('')}</div>
       </div>`:''}
     </div>`;};
