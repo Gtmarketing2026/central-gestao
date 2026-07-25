@@ -2955,8 +2955,15 @@ function crmFunnelSVG(items){
     const y=6+i*segH,yb=y+segH-7,mid=y+(yb-y)/2,col=it.color||'#60a5fa';
     const w1=hw(it.value),w2=hw(i+1<n?items[i+1].value:(it.value||0)*0.82);
     body+=`<polygon points="${(cx-w1).toFixed(1)},${y} ${(cx+w1).toFixed(1)},${y} ${(cx+w2).toFixed(1)},${yb} ${(cx-w2).toFixed(1)},${yb}" fill="${col}" fill-opacity="0.92" stroke="rgba(0,0,0,.22)" stroke-width="0.8"/>`;
-    body+=`<text x="${cx}" y="${mid+1}" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1115">${esc(it.label)}</text>`;
-    body+=`<text x="${cx}" y="${mid+16}" text-anchor="middle" font-size="14" font-weight="800" fill="#0f1115">${(it.value||0).toLocaleString('pt-BR')}</text>`;
+    // se o rótulo não couber no segmento (funil muito estreito), joga o nome pra esquerda e mantém só o número dentro
+    const lbl=esc(it.label),cabe=(lbl.length*6.4)<(Math.min(w1,w2)*2-8);
+    if(cabe){
+      body+=`<text x="${cx}" y="${mid+1}" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1115">${lbl}</text>`;
+      body+=`<text x="${cx}" y="${mid+16}" text-anchor="middle" font-size="14" font-weight="800" fill="#0f1115">${(it.value||0).toLocaleString('pt-BR')}</text>`;
+    }else{
+      body+=`<text x="${cx-maxHW-10}" y="${mid+9}" text-anchor="end" font-size="11.5" font-weight="700" fill="${col}">${lbl}</text>`;
+      body+=`<text x="${cx}" y="${mid+9}" text-anchor="middle" font-size="13" font-weight="800" fill="#0f1115">${(it.value||0).toLocaleString('pt-BR')}</text>`;
+    }
     const pctTotal=top?((it.value||0)/top*100):0;
     const prev=i>0?(items[i-1].value||0):null;
     const pctStep=(prev!=null&&prev>0)?((it.value||0)/prev*100):null;
