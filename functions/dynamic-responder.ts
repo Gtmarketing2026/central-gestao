@@ -760,15 +760,22 @@ async function metaCreateAudiences(m: any) {
   for (const a of items) {
     try {
       const secs = (Number(a.retentionDays) || 30) * 86400;
-      // vídeo pode ter VÁRIOS vídeos no mesmo público (event_sources = lista); outras fontes = uma só
-      const evSources = (a.sourceType === "video" && Array.isArray(a.sourceIds) && a.sourceIds.length)
-        ? a.sourceIds.map((id: any) => ({ type: "video", id: String(id) }))
-        : [{ type: typeMap[a.sourceType] || "page", id: String(a.sourceId) }];
-      const rule: any = { event_sources: evSources, retention_seconds: secs };
-      if (a.event && a.event !== "ALL") rule.filter = { operator: "and", filters: [{ field: "event", operator: "eq", value: a.event }] };
-      const subtype = a.sourceType === "pixel" ? "WEBSITE" : "ENGAGEMENT";
-      const params: Record<string, string> = { name: String(a.name).slice(0, 80), subtype, retention_days: String(a.retentionDays || 30), rule: JSON.stringify({ inclusions: { operator: "or", rules: [rule] } }) };
-      if (a.sourceType === "pixel") params.prefill = "true";
+      let params: Record<string, string>;
+      if (a.sourceType === "video") {
+        // VÍDEO usa o formato LEGADO: lista de {event_name, object_id(vídeo), context_id(página)}
+        const VID_EV: Record<string, string> = { P25: "video_view_25_percent", P50: "video_view_50_percent", P75: "video_view_75_percent", P100: "video_view_100_percent" };
+        const ev = VID_EV[a.event] || "video_view_25_percent";
+        const vids = Array.isArray(a.videos) ? a.videos : [];
+        const legacy = vids.map((v: any) => ({ event_name: ev, object_id: String(v.id), context_id: String(v.page || "") })).filter((x: any) => x.object_id && x.context_id);
+        if (!legacy.length) throw new Error("nenhum vídeo (ou página do vídeo) selecionado");
+        params = { name: String(a.name).slice(0, 80), subtype: "ENGAGEMENT", retention_days: String(a.retentionDays || 30), rule: JSON.stringify(legacy) };
+      } else {
+        const rule: any = { event_sources: [{ type: typeMap[a.sourceType] || "page", id: String(a.sourceId) }], retention_seconds: secs };
+        if (a.event && a.event !== "ALL") rule.filter = { operator: "and", filters: [{ field: "event", operator: "eq", value: a.event }] };
+        const subtype = a.sourceType === "pixel" ? "WEBSITE" : "ENGAGEMENT";
+        params = { name: String(a.name).slice(0, 80), subtype, retention_days: String(a.retentionDays || 30), rule: JSON.stringify({ inclusions: { operator: "or", rules: [rule] } }) };
+        if (a.sourceType === "pixel") params.prefill = "true";
+      }
       const j = await post(`act_${acct}/customaudiences`, params);
       results.push({ name: a.name, ok: true, id: j.id });
     } catch (e) { results.push({ name: a.name, ok: false, erro: String((e as any)?.message || e).slice(0, 200) }); }

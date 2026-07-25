@@ -2071,13 +2071,12 @@ function pubCreateOpen(){
     </div>`,720);
 }
 // ---- 1) Engagement em massa ----
-// Vídeo temporariamente fora: o Meta exige um formato de regra legado específico p/ engajamento de vídeo (em validação).
-const PUB_SRC=[{k:'pixel',lbl:'Site/Pixel',ico:'🌐',max:180},{k:'facebook',lbl:'Facebook',ico:'📘',max:730},{k:'instagram',lbl:'Instagram',ico:'📸',max:730},{k:'form',lbl:'Formulários',ico:'📄',max:90}];
+const PUB_SRC=[{k:'pixel',lbl:'Site/Pixel',ico:'🌐',max:180},{k:'facebook',lbl:'Facebook',ico:'📘',max:730},{k:'instagram',lbl:'Instagram',ico:'📸',max:730},{k:'video',lbl:'Video Views',ico:'🎬',max:365},{k:'form',lbl:'Formulários',ico:'📄',max:90}];
 const PUB_EV={
   pixel:[['ALL','Todos os visitantes'],['ViewContent','Visualizou conteúdo'],['AddToCart','Adicionou ao carrinho'],['InitiateCheckout','Iniciou checkout'],['Purchase','Compra'],['Lead','Lead'],['CompleteRegistration','Cadastro'],['Search','Busca'],['AddToWishlist','Lista de desejos'],['Contact','Contato']],
   facebook:[['page_engaged','Engajou'],['page_visited','Visitou a página'],['page_messaged','Mandou mensagem'],['page_liked','Curtiu'],['page_cta_clicked','Clicou no CTA'],['page_or_post_save','Salvou'],['page_post_interaction','Interagiu c/ post']],
   instagram:[['ig_business_profile_all','Qualquer interação'],['ig_business_profile_engaged','Engajou'],['ig_business_profile_visited','Visitou o perfil'],['ig_business_profile_messaged','Mandou DM'],['ig_business_profile_ad_saved','Salvou anúncio'],['ig_business_profile_post_saved','Salvou post']],
-  video:[['ALL','Assistiu']],form:[['ALL','Abriu / enviou']]
+  video:[['P25','25%'],['P50','50%'],['P75','75%'],['P100','Completo (100%)']],form:[['ALL','Abriu / enviou']]
 };
 const PUB_WINS=[3,7,14,30,60,90,120,180,365,545,730];
 let _pubEng={src:{},srcId:{},ret:{},preview:null};
@@ -2088,14 +2087,14 @@ async function pubEngOpen(){
   pubEngRender();
 }
 function _pubSrcAvail(k){const s=_pubSources||{};if(k==='pixel')return s.pixels||[];if(k==='facebook')return s.pages||[];if(k==='instagram')return s.igs||[];if(k==='video')return s.videos||[];if(k==='form')return s.forms||[];return[];}
-function pubEngToggleSrc(k){if(_pubEng.src[k]){delete _pubEng.src[k];}else{const av=_pubSrcAvail(k);if(!av.length){alert('Nenhuma fonte "'+k+'" encontrada nessa conta (pode faltar permissão de página/IG no token).');return;}_pubEng.src[k]={};if(k==='video'){_pubEng.src[k]['ALL']=1;_pubEng.videoIds={};av.forEach(v=>_pubEng.videoIds[v.id]=1);}else{(PUB_EV[k]||[]).forEach(([ev])=>_pubEng.src[k][ev]=1);}if(!_pubEng.srcId[k])_pubEng.srcId[k]=av[0].id;}pubEngRender();}
+function pubEngToggleSrc(k){if(_pubEng.src[k]){delete _pubEng.src[k];}else{const av=_pubSrcAvail(k);if(!av.length){alert('Nenhuma fonte "'+k+'" encontrada nessa conta (pode faltar permissão de página/IG no token).');return;}_pubEng.src[k]={};if(k==='video'){_pubEng.src[k]['P25']=1;_pubEng.videoIds={};av.forEach(v=>_pubEng.videoIds[v.id]=1);}else{(PUB_EV[k]||[]).forEach(([ev])=>_pubEng.src[k][ev]=1);}if(!_pubEng.srcId[k])_pubEng.srcId[k]=av[0].id;}pubEngRender();}
 function pubEngToggleEv(k,ev){if(!_pubEng.src[k])return;if(_pubEng.src[k][ev])delete _pubEng.src[k][ev];else _pubEng.src[k][ev]=1;pubEngRender();}
 function pubEngSetId(k,id){_pubEng.srcId[k]=id;}
 function pubEngToggleRet(w){if(_pubEng.ret[w])delete _pubEng.ret[w];else _pubEng.ret[w]=1;pubEngRender();}
 function _pubEngCombos(){
   const out=[];Object.keys(_pubEng.src).forEach(k=>{const srcDef=PUB_SRC.find(s=>s.k===k);const av=_pubSrcAvail(k);const evs=Object.keys(_pubEng.src[k]);const wins=PUB_WINS.filter(w=>_pubEng.ret[w]&&w<=srcDef.max);
-    if(k==='video'){const vids=Object.keys(_pubEng.videoIds||{}).filter(id=>_pubEng.videoIds[id]);if(!vids.length)return;
-      evs.forEach(ev=>wins.forEach(w=>{const evLbl=(PUB_EV.video.find(e=>e[0]===ev)||[,''])[1];const nm=`[VIDEO] ${(ev==='ALL'?'ASSISTIU':evLbl).toUpperCase()} ${w}D`.replace('%','PC');out.push({name:nm.slice(0,80),sourceType:'video',sourceIds:vids,event:ev,retentionDays:w});}));return;}
+    if(k==='video'){const vsel=Object.keys(_pubEng.videoIds||{}).filter(id=>_pubEng.videoIds[id]);if(!vsel.length)return;const videos=vsel.map(id=>({id,page:(av.find(v=>v.id===id)||{}).page}));
+      evs.forEach(ev=>wins.forEach(w=>{const evLbl=(PUB_EV.video.find(e=>e[0]===ev)||[,''])[1];const nm=`[VIDEO] VIEW ${evLbl.toUpperCase().replace('%','PC').replace(/[()]/g,'').trim()} ${w}D`;out.push({name:nm.slice(0,80),sourceType:'video',videos,event:ev,retentionDays:w});}));return;}
     const srcId=_pubEng.srcId[k]||(av[0]&&av[0].id);
     evs.forEach(ev=>wins.forEach(w=>{const evLbl=(PUB_EV[k].find(e=>e[0]===ev)||[,''])[1];const nm=`[${srcDef.lbl.toUpperCase()}] ${(ev==='ALL'?'TODOS':evLbl).toUpperCase()} ${w}D`;out.push({name:nm.slice(0,80),sourceType:k,sourceId:srcId,event:ev,retentionDays:w});}));});
   return out;
