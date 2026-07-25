@@ -4470,6 +4470,8 @@ function renderCampBody(){
   const totAgg={};tree.forEach(cp=>Object.keys(cp.agg).forEach(k=>{if(typeof cp.agg[k]==='number')totAgg[k]=(totAgg[k]||0)+cp.agg[k];}));
   const tipos=[...new Set(tree.map(cp=>cp.objetivo.tipo))];const totTipo=tipos.length===1?tipos[0]:'outro';
   const totD=deriveMeta({...totAgg});
+  totD._google=(_campSource==='google'); // Google: total também é "Conversões", não "Compras"
+  {const _ta={};tree.forEach(cp=>(cp.agg.convActions||[]).forEach(a=>{_ta[a.name]=(_ta[a.name]||0)+(a.count||0);}));if(Object.keys(_ta).length)totD.convActions=Object.entries(_ta).map(([name,count])=>({name,count})).sort((a,b)=>b.count-a.count);}
   // Resultado do total: objetivo único soma direto; misto soma o resultado de cada campanha pela métrica dela
   const mixed=totTipo==='outro';
   const totResSum=tree.reduce((s,cp)=>s+campResultado(cp.agg,cp.objetivo.tipo).resNum,0);
