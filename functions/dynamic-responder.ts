@@ -1775,6 +1775,8 @@ function _objRC(t: any, google: boolean, obj?: string | null): string {
   const isAlcance = obj === "alcance" || obj === "distribuicao";
   const isEngaj = obj === "engajamento";
   const n = (v: number) => Math.round(v || 0).toLocaleString("pt-BR");
+  // Google: metrics.conversions é genérico (form/WhatsApp/ligação/compra/etc.) — não afirmar "Compras" (só a planilha de VENDAS confirma venda real)
+  if (isVenda && google) return `Conversões ${n(t.purchases)} · Custo/conv. ${_fmtR(t.purchases ? spend / t.purchases : 0)}`;
   if (isVenda) return `Compras ${n(t.purchases)} · CPA ${_fmtR(t.purchases ? spend / t.purchases : 0)}`;
   if (isLead) return `Leads ${n(t.leads)} · CPL ${_fmtR(t.leads ? spend / t.leads : 0)}`;
   if (isMsg) return `Conversas ${n(t.conversas)} · Custo/conversa ${_fmtR(t.conversas ? spend / t.conversas : 0)}`;

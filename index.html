@@ -4286,8 +4286,9 @@ function buildCampaignTree(ads){
 }
 function campResultado(x,tipo){
   const d=deriveMeta({...x});
+  const g=x._google; // Google: metrics.conversions é genérico (form/WhatsApp/ligação/etc.) — NÃO é "Compras"
   const M={
-    conversao:['Compras',Math.round(d.purchases||0),d.purchases?fmt(d.spend/d.purchases):'—'],
+    conversao:g?['Conversões',Math.round(d.purchases||0),d.purchases?fmt(d.spend/d.purchases):'—']:['Compras',Math.round(d.purchases||0),d.purchases?fmt(d.spend/d.purchases):'—'],
     app:['Compras',Math.round(d.purchases||0),d.purchases?fmt(d.spend/d.purchases):'—'],
     leads:['Leads no site',Math.round(d.leads||0),d.leads?fmt(d.spend/d.leads):'—'],
     trafego:['Cliques no link',Math.round(d.clicks||0),d.clicks?fmt(d.cpc):'—'],
