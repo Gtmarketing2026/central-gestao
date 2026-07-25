@@ -1590,7 +1590,8 @@ async function _waBuildSnapshot(clientId: string) {
     const mvr: any = { ctr: cmp(bm.ctr, t.ctr, false), cpc: cmp(bm.cpc, t.cpc, true), cpm: cmp(bm.cpm, t.cpm, true), roas: cmp(bm.roas, t.roas, false), custoConversa: cmp(bm.custoConversa, cpConv, true), cpl: cmp(bm.cpl, cpl, true), cpa: cmp(bm.cpa, cpa, true) };
     Object.keys(mvr).forEach((k) => { if (!mvr[k]) delete mvr[k]; }); if (Object.keys(mvr).length) out.metasVsReal_30d = mvr;
   }
-  if (r30 && r30.campaigns && r30.campaigns.length) out.campanhasComGasto_30d = r30.campaigns.slice(0, 25).map((x: any) => ({ nome: x.campaign, gasto: Math.round(x.spend), objetivo: (x.objetivo && x.objetivo.rotulo) || "", ctr: +(x.ctr || 0).toFixed(2), conversas: x.conversas || undefined, leads: x.leads || undefined, compras: x.purchases ? Math.round(x.purchases) : undefined }));
+  // por campanha: linha de KPIs PRINCIPAIS já pronta — Gasto · Resultado · CPR (pelo objetivo da campanha)
+  if (r30 && r30.campaigns && r30.campaigns.length) out.campanhasComGasto_30d = r30.campaigns.slice(0, 25).map((x: any) => ({ nome: x.campaign, objetivo: (x.objetivo && x.objetivo.rotulo) || "", kpi: `Gasto ${_fmtR(x.spend || 0)} · ${_objRC(x, false, x.objetivo && x.objetivo.tipo)}` }));
   if (ent) {
     const ativa = (x: any) => x.status === "ACTIVE" || x.entrega === "ACTIVE";
     out.campanhasAtivasAgora = (ent.campaigns || []).filter(ativa).slice(0, 30).map((x: any) => ({ nome: x.nome, objetivo: (x.objetivo && x.objetivo.rotulo) || "", orcamentoDiario: x.orcamentoDiario || undefined }));
@@ -1761,6 +1762,25 @@ function _objMetric(t: any, google: boolean, obj?: string | null) {
   const ctr = t.ctr != null ? t.ctr : (t.impressions ? (t.clicks / t.impressions * 100) : 0);
   const cpc = t.cpc != null ? t.cpc : (t.clicks ? spend / t.clicks : 0);
   return `Cliques ${t.clicks || 0} · CTR ${(ctr || 0).toFixed(2)}% · CPC ${_fmtR(cpc)}`;
+}
+// KPI enxuto por objetivo: só RESULTADO + CPR (custo por resultado) — pra linha "Gasto · Resultado · CPR" por campanha.
+function _objRC(t: any, google: boolean, obj?: string | null): string {
+  const spend = t.spend || 0;
+  const isVenda = obj === "conversao" || obj === "app" || (!obj && (t.purchases || 0) > 0);
+  const isLead = obj === "leads" || (!obj && !google && (t.leads || 0) > 0);
+  const isMsg = obj === "mensagens" || (!obj && !google && (t.conversas || 0) > 0);
+  const isVideo = obj === "video";
+  const isAlcance = obj === "alcance" || obj === "distribuicao";
+  const isEngaj = obj === "engajamento";
+  const n = (v: number) => Math.round(v || 0).toLocaleString("pt-BR");
+  if (isVenda) return `Compras ${n(t.purchases)} · CPA ${_fmtR(t.purchases ? spend / t.purchases : 0)}`;
+  if (isLead) return `Leads ${n(t.leads)} · CPL ${_fmtR(t.leads ? spend / t.leads : 0)}`;
+  if (isMsg) return `Conversas ${n(t.conversas)} · Custo/conversa ${_fmtR(t.conversas ? spend / t.conversas : 0)}`;
+  if (isVideo) return `Views ${n(t.videoViews)} · Custo/view ${_fmtR(t.videoViews ? spend / t.videoViews : 0)}`;
+  if (isAlcance) { const cpm = t.cpm != null ? t.cpm : (t.impressions ? spend / t.impressions * 1000 : 0); return `Alcance ${n(t.reach)} · CPM ${_fmtR(cpm)}`; }
+  if (isEngaj) return `Engajamentos ${n(t.engajamentos)} · Custo/eng ${_fmtR(t.engajamentos ? spend / t.engajamentos : 0)}`;
+  const cpc = t.cpc != null ? t.cpc : (t.clicks ? spend / t.clicks : 0);
+  return `Cliques ${n(t.clicks)} · CPC ${_fmtR(cpc)}`;
 }
 // Restrição de conta de anúncio (espelha metaAcctStatusText/googleAcctStatusText do front)
 function _metaRestr(st: any) { st = Number(st); if (st === 1 || st === 201) return null; if (st === 2) return "desativada pelo Meta"; if (st === 3) return "restrita por pagamento"; if (st === 9) return "em carência de pagamento"; if (st === 8) return "pendente de acerto de pagamento"; if (st === 7) return "em análise de risco/política"; if (st === 100) return "em encerramento"; if (st === 101 || st === 202) return "encerrada"; return `status atípico (código ${st})`; }
@@ -2077,14 +2097,9 @@ async function waFinanceiro(args: any) {
 }
 // KPI de UMA campanha, pela métrica do objetivo DELA (venda→compras/ROAS; leads→CPL; mensagem→custo/conversa; senão tráfego)
 function _waCampKpi(c: any) {
-  const spend = c.spend || 0; const tipo = (c.objetivo && c.objetivo.tipo) || "";
-  const base: any = { gasto: Math.round(spend), ctr: +(c.ctr || 0).toFixed(2), cpc: +(c.cpc || 0).toFixed(2) };
-  if (tipo === "conversao" || tipo === "app") { base.compras = Math.round(c.purchases || 0); base.roas = c.roas != null ? +c.roas.toFixed(2) : (spend ? +((c.revenue || 0) / spend).toFixed(2) : 0); base.cpa = c.purchases ? +(spend / c.purchases).toFixed(2) : null; }
-  else if (tipo === "leads") { base.leads = c.leads || 0; base.cpl = c.leads ? +(spend / c.leads).toFixed(2) : null; }
-  else if (tipo === "mensagens") { base.conversas = c.conversas || 0; base.custoPorConversa = c.conversas ? +(spend / c.conversas).toFixed(2) : null; }
-  else if (tipo === "video") { base.videoViews = c.videoViews || 0; }
-  else { base.cliques = c.clicks || 0; }
-  return base;
+  // KPIs PRINCIPAIS da campanha, já prontos pelo OBJETIVO dela: Gasto · Resultado · CPR (nunca força CTR/CPC fora de tráfego)
+  const tipo = (c.objetivo && c.objetivo.tipo) || "";
+  return { kpi: `Gasto ${_fmtR(c.spend || 0)} · ${_objRC(c, false, tipo)}` };
 }
 // Resumo de UM cliente com KPIs POR CAMPANHA (cada uma pela métrica do objetivo dela) + total filtrado, pro período pedido
 async function waMetaResumo(clientId: string, dias: number) {
@@ -2342,7 +2357,7 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
 - Traga SÓ o que tem dado, e a métrica do OBJETIVO do cliente. O snapshot já traz o campo 'objetivo' e só as métricas certas dele: venda→compras/ROAS/CPA; leads→leads/CPL; mensagens→conversas/custo por conversa; tráfego→cliques/CTR/CPC. NUNCA misture (ex: cliente de VENDA não mostra "custo por conversa").
 - Formato WhatsApp: NÃO use markdown de título (nada de ### ou **). Negrito é com UM asterisco (*assim*). Listas com "• ". Seja enxuta.
 - ATALHOS que a equipe pode pedir: "quem precisa de atenção?" → use resumo_todos_clientes e destaque os clientes abaixo da meta, com gasto sem resultado, ou parados; "saúde da carteira" → visão geral (gasto total do período, quantos performando/abaixo, e financeiro a receber/pagar via a ferramenta financeiro); "pendências operacionais" → tarefas em aberto (consultar_banco tabela tasks, filtro status=neq.done, ordena por due); "recomendações da semana" → 2-3 ações priorizadas (o que pausar/escalar/ajustar) com base nos dados. Sempre com dado real, curto.
-- Ao pedirem detalhes/campanhas de um cliente, use meta_insights e liste CADA campanha do array 'campanhas' com os KPIs que a ferramenta já trouxe pra ela (gasto, orçamento e a métrica do objetivo dela). Use SOMENTE os campos que vieram — NÃO invente nem puxe métrica de fora (ex: não some conversas num total de venda). O consolidado é o campo 'total'.
+- Ao pedirem detalhes/campanhas de um cliente, use meta_insights e liste CADA campanha do array 'campanhas'. Para cada campanha mostre a linha do campo **'kpi' VERBATIM** — são os KPIs principais dela (Gasto · Resultado · CPR pelo objetivo). NÃO invente nem acrescente métricas fora do 'kpi' (ex: NÃO mostre CTR/CPC numa campanha de alcance/vídeo). Se tiver 'orcamentoDiario', pode citar junto. O consolidado é o campo 'total'.
 - (assist.): vendas/compras/ROAS/CPA POR CAMPANHA vêm do GERENCIADOR (pixel), não da planilha — ao mostrá-las escreva "(assist.)" ao lado do número (ex: "Compras 12 (assist.) · ROAS 3,1 (assist.)"), porque a venda REAL da agência vem da planilha e o pixel não divide venda por campanha. No consolidado do cliente que usa planilha, a venda é a real (sem "(assist.)").
 - Para AÇÕES (criar tarefa, criar/cancelar reunião na agenda, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao. Reunião: passe o título em 'nome', o dia em 'quando' (AAAA-MM-DD) e o horário em 'hora' (HH:MM) se disser. Cliente é opcional em reunião. — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
 - CRIAR TAREFA: o RESPONSÁVEL (quem vai fazer) e a DATA são OBRIGATÓRIOS. Se o usuário não informar os dois, PERGUNTE (não invente responsável nem data, não assuma você mesma). Passe 'responsavel' (nome da pessoa) e 'quando' já como data ISO AAAA-MM-DD — calcule "amanhã", "hoje", "sexta" a partir de hoje. Urgência e revisão são OPCIONAIS: só marque urgente=true se a mensagem disser explicitamente que é urgente, e revisao=true só se pedir revisão. **NUNCA pergunte se é urgente ou se precisa de revisão** — se a pessoa não citou, crie a tarefa normalmente SEM essas flags e sem perguntar nada sobre isso. (E não escreva "urgente"/"revisão" no título/obs — são só flags.)
