@@ -4208,7 +4208,7 @@ function _gtKwSet(){if(!_gTermsData)return new Set();if(!_gTermsData._kwset){
   return _gTermsData._kwset;}
 function _gtInAccount(term){return _gtKwSet().has(_gtNorm(term));}
 // ---- Incluir escolhendo a campanha/conjunto ----
-let _gtAdGroups=null;
+let _gtAdGroups=null,_gtIncAgs=[];
 async function gTermPickInclude(kw,btn,defMt,fromTerm){
   if(_gtAdGroups===null){
     const ob=btn?btn.innerHTML:'';if(btn){btn.disabled=true;btn.innerHTML='…';}
@@ -4217,9 +4217,12 @@ async function gTermPickInclude(kw,btn,defMt,fromTerm){
     if(btn){btn.disabled=false;btn.innerHTML=ob;}
   }
   if(!_gtAdGroups.length){alert('Nenhum conjunto ativo encontrado na conta Google do cliente.');return;}
+  // só campanhas/conjuntos ATIVOS (fallback: todos, se não houver nenhum ativo)
+  const isAct=g=>(!g.campaignStatus||g.campaignStatus==='ENABLED')&&(!g.adGroupStatus||g.adGroupStatus==='ENABLED');
+  _gtIncAgs=_gtAdGroups.filter(isAct);if(!_gtIncAgs.length)_gtIncAgs=_gtAdGroups.slice();
   // pré-seleciona o conjunto de origem do termo, se houver
-  const tg=fromTerm?_gtFindTarget(fromTerm):null;let defI=0;if(tg&&tg.adGroupId){const k=_gtAdGroups.findIndex(g=>g.adGroupId===String(tg.adGroupId));if(k>=0)defI=k;}
-  const opts=_gtAdGroups.map((g,i)=>{const paused=(g.campaignStatus&&g.campaignStatus!=='ENABLED')||(g.adGroupStatus&&g.adGroupStatus!=='ENABLED');return `<option value="${i}" ${i===defI?'selected':''}>${(g.campaignName||'—').replace(/</g,'&lt;')} › ${(g.adGroupName||'—').replace(/</g,'&lt;')}${paused?' ⏸ (pausado)':''}</option>`;}).join('');
+  const tg=fromTerm?_gtFindTarget(fromTerm):null;let defI=0;if(tg&&tg.adGroupId){const k=_gtIncAgs.findIndex(g=>g.adGroupId===String(tg.adGroupId));if(k>=0)defI=k;}
+  const opts=_gtIncAgs.map((g,i)=>`<option value="${i}" ${i===defI?'selected':''}>${(g.campaignName||'—').replace(/</g,'&lt;')} › ${(g.adGroupName||'—').replace(/</g,'&lt;')}</option>`).join('');
   const mt=defMt||'phrase';
   let ov=document.getElementById('gtIncOverlay');if(!ov){ov=document.createElement('div');ov.id='gtIncOverlay';document.body.appendChild(ov);}
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:10000;padding:16px';
@@ -4236,22 +4239,29 @@ async function gTermPickInclude(kw,btn,defMt,fromTerm){
   ov.onclick=e=>{if(e.target===ov)ov.remove();};
 }
 async function gTermIncludeDo(btn){
-  const kw=btn.getAttribute('data-kw');const i=+document.getElementById('gtIncAg').value;const g=_gtAdGroups[i];const mt=document.getElementById('gtIncMt').value;const msg=document.getElementById('gtIncMsg');
+  const kw=btn.getAttribute('data-kw');const i=+document.getElementById('gtIncAg').value;const g=_gtIncAgs[i];const mt=document.getElementById('gtIncMt').value;const msg=document.getElementById('gtIncMsg');
   if(!g)return;btn.disabled=true;btn.textContent='Incluindo…';
   try{
     const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleTermAction:{clientId:_campClientId,action:'keyword',termo:kw,matchType:mt,accountId:g.accountId,adGroupId:g.adGroupId,campaignId:g.campaignId}}});
     if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);if(!d||!d.ok)throw new Error((d&&d.detail)||'Falha');
-    if(msg)msg.innerHTML='✅ '+(d.detail||'incluído');btn.textContent='✓ Incluído';setTimeout(()=>{const o=document.getElementById('gtIncOverlay');if(o)o.remove();},1300);
+    if(msg)msg.innerHTML='✅ '+(d.detail||'incluído');btn.textContent='✓ Incluído';
+    // agora é palavra-chave na conta: atualiza o "na conta", tira do Garimpo, e some do termo se estiver ocultando
+    try{if(_gTermsData){if(!_gTermsData._kwset)_gtKwSet();_gTermsData._kwset.add(_gtNorm(kw));}}catch(_e){}
+    if(_gTermsMining&&Array.isArray(_gTermsMining.sugestoes))_gTermsMining.sugestoes=_gTermsMining.sugestoes.filter(s=>_gtNorm(s.palavra)!==_gtNorm(kw));
+    if(_gTermsTab==='garimpo')gTermsRender();else if(_gTermsTab==='termos')_gtApply();
+    setTimeout(()=>{const o=document.getElementById('gtIncOverlay');if(o)o.remove();},1100);
   }catch(e){if(msg)msg.innerHTML='<span style="color:#f87171">Erro: '+(e.message||e)+'</span>';btn.disabled=false;btn.textContent='Incluir';}
 }
 // ---- Negativar escolhendo a campanha ----
 let _gtNegCamps=null;
 async function gTermPickNegative(term,btn){
   if(_gtAdGroups===null){const ob=btn?btn.innerHTML:'';if(btn){btn.disabled=true;btn.innerHTML='…';}try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleAdGroups:{clientId:_campClientId}}});if(error)throw error;_gtAdGroups=((data&&data.data)||{}).adgroups||[];}catch(e){alert('Erro ao listar campanhas: '+(e.message||e));if(btn){btn.disabled=false;btn.innerHTML=ob;}return;}if(btn){btn.disabled=false;btn.innerHTML=ob;}}
-  const seen={};_gtNegCamps=[];_gtAdGroups.forEach(g=>{const k=g.accountId+'|'+g.campaignId;if(!seen[k]){seen[k]=1;_gtNegCamps.push(g);}});
-  if(!_gtNegCamps.length){alert('Nenhuma campanha de pesquisa encontrada na conta.');return;}
+  // só campanhas ATIVAS, deduplicadas (fallback: todas, se não houver ativa)
+  const actList=_gtAdGroups.filter(g=>!g.campaignStatus||g.campaignStatus==='ENABLED');const src=actList.length?actList:_gtAdGroups;
+  const seen={};_gtNegCamps=[];src.forEach(g=>{const k=g.accountId+'|'+g.campaignId;if(!seen[k]){seen[k]=1;_gtNegCamps.push(g);}});
+  if(!_gtNegCamps.length){alert('Nenhuma campanha de pesquisa ativa encontrada na conta.');return;}
   const tg=_gtFindTarget(term);let defI=0;if(tg&&tg.campaignId){const k=_gtNegCamps.findIndex(g=>g.campaignId===String(tg.campaignId));if(k>=0)defI=k;}
-  const opts=_gtNegCamps.map((g,i)=>{const paused=g.campaignStatus&&g.campaignStatus!=='ENABLED';return `<option value="${i}" ${i===defI?'selected':''}>${(g.campaignName||'—').replace(/</g,'&lt;')}${paused?' ⏸ (pausado)':''}</option>`;}).join('');
+  const opts=_gtNegCamps.map((g,i)=>`<option value="${i}" ${i===defI?'selected':''}>${(g.campaignName||'—').replace(/</g,'&lt;')}</option>`).join('');
   let ov=document.getElementById('gtNegOverlay');if(!ov){ov=document.createElement('div');ov.id='gtNegOverlay';document.body.appendChild(ov);}
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:10000;padding:16px';
   ov.innerHTML=`<div class="card" style="width:min(500px,94vw);padding:20px">
