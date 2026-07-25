@@ -4087,7 +4087,7 @@ function gTermsRenderCleanup(b){
     </table></div>
     <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
       <div style="font-size:12px;color:var(--muted);margin-bottom:6px">💬 Refinar com a IA — dê uma orientação e ela reavalia (ex.: <i>"o cliente vende no atacado, não negative termos de atacado"</i>)</div>
-      <div style="display:flex;gap:6px"><input id="gtNota" placeholder="Escreva sua orientação…" style="flex:1;font-size:12.5px" onkeydown="if(event.key==='Enter')gTermsRefine()"><button class="btn sm primary" onclick="gTermsRefine()">Refinar</button></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><input id="gtNota" placeholder="Escreva, dite (🎤) ou anexe (📎) sua orientação…" style="flex:1;min-width:180px;font-size:12.5px" onkeydown="if(event.key==='Enter')gTermsRefine()">${_gtRefTools('gtNota')}<button class="btn sm primary" onclick="gTermsRefine()">Refinar</button></div>
       <div id="gtRefMsg" style="font-size:11px;color:var(--faint);margin-top:6px"></div>
     </div>`;
 }
@@ -4148,7 +4148,7 @@ function gTermsRenderMining(b){
     </table></div>
     <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
       <div style="font-size:12px;color:var(--muted);margin-bottom:6px">💬 Refinar o garimpo — dê uma orientação (ex.: <i>"foca em intenção de compra, ignora institucional"</i>)</div>
-      <div style="display:flex;gap:6px"><input id="gtMiNota" placeholder="Escreva sua orientação…" style="flex:1;font-size:12.5px" onkeydown="if(event.key==='Enter')gTermsMine(null,true)"><button class="btn sm primary" onclick="gTermsMine(null,true)">Refinar</button></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><input id="gtMiNota" placeholder="Escreva, dite (🎤) ou anexe (📎) sua orientação…" style="flex:1;min-width:180px;font-size:12.5px" onkeydown="if(event.key==='Enter')gTermsMine(null,true)">${_gtRefTools('gtMiNota')}<button class="btn sm primary" onclick="gTermsMine(null,true)">Refinar</button></div>
       <div id="gtMiMsg2" style="font-size:11px;color:var(--faint);margin-top:6px"></div>
     </div>`;
 }
@@ -4162,6 +4162,43 @@ async function gTermsMine(btn,refine){
   }catch(e){if(msg)msg.textContent='Erro: '+(e.message||e);if(btn){btn.disabled=false;btn.textContent='⛏️ Garimpar oportunidades (IA)';}}
 }
 function gTermAddKw(btn){gTermPickInclude(btn.getAttribute('data-kw'),btn,btn.getAttribute('data-mt')||'phrase',btn.getAttribute('data-bt'));}
+// ---- Refino por ÁUDIO e ANEXO (garimpo/limpeza): dita a orientação ou importa um arquivo, e cai no campo de texto ----
+let _gtRec=null,_gtRecChunks=[];
+function _gtRefTools(targetId){return `<button type="button" id="mic_${targetId}" class="btn sm ghost" title="Ditar a orientação por áudio" onclick="_gtDictate('${targetId}',this)">🎤</button>
+  <label class="btn sm ghost" title="Importar anexo (imagem, PDF, texto) como orientação" style="cursor:pointer;margin:0">📎<input type="file" accept="image/*,application/pdf,.txt,.csv,.md" style="display:none" onchange="_gtAttach('${targetId}',this)"></label>`;}
+function _gtAppendNota(targetId,txt){const el=document.getElementById(targetId);if(!el||!txt)return;el.value=(el.value.trim()?el.value.trim()+' ':'')+txt.trim();el.focus();}
+async function _gtDictate(targetId,btn){
+  if(_gtRec&&_gtRec.state==='recording'){_gtRec.stop();return;}
+  if(!navigator.mediaDevices||!window.MediaRecorder){alert('Seu navegador não suporta gravação de áudio.');return;}
+  let stream;try{stream=await navigator.mediaDevices.getUserMedia({audio:true});}catch(e){alert('Não consegui acessar o microfone. Autorize o acesso.');return;}
+  _gtRecChunks=[];_gtRec=new MediaRecorder(stream);
+  _gtRec.ondataavailable=e=>{if(e.data.size)_gtRecChunks.push(e.data);};
+  _gtRec.onstop=async()=>{
+    stream.getTracks().forEach(t=>t.stop());
+    btn.textContent='⏳';btn.disabled=true;
+    try{
+      const blob=new Blob(_gtRecChunks,{type:_gtRecChunks[0]&&_gtRecChunks[0].type||'audio/webm'});
+      const dataUrl=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob);});
+      const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{transcribe:{dataUrl}}});
+      if(error)throw error;const t=((data&&data.data)||{}).text||'';
+      if(t)_gtAppendNota(targetId,t);else alert('Não consegui entender o áudio. Tente de novo, mais perto do microfone.');
+    }catch(e){alert('Erro ao transcrever: '+(e.message||e));}
+    btn.textContent='🎤';btn.disabled=false;btn.classList.remove('primary');btn.classList.add('ghost');
+  };
+  _gtRec.start();btn.textContent='⏹️ Parar';btn.classList.remove('ghost');btn.classList.add('primary');
+}
+async function _gtAttach(targetId,input){
+  const f=input.files&&input.files[0];if(!f){return;}
+  if(f.size>15*1024*1024){alert('Arquivo muito grande (máx 15MB).');input.value='';return;}
+  const lbl=input.closest('label');const old=lbl?lbl.firstChild.textContent:'';if(lbl)lbl.firstChild.textContent='⏳';
+  try{
+    const dataUrl=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(f);});
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{extractAttachment:{dataUrl,mime:f.type,name:f.name}}});
+    if(error)throw error;const t=((data&&data.data)||{}).text||'';
+    if(t&&!/^erro/i.test(t))_gtAppendNota(targetId,t);else alert('Não consegui ler o anexo. '+(t||''));
+  }catch(e){alert('Erro ao ler anexo: '+(e.message||e));}
+  if(lbl)lbl.firstChild.textContent=old||'📎';input.value='';
+}
 // ---- "Na conta": termo já é palavra-chave? ----
 function _gtNorm(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();}
 function _gtKwSet(){if(!_gTermsData)return new Set();if(!_gTermsData._kwset){

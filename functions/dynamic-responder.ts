@@ -2335,6 +2335,23 @@ async function waTranscribe(url: string): Promise<string> {
     const j = await r.json(); return (j && j.text) ? String(j.text).trim() : "";
   } catch { return ""; }
 }
+// Extrai o conteúdo útil de um anexo (imagem/PDF/texto) como texto — pra orientar a IA de palavras-chave.
+async function _extractAttachmentText(dataUrl: string, mime: string, name: string): Promise<string> {
+  const key = Deno.env.get("OPENAI_API_KEY"); if (!key || !dataUrl) return "";
+  const m = String(mime || "").toLowerCase();
+  // texto puro (txt/csv): decodifica direto, sem IA
+  if (m.startsWith("text/") || /\.(txt|csv|md)$/i.test(name)) {
+    try { const r = await fetch(dataUrl); const t = await r.text(); return t.slice(0, 6000); } catch { return ""; }
+  }
+  const sys = "Extraia e liste, em português, o conteúdo útil deste anexo para orientar uma IA de palavras-chave do Google Ads (termos, serviços, produtos, público, regiões, o que incluir ou evitar). Seja objetivo, só o conteúdo relevante, sem preâmbulo.";
+  const parts: any[] = [{ type: "text", text: "Anexo: " + (name || "arquivo") }];
+  if (m.startsWith("image/")) parts.push({ type: "image_url", image_url: { url: dataUrl } });
+  else parts.push({ type: "file", file: { filename: name || "documento.pdf", file_data: dataUrl } }); // PDF e afins
+  try {
+    const j = await callOpenAI({ model: "gpt-4o", messages: [{ role: "system", content: sys }, { role: "user", content: parts }], max_tokens: 700, temperature: 0.2 });
+    return (j.choices?.[0]?.message?.content || "").trim();
+  } catch (e) { return "erro ao ler anexo: " + ((e as any)?.message || e); }
+}
 // baixa (descriptografa) a mídia de uma mensagem no uazapi → { url, mime }
 async function waMediaUrl(host: string, token: string, msgid: string): Promise<{ url: string; mime: string } | null> {
   try {
@@ -2911,6 +2928,16 @@ Deno.serve(async (req) => {
     if (body.googleTermMining) {
       const r = await googleTermMining(body.googleTermMining);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // Áudio (gravado no navegador) → texto, pra ditar a orientação da IA (garimpo/limpeza)
+    if (body.transcribe) {
+      const t = await waTranscribe(String(body.transcribe.dataUrl || "")).catch(() => "");
+      return new Response(JSON.stringify({ data: { text: t } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // Anexo (imagem/PDF/texto) → extrai o conteúdo relevante como texto, pra orientar a IA
+    if (body.extractAttachment) {
+      const t = await _extractAttachmentText(String(body.extractAttachment.dataUrl || ""), String(body.extractAttachment.mime || ""), String(body.extractAttachment.name || "")).catch((e) => "erro: " + (e?.message || e));
+      return new Response(JSON.stringify({ data: { text: t } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.googleAdGroups) {
       const r = await googleAdGroups(body.googleAdGroups);
