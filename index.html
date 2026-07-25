@@ -879,6 +879,7 @@
         <div class="cad-collapse-hd" onclick="this.parentElement.classList.toggle('open')"><span class="t">🎯 Verba por campanha <span style="font-size:11px;color:var(--faint);font-weight:400">(opcional)</span></span><span class="cad-caret">▾</span></div>
         <div class="cad-collapse-bd">
           <div class="cad-sub">Pra quem trabalha com verba por <b>campanha/projeto</b> (ex.: por show, por evento) em vez de por mês. Defina quanto vai pra cada campanha — <b>independente</b> da divisão por canal acima. Deixe vazio se não usa.</div>
+          <div style="margin-bottom:8px"><button class="btn sm ghost" type="button" onclick="loadBudgetCampOptions(this)" title="Lista as campanhas ativas das contas Meta/Google vinculadas pra você escolher">🔄 Carregar campanhas ativas</button></div>
           <div id="cBudgetCampaigns"></div>
           <button class="btn sm" type="button" onclick="addBudgetCampaign()" style="margin-top:4px">+ Campanha</button>
           <div id="cBudgetCampTot" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
@@ -5512,16 +5513,57 @@ function renderBudgetChannels(){
 function budgetSetChannel(i,v){budgetRows[i].name=v;renderBudgetChannels();}
 function addBudgetChannel(){budgetRows.push({name:'',val:0});renderBudgetChannels()}
 // ---- Verba por campanha (opcional): total 2000, campanha X 500, Y 400... independente da divisão por canal ----
-let budgetCampRows=[];
+let budgetCampRows=[],_budgetCampOpts=null;
 function renderBudgetCampaigns(){
   const el=document.getElementById('cBudgetCampaigns');if(!el)return;
-  el.innerHTML=budgetCampRows.map((r,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
-      <input placeholder="Nome da campanha (ex.: Show — Cidade/data)" value="${(r.name||'').replace(/"/g,'&quot;')}" style="flex:1" oninput="budgetCampRows[${i}].name=this.value">
+  const opts=_budgetCampOpts;
+  el.innerHTML=budgetCampRows.map((r,i)=>{
+    let nameField;
+    if(opts&&opts.length&&!r._manual){
+      const groups={};opts.forEach(o=>{(groups[o.channel]=groups[o.channel]||[]).push(o);});
+      const optHtml=Object.entries(groups).map(([ch,list])=>`<optgroup label="${ch==='google'?'🔎 Google Ads':'📡 Meta Ads'}">`+list.map(o=>`<option value="${o.id}" ${r.campId===o.id?'selected':''}>${(o.name||'').replace(/</g,'&lt;')}</option>`).join('')+`</optgroup>`).join('');
+      nameField=`<select style="flex:1" onchange="budgetCampPick(${i},this)"><option value="">— escolher campanha ativa —</option>${optHtml}<option value="__manual__">✏️ Outro (digitar)</option></select>`;
+    }else{
+      nameField=`<input placeholder="Nome da campanha (ex.: Show — Cidade/data)" value="${(r.name||'').replace(/"/g,'&quot;')}" style="flex:1" oninput="budgetCampRows[${i}].name=this.value;budgetCampRows[${i}].campId='';budgetCampRows[${i}].channel='';">`;
+    }
+    return `<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">${nameField}
       <input type="number" placeholder="R$" value="${r.val||''}" style="width:100px" oninput="budgetCampRows[${i}].val=+this.value;budgetCampCalc()">
-      <button class="btn sm ghost danger" type="button" onclick="budgetCampRows.splice(${i},1);renderBudgetCampaigns()">✕</button></div>`).join('');
+      <button class="btn sm ghost danger" type="button" onclick="budgetCampRows.splice(${i},1);renderBudgetCampaigns()">✕</button></div>`;
+  }).join('');
   budgetCampCalc();
 }
+function budgetCampPick(i,sel){
+  const v=sel.value;
+  if(v==='__manual__'){budgetCampRows[i]._manual=true;budgetCampRows[i].campId='';budgetCampRows[i].channel='';budgetCampRows[i].name='';renderBudgetCampaigns();return;}
+  const o=(_budgetCampOpts||[]).find(x=>x.id===v);
+  budgetCampRows[i].campId=v;budgetCampRows[i].name=o?o.name:'';budgetCampRows[i].channel=o?o.channel:'';
+}
 function addBudgetCampaign(){budgetCampRows.push({name:'',val:0});renderBudgetCampaigns();const b=document.getElementById('cBudgetCampBox');if(b)b.classList.add('open');}
+// Carrega as campanhas ATIVAS das contas vinculadas (Meta + Google) pra escolher em vez de digitar
+async function loadBudgetCampOptions(btn){
+  const metaIds=(typeof metaSelectedIds!=='undefined'?metaSelectedIds:[]).slice();
+  const gIds=(typeof googleSelectedIds!=='undefined'?googleSelectedIds:[]).slice();
+  const cid=document.getElementById('cId').value;
+  if(!metaIds.length&&!gIds.length){alert('Vincule uma conta de anúncios (Meta ou Google) primeiro pra listar as campanhas.');return;}
+  const ob=btn?btn.textContent:'';if(btn){btn.disabled=true;btn.textContent='Carregando…';}
+  const out=[];
+  if(metaIds.length){try{
+    const accounts=metaIds.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
+    const {data}=await sb.functions.invoke('dynamic-responder',{body:{metaEntities:{accounts}}});
+    const ent=(data&&data.data)||{};
+    (ent.campaigns||[]).filter(x=>x.status==='ACTIVE'||x.entrega==='ACTIVE').forEach(x=>out.push({id:String(x.id),name:x.nome,channel:'meta'}));
+  }catch(e){}}
+  if(gIds.length&&cid){try{
+    const {data}=await sb.functions.invoke('dynamic-responder',{body:{googleAdGroups:{clientId:cid}}});
+    const ags=((data&&data.data)||{}).adgroups||[];const seen={};
+    ags.forEach(a=>{const cn=a.campaign||a.campaignName;const cId=String(a.campaignId||('g'+cn));if(cn&&!seen[cId]){seen[cId]=1;out.push({id:cId,name:cn,channel:'google'});}});
+  }catch(e){}}
+  _budgetCampOpts=out;
+  if(btn){btn.disabled=false;btn.textContent=ob;}
+  if(!out.length){alert('Nenhuma campanha ativa encontrada nas contas vinculadas. Você ainda pode digitar o nome manualmente.');return;}
+  if(!budgetCampRows.length)addBudgetCampaign();
+  renderBudgetCampaigns();
+}
 function budgetCampCalc(){
   const el=document.getElementById('cBudgetCampTot');if(!el)return;
   if(!budgetCampRows.length){el.textContent='';return;}
@@ -5744,7 +5786,7 @@ function openClientModal(id){
   document.getElementById('cPayDelay').value=c.payDelay!=null?c.payDelay:'';
   document.getElementById('cBudget').value=c.budget||'';
   budgetRows=(c.budgetChannels||[]).map(r=>({...r}));renderBudgetChannels();
-  budgetCampRows=(c.budgetCampaigns||[]).map(r=>({...r}));renderBudgetCampaigns();
+  _budgetCampOpts=null;budgetCampRows=(c.budgetCampaigns||[]).map(r=>({...r}));renderBudgetCampaigns();
   document.getElementById('cUsesBalance').checked=c.usesBalance||false;
   activeClientChannels=c.activeChannels||[];renderClientChannelPicker();
   document.getElementById('cOnboardingBtn').style.display=id?'block':'none';
@@ -5908,7 +5950,7 @@ async function saveClient(){
   let cat=document.getElementById('cCategory').value,customType='';
   if(cat==='custom'){customType=document.getElementById('cCustomType').value.trim()||'Outro';cat=customType}
   const channels=budgetRows.filter(r=>r.name||r.val).map(r=>({name:r.name||'',val:+r.val||0}));
-  const campaignBudgets=budgetCampRows.filter(r=>(r.name&&r.name.trim())||r.val).map(r=>({name:(r.name||'').trim(),val:+r.val||0}));
+  const campaignBudgets=budgetCampRows.filter(r=>(r.name&&r.name.trim())||r.val).map(r=>({name:(r.name||'').trim(),val:+r.val||0,campId:r.campId||'',channel:r.channel||''}));
   const prevTemp=(DB.clients.find(x=>x.id===cId.value)||{}).temp||'';
   const tempChanged=currentTemp!==prevTemp;
   const prevSince=(DB.clients.find(x=>x.id===cId.value)||{}).tempSince||'';
@@ -7304,11 +7346,19 @@ async function fetchMetaTotals(c,since,until){
   try{const {data}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until}}});const d=(data&&data.data)||data;return (d&&d.total)||null;}catch(e){return null;}
 }
 function metaTotalResumo(t){if(!t)return null;return{investimento:Math.round(t.spend||0),impressoes:t.impressions||0,cliques:t.clicks||0,ctrPct:+(t.ctr||0).toFixed(2),cpc:+(t.cpc||0).toFixed(2),cpm:+(t.cpm||0).toFixed(2),roas:+(t.roas||0).toFixed(2),compras:Math.round(t.purchases||0),leads:Math.round(t.leads||0),conversas:Math.round(t.conversas||0),videoViews:Math.round(t.videoViews||0)};}
-// Total + gasto POR campanha (Meta) — usado nos avisos de estouro de verba por campanha
+// Total (Meta, pro teto) + gasto POR campanha (Meta + Google quando houver verba de campanha do Google) — pros avisos de estouro
 async function fetchMetaBudgetData(c,since,until){
-  const ids=c.metaAccountIds||[];if(!ids.length)return null;
-  const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
-  try{const {data}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,byCampaign:true}}});const d=(data&&data.data)||data;return d?{total:d.total||null,campaigns:d.campaigns||[]}:null;}catch(e){return null;}
+  const ids=c.metaAccountIds||[];
+  const wantGoogle=(c.budgetCampaigns||[]).some(b=>b.channel==='google'&&+b.val>0)&&(c.googleAccountIds||[]).length>0;
+  if(!ids.length&&!wantGoogle)return null;
+  let total=null,campaigns=[];
+  if(ids.length){try{
+    const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
+    const {data}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,byCampaign:true}}});
+    const d=(data&&data.data)||data;if(d){total=d.total||null;campaigns=campaigns.concat(d.campaigns||[]);}
+  }catch(e){}}
+  if(wantGoogle){try{const g=await fetchGoogleReportRange(c,since,until);campaigns=campaigns.concat(g.campaigns||[]);}catch(e){}}
+  return {total,campaigns};
 }
 // Casa a verba por campanha (nome livre no cadastro) com o gasto real das campanhas do Meta (match por nome, flexível)
 function campBudgetStatus(c,campaigns){
@@ -7316,8 +7366,9 @@ function campBudgetStatus(c,campaigns){
   if(!budgets.length||!campaigns||!campaigns.length)return [];
   const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
   return budgets.map(b=>{
-    const bn=norm(b.name);
-    const matched=campaigns.filter(cp=>{const cn=norm(cp.campaign);return cn&&bn&&(cn.includes(bn)||bn.includes(cn));});
+    let matched=[];
+    if(b.campId)matched=campaigns.filter(cp=>String(cp.campaignId||'')===String(b.campId)); // casamento EXATO por id (campanha selecionada)
+    if(!matched.length){const bn=norm(b.name);matched=campaigns.filter(cp=>{const cn=norm(cp.campaign);return cn&&bn&&(cn.includes(bn)||bn.includes(cn));});}
     const spend=matched.reduce((s,cp)=>s+(+cp.spend||0),0);
     return {name:b.name,budget:+b.val,spend,pct:b.val?spend/b.val*100:0,matched:matched.length};
   });
