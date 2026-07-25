@@ -2071,7 +2071,8 @@ function pubCreateOpen(){
     </div>`,720);
 }
 // ---- 1) Engagement em massa ----
-const PUB_SRC=[{k:'pixel',lbl:'Site/Pixel',ico:'🌐',max:180},{k:'facebook',lbl:'Facebook',ico:'📘',max:730},{k:'instagram',lbl:'Instagram',ico:'📸',max:730},{k:'video',lbl:'Video Views',ico:'🎬',max:365},{k:'form',lbl:'Formulários',ico:'📄',max:90}];
+// Vídeo temporariamente fora: o Meta exige um formato de regra legado específico p/ engajamento de vídeo (em validação).
+const PUB_SRC=[{k:'pixel',lbl:'Site/Pixel',ico:'🌐',max:180},{k:'facebook',lbl:'Facebook',ico:'📘',max:730},{k:'instagram',lbl:'Instagram',ico:'📸',max:730},{k:'form',lbl:'Formulários',ico:'📄',max:90}];
 const PUB_EV={
   pixel:[['ALL','Todos os visitantes'],['ViewContent','Visualizou conteúdo'],['AddToCart','Adicionou ao carrinho'],['InitiateCheckout','Iniciou checkout'],['Purchase','Compra'],['Lead','Lead'],['CompleteRegistration','Cadastro'],['Search','Busca'],['AddToWishlist','Lista de desejos'],['Contact','Contato']],
   facebook:[['page_engaged','Engajou'],['page_visited','Visitou a página'],['page_messaged','Mandou mensagem'],['page_liked','Curtiu'],['page_cta_clicked','Clicou no CTA'],['page_or_post_save','Salvou'],['page_post_interaction','Interagiu c/ post']],
