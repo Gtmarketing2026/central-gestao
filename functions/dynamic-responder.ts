@@ -1135,6 +1135,20 @@ async function googleTermCleanup(m: any) {
     return { negativar: (parsed.negativar || []).slice(0, 60), observacao: parsed.observacao || "", cliente: c?.name || "", temDna: !!(dna && Object.keys(dna).length) };
   } catch (e) { return { erro: String((e as any)?.message || e) }; }
 }
+// Lista campanhas › conjuntos (ad groups) das contas Google do cliente — pra escolher onde incluir a palavra-chave.
+async function googleAdGroups(m: any) {
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(m.clientId || "")}&select=google_account_id`))[0];
+  const ids = String(c?.google_account_id || "").split(",").map((s: string) => s.trim().replace(/-/g, "").replace(/[^0-9]/g, "")).filter(Boolean);
+  if (!ids.length) return { adgroups: [] };
+  const token = await googleAdsAccessToken();
+  const out: any[] = [];
+  for (const acc of ids) {
+    // só campanhas de PESQUISA aceitam palavras-chave (Performance Max/Shopping não têm ad_group de keyword); traz ativos E pausados (não removidos)
+    const rows = await gadsSearch(acc, `SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, ad_group.id, ad_group.name, ad_group.status FROM ad_group WHERE ad_group.status != 'REMOVED' AND campaign.status != 'REMOVED' AND campaign.advertising_channel_type = 'SEARCH'`, token).catch(() => []);
+    rows.forEach((r: any) => out.push({ accountId: acc, campaignId: String(r.campaign?.id || ""), campaignName: r.campaign?.name || "", campaignStatus: r.campaign?.status || "", adGroupId: String(r.adGroup?.id || ""), adGroupName: r.adGroup?.name || "", adGroupStatus: r.adGroup?.status || "" }));
+  }
+  return { adgroups: out };
+}
 // IA GARIMPO: a partir dos termos de busca reais + DNA, sugere NOVAS palavras-chave pra COMPRAR (oportunidades).
 async function googleTermMining(m: any) {
   const termos: any[] = (m.termos || []).slice(0, 120);
@@ -2780,6 +2794,10 @@ Deno.serve(async (req) => {
     }
     if (body.googleTermMining) {
       const r = await googleTermMining(body.googleTermMining);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleAdGroups) {
+      const r = await googleAdGroups(body.googleAdGroups);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.googleAds) {
