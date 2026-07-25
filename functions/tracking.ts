@@ -603,5 +603,17 @@ Deno.serve(async (req) => {
   const mLink = p.match(/^\/l\/([^/]+)\/([^/]+)$/);
   if (mLink) return handleRedirect(decodeURIComponent(mLink[1]), decodeURIComponent(mLink[2]), url, ref);
 
+  // Link CURTO com o handle do cliente: GET /<handle> ou /<handle>/<slug>  (ex.: /motirobar/bio)
+  // handle vazio → usa o slug "bio" como padrão. Resolve o handle → client_id e reaproveita o redirect rastreado.
+  const RESERVED = new Set(["collect", "wa", "rd", "google", "nuvemshop", "calendar", "automations", "pixel", "l", "favicon.ico", "robots.txt"]);
+  const mHandle = p.match(/^\/([a-z0-9][a-z0-9_-]{1,60})(?:\/([a-z0-9_-]{1,60}))?\/?$/i);
+  if (mHandle && req.method === "GET" && !RESERVED.has(mHandle[1].toLowerCase())) {
+    const handle = mHandle[1].toLowerCase();
+    const slug = (mHandle[2] || "bio").toLowerCase();
+    const cfg = await sbSelect("tracking_config", `handle=eq.${encodeURIComponent(handle)}&select=client_id&limit=1`);
+    const cid = cfg[0]?.client_id;
+    if (cid) return handleRedirect(String(cid), slug, url, ref);
+  }
+
   return new Response("tracking ok", { headers: { ...cors, "Content-Type": "text/plain" } });
 });

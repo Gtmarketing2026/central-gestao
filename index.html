@@ -3680,7 +3680,7 @@ async function loadRastreamento(clientId){
   body.innerHTML='<div class="empty">Carregando rastreamento…</div>';
   try{
     // config (token) — cria se não existir
-    let cfg=(await sb.from('tracking_config').select('token,wa_phone').eq('client_id',c.id).maybeSingle()).data;
+    let cfg=(await sb.from('tracking_config').select('token,wa_phone,handle').eq('client_id',c.id).maybeSingle()).data;
     if(!cfg){
       const token='tk_'+Math.random().toString(36).slice(2,12)+Math.random().toString(36).slice(2,10);
       const {error}=await sb.from('tracking_config').insert({client_id:c.id,token});
@@ -3701,6 +3701,11 @@ async function loadRastreamento(clientId){
     const clicksBySlug={};lcEv.forEach(e=>{if(e.link_slug)clicksBySlug[e.link_slug]=(clicksBySlug[e.link_slug]||0)+1});
     const active=pv>0;
     const snippet='<script src="'+PIXEL_BASE+'/pixel/script/'+cfg.token+'.js" async></'+'script>';
+    _rastHandle=cfg.handle||'';
+    const _slugify=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'').slice(0,40);
+    const handleSuggest=_rastHandle||_slugify(c.name);
+    const shortBase=_rastHandle?(PIXEL_BASE+'/'+_rastHandle):(PIXEL_BASE+'/l/'+c.id);
+    const linkUrlFor=slug=>_rastHandle?(PIXEL_BASE+'/'+_rastHandle+'/'+slug):(PIXEL_BASE+'/l/'+c.id+'/'+slug);
 
     const tile=(icon,val,lbl,col)=>`<div style="flex:1;min-width:120px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 14px">
       <div style="font-size:11px;color:var(--muted)">${icon} ${lbl}</div>
@@ -3733,7 +3738,7 @@ async function loadRastreamento(clientId){
 
     // ---- Card 2: Links de Tracking ----
     const linkRows=links.length?links.map(l=>{
-      const url=PIXEL_BASE+'/l/'+c.id+'/'+l.slug;
+      const url=linkUrlFor(l.slug);
       const kindIcon=l.kind==='wpp'?'💬':l.kind==='bio'?'📸':l.kind==='site'?'🌐':'🔗';
       return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05)">
         <span style="font-size:16px">${kindIcon}</span>
@@ -3749,9 +3754,24 @@ async function loadRastreamento(clientId){
     const linksCard=`<div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px">
         <h3 style="margin:0">🔗 Links de Tracking</h3>
-        <span style="font-size:11.5px;color:var(--faint)">${links.length} link(s) · redirecionam registrando a origem (server-side)</span>
+        <span style="font-size:11.5px;color:var(--faint)">${links.length} link(s) · <b style="color:var(--text)">${lc.toLocaleString('pt-BR')}</b> cliques no total</span>
       </div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Ideal para a bio do Instagram e links de WhatsApp — cada clique grava de onde veio e repassa a origem adiante.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Links curtos com tracking server-side — ideais pra bio do Instagram e WhatsApp. Cada clique grava de onde veio e repassa a origem adiante.</div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
+        <label style="font-size:10px;color:var(--faint);display:block;margin-bottom:4px;letter-spacing:.04em">NOME DO CLIENTE NO LINK <span title="Personalize o começo do link. Ex.: motirobar → ${_rastEsc(PIXEL_BASE.replace(/^https?:\\/\\//,''))}/motirobar/bio" style="cursor:help">ⓘ</span></label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;flex:1;min-width:220px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:0 10px">
+            <span style="font-size:12px;color:var(--faint);white-space:nowrap">${_rastEsc(PIXEL_BASE.replace(/^https?:\/\//,''))}/</span>
+            <input id="rastHandle" value="${_rastEsc(handleSuggest)}" placeholder="nome-do-cliente" style="border:none;background:transparent;flex:1;font-size:13px;font-weight:700;color:var(--accent);padding:9px 2px" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_-]/g,'')">
+          </div>
+          <button class="btn sm primary" style="flex:none" onclick="rastSaveHandle(this)">Salvar</button>
+        </div>
+        ${!_rastHandle?'<div style="font-size:11px;color:var(--faint);margin-top:6px">💡 Defina o nome pra deixar o link curto e com a marca do cliente (ex.: <b>'+_rastEsc(handleSuggest||'motirobar')+'/bio</b>).</div>':'<div style="font-size:11px;color:#34d399;margin-top:6px">✓ Link curto ativo: <b>'+_rastEsc(shortBase.replace(/^https?:\/\//,''))+'</b></div>'}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn sm ghost" style="flex:1;min-width:150px;justify-content:center" onclick="rastQuickLink('bio')">🌐 Criar Link de Bio</button>
+        <button class="btn sm ghost" style="flex:1;min-width:150px;justify-content:center" onclick="rastQuickLink('wpp')">💬 Criar Link WhatsApp</button>
+      </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px">
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">APELIDO (na URL)</label><input id="rastLinkSlug" placeholder="bio" style="width:130px;font-size:12px"></div>
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">TIPO</label><select id="rastLinkKind" style="width:auto;font-size:12px"><option value="bio">📸 Bio / Instagram</option><option value="site">🌐 Site</option><option value="wpp">💬 WhatsApp</option><option value="other">🔗 Outro</option></select></div>
@@ -3764,8 +3784,29 @@ async function loadRastreamento(clientId){
     body.innerHTML=statusCard+linksCard;
   }catch(e){body.innerHTML=`<div class="empty">Erro ao carregar rastreamento: ${e.message||e}</div>`;}
 }
-let _rastToken='';
+let _rastToken='',_rastHandle='';
 function rastCopy(text,btn){navigator.clipboard.writeText(text).then(()=>{const o=btn.textContent;btn.textContent='Copiado ✓';setTimeout(()=>btn.textContent=o,1400);}).catch(()=>{});}
+// Salva o "nome do cliente no link" (handle) → deixa o link curto e com a marca (ex.: /motirobar/bio)
+async function rastSaveHandle(btn){
+  const c=DB.clients.find(x=>x.id===_rastClientId);if(!c)return;
+  const h=(document.getElementById('rastHandle').value||'').toLowerCase().replace(/[^a-z0-9_-]/g,'');
+  if(h.length<2){alert('Escolha um nome com pelo menos 2 caracteres (só letras, números, - e _).');return}
+  const {error}=await sb.from('tracking_config').update({handle:h}).eq('client_id',c.id);
+  if(error){alert(/duplicate|unique/i.test(error.message)?'Esse nome já está em uso por outro cliente. Escolha outro.':'Erro: '+error.message);return}
+  const o=btn.textContent;btn.textContent='Salvo ✓';setTimeout(()=>btn.textContent=o,1400);
+  loadRastreamento(c.id);
+}
+// Cria rápido o link de Bio ou de WhatsApp já preenchido (1 clique)
+function rastQuickLink(kind){
+  const c=DB.clients.find(x=>x.id===_rastClientId);if(!c)return;
+  const wa=c.whatsapp?('https://wa.me/'+String(c.whatsapp).replace(/[^0-9]/g,'')):'';
+  const map={bio:{slug:'bio',kind:'bio',dest:c.siteUrl||''},wpp:{slug:'whatsapp',kind:'wpp',dest:wa}};
+  const m=map[kind];if(!m)return;
+  document.getElementById('rastLinkSlug').value=m.slug;
+  document.getElementById('rastLinkKind').value=m.kind;
+  document.getElementById('rastLinkDest').value=m.dest;
+  rastAddLink(); // reusa validação + fallback pro WhatsApp do cliente quando destino vazio
+}
 async function rastAddLink(){
   const c=DB.clients.find(x=>x.id===_rastClientId);if(!c)return;
   let slug=(document.getElementById('rastLinkSlug').value||'').toLowerCase().trim().replace(/[^a-z0-9-]+/g,'-').replace(/^-+|-+$/g,'');
