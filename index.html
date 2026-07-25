@@ -2660,7 +2660,7 @@ async function loadCrmConvs(){
   if(_crmAnaMode)return; // Analytics aberto: não sobrescreve com o funil
   renderCrmFilters();renderCrm();renderCrmGuide();
 }
-let _crmAnaMode=false,_crmAnaFOrigin='',_crmAnaFCampaign='',_crmAnaFConta='',_crmAnaFAdset='',_crmAnaRaw=null,_crmAnaCh=null;
+let _crmAnaMode=false,_crmAnaFOrigin='',_crmAnaFCampaign='',_crmAnaFConta='',_crmAnaFAdset='',_crmAnaRaw=null,_crmAnaCh=null,_crmAnaLevel='campanha';
 function _crmDur(ms){if(!ms||ms<0)return '';const s=Math.floor(ms/1000);if(s<60)return s+'s';const min=Math.floor(s/60);if(min<60)return min+'min';const h=Math.floor(min/60);if(h<24)return h+'h';const dd=Math.floor(h/24);return dd+'d';}
 function _crmDH(ts){if(!ts)return '';const d=new Date(ts);return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}
 function _crmFmtFone(p){p=String(p||'').replace(/[^0-9]/g,'');if(!p)return '';const m=p.match(/^(\d{2})(\d{2})(\d{4,5})(\d{4})$/);return m?`+${m[1]} (${m[2]}) ${m[3]}-${m[4]}`:p;}
@@ -2887,7 +2887,10 @@ async function crmAnalyticsOpen(days){
   let q=sb.from('wa_conversations').select('*').gte('last_at',since).limit(4000);
   q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
   const capiQ=sb.from('capi_events').select('status,event_name,error,created_at').eq('client_id',inst.client_id||'__none__').gte('created_at',since).order('created_at',{ascending:false}).limit(200);
-  const [{data:convs},{data:capi}]=await Promise.all([q,capiQ]);
+  // jornada: histórico de etapas (pro funil acumulado — quem JÁ PASSOU por cada etapa)
+  let jq=sb.from('wa_journey').select('conversation_id,from_stage,to_stage').limit(8000);
+  jq=inst.client_id?jq.eq('client_id',inst.client_id):jq.is('client_id',null);
+  const [{data:convs},{data:capi},jr]=await Promise.all([q,capiQ,jq.then(r=>r).catch(()=>({data:[]}))]);
   const _cvs=convs||[];
   const hasMetaAcc=!!(client&&client.metaAccountIds&&client.metaAccountIds.length);
   const hasGoogleAcc=!!(client&&client.googleAccountIds&&client.googleAccountIds.length);
@@ -2898,11 +2901,12 @@ async function crmAnalyticsOpen(days){
   let meta=null,goog=null;
   try{if(hasMetaAcc)meta=await fetchMetaReportRange(client,since,until);}catch(e){}
   try{if(hasGoogleAcc)goog=await fetchGoogleReportRange(client,since,until);}catch(e){}
-  _crmAnaRaw={convs:_cvs,metaR:meta,googR:goog,hasMetaAcc,hasGoogleAcc,capi:capi||[],clientName:(client&&client.name)||inst.name||'Agência'};
+  _crmAnaRaw={convs:_cvs,metaR:meta,googR:goog,hasMetaAcc,hasGoogleAcc,capi:capi||[],journey:(jr&&jr.data)||[],clientName:(client&&client.name)||inst.name||'Agência'};
   crmAnaRerender();
 }
 function crmAnaSetFilter(k,v){if(k==='origem'){_crmAnaFOrigin=v;}else if(k==='conta'){_crmAnaFConta=v;_crmAnaFCampaign='';_crmAnaFAdset='';}else if(k==='campanha'){_crmAnaFCampaign=v;_crmAnaFAdset='';}else if(k==='conjunto'){_crmAnaFAdset=v;}crmAnaRerender();}
 function crmAnaSetChannel(ch){_crmAnaCh=_crmAnaCh||{meta:true,google:true};_crmAnaCh[ch]=!_crmAnaCh[ch];crmAnaRerender();}
+function crmAnaSetLevel(l){_crmAnaLevel=l;crmAnaRerender();} // campanha / conjunto / anúncio na tabela de conversão
 function crmAnaRerender(){
   if(!_crmAnaRaw)return;
   let C=_crmAnaRaw.convs;
@@ -2927,6 +2931,62 @@ function crmAnaDownload(mode){
   if(mode==='pdf'){const w=window.open('','_blank');if(!w){alert('Permita pop-ups pra gerar o PDF.');return;}w.document.write(doc);w.document.close();setTimeout(function(){w.focus();w.print();},500);}
   else{const blob=new Blob([doc],{type:'text/html'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='crm-analytics-'+cn.replace(/[^a-z0-9]/gi,'_')+'-'+_crmAnaDays+'d.html';document.body.appendChild(a);a.click();a.remove();}
 }
+/* ---- Funil desenhado (SVG): trapézios com % do total e % da etapa anterior ---- */
+function _isLostStage(s){return /perd|lost|desqualific/i.test(String((s&&s.key)||'')+' '+String((s&&s.label)||''));}
+function crmFunnelSVG(items){
+  const n=items.length;if(!n)return '<div class="empty" style="padding:18px">Sem dados no período.</div>';
+  const esc=s=>String(s||'').replace(/</g,'&lt;');
+  const W=900,segH=76,H=n*segH+14,cx=340,maxHW=318,minHW=46;
+  const top=items[0].value||0;
+  const hw=v=>{const p=top>0?Math.max(0,Math.min(1,(v||0)/top)):0;return minHW+(maxHW-minHW)*p;};
+  let body='';
+  items.forEach((it,i)=>{
+    const y=8+i*segH,yb=y+segH-12,mid=y+(yb-y)/2,col=it.color||'#60a5fa';
+    const w1=hw(it.value),w2=hw(i+1<n?items[i+1].value:(it.value||0)*0.82);
+    body+=`<polygon points="${(cx-w1).toFixed(1)},${y} ${(cx+w1).toFixed(1)},${y} ${(cx+w2).toFixed(1)},${yb} ${(cx-w2).toFixed(1)},${yb}" fill="${col}" fill-opacity="0.92" stroke="rgba(0,0,0,.22)" stroke-width="1"/>`;
+    body+=`<text x="${cx}" y="${mid-3}" text-anchor="middle" font-size="13.5" font-weight="700" fill="#0f1115">${esc(it.label)}</text>`;
+    body+=`<text x="${cx}" y="${mid+17}" text-anchor="middle" font-size="18" font-weight="800" fill="#0f1115">${(it.value||0).toLocaleString('pt-BR')}</text>`;
+    const pctTotal=top?((it.value||0)/top*100):0;
+    const prev=i>0?(items[i-1].value||0):null;
+    const pctStep=(prev!=null&&prev>0)?((it.value||0)/prev*100):null;
+    body+=`<text x="${W-14}" y="${mid-2}" text-anchor="end" font-size="14" font-weight="800" fill="${col}">${pctTotal.toFixed(pctTotal>0&&pctTotal<10?1:0)}%</text>`;
+    body+=`<text x="${W-14}" y="${mid+15}" text-anchor="end" font-size="10.5" fill="#8a94a3">${pctStep!=null?('▼ '+pctStep.toFixed(0)+'% da etapa anterior'):'do total que chegou'}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
+}
+/* ---- Funil de JORNADA: quantos leads JÁ PASSARAM por cada etapa (acumulado), não onde estão agora ----
+   Fonte: histórico (wa_journey) + a etapa atual como piso — quem está em SQL necessariamente passou por MQL. */
+function crmJourneyIndexer(jrn){
+  const stages=crmStages().filter(s=>s.key!=='sem');
+  const prog=stages.filter(s=>!_isLostStage(s));
+  const idxOf={};prog.forEach((s,i)=>idxOf[s.key]=i);
+  const byConv={};
+  (jrn||[]).forEach(r=>{const a=byConv[r.conversation_id]||(byConv[r.conversation_id]=[]);if(r.to_stage)a.push(r.to_stage);if(r.from_stage)a.push(r.from_stage);});
+  // etapa MÁXIMA que o lead já alcançou: etapa atual (piso) + tudo que o histórico registrar
+  const maxIdx=cv=>{let mx=0;if(idxOf[cv.stage]!=null)mx=Math.max(mx,idxOf[cv.stage]);(byConv[cv.id]||[]).forEach(k=>{if(idxOf[k]!=null)mx=Math.max(mx,idxOf[k]);});return mx;};
+  const isLost=cv=>{const st=stages.find(s=>s.key===cv.stage);return !!(st&&_isLostStage(st));};
+  return {stages,prog,idxOf,maxIdx,isLost};
+}
+function crmJourneyFunnel(C,jrn){
+  const ix=crmJourneyIndexer(jrn);
+  const counts=ix.prog.map(()=>0);
+  let lost=0;const lostAt={};
+  C.forEach(cv=>{const mx=ix.maxIdx(cv);for(let i=0;i<=mx;i++)counts[i]++;if(ix.isLost(cv)){lost++;lostAt[mx]=(lostAt[mx]||0)+1;}});
+  return {prog:ix.prog,counts,lost,lostAt,items:ix.prog.map((s,i)=>({label:s.label||s.key,value:counts[i],color:s.color}))};
+}
+// agrupa as conversas por campanha / conjunto / anúncio e conta quantas JÁ PASSARAM por cada etapa
+function crmGroupByLevel(C,jrn,level,spendMaps){
+  const ix=crmJourneyIndexer(jrn);
+  const key=level==='anuncio'?'ad':level==='conjunto'?'adset':'campaign';
+  const g={};
+  C.filter(c=>c.origin_type==='anuncio'&&(c.origin||{})[key]).forEach(c=>{
+    const nm=String(c.origin[key]);
+    const o=g[nm]||(g[nm]={nome:nm,campanha:(c.origin||{}).campaign||'',n:0,reach:ix.prog.map(()=>0),lost:0});
+    o.n++;const mx=ix.maxIdx(c);for(let i=0;i<=mx;i++)o.reach[i]++;if(ix.isLost(c))o.lost++;
+  });
+  const sp=(spendMaps||{})[level]||{};
+  return {prog:ix.prog,rows:Object.values(g).map(o=>({...o,spend:sp[o.nome]||0})).sort((a,b)=>b.n-a.n)};
+}
 function crmAnaRender(C,meta,capi){
   const fmtR=v=>'R$ '+(Math.round((v||0)*100)/100).toLocaleString('pt-BR',{minimumFractionDigits:2});
   const stages=crmStages().filter(s=>s.key!=='sem');
@@ -2944,13 +3004,33 @@ function crmAnaRender(C,meta,capi){
   const byStage={};stages.forEach(s=>byStage[s.key]=0);C.forEach(c=>{const k=c.stage&&byStage[c.stage]!=null?c.stage:null;if(k)byStage[k]++;});
   const maxF=Math.max(1,...stages.map(s=>byStage[s.key]));
   const funil=stages.map(s=>`<div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>${(s.label||'').replace(/</g,'&lt;')}</span><b>${byStage[s.key]}</b></div><div style="height:22px;background:var(--surface2);border-radius:7px;overflow:hidden"><div style="height:100%;width:${Math.max(byStage[s.key]/maxF*100,2)}%;background:${s.color||'#60a5fa'};border-radius:7px"></div></div></div>`).join('');
-  // campanha × estágio
-  const spendByCamp={};((meta&&meta.campaigns)||[]).forEach(c=>{spendByCamp[c.campaign]=c.spend||0;});
-  const byCamp={};C.filter(c=>c.origin_type==='anuncio'&&(c.origin||{}).campaign).forEach(c=>{const cn=c.origin.campaign;if(!byCamp[cn])byCamp[cn]={n:0,st:{}};byCamp[cn].n++;const k=c.stage||'novo';byCamp[cn].st[k]=(byCamp[cn].st[k]||0)+1;});
-  const campRows=Object.entries(byCamp).sort((a,b)=>b[1].n-a[1].n).map(([cn,d])=>{
-    const sp=spendByCamp[cn]||0;const cpc=d.n?sp/d.n:0;
-    return `<tr><td style="padding:8px 10px;font-size:12px;border-bottom:1px solid var(--border);max-width:280px">${cn.replace(/</g,'&lt;')}</td><td style="padding:8px 10px;text-align:right;font-weight:700;border-bottom:1px solid var(--border)">${d.n}</td>${stages.map(s=>`<td style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);color:${d.st[s.key]?s.color:'var(--faint)'}">${d.st[s.key]||'–'}</td>`).join('')}<td style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">${sp?fmtR(sp):'–'}</td><td style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">${cpc?fmtR(cpc):'–'}</td></tr>`;
-  }).join('')||`<tr><td colspan="${stages.length+4}" style="padding:16px;text-align:center;color:var(--faint)">Sem conversas de anúncio no período.</td></tr>`;
+  // funil de JORNADA (acumulado) + taxas
+  const _jrn=crmJourneyFunnel(C,(_crmAnaRaw&&_crmAnaRaw.journey)||[]);
+  const _jc=_jrn.counts,_jp=_jrn.prog;
+  const _chegou=_jc[0]||0;
+  const _tx=(v,base)=>base>0?((v/base*100).toFixed(v/base*100<10?1:0)+'%'):'—';
+  const _idxLike=re=>_jp.findIndex(s=>re.test(String(s.key)+' '+String(s.label)));
+  const iMql=_idxLike(/mql|qualific/i),iCompra=_idxLike(/compr|vend|client|fech/i);
+  const jrnKpi=(lbl,val,sub,cor)=>`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex:1;min-width:130px"><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">${lbl}</div><div style="font-size:19px;font-weight:800;margin-top:2px${cor?';color:'+cor:''}">${val}</div>${sub?`<div style="font-size:10.5px;color:var(--faint);margin-top:1px">${sub}</div>`:''}</div>`;
+  const jrnKpis=jrnKpi('Leads que chegaram',_chegou,'entraram no funil no período')
+    +(iMql>0?jrnKpi('Taxa de qualificação',_tx(_jc[iMql]||0,_chegou),`${_jc[iMql]||0} viraram ${(_jp[iMql].label||'').toLowerCase()}`,'#f0c040'):'')
+    +(iCompra>0?jrnKpi('Taxa de fechamento',_tx(_jc[iCompra]||0,_chegou),`${_jc[iCompra]||0} chegaram em ${(_jp[iCompra].label||'').toLowerCase()}`,'#34d399'):'')
+    +(_jrn.lost?jrnKpi('Perdidos',_jrn.lost,_tx(_jrn.lost,_chegou)+' do que chegou','#f87171'):'');
+  // conversão por campanha / conjunto / anúncio (níveis) — contagem ACUMULADA (já passaram pela etapa)
+  const _spendMaps={campanha:{},conjunto:{},anuncio:{}};
+  ((meta&&meta.campaigns)||[]).forEach(c=>{_spendMaps.campanha[c.campaign]=(_spendMaps.campanha[c.campaign]||0)+(c.spend||0);});
+  const _allAds=[...(((_crmAnaRaw&&_crmAnaRaw.metaR)||{}).ads||[]),...(((_crmAnaRaw&&_crmAnaRaw.googR)||{}).ads||[])];
+  _allAds.forEach(a=>{if(a.adset)_spendMaps.conjunto[a.adset]=(_spendMaps.conjunto[a.adset]||0)+(a.spend||0);if(a.adName)_spendMaps.anuncio[a.adName]=(_spendMaps.anuncio[a.adName]||0)+(a.spend||0);});
+  const _lvl=_crmAnaLevel||'campanha';
+  const _grp=crmGroupByLevel(C,(_crmAnaRaw&&_crmAnaRaw.journey)||[],_lvl,_spendMaps);
+  const _lvlLbl={campanha:'Campanha',conjunto:'Conjunto',anuncio:'Anúncio'};
+  const lvlBtns=['campanha','conjunto','anuncio'].map(k=>`<button class="btn sm ${_lvl===k?'primary':'ghost'}" style="font-size:11px" onclick="crmAnaSetLevel('${k}')">${k==='campanha'?'📣':k==='conjunto'?'🎯':'🖼'} ${_lvlLbl[k]}</button>`).join('');
+  const _progCols=_grp.prog;
+  const campRows=_grp.rows.map(r=>{
+    const cpc=r.n?r.spend/r.n:0;
+    const sub=(_lvl!=='campanha'&&r.campanha)?`<div style="font-size:10px;color:var(--faint);margin-top:1px">${String(r.campanha).replace(/</g,'&lt;')}</div>`:'';
+    return `<tr><td style="padding:8px 10px;font-size:12px;border-bottom:1px solid var(--border);max-width:280px">${String(r.nome).replace(/</g,'&lt;')}${sub}</td><td style="padding:8px 10px;text-align:right;font-weight:700;border-bottom:1px solid var(--border)">${r.n}</td>${_progCols.map((s,i)=>{const v=r.reach[i]||0;const pct=r.n?(v/r.n*100):0;return `<td style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);color:${v?s.color:'var(--faint)'}">${v||'–'}${v&&i>0?`<div style="font-size:9.5px;color:var(--faint)">${pct.toFixed(0)}%</div>`:''}</td>`;}).join('')}<td style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);color:${r.lost?'#f87171':'var(--faint)'}">${r.lost||'–'}</td><td style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">${r.spend?fmtR(r.spend):'–'}</td><td style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">${cpc?fmtR(cpc):'–'}</td></tr>`;
+  }).join('')||`<tr><td colspan="${_progCols.length+5}" style="padding:16px;text-align:center;color:var(--faint)">Sem conversas de anúncio com ${_lvlLbl[_lvl].toLowerCase()} identificado no período.</td></tr>`;
   const _raw=(_crmAnaRaw&&_crmAnaRaw.convs)||[];
   const _origs=[...new Set(_raw.map(cv=>_crmOriginKey(cv)))];
   // cascata como no dash: conta → campanha → conjunto
@@ -2985,10 +3065,27 @@ function crmAnaRender(C,meta,capi){
       ${kpi('Eventos CAPI',capiOk,capiFail?`<span style="color:#f87171">${capiFail} falha(s)</span> · <a onclick="crmCapiHistory()" style="cursor:pointer;color:var(--accent)">ver histórico</a>`:`<a onclick="crmCapiHistory()" style="cursor:pointer;color:var(--accent)">ver histórico</a>`)}
     </div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px">
-      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:12px">🔻 Funil de Conversão</div>${funil}</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">🔻 Funil de Jornada — acumulado</div>
+        <div style="font-size:11px;color:var(--faint)">quantos leads <b>já passaram</b> por cada etapa (não onde estão agora)</div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 6px">${jrnKpis}</div>
+      ${crmFunnelSVG(_jrn.items)}
+      ${_jrn.lost?`<div style="font-size:11.5px;color:var(--muted);margin-top:8px;padding-top:10px;border-top:1px solid var(--border)">🚫 <b>${_jrn.lost}</b> marcado(s) como perdido — pararam em: ${Object.entries(_jrn.lostAt).sort((a,b)=>b[1]-a[1]).map(([i,q])=>`${((_jrn.prog[+i]||{}).label||'—')} (${q})`).join(' · ')}</div>`:''}
+      <div style="font-size:10.5px;color:var(--faint);margin-top:8px">O histórico detalhado (quem passou quando e por quê) fica na aba 🧭 Jornada de cada lead. Etapas anteriores são deduzidas da etapa atual — quem está em SQL passou por MQL.</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">📍 Onde estão agora</div>
+        <div style="font-size:11px;color:var(--faint)">foto do momento — em que etapa cada lead está parado</div>
+      </div>${funil}</div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;overflow-x:auto">
-      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:12px">📣 Conversas por Campanha × Estágio</div>
-      <table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Campanha</th><th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Conv.</th>${stages.map(s=>`<th style="text-align:center;padding:8px 10px;font-size:10px;text-transform:uppercase;color:${s.color};border-bottom:1px solid var(--border)">${(s.label||'').replace(/</g,'&lt;')}</th>`).join('')}<th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Gasto</th><th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Custo/conv</th></tr>${campRows}</table></div>`;
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">📣 Conversão por ${_lvlLbl[_lvl]}</div>
+        <div style="display:flex;gap:6px">${lvlBtns}</div>
+      </div>
+      <div style="font-size:11px;color:var(--faint);margin-bottom:10px">Quantos leads de cada ${_lvlLbl[_lvl].toLowerCase()} <b>já chegaram</b> em cada etapa (acumulado) e o % sobre as conversas daquela linha.</div>
+      <table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">${_lvlLbl[_lvl]}</th><th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Conv.</th>${_progCols.map(s=>`<th style="text-align:center;padding:8px 10px;font-size:10px;text-transform:uppercase;color:${s.color};border-bottom:1px solid var(--border)">${(s.label||'').replace(/</g,'&lt;')}</th>`).join('')}<th style="text-align:center;padding:8px 10px;font-size:10px;text-transform:uppercase;color:#f87171;border-bottom:1px solid var(--border)">Perdido</th><th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Gasto</th><th style="text-align:right;padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Custo/conv</th></tr>${campRows}</table></div>`;
 }
 async function crmCapiHistory(){
   const inst=_crmInsts.find(i=>i.id===_crmInstId);if(!inst)return;
