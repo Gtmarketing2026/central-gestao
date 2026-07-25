@@ -936,6 +936,28 @@ async function googleListAccounts() {
     .map((c: any) => ({ id: String(c.id), name: c.descriptiveName || String(c.id), status: c.status, currency: c.currencyCode }));
 }
 
+// Classifica uma AÇÃO de conversão do Google (form, WhatsApp, ligação, compra...) no balde certo.
+// É o evento que o gestor marca dentro do Google — cada campanha tem o seu.
+function _gConvBucket(name: string, category: string): "purchases" | "conversas" | "leads" {
+  const nm = String(name || "").toLowerCase();
+  const cat = String(category || "").toUpperCase();
+  if (/whats|wpp|\bzap\b|mensag|message|\bchat\b|conversa|direct|\bdm\b/.test(nm)) return "conversas";
+  if (cat === "PURCHASE" || /compra|purchase|venda|\bsale\b|checkout|pedido|receita|revenue|e-?commerce/.test(nm)) return "purchases";
+  return "leads"; // form, contato, orçamento, cadastro, ligação, agendamento, etc.
+}
+// Objetivo por canal, mas com o TIPO vindo do evento de conversão dominante (quando houver)
+function googleObjetivoConv(channelType: string, buckets?: { purchases: number; leads: number; conversas: number } | null) {
+  const base = googleObjetivo(channelType);
+  if (!buckets) return base;
+  const { purchases, leads, conversas } = buckets;
+  const tot = purchases + leads + conversas;
+  if (tot <= 0) return base;
+  let tipo = "leads"; let max = leads;
+  if (conversas > max) { tipo = "mensagens"; max = conversas; }
+  if (purchases > max) { tipo = "conversao"; max = purchases; }
+  const rot: Record<string, string> = { conversao: "Vendas/Conversão", mensagens: "Mensagens (WhatsApp)", leads: "Leads" };
+  return { ...base, tipo, rotulo: `${base.rotulo} · ${rot[tipo] || tipo}` };
+}
 // Objetivo "equivalente" pelo tipo de canal da campanha (pra aba Campanhas avaliar pela metrica certa)
 function googleObjetivo(channelType: string) {
   const t = String(channelType || "").toUpperCase();
@@ -993,18 +1015,35 @@ async function googleAdsInsights(g: any) {
 
   const perAccount = await Promise.all(accounts.map(async (acc) => {
     try {
-      const [accountRows, acctDaily, campRows, adRows] = await Promise.all([
+      const [accountRows, acctDaily, campRows, adRows, campConvRows, adConvRows] = await Promise.all([
         gadsSearch(acc.id, `SELECT ${GADS_METRICS} FROM customer WHERE ${range}`, token),
         g.daily ? gadsSearch(acc.id, `SELECT segments.date, ${GADS_METRICS} FROM customer WHERE ${range}`, token) : Promise.resolve([] as any[]),
         g.byCampaign ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, campaign.advertising_channel_type, campaign_budget.amount_micros, campaign_budget.resource_name${g.daily ? ", segments.date" : ""}, ${GADS_METRICS_FULL} FROM campaign WHERE ${range}`, token) : Promise.resolve([] as any[]),
         g.byAd ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, campaign.advertising_channel_type, ad_group.id, ad_group.name, ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.ad.type, ${GADS_METRICS_FULL} FROM ad_group_ad WHERE ${range} AND metrics.cost_micros > 0`, token) : Promise.resolve([] as any[]),
+        // quebra das conversões por AÇÃO (form, WhatsApp, ligação, compra...) — por campanha e por anúncio
+        (g.byCampaign || g.byAd) ? gadsSearch(acc.id, `SELECT campaign.id, segments.conversion_action_name, segments.conversion_action_category, metrics.conversions FROM campaign WHERE ${range} AND metrics.conversions > 0`, token).catch(() => [] as any[]) : Promise.resolve([] as any[]),
+        g.byAd ? gadsSearch(acc.id, `SELECT ad_group_ad.ad.id, segments.conversion_action_name, segments.conversion_action_category, metrics.conversions FROM ad_group_ad WHERE ${range} AND metrics.conversions > 0`, token).catch(() => [] as any[]) : Promise.resolve([] as any[]),
       ]);
-      return { acc, accountRows, acctDaily, campRows, adRows, error: null as string | null };
+      return { acc, accountRows, acctDaily, campRows, adRows, campConvRows, adConvRows, error: null as string | null };
     } catch (e) {
-      return { acc, accountRows: [] as any[], acctDaily: [] as any[], campRows: [] as any[], adRows: [] as any[], error: (e as any)?.message || String(e) };
+      return { acc, accountRows: [] as any[], acctDaily: [] as any[], campRows: [] as any[], adRows: [] as any[], campConvRows: [] as any[], adConvRows: [] as any[], error: (e as any)?.message || String(e) };
     }
   }));
   const accountErrors = perAccount.filter((p) => p.error).map((p) => ({ id: p.acc.id, name: p.acc.name || p.acc.id, error: p.error }));
+
+  // Mapas de conversão por AÇÃO → baldes (purchases/leads/conversas) + detalhamento por ação, por campanha e por anúncio
+  const convByCamp: Record<string, { purchases: number; leads: number; conversas: number; acts: Record<string, number> }> = {};
+  const convByAd: Record<string, { purchases: number; leads: number; conversas: number; acts: Record<string, number> }> = {};
+  const _accConv = (map: any, key: string, name: string, cat: string, v: number) => {
+    if (!key || !(v > 0)) return;
+    const b = map[key] || (map[key] = { purchases: 0, leads: 0, conversas: 0, acts: {} });
+    b[_gConvBucket(name, cat)] += v; const an = name || "Conversão"; b.acts[an] = (b.acts[an] || 0) + v;
+  };
+  for (const { campConvRows, adConvRows } of perAccount) {
+    for (const row of (campConvRows || [])) _accConv(convByCamp, row.campaign?.id ? String(row.campaign.id) : "", row.segments?.conversionActionName, row.segments?.conversionActionCategory, Number(row.metrics?.conversions) || 0);
+    for (const row of (adConvRows || [])) _accConv(convByAd, row.adGroupAd?.ad?.id ? String(row.adGroupAd.ad.id) : "", row.segments?.conversionActionName, row.segments?.conversionActionCategory, Number(row.metrics?.conversions) || 0);
+  }
+  const _actList = (acts: Record<string, number>) => Object.entries(acts).map(([name, count]) => ({ name, count: Math.round(count), bucket: _gConvBucket(name, "") })).sort((a, b) => b.count - a.count);
 
   for (const { acc, accountRows, acctDaily, campRows, adRows } of perAccount) {
     for (const row of accountRows) {
@@ -1032,14 +1071,17 @@ async function googleAdsInsights(g: any) {
       const s = gadsShape(row.metrics);
       const ad = row.adGroupAd?.ad || {};
       const adName = ad.name || (ad.type ? String(ad.type).replace(/_/g, " ").toLowerCase() : "anúncio") + " #" + (ad.id || "");
+      const campId = row.campaign?.id ? String(row.campaign.id) : "";
+      const ab = convByAd[ad.id ? String(ad.id) : ""] || null; // quebra por ação deste anúncio
       ads.push({
-        adId: ad.id ? "g" + ad.id : null, adName, campaign: row.campaign?.name || "", campaignId: row.campaign?.id ? String(row.campaign.id) : null,
+        adId: ad.id ? "g" + ad.id : null, adName, campaign: row.campaign?.name || "", campaignId: campId || null,
         adset: row.adGroup?.name || "", adsetId: row.adGroup?.id ? String(row.adGroup.id) : null,
         account: acc.name || acc.id, thumbnail: null, _google: true,
         objetivo: googleObjetivo(row.campaign?.advertisingChannelType),
         spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: 0, frequency: 0,
         ctr: s.ctr, cpc: s.cpc, cpm: s.cpm, purchases: s.purchases, revenue: s.revenue, roas: s.roas,
         leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos,
+        convActions: ab ? _actList(ab.acts) : undefined,
         cpa: s.purchases ? s.spend / s.purchases : 0,
       });
     }
@@ -1057,8 +1099,17 @@ async function googleAdsInsights(g: any) {
     c.cpc = c.clicks ? c.spend / c.clicks : 0;
     c.cpm = c.impressions ? (c.spend / c.impressions) * 1000 : 0;
     c.roas = c.spend ? c.revenue / c.spend : 0;
+    c.cpa = c.purchases ? c.spend / c.purchases : 0;
+    // anexa a QUEBRA por ação de conversão (form/WhatsApp/compra...) — número total de conversões fica em purchases
+    const cb = c.campaignId ? convByCamp[c.campaignId] : null;
+    if (cb) c.convActions = _actList(cb.acts);
     return c;
   }).sort((a: any, b: any) => b.spend - a.spend);
+  // quebra total do canal por ação (pros relatórios/resumo)
+  { const totActs: Record<string, number> = {};
+    for (const k of Object.keys(convByCamp)) for (const [n, v] of Object.entries(convByCamp[k].acts)) totActs[n] = (totActs[n] || 0) + v;
+    if (Object.keys(totActs).length) (total as any).convActions = _actList(totActs);
+  }
   // Campanhas com gasto que NÃO produzem linhas de anúncio (Performance Max, Shopping, Demand Gen — não têm ad_group_ad):
   // sintetiza uma linha em nível de campanha pra elas aparecerem na árvore de campanhas.
   if (g.byAd && g.byCampaign) {
@@ -1072,9 +1123,9 @@ async function googleAdsInsights(g: any) {
         account: c.account, thumbnail: null, _google: true, _campaignLevel: true, objetivo: c.objetivo,
         spend: c.spend, impressions: c.impressions, clicks: c.clicks, reach: 0, frequency: 0,
         ctr: c.impressions ? (c.clicks / c.impressions) * 100 : 0, cpc: c.clicks ? c.spend / c.clicks : 0, cpm: c.impressions ? (c.spend / c.impressions) * 1000 : 0,
-        purchases: c.purchases, revenue: c.revenue, roas: c.spend ? c.revenue / c.spend : 0,
+        purchases: c.purchases || 0, revenue: c.revenue, roas: c.spend ? c.revenue / c.spend : 0,
         leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: c.videoViews || 0, engajamentos: c.engajamentos || 0,
-        cpa: c.purchases ? c.spend / c.purchases : 0,
+        convActions: c.convActions, cpa: c.purchases ? c.spend / c.purchases : 0,
       });
     }
   }
@@ -1776,7 +1827,7 @@ function _objRC(t: any, google: boolean, obj?: string | null): string {
   const isEngaj = obj === "engajamento";
   const n = (v: number) => Math.round(v || 0).toLocaleString("pt-BR");
   // Google: metrics.conversions é genérico (form/WhatsApp/ligação/compra/etc.) — não afirmar "Compras" (só a planilha de VENDAS confirma venda real)
-  if (isVenda && google) return `Conversões ${n(t.purchases)} · Custo/conv. ${_fmtR(t.purchases ? spend / t.purchases : 0)}`;
+  if (isVenda && google) { const br = Array.isArray(t.convActions) && t.convActions.length ? ` (${t.convActions.slice(0, 4).map((a: any) => `${a.name}: ${n(a.count)}`).join(", ")})` : ""; return `Conversões ${n(t.purchases)} · Custo/conv. ${_fmtR(t.purchases ? spend / t.purchases : 0)}${br}`; }
   if (isVenda) return `Compras ${n(t.purchases)} · CPA ${_fmtR(t.purchases ? spend / t.purchases : 0)}`;
   if (isLead) return `Leads ${n(t.leads)} · CPL ${_fmtR(t.leads ? spend / t.leads : 0)}`;
   if (isMsg) return `Conversas ${n(t.conversas)} · Custo/conversa ${_fmtR(t.conversas ? spend / t.conversas : 0)}`;

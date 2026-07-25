@@ -4272,18 +4272,31 @@ function setCampMinSpend(v){_campMinSpend=+v||0;renderCampBody();}
 function campHL(name){const esc=(name||'—').replace(/</g,'&lt;');if(!_campSearch)return esc;try{const re=new RegExp('('+_campSearch.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig');return esc.replace(re,'<mark style="background:rgba(240,192,64,.4);color:inherit;border-radius:3px;padding:0 1px">$1</mark>');}catch(e){return esc;}}
 function renderCampFocos(){const el=document.getElementById('campFocos');if(!el)return;const tipos=[...new Set(_campAds.filter(a=>a.spend>0).map(a=>(a.objetivo&&a.objetivo.tipo)||'outro'))];el.innerHTML=`<button class="btn sm ${!_campFoco?'primary':'ghost'}" onclick="setCampFoco('')">Todos</button>`+tipos.map(t=>{const info=OBJETIVO_INFO[t]||{rotulo:t};return `<button class="btn sm ${_campFoco===t?'primary':'ghost'}" onclick="setCampFoco('${t}')">${info.rotulo}</button>`}).join('');}
 function setCampFoco(t){_campFoco=t;_campCols=focoCols(t);renderCampFocos();renderCampBody();renderCampColsPanel();}
+function _mergeActs(target,acts){if(!acts||!acts.length)return;const m=target._acts||(target._acts={});acts.forEach(x=>{m[x.name]=(m[x.name]||0)+(x.count||0);});}
+function _finishActs(agg){if(agg._acts){agg.convActions=Object.entries(agg._acts).map(([name,count])=>({name,count})).sort((a,b)=>b.count-a.count);delete agg._acts;}}
 function buildCampaignTree(ads){
   const camps={};
   ads.forEach(a=>{
     const cn=a.campaign||'—';
     if(!camps[cn])camps[cn]={nome:cn,id:a.campaignId,_google:!!a._google,objetivo:a.objetivo||{tipo:'outro',rotulo:'Outro'},agg:_newAgg(),adsets:{}};
-    _addAgg(camps[cn].agg,a);
+    _addAgg(camps[cn].agg,a);_mergeActs(camps[cn].agg,a.convActions);
     const sn=a.adset||'—';
     if(!camps[cn].adsets[sn])camps[cn].adsets[sn]={nome:sn,id:a.adsetId,agg:_newAgg(),ads:[]};
-    _addAgg(camps[cn].adsets[sn].agg,a);camps[cn].adsets[sn].ads.push(a);
+    _addAgg(camps[cn].adsets[sn].agg,a);_mergeActs(camps[cn].adsets[sn].agg,a.convActions);camps[cn].adsets[sn].ads.push(a);
   });
-  return Object.values(camps).sort((a,b)=>b.agg.spend-a.agg.spend);
+  const list=Object.values(camps);
+  list.forEach(c=>{_finishActs(c.agg);Object.values(c.adsets).forEach(as=>_finishActs(as.agg));});
+  return list.sort((a,b)=>b.agg.spend-a.agg.spend);
 }
+// Encurta o nome de uma ação de conversão do Google pra caber na tabela (form, WhatsApp, ligação...)
+function _actShort(name){const s=String(name||'').trim();const l=s.toLowerCase();
+  if(/whats|wpp|zap/.test(l))return 'WhatsApp';
+  if(/form/.test(l))return 'Form';
+  if(/liga|call|telefone|phone/.test(l))return 'Ligação';
+  if(/orçament|orcament|quote/.test(l))return 'Orçamento';
+  if(/compra|purchase|venda|checkout|pedido/.test(l))return 'Compra';
+  if(/lead|contato|cadastr|inscri/.test(l))return 'Lead';
+  return s.length>16?s.slice(0,15).replace(/</g,'&lt;')+'…':s.replace(/</g,'&lt;');}
 function campResultado(x,tipo){
   const d=deriveMeta({...x});
   const g=x._google; // Google: metrics.conversions é genérico (form/WhatsApp/ligação/etc.) — NÃO é "Compras"
@@ -4299,7 +4312,10 @@ function campResultado(x,tipo){
     alcance:['Alcance',Math.round(d.reach||0),d.impressions?fmt(d.cpm):'—'],
   };
   const r=M[tipo]||['Resultado',0,'—'];
-  return {resVal:typeof r[1]==='number'?r[1].toLocaleString('pt-BR'):r[1],resLabel:r[0],resNum:typeof r[1]==='number'?r[1]:0,custoVal:r[2],roas:d.spend?d.roas.toFixed(2)+'x':'—'};
+  let resLabel=r[0];
+  // Google: mostra a quebra por ação de conversão (o evento marcado: form, WhatsApp, ligação...) abaixo do rótulo
+  if(g&&x.convActions&&x.convActions.length){const br=x.convActions.slice(0,4).map(a=>`${_actShort(a.name)} ${Math.round(a.count).toLocaleString('pt-BR')}`).join(' · ');resLabel=r[0]+'<div style="font-size:9.5px;color:var(--faint);font-weight:400;margin-top:1px">'+br+'</div>';}
+  return {resVal:typeof r[1]==='number'?r[1].toLocaleString('pt-BR'):r[1],resLabel,resNum:typeof r[1]==='number'?r[1]:0,custoVal:r[2],roas:d.spend?d.roas.toFixed(2)+'x':'—'};
 }
 const CAMP_COLS={
   invest:{label:'Invest.',get:x=>fmt(x.spend)},
@@ -4380,10 +4396,11 @@ function loadCampPreset(n){const p=_campPresets();if(p[n]){_campCols=p[n].filter
 function deleteCampPreset(n){const p=_campPresets();delete p[n];localStorage.setItem('campColPresets',JSON.stringify(p));renderCampColsPanel();}
 const CAMP_GRID='grid-template-columns:minmax(200px,2.2fr) repeat(6,minmax(66px,1fr));';
 function campRowHTML(name,level,agg,tipo,toggleId,badge,objLevel,objId){
+  const isG=_campSource==='google';
   const d=deriveMeta({...agg});
+  d._google=isG;if(agg&&agg.convActions)d.convActions=agg.convActions; // Google: rótulo/ quebra por ação de conversão
   const pad=8+level*16;
   const caret=toggleId?`<span id="${toggleId}_c" style="display:inline-block;width:14px;color:var(--muted)">▸</span>`:'<span style="display:inline-block;width:14px"></span>';
-  const isG=_campSource==='google';
   const st=(objId&&!isG&&_campStatus[objLevel])?_campStatus[objLevel][objId]:null;
   const stBtn=(objId&&!isG)?campSwitchHTML(objLevel,objId,st):'';
   const cells=_campCols.map(k=>`<div style="padding:8px 6px;font-size:12px;text-align:right">${CAMP_COLS[k]?CAMP_COLS[k].get(d,tipo):''}</div>`).join('');
