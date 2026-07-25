@@ -464,11 +464,12 @@ async function metaAdsInsights(m: any) {
     for (const row of campRows) {
       const label = row.campaign_name || "Meta Ads";
       const s = shape(row);
-      if (!byCamp[label]) byCamp[label] = { campaign: label, account: acc.name || acc.id, objetivo: objByCampId[row.campaign_id] || metaObjetivo(""), spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, records: [] };
+      if (!byCamp[label]) byCamp[label] = { campaign: label, campaignId: row.campaign_id || null, account: acc.name || acc.id, objetivo: objByCampId[row.campaign_id] || metaObjetivo(""), spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0, records: [] };
       const c = byCamp[label];
       // NAO soma reach aqui: metricas aditivas (spend/impressoes/etc) somam por dia; reach vem do dedup abaixo
       c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks;
       c.revenue += s.revenue; c.purchases += s.purchases; c.leads += s.leads; c.addToCart += s.addToCart; c.initiateCheckout += s.initiateCheckout;
+      c.conversas += s.conversas; c.videoViews += s.videoViews; c.engajamentos += s.engajamentos;
       if (m.daily) c.records.push({ date: row.date_start, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: s.reach, leads: s.leads, conversas: s.conversas, videoViews: s.videoViews, engajamentos: s.engajamentos });
     }
     // reach/frequencia DEDUPLICADO por campanha no periodo (fonte nao-diaria; quando m.daily=false, campRows ja e o dedup)
@@ -2111,7 +2112,7 @@ async function waMetaResumo(clientId: string, dias: number) {
   const accounts = ids.map((id: string) => ({ id, name: id }));
   const since = new Date(Date.now() - dias * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
   const [r, ent] = await Promise.all([
-    metaAdsInsights({ accounts, since, until, byCampaign: true }).catch(() => null),
+    metaAdsInsights({ accounts, since, until, byCampaign: true, byAd: true }).catch(() => null),
     metaEntities({ accounts }).catch(() => null),
   ]);
   const gasto = (r && r.total && r.total.spend) || 0;
@@ -2119,7 +2120,20 @@ async function waMetaResumo(clientId: string, dias: number) {
   if (gasto <= 0) return { cliente: c.name, dias, objetivo: _objLabel(objM), semGastoNoPeriodo: true, campanhas: [] };
   const budgetByName: Record<string, number> = {};
   if (ent) (ent.campaigns || []).forEach((x: any) => { if (x.status === "ACTIVE" || x.entrega === "ACTIVE") budgetByName[x.nome] = x.orcamentoDiario; });
-  const campanhas = ((r && r.campaigns) || []).filter((x: any) => (x.spend || 0) > 0).slice(0, 20).map((x: any) => ({ nome: x.campaign, objetivo: (x.objetivo && x.objetivo.rotulo) || "", orcamentoDiario: budgetByName[x.campaign] || undefined, ..._waCampKpi(x) }));
+  // hierarquia campanha › conjunto › anúncio (dos anúncios com gasto) — pra detalhar quando pedirem
+  const hier: Record<string, any> = {};
+  ((r && r.ads) || []).filter((a: any) => (a.spend || 0) > 0).forEach((a: any) => {
+    const cn = a.campaign || "—"; if (!hier[cn]) hier[cn] = {};
+    const sn = a.adset || "—"; const S = hier[cn][sn] || (hier[cn][sn] = { nome: sn, spend: 0, clicks: 0, impressions: 0, reach: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, videoViews: 0, engajamentos: 0, ads: [] });
+    ["spend", "clicks", "impressions", "reach", "purchases", "revenue", "leads", "conversas", "videoViews", "engajamentos"].forEach((k) => S[k] += (a[k] || 0));
+    S.ads.push({ nome: a.adName || "(sem nome)", spend: a.spend || 0, clicks: a.clicks || 0, impressions: a.impressions || 0, reach: a.reach || 0, purchases: a.purchases || 0, revenue: a.revenue || 0, leads: a.leads || 0, conversas: a.conversas || 0, videoViews: a.videoViews || 0, engajamentos: a.engajamentos || 0 });
+  });
+  const campanhas = ((r && r.campaigns) || []).filter((x: any) => (x.spend || 0) > 0).slice(0, 20).map((x: any) => {
+    const tipo = (x.objetivo && x.objetivo.tipo) || "";
+    const H = hier[x.campaign] || {};
+    const conjuntos = Object.values(H).sort((a: any, b: any) => b.spend - a.spend).slice(0, 10).map((S: any) => ({ nome: S.nome, kpi: `Gasto ${_fmtR(S.spend)} · ${_objRC(S, false, tipo)}`, anuncios: S.ads.sort((a: any, b: any) => b.spend - a.spend).slice(0, 10).map((ad: any) => ({ nome: ad.nome, kpi: `Gasto ${_fmtR(ad.spend)} · ${_objRC(ad, false, tipo)}` })) }));
+    return { nome: x.campaign, objetivo: (x.objetivo && x.objetivo.rotulo) || "", orcamentoDiario: budgetByName[x.campaign] || undefined, ..._waCampKpi(x), conjuntos };
+  });
   // consolidado = SÓ Gasto · Resultado · CPR pelo objetivo dominante (nada de dump de métricas cruas)
   return { cliente: c.name, dias, objetivo: _objLabel(objM), kpi: `Gasto ${_fmtR(gasto)} · ${_objRC(r.total, false, objM)}`, campanhas };
 }
@@ -2371,6 +2385,7 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
 - Formato WhatsApp: NÃO use markdown de título (nada de ### ou **). Negrito é com UM asterisco (*assim*). Listas com "• ". Seja enxuta.
 - ATALHOS que a equipe pode pedir: "quem precisa de atenção?" → use resumo_todos_clientes e destaque os clientes abaixo da meta, com gasto sem resultado, ou parados; "saúde da carteira" → visão geral (gasto total do período, quantos performando/abaixo, e financeiro a receber/pagar via a ferramenta financeiro); "pendências operacionais" → tarefas em aberto (consultar_banco tabela tasks, filtro status=neq.done, ordena por due); "recomendações da semana" → 2-3 ações priorizadas (o que pausar/escalar/ajustar) com base nos dados. Sempre com dado real, curto.
 - RESUMO de um cliente (meta_insights/google_insights): por canal mostre SÓ a linha do campo **'kpi' VERBATIM** do consolidado (Gasto · Resultado · CPR pelo objetivo do canal) e, abaixo, cada campanha com o SEU 'kpi' verbatim. **NUNCA** liste métricas soltas (Impressões, CTR, CPC, CPM, Alcance, Conversas, Compras, Leads) — só Gasto · Resultado · CPR. Mostre APENAS campanhas e canais que TIVERAM GASTO no período; se vier 'semGastoNoPeriodo', diga só que o canal não teve gasto no período (não invente 0s). Se tiver 'orcamentoDiario' pode citar junto.
+- DETALHAR por conjunto/anúncio: cada campanha traz 'conjuntos' (cada um com 'kpi' e 'anuncios', cada anúncio com 'kpi'). Quando pedirem "detalhe/abre a campanha X", "por conjunto", "por anúncio" ou "quais anúncios" — desça o nível: liste os conjuntos da campanha com o 'kpi' de cada, e dentro os anúncios com o 'kpi' de cada (verbatim, Gasto · Resultado · CPR). Se pedirem só o resumo, fique no nível de campanha e não despeje conjuntos/anúncios.
 - google_insights (Google Ads): use o campo **'kpi' VERBATIM** do consolidado (Gasto · Resultado · CPR pelo objetivo do Google — ex: Vídeo→Views/Custo por view; Pesquisa→Compras/CPA; Display→Alcance/CPM) e, se listar campanhas, o 'kpi' de cada uma. NÃO despeje uma lista de Impressões/Cliques/CTR/CPC/Conversas/Compras/Leads todos juntos — mostre só o resultado do OBJETIVO daquele canal.
 - (assist.): vendas/compras/ROAS/CPA POR CAMPANHA vêm do GERENCIADOR (pixel), não da planilha — ao mostrá-las escreva "(assist.)" ao lado do número (ex: "Compras 12 (assist.) · ROAS 3,1 (assist.)"), porque a venda REAL da agência vem da planilha e o pixel não divide venda por campanha. No consolidado do cliente que usa planilha, a venda é a real (sem "(assist.)").
 - Para AÇÕES (criar tarefa, criar/cancelar reunião na agenda, pausar/reativar/duplicar campanha, orçamento, criar lançamento, dar baixa) use preparar_acao. Reunião: passe o título em 'nome', o dia em 'quando' (AAAA-MM-DD) e o horário em 'hora' (HH:MM) se disser. Cliente é opcional em reunião. — o sistema pede confirmação (SIM) e executa. NUNCA diga que já executou por conta própria. Se a mensagem citar um cliente ("no cliente X", "pro X"), passe o nome EXATO em 'cliente' — NUNCA reaproveite o cliente de mensagens anteriores quando a atual cita outro. Se o cliente não existir, o sistema avisa.
