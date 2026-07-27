@@ -251,6 +251,7 @@
       <button class="tab active" data-tab="operacional">📋 Visão Geral</button>
       <button class="tab" data-tab="tasks">✅ Tarefas <span class="badge" id="tBadge">0</span><span class="rt-dot" title="Tempo real ativo"></span></button>
       <button class="tab" data-tab="crm">💬 CRM</button>
+      <button class="tab" data-tab="jornada">🧭 Jornada</button>
       <button class="tab" data-tab="raiox">🔍 Diagnóstico</button>
       <button class="tab" onclick="showComingSoon('Social','Resultados dos canais orgânicos e redes sociais (Instagram, bio, tráfego direto, etc.) num só lugar. Em construção.')">📸 Social</button>
       <button class="tab" data-tab="campanhas" style="position:relative">📣 Campanha<span id="campSubArrow" onclick="event.stopPropagation();toggleCampSubmenu()" title="Canais (Meta / Google)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
@@ -725,6 +726,18 @@
     <div class="section-head" style="margin-top:0"><h2>🔍 Diagnóstico <span id="raioxClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
     <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Análise profunda do cliente — health score, winners × losers e recomendações.</div>
     <div id="raioxBody"></div>
+  </section>
+
+  <!-- JORNADA DO LEAD (multi-toque: do 1º clique até a venda) -->
+  <section class="panel" id="jornada">
+    <div class="section-head" style="margin-top:0"><h2>🧭 Jornada do Lead <span id="jrnClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span id="jrnRange"></span>
+        <button class="btn sm ghost" onclick="jrnRebuild(this)" title="Reprocessa a jornada com os dados mais recentes de todas as fontes">🔄 Atualizar jornada</button>
+      </div>
+    </div>
+    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Cada lead numa linha do tempo — por onde entrou, onde passou e onde converteu. Junta anúncio, site, WhatsApp, formulários e etapas do funil.</div>
+    <div id="jrnBody"></div>
   </section>
 
   <!-- PLACEHOLDER (itens em construção do menu) -->
@@ -2020,6 +2033,7 @@ function goToTab(tabId){
   if(tabId==='rastreamento')loadRastreamento(activeClientId);
   if(tabId==='configuracoes')loadConfiguracoes();
   if(tabId==='raiox')loadRaioX(activeClientId);
+  if(tabId==='jornada')loadJornada(activeClientId);
   if(tabId==='crm')loadCrm();
   else stopCrmPoll();
   if(tabId==='whatsapp')loadWhatsappTab();
@@ -2873,6 +2887,171 @@ async function crmExtractLead(id){
   const sug=document.getElementById('crmStageSuggest');
   if(sug&&d.stage){const st=crmStages().find(s=>s.key===d.stage);if(st){const already=(cv&&cv.stage)===d.stage;
     sug.innerHTML=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:9px 11px;margin-bottom:12px;font-size:12px">🤖 IA classificou: <b style="color:${st.color}">${st.label}</b> <span style="color:var(--muted)">· confiança ${d.confidence||0}%</span>${d.applied?' <span style="color:#34d399">✓ aplicado automático</span>':''}${d.stageWhy?`<div style="color:var(--muted);font-size:11px;margin-top:3px">${String(d.stageWhy).replace(/</g,'&lt;')}</div>`:''}${(!d.applied&&!already)?`<button class="btn sm primary" style="margin-top:6px;font-size:11px" onclick="crmSetStage('${id}','${d.stage}');document.getElementById('crmStageSuggest').innerHTML=''">Aplicar mesmo assim</button> <span style="font-size:10.5px;color:var(--faint)">(abaixo do mínimo de ${d.minConf||70}%)</span>`:''}</div>`;}}
+}
+/* =================== JORNADA DO LEAD (multi-toque) =================== */
+let _jrnClientId='',_jrnDays=90,_jrnRaw=null,_jrnSel=null,_jrnQ='',_jrnFCh='';
+const JRN_ICON={ad_click:'📣',link_click:'🔗',pageview:'🌐',wpp_click:'💬',form:'📝',message_in:'💬',message_out:'↩️',stage:'🎯',purchase:'🛒'};
+const JRN_CHCOL={meta:'#60a5fa',google:'#34d399',whatsapp:'#25d366',email:'#f0c040',organico:'#a78bfa',direto:'#94a3b8',referral:'#fb923c',rd:'#f0c040'};
+function _jrnCh(c){return JRN_CHCOL[String(c||'').toLowerCase()]||'#94a3b8';}
+function _jrnEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+async function loadJornada(clientId){
+  const c=DB.clients.find(x=>x.id===(clientId||activeClientId||_jrnClientId));
+  const body=document.getElementById('jrnBody');if(!body)return;
+  document.getElementById('jrnClientName').textContent=c?('· '+c.name):'';
+  const rb=document.getElementById('jrnRange');
+  if(rb)rb.innerHTML=[30,90,365].map(d=>`<button class="btn sm ${_jrnDays===d?'primary':'ghost'}" onclick="jrnSetDays(${d})">${d===365?'1 ano':d+' dias'}</button>`).join('');
+  if(!c){body.innerHTML='<div class="empty">Selecione um cliente na sidebar.</div>';return}
+  _jrnClientId=c.id;_jrnSel=null;
+  body.innerHTML='<div class="empty">Carregando jornada…</div>';
+  try{
+    const since=daysAgoISO(_jrnDays);
+    const [pe,tp]=await Promise.all([
+      sb.from('lead_people').select('*').eq('client_id',c.id).order('last_seen',{ascending:false}).limit(4000),
+      sb.from('lead_touchpoints').select('*').eq('client_id',c.id).gte('ts',since).order('ts').limit(20000)
+    ]);
+    _jrnRaw={people:pe.data||[],touch:tp.data||[]};
+    jrnRender();
+  }catch(e){body.innerHTML=`<div class="empty">Erro ao carregar: ${_jrnEsc(e.message||e)}</div>`;}
+}
+function jrnSetDays(d){_jrnDays=d;loadJornada(_jrnClientId);}
+async function jrnRebuild(btn){
+  if(!_jrnClientId){alert('Selecione um cliente.');return;}
+  const o=btn.textContent;btn.disabled=true;btn.textContent='Processando…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{journeyRebuild:{clientId:_jrnClientId,dias:Math.max(_jrnDays,365)}}});
+    if(error)throw error;const d=(data&&data.data)||data;if(d&&d.error)throw new Error(d.error);
+    btn.textContent='✓ '+((d&&d.toques)||0)+' toques';setTimeout(()=>{btn.textContent=o;btn.disabled=false;},1800);
+    loadJornada(_jrnClientId);
+  }catch(e){alert('Erro ao atualizar: '+(e.message||e));btn.textContent=o;btn.disabled=false;}
+}
+// agrupa os toques por pessoa e calcula a atribuição (1º clique, último antes da conversão, canais assistentes)
+function jrnBuild(){
+  const byP={};(_jrnRaw.touch||[]).forEach(t=>{(byP[t.person_id]=byP[t.person_id]||[]).push(t);});
+  const nome={};(_jrnRaw.people||[]).forEach(p=>nome[p.id]=p);
+  const PAGO=new Set(['meta','google']);
+  return Object.entries(byP).map(([pid,ts])=>{
+    ts.sort((a,b)=>a.ts<b.ts?-1:1);
+    const p=nome[pid]||{};
+    const conv=ts.filter(t=>t.kind==='purchase');
+    const alvo=conv.length?conv[0]:null;
+    const antes=alvo?ts.filter(t=>t.ts<=alvo.ts):ts;
+    const cliques=antes.filter(t=>['ad_click','link_click','pageview','form'].includes(t.kind));
+    const primeiro=cliques[0]||antes[0]||ts[0];
+    const ultimo=cliques.length?cliques[cliques.length-1]:antes[antes.length-1];
+    const canais=[...new Set(ts.map(t=>t.channel).filter(Boolean))];
+    const pagos=canais.filter(ch=>PAGO.has(ch));
+    const dur=ts.length>1?(new Date(ts[ts.length-1].ts)-new Date(ts[0].ts)):0;
+    return {pid,p,ts,n:ts.length,primeiro,ultimo,canais,pagos,converteu:!!alvo,alvo,
+      etapa:(ts.filter(t=>t.kind==='stage').slice(-1)[0]||{}).label||p.stage||'',
+      dias:Math.round(dur/864e5),
+      caminho:ts.map(t=>t.label||t.kind).filter((v,i,a)=>v&&v!==a[i-1])};
+  }).sort((a,b)=>b.n-a.n||(a.p.last_seen<b.p.last_seen?1:-1));
+}
+function jrnRender(){
+  const body=document.getElementById('jrnBody');if(!body||!_jrnRaw)return;
+  const L=jrnBuild();
+  if(!L.length){body.innerHTML=`<div class="empty" style="padding:26px">Nenhuma jornada no período.<br><span style="font-size:12px;color:var(--faint)">Clique em <b>🔄 Atualizar jornada</b> pra processar as fontes deste cliente (WhatsApp, RD Station, pixel).</span></div>`;return;}
+  // ---- KPIs ----
+  const total=L.length, comConv=L.filter(x=>x.converteu).length;
+  const multi=L.filter(x=>x.canais.length>1).length;
+  const mediaT=(L.reduce((s,x)=>s+x.n,0)/total);
+  const diasConv=L.filter(x=>x.converteu&&x.dias>=0);
+  const mediaD=diasConv.length?(diasConv.reduce((s,x)=>s+x.dias,0)/diasConv.length):0;
+  const kpi=(l,v,s,cor)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 16px;flex:1;min-width:150px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">${l}</div><div style="font-size:21px;font-weight:800;margin-top:3px${cor?';color:'+cor:''}">${v}</div>${s?`<div style="font-size:11px;color:var(--faint);margin-top:2px">${s}</div>`:''}</div>`;
+  const kpis=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+    ${kpi('Leads mapeados',total.toLocaleString('pt-BR'),'com pelo menos 1 toque no período')}
+    ${kpi('Converteram',comConv.toLocaleString('pt-BR'),total?((comConv/total*100).toFixed(1)+'% dos leads'):'','#34d399')}
+    ${kpi('Toques por lead',mediaT.toFixed(1),'média de interações até hoje')}
+    ${kpi('Passaram por 2+ canais',multi.toLocaleString('pt-BR'),total?((multi/total*100).toFixed(0)+'% multi-canal'):'')}
+    ${comConv?kpi('Tempo até converter',mediaD.toFixed(0)+' dia'+(mediaD===1?'':'s'),'do 1º toque à conversão'):''}
+  </div>`;
+  // ---- Primeiro toque × Último toque (atribuição comparada) ----
+  const cnt=(arr,f)=>{const m={};arr.forEach(x=>{const k=f(x);if(k)m[k]=(m[k]||0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]);};
+  const base=comConv?L.filter(x=>x.converteu):L;
+  const pri=cnt(base,x=>x.primeiro&&x.primeiro.channel), ult=cnt(base,x=>x.ultimo&&x.ultimo.channel);
+  const barra=(rows,tt)=>{const mx=Math.max(1,...rows.map(r=>r[1]));return rows.slice(0,6).map(([k,v])=>`<div style="margin-bottom:7px"><div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:2px"><span style="text-transform:capitalize">${_jrnEsc(k)}</span><b>${v}</b> <span style="color:var(--faint)">${tt?((v/tt*100).toFixed(0)+'%'):''}</span></div><div style="height:8px;background:var(--surface2);border-radius:5px;overflow:hidden"><div style="height:100%;width:${Math.max(v/mx*100,3)}%;background:${_jrnCh(k)};border-radius:5px"></div></div></div>`).join('')||'<div style="font-size:12px;color:var(--faint)">—</div>';};
+  const atrib=`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+    <div style="flex:1;min-width:250px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">🥇 Primeiro clique <span style="text-transform:none;color:var(--faint)">— quem descobriu o lead</span></div>${barra(pri,base.length)}</div>
+    <div style="flex:1;min-width:250px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">🏁 Último clique <span style="text-transform:none;color:var(--faint)">— quem fechou</span></div>${barra(ult,base.length)}</div>
+  </div>`;
+  // ---- Caminhos mais comuns ----
+  const paths={};L.filter(x=>x.n>1).forEach(x=>{const k=x.caminho.slice(0,5).join(' → ');if(k)paths[k]=(paths[k]||0)+1;});
+  const topP=Object.entries(paths).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const caminhos=topP.length?`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:16px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px">🛣 Caminhos mais comuns</div>
+    <div style="font-size:11px;color:var(--faint);margin-bottom:10px">por onde os leads costumam passar (em ordem)</div>
+    ${topP.map(([k,v])=>`<div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)"><b style="min-width:44px;color:var(--accent)">${v}x</b><span style="font-size:12px;line-height:1.5">${_jrnEsc(k)}</span></div>`).join('')}
+  </div>`:'';
+  // ---- Lista de leads ----
+  const q=_jrnQ.toLowerCase();
+  const filt=L.filter(x=>{
+    if(_jrnFCh&&!x.canais.includes(_jrnFCh))return false;
+    if(!q)return true;
+    return ((x.p.name||'')+' '+(x.p.phone||'')+' '+(x.p.email||'')).toLowerCase().includes(q);
+  });
+  const chOpts=[...new Set(L.flatMap(x=>x.canais))].sort();
+  const linha=x=>{
+    const nm=x.p.name||x.p.phone||x.p.email||'(sem nome)';
+    const chips=x.canais.map(ch=>`<span style="font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:5px;color:${_jrnCh(ch)};background:${_jrnCh(ch)}22;text-transform:capitalize">${_jrnEsc(ch)}</span>`).join(' ');
+    return `<tr onclick="jrnOpen('${x.pid}')" style="cursor:pointer" title="Ver a linha do tempo completa">
+      <td style="padding:8px 10px;font-size:12.5px;border-bottom:1px solid var(--border)"><b>${_jrnEsc(nm)}</b>${x.p.email?`<div style="font-size:10.5px;color:var(--faint)">${_jrnEsc(x.p.email)}</div>`:''}</td>
+      <td style="padding:8px 10px;font-size:11.5px;border-bottom:1px solid var(--border);color:${_jrnCh(x.primeiro&&x.primeiro.channel)}">${_jrnEsc((x.primeiro&&(x.primeiro.label||x.primeiro.channel))||'—')}</td>
+      <td style="padding:8px 10px;font-size:11.5px;border-bottom:1px solid var(--border)">${_jrnEsc((x.ultimo&&(x.ultimo.label||x.ultimo.channel))||'—')}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid var(--border)">${chips}</td>
+      <td style="padding:8px 10px;text-align:center;font-weight:700;border-bottom:1px solid var(--border)">${x.n}</td>
+      <td style="padding:8px 10px;text-align:center;font-size:11.5px;border-bottom:1px solid var(--border);color:var(--muted)">${x.dias?x.dias+'d':'—'}</td>
+      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">${x.converteu?'<span style="color:#34d399;font-weight:700;font-size:11px">🛒 CONVERTEU</span>':`<span style="font-size:11px;color:var(--faint)">${_jrnEsc(x.etapa||'—')}</span>`}</td>
+    </tr>`;
+  };
+  const th=(s,c)=>`<th style="text-align:${c||'left'};padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">${s}</th>`;
+  const lista=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;overflow-x:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">👥 Leads · ${filt.length} de ${L.length}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <input value="${_jrnEsc(_jrnQ).replace(/"/g,'&quot;')}" oninput="_jrnQ=this.value;jrnRender()" placeholder="🔎 nome, telefone ou e-mail…" style="width:auto;min-width:200px;font-size:12px">
+        <select onchange="_jrnFCh=this.value;jrnRender()" style="width:auto;font-size:12px"><option value="">Todos os canais</option>${chOpts.map(ch=>`<option value="${_jrnEsc(ch)}" ${_jrnFCh===ch?'selected':''}>${_jrnEsc(ch)}</option>`).join('')}</select>
+      </div>
+    </div>
+    <table style="width:100%;border-collapse:collapse"><tr>${th('Lead')}${th('1º toque')}${th('Último toque')}${th('Canais')}${th('Toques','center')}${th('Duração','center')}${th('Status','center')}</tr>
+    ${filt.slice(0,300).map(linha).join('')}</table>
+    ${filt.length>300?`<div style="font-size:11px;color:var(--faint);margin-top:8px">Mostrando os 300 primeiros — use a busca pra afinar.</div>`:''}
+  </div>`;
+  body.innerHTML=kpis+atrib+caminhos+lista;
+}
+// linha do tempo completa de um lead
+function jrnOpen(pid){
+  const L=jrnBuild();const x=L.find(y=>y.pid===pid);if(!x)return;
+  const nm=x.p.name||x.p.phone||x.p.email||'(sem nome)';
+  const it=x.ts.map((t,i)=>{
+    const dt=new Date(t.ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+    const det=[t.campaign,t.adset,t.ad].filter(Boolean).join(' › ');
+    const extra=(t.meta&&(t.meta.texto||t.meta.motivo))||'';
+    return `<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;${i?'border-top:1px solid rgba(255,255,255,.05)':''}">
+      <div style="font-size:16px;flex:none;width:24px;text-align:center">${JRN_ICON[t.kind]||'•'}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;font-weight:600">${_jrnEsc(t.label||t.kind)}</div>
+        ${det?`<div style="font-size:11px;color:var(--muted);margin-top:1px">${_jrnEsc(det)}</div>`:''}
+        ${t.page?`<div style="font-size:11px;color:var(--faint);word-break:break-all">${_jrnEsc(t.page)}</div>`:''}
+        ${extra?`<div style="font-size:11px;color:var(--faint);font-style:italic;margin-top:2px">"${_jrnEsc(String(extra).slice(0,150))}"</div>`:''}
+      </div>
+      <div style="flex:none;text-align:right">
+        <div style="font-size:10.5px;color:var(--muted);white-space:nowrap">${dt}</div>
+        ${t.channel?`<span style="font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:5px;color:${_jrnCh(t.channel)};background:${_jrnCh(t.channel)}22;text-transform:capitalize">${_jrnEsc(t.channel)}</span>`:''}
+      </div></div>`;
+  }).join('');
+  let ov=document.getElementById('jrnOverlay');if(!ov){ov=document.createElement('div');ov.id='jrnOverlay';document.body.appendChild(ov);}
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999;padding:18px';
+  ov.innerHTML=`<div class="card" style="width:min(640px,96vw);max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px">
+      <div><h3 style="margin:0;font-size:16px">🧭 ${_jrnEsc(nm)}</h3>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:3px">${x.n} toques · ${x.canais.length} canal(is) · ${x.dias?x.dias+' dias de jornada':'mesmo dia'}${x.converteu?' · <b style="color:#34d399">converteu 🛒</b>':''}</div>
+        ${x.p.phone||x.p.email?`<div style="font-size:11px;color:var(--faint);margin-top:2px">${_jrnEsc([x.p.phone,x.p.email].filter(Boolean).join(' · '))}</div>`:''}</div>
+      <button class="btn xs ghost" onclick="document.getElementById('jrnOverlay').remove()">✕</button></div>
+    <div style="overflow-y:auto;padding-right:4px">${it}</div>
+  </div>`;
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
 }
 /* ===== CRM Analytics: custo por conversa, funil, campanha × estágio (WhatsApp × Meta) ===== */
 let _crmAnaDays=30;
@@ -4005,6 +4184,7 @@ function selectSidebarClient(id){
   else if(active==='iagestora'){loadAgentProject(id);}
   else if(active==='campanhas'){loadCampanhas(id);}
   else if(active==='crm'){_crmViewAgency=false;_crmActive=null;loadCrm();}
+  else if(active==='jornada'){loadJornada(id);}
   else if(active==='publicos'){loadAudiences(true);}
   else{openClientConfig(id);}
 }
