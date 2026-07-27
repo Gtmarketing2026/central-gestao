@@ -162,14 +162,22 @@ async function handleWaRef(req: Request) {
   let b: any = {}; try { b = await req.json(); } catch (_e) { /* */ }
   const rid = uid().slice(0, 8);
   const chan = _channelOf(b.utm_source || "", b.gclid || "", b.fbclid || "");
-  await sbInsert("wa_ref_origins", { ref: rid, client_id: b.cid || null, created_at: new Date().toISOString(), origin: { channel: chan, track_source: b.utm_source || chan, medium: b.utm_medium || "", campaign: b.utm_campaign || "", adgroup: b.utm_content || "", keyword: b.utm_term || "", gclid: b.gclid || "", fbclid: b.fbclid || "" } });
+  await sbInsert("wa_ref_origins", { ref: rid, client_id: (await _resolveCid(b.cid || "")) || null, created_at: new Date().toISOString(), origin: { channel: chan, track_source: b.utm_source || chan, medium: b.utm_medium || "", campaign: b.utm_campaign || "", adgroup: b.utm_content || "", keyword: b.utm_term || "", gclid: b.gclid || "", fbclid: b.fbclid || "" } });
   return new Response(JSON.stringify({ ref: rid }), { headers: { ...cors, "Content-Type": "application/json" } });
+}
+// resolve o cid do pixel: aceita tanto o client_id quanto o TOKEN (snippet antigo/instalação manual)
+async function _resolveCid(raw: string): Promise<string> {
+  const v = clip(raw, 60);
+  if (!v || !v.startsWith("tk_")) return v;
+  const rows = await sbSelect("tracking_config", `token=eq.${encodeURIComponent(v)}&select=client_id&limit=1`);
+  return rows[0]?.client_id || v;
 }
 async function handleCollect(req: Request) {
   let b: any = {};
   try { b = await req.json(); } catch (_e) { return new Response("bad", { status: 400, headers: cors }); }
-  const cid = clip(b.cid, 40);
-  if (!cid || !b.type) return new Response("bad", { status: 400, headers: cors });
+  if (!b.cid || !b.type) return new Response("bad", { status: 400, headers: cors });
+  const cid = await _resolveCid(b.cid);
+  if (!cid) return new Response("bad", { status: 400, headers: cors });
   await sbInsert("track_events", {
     id: uid(), client_id: cid, type: clip(b.type, 20), session_id: clip(b.sess, 40), anon_id: clip(b.anon, 40),
     utm_source: clip(b.utm_source, 120), utm_medium: clip(b.utm_medium, 120), utm_campaign: clip(b.utm_campaign, 200),
