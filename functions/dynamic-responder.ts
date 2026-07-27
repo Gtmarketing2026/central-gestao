@@ -3052,10 +3052,32 @@ async function ga4Report(m: any) {
   if ((canais as any)._err) throw new Error((canais as any)._err);
   return { propertyId: prop, periodo: { since: m.since, until: m.until }, canais, paginas, origens };
 }
+// Diagnóstico: quais propriedades do Search Console a service account enxerga
+async function gscSites() {
+  const token = await _gsaToken(["https://www.googleapis.com/auth/webmasters.readonly"]);
+  const r = await fetch("https://searchconsole.googleapis.com/webmasters/v3/sites", { headers: { Authorization: `Bearer ${token}` } });
+  const j = await r.json();
+  if (j.error) throw new Error(`Search Console: ${j.error.message}`);
+  return { email: _gsaEmail(), sites: (j.siteEntry || []).map((s: any) => ({ site: s.siteUrl, permissao: s.permissionLevel })) };
+}
 async function gscReport(m: any) {
-  const site = String(m.siteUrl || "").trim();
+  let site = String(m.siteUrl || "").trim();
   if (!site) throw new Error("siteUrl do Search Console obrigatório (ex: https://site.com.br/ ou sc-domain:site.com.br)");
   const token = await _gsaToken(["https://www.googleapis.com/auth/webmasters.readonly"]);
+  // o Search Console é exigente com o formato (http/https, www, barra final, sc-domain).
+  // Se o que está no cadastro não for exatamente uma das propriedades, acha a do mesmo domínio.
+  try {
+    const lr = await fetch("https://searchconsole.googleapis.com/webmasters/v3/sites", { headers: { Authorization: `Bearer ${token}` } });
+    const lj = await lr.json();
+    const lista: string[] = ((lj && lj.siteEntry) || []).map((s: any) => s.siteUrl);
+    if (lista.length && !lista.includes(site)) {
+      const dom = (u: string) => String(u).replace(/^sc-domain:/, "").replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").toLowerCase();
+      const alvo = dom(site);
+      const hit = lista.find((s) => dom(s) === alvo);
+      if (hit) site = hit;
+      else throw new Error(`a service account não tem acesso a "${site}". Propriedades disponíveis: ${lista.join(", ") || "(nenhuma)"} — adicione ${_gsaEmail()} como usuário da propriedade certa no Search Console.`);
+    }
+  } catch (e) { if (/service account não tem acesso/.test(String((e as any).message))) throw e; /* senão segue com o valor informado */ }
   const q = async (dimensions: string[], rowLimit = 25) => {
     const r = await fetch(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
       method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -3461,6 +3483,10 @@ Deno.serve(async (req) => {
     }
     if (body.gscReport) {
       const r = await gscReport(body.gscReport);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.gscSites) {
+      const r = await gscSites();
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.gsaEmail) {
