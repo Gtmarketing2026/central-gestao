@@ -3013,6 +3013,155 @@ async function waResolveAllOrigins(): Promise<{ resolved: number; clients: numbe
   return { resolved: done, clients: cids.length };
 }
 
+// ===================== JORNADA DO LEAD =====================
+// Junta TODAS as fontes numa linha do tempo por pessoa, casando identidades (telefone/email/anon/ctwa).
+// Idempotente: cada toque é gravado com (ref_table, ref_id) único — rodar de novo não duplica.
+function _hash36(s: string): string { let h = 5381; for (let i = 0; i < s.length; i++) { h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; } let h2 = 52711; for (let i = s.length - 1; i >= 0; i--) { h2 = ((h2 << 5) + h2 + s.charCodeAt(i)) >>> 0; } return h.toString(36) + h2.toString(36); }
+const _digits = (v: any) => String(v || "").replace(/[^0-9]/g, "");
+const _phoneKey = (v: any) => { const d = _digits(v); return d.length >= 8 ? d.slice(-8) : ""; }; // ignora DDI/9º dígito
+const _emailKey = (v: any) => String(v || "").trim().toLowerCase();
+// de onde veio o toque (canal), a partir de utm/click ids/referrer
+function _jChannel(source?: string, medium?: string, gclid?: string, fbclid?: string, referrer?: string): string {
+  const s = String(source || "").toLowerCase(), m = String(medium || "").toLowerCase();
+  if (gclid || /google|gads|adwords|gclid/.test(s)) return "google";
+  if (fbclid || /meta|facebook|^fb$|instagram|^ig$|fbclid/.test(s)) return "meta";
+  if (/whats|wpp|zap/.test(s)) return "whatsapp";
+  if (/email|mail|newsletter|rdstation|rd_station/.test(s) || /email/.test(m)) return "email";
+  if (/cpc|ppc|paid|ads/.test(m)) return s || "pago";
+  if (/organic|search/.test(m)) return "organico";
+  if (s) return s;
+  if (referrer) return "referral";
+  return "direto";
+}
+// grafo de identidade em memória durante a reconstrução (union-find simples)
+function _identityGraph() {
+  const parent: Record<string, string> = {}, info: Record<string, any> = {};
+  const find = (k: string): string => { let r = k; while (parent[r] && parent[r] !== r) r = parent[r]; let c = k; while (parent[c] && parent[c] !== c) { const n = parent[c]; parent[c] = r; c = n; } return r; };
+  const add = (k: string) => { if (!parent[k]) { parent[k] = k; info[k] = {}; } return find(k); };
+  const union = (keys: string[]) => { const ks = keys.filter(Boolean).map(add); if (!ks.length) return ""; const root = find(ks[0]); ks.forEach((k) => { const r = find(k); if (r !== root) { parent[r] = root; info[root] = { ...(info[r] || {}), ...(info[root] || {}) }; } }); return root; };
+  const setInfo = (k: string, patch: any) => { const r = find(add(k)); info[r] = { ...(info[r] || {}), ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v)) }; };
+  return { find, add, union, setInfo, parent, info, keys: () => Object.keys(parent) };
+}
+async function journeyRebuild(m: any) {
+  const clientId = String(m.clientId || "").trim();
+  if (!clientId) throw new Error("clientId obrigatório");
+  const dias = Number(m.dias) || 365;
+  const since = new Date(Date.now() - dias * 864e5).toISOString();
+  const G = _identityGraph();
+  const touches: any[] = [];
+  const push = (t: any) => { if (t.ts && t.keys && t.keys.length) touches.push(t); };
+
+  // ---- 1) RD Station: formulários/eventos (email + telefone = a identidade mais forte) ----
+  const rd = await _sbAll("rd_conversions", `client_id=eq.${encodeURIComponent(clientId)}&converted_at=gte.${since}&select=id,event_identifier,email,name,phone,source,medium,campaign,content,term,converted_at&order=converted_at.asc`);
+  for (const r of (rd || [])) {
+    const ks: string[] = []; const ek = _emailKey(r.email), pk = _phoneKey(r.phone);
+    if (ek) ks.push("email:" + ek); if (pk) ks.push("phone:" + pk);
+    if (!ks.length) continue;
+    const root = G.union(ks); G.setInfo(root, { name: r.name, email: r.email, phone: r.phone });
+    push({ keys: ks, ts: r.converted_at, kind: "form", channel: _jChannel(r.source, r.medium), source: r.source, medium: r.medium, campaign: r.campaign, content: r.content, term: r.term, label: r.event_identifier || "conversão", ref_table: "rd_conversions", ref_id: r.id });
+  }
+
+  // ---- 2) WhatsApp: conversa (origem do anúncio) + 1º contato + trocas de etapa ----
+  const convs = await _sbAll("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&select=id,chat_id,name,origin_type,origin,stage,created_at,last_at`);
+  const convKeys: Record<string, string[]> = {};
+  for (const cv of (convs || [])) {
+    const pk = _phoneKey(cv.chat_id); if (!pk) continue;
+    const ks = ["phone:" + pk]; const o = cv.origin || {};
+    if (o.ctwa_clid) ks.push("ctwa:" + String(o.ctwa_clid).slice(0, 60));
+    convKeys[cv.id] = ks;
+    const root = G.union(ks); G.setInfo(root, { name: cv.name, phone: cv.chat_id, stage: cv.stage });
+    // o clique no anúncio que originou a conversa
+    if (cv.origin_type === "anuncio") {
+      push({ keys: ks, ts: cv.created_at, kind: "ad_click", channel: o.channel === "google" ? "google" : "meta", source: o.channel || (o.platform || "meta"), medium: "cpc", campaign: o.campaign || "", adset: o.adset || "", ad: o.ad || o.title || "", term: o.keyword || "", label: "Clique no anúncio" + (o.platform ? ` (${o.platform})` : ""), ref_table: "wa_origin", ref_id: cv.id });
+    } else if (cv.origin_type === "utm") {
+      push({ keys: ks, ts: cv.created_at, kind: "link_click", channel: _jChannel(o.track_source || o.channel, o.medium), source: o.track_source || o.channel || "", medium: o.medium || "", campaign: o.campaign || "", label: "Link rastreável", ref_table: "wa_origin", ref_id: cv.id });
+    }
+  }
+  // 1ª mensagem do lead e 1ª resposta (dá pra medir tempo de resposta) — o chat completo fica no CRM
+  const cvIds = Object.keys(convKeys);
+  for (let i = 0; i < cvIds.length; i += 40) {
+    const chunk = cvIds.slice(i, i + 40);
+    const msgs = await _sbAll("wa_messages", `conversation_id=in.(${chunk.map((x) => encodeURIComponent(x)).join(",")})&select=id,conversation_id,direction,ts,text&order=ts.asc`, 8000);
+    const seen: Record<string, any> = {};
+    for (const g of (msgs || [])) {
+      const k = g.conversation_id + "|" + g.direction; if (seen[k]) continue; seen[k] = 1;
+      push({ keys: convKeys[g.conversation_id], ts: g.ts, kind: g.direction === "in" ? "message_in" : "message_out", channel: "whatsapp", label: g.direction === "in" ? "Iniciou conversa no WhatsApp" : "Primeira resposta da equipe", meta: { texto: String(g.text || "").slice(0, 160) }, ref_table: "wa_first_msg", ref_id: k });
+    }
+  }
+  // trocas de etapa (MQL, SQL, comprou…)
+  const jr = await _sbAll("wa_journey", `client_id=eq.${encodeURIComponent(clientId)}&select=id,conversation_id,to_stage,why,created_at&order=created_at.asc`);
+  for (const j of (jr || [])) {
+    const ks = convKeys[j.conversation_id]; if (!ks) continue;
+    push({ keys: ks, ts: j.created_at, kind: /compr|vend|fech/i.test(String(j.to_stage)) ? "purchase" : "stage", channel: "whatsapp", label: String(j.to_stage || "").toUpperCase(), meta: { motivo: String(j.why || "").slice(0, 200) }, ref_table: "wa_journey", ref_id: j.id });
+  }
+
+  // ---- 3) Pixel do site: pageview / clique em link / clique no WhatsApp ----
+  const ev = await _sbAll("track_events", `client_id=eq.${encodeURIComponent(clientId)}&created_at=gte.${since}&select=id,type,session_id,anon_id,utm_source,utm_medium,utm_campaign,utm_content,utm_term,fbclid,gclid,referrer,landing,link_slug,created_at&order=created_at.asc`);
+  for (const e of (ev || [])) {
+    const ks: string[] = [];
+    if (e.anon_id) ks.push("anon:" + e.anon_id);
+    if (e.gclid) ks.push("gclid:" + e.gclid);
+    if (e.fbclid) ks.push("fbclid:" + e.fbclid);
+    if (!ks.length) continue;
+    G.union(ks);
+    push({ keys: ks, ts: e.created_at, kind: e.type === "wpp_click" ? "wpp_click" : e.type === "link_click" ? "link_click" : "pageview", channel: _jChannel(e.utm_source, e.utm_medium, e.gclid, e.fbclid, e.referrer), source: e.utm_source || "", medium: e.utm_medium || "", campaign: e.utm_campaign || "", content: e.utm_content || "", term: e.utm_term || "", page: e.landing || "", referrer: e.referrer || "", label: e.type === "wpp_click" ? "Clicou no WhatsApp do site" : e.type === "link_click" ? ("Link /" + (e.link_slug || "")) : "Visitou o site", ref_table: "track_events", ref_id: e.id });
+  }
+
+  // ---- 4) resolve as pessoas e grava ----
+  // person_id DETERMINÍSTICO (hash da menor identidade do grupo): o mesmo lead recebe sempre o mesmo id
+  // entre rebuilds, sem precisar carregar o mapa de identidades antigo na memória.
+  const rootToPerson: Record<string, string> = {};
+  const groups: Record<string, string[]> = {};
+  for (const k of G.keys()) { const root = G.find(k); (groups[root] = groups[root] || []).push(k); }
+  const people: Record<string, any> = {};
+  for (const root of Object.keys(groups)) {
+    const keys = groups[root].sort();
+    const pid = "p_" + _hash36(clientId + "|" + keys[0]);
+    rootToPerson[root] = pid;
+    people[pid] = { id: pid, client_id: clientId, ...(G.info[root] || {}), keys };
+  }
+  const personOf = (keys: string[]) => { for (const k of keys) { const r = G.find(k); if (rootToPerson[r]) return rootToPerson[r]; } return ""; };
+
+  // um passe só: resolve a pessoa de cada toque e acumula primeiro/último contato (evita varrer tudo por pessoa)
+  const span: Record<string, { min: string; max: string }> = {};
+  for (const t of touches) {
+    const pid = personOf(t.keys); t._pid = pid; if (!pid || !t.ts) continue;
+    const s = span[pid] || (span[pid] = { min: t.ts, max: t.ts });
+    if (t.ts < s.min) s.min = t.ts; if (t.ts > s.max) s.max = t.ts;
+  }
+  // pessoas
+  const nowIso = new Date().toISOString();
+  const peopleRows = Object.values(people).map((p: any) => ({ id: p.id, client_id: clientId, name: p.name || null, phone: p.phone ? String(p.phone).slice(0, 30) : null, email: p.email || null, stage: p.stage || null, first_seen: (span[p.id] || {}).min || null, last_seen: (span[p.id] || {}).max || null, updated_at: nowIso }));
+  for (let i = 0; i < peopleRows.length; i += 500) await _sbUpsert("lead_people", peopleRows.slice(i, i + 500), "id");
+  // identidades
+  const identRows: any[] = [];
+  Object.values(people).forEach((p: any) => p.keys.forEach((k: string) => { const ix = k.indexOf(":"); identRows.push({ id: "i_" + _wuid(), client_id: clientId, person_id: p.id, kind: k.slice(0, ix), value: k.slice(ix + 1) }); }));
+  for (let i = 0; i < identRows.length; i += 500) await _sbUpsert("lead_identities", identRows.slice(i, i + 500), "client_id,kind,value");
+  // toques — grava em lotes convertendo só o lote (não duplica o array inteiro na memória)
+  let nT = 0;
+  for (let i = 0; i < touches.length; i += 500) {
+    const batch = touches.slice(i, i + 500).filter((t) => t._pid).map((t) => ({ id: "t_" + _wuid(), client_id: clientId, person_id: t._pid, ts: t.ts, kind: t.kind, channel: t.channel || null, source: t.source || null, medium: t.medium || null, campaign: t.campaign || null, adset: t.adset || null, ad: t.ad || null, term: t.term || null, content: t.content || null, page: t.page || null, referrer: t.referrer || null, label: t.label || null, value: t.value || 0, ref_table: t.ref_table, ref_id: String(t.ref_id), meta: t.meta || null }));
+    if (batch.length) { await _sbUpsert("lead_touchpoints", batch, "ref_table,ref_id"); nT += batch.length; }
+  }
+  // pessoas que deixaram de existir (viraram outra depois de um merge) — some com elas
+  try { await fetch(`${_SB_URL}/rest/v1/lead_people?client_id=eq.${encodeURIComponent(clientId)}&updated_at=lt.${nowIso}`, { method: "DELETE", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, Prefer: "return=minimal" } }); } catch (_e) { /* segue */ }
+  return { pessoas: peopleRows.length, identidades: identRows.length, toques: nT, fontes: { rd: (rd || []).length, whatsapp: (convs || []).length, etapas: (jr || []).length, pixel: (ev || []).length } };
+}
+// PostgREST devolve no máximo 1000 linhas por chamada — pagina até trazer tudo
+async function _sbAll(table: string, query: string, max = 60000): Promise<any[]> {
+  const out: any[] = [], page = 1000;
+  for (let off = 0; off < max; off += page) {
+    const rows = await sbGet(table, `${query}&offset=${off}&limit=${page}`);
+    if (!rows || !rows.length) break;
+    out.push(...rows);
+    if (rows.length < page) break;
+  }
+  return out;
+}
+async function _sbUpsert(table: string, rows: any[], onConflict: string) {
+  if (!rows.length) return;
+  await fetch(`${_SB_URL}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) });
+}
 // ===== AndréIA — Automações / Central de notificações =====
 function _brDate(s: any) { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}` : (s || ""); }
 function _spNow() { return new Date(Date.now() - 3 * 3600e3); } // America/Sao_Paulo (UTC-3)
@@ -3249,6 +3398,10 @@ Deno.serve(async (req) => {
     }
     if (body.googleTermAction) {
       const r = await googleTermAction(body.googleTermAction);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.journeyRebuild) {
+      const r = await journeyRebuild(body.journeyRebuild);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.googleKeywordAction) {

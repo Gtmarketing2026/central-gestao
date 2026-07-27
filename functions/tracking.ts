@@ -65,27 +65,37 @@ async function handleNuvemshopCallback(url: URL) {
 }
 
 // Webhook do RD Station: RD chama a cada conversão. Guarda o payload cru + campos extraídos.
+// Normaliza um evento do RD em linha da tabela. Cobre os DOIS formatos:
+//  a) NOVO (webhook de contato):   {contact:{name,email,mobile_phone,personal_phone,uuid,funnel:{origin}}, event_identifier, event_timestamp}
+//  b) ANTIGO (leads[]):            {leads:[{email,name,last_conversion:{conversion_identifier,content:{utm_*}}}]}
+export function rdRow(clientId: string, L: any, body?: any) {
+  const B = body || L || {};
+  const ct = L?.contact || B?.contact || null;
+  const conv = L?.last_conversion || (Array.isArray(L?.conversions) ? L.conversions[L.conversions.length - 1] : null) || {};
+  const src = conv?.content || conv || {};
+  const digits = (v: any) => String(v || "").replace(/[^0-9]/g, "");
+  const phoneRaw = ct?.mobile_phone || ct?.personal_phone || L?.mobile_phone || L?.personal_phone || L?.phone || "";
+  const ph = digits(phoneRaw);
+  return {
+    id: uid(), client_id: clientId,
+    event_identifier: clip(B?.event_identifier || conv?.conversion_identifier || conv?.identifier || L?.conversion_identifier, 200),
+    email: clip((ct?.email || L?.email || "").toString().toLowerCase() || null, 200),
+    name: clip(ct?.name || L?.name, 200),
+    phone: ph ? clip(ph, 20) : null,
+    source: clip(src?.utm_source || L?.traffic_source || conv?.source || (ct?.funnel?.origin && ct.funnel.origin !== "Desconhecido" ? ct.funnel.origin : null), 120),
+    medium: clip(src?.utm_medium || L?.traffic_medium, 120),
+    campaign: clip(src?.utm_campaign || L?.traffic_campaign, 200),
+    content: clip(src?.utm_content, 200), term: clip(src?.utm_term, 200),
+    converted_at: B?.event_timestamp || B?.timestamp || conv?.created_at || conv?.event_timestamp || null,
+    payload: L || B,
+  };
+}
 async function handleRdWebhook(url: URL, req: Request) {
   const clientId = url.searchParams.get("client") || "";
   let body: any = {};
   try { body = await req.json(); } catch (_e) { /* ignora */ }
-  // O RD manda {leads:[{...}]} ou {event_type,...,leads:[...]}; guardamos cada lead como uma linha.
   const leads: any[] = Array.isArray(body?.leads) ? body.leads : (body?.leads ? [body.leads] : [body]);
-  const rows = leads.map((L: any) => {
-    const conv = L?.last_conversion || (Array.isArray(L?.conversions) ? L.conversions[L.conversions.length - 1] : null) || {};
-    const src = conv?.content || conv || {};
-    return {
-      id: uid(), client_id: clientId,
-      event_identifier: clip(conv?.conversion_identifier || conv?.identifier || L?.conversion_identifier, 200),
-      email: clip(L?.email, 200), name: clip(L?.name, 200),
-      source: clip(src?.utm_source || L?.traffic_source || conv?.source, 120),
-      medium: clip(src?.utm_medium || L?.traffic_medium, 120),
-      campaign: clip(src?.utm_campaign || L?.traffic_campaign, 200),
-      content: clip(src?.utm_content, 200), term: clip(src?.utm_term, 200),
-      converted_at: conv?.created_at || conv?.event_timestamp || null,
-      payload: L || body,
-    };
-  });
+  const rows = leads.map((L: any) => rdRow(clientId, L, body));
   for (const r of rows) { try { await sbInsert("rd_conversions", r); } catch (_e) { /* segue */ } }
   return new Response("ok", { headers: { ...cors, "Content-Type": "text/plain" } });
 }
