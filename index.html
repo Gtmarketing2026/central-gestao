@@ -2907,8 +2907,8 @@ async function cLoadGsaEmail(){
 }
 function cCopyGsa(btn){const t=(document.getElementById('cGsaEmail')||{}).textContent||'';if(!t)return;navigator.clipboard.writeText(t).then(()=>{const o=btn.textContent;btn.textContent='copiado ✓';setTimeout(()=>btn.textContent=o,1400);}).catch(()=>{});}
 /* =================== JORNADA DO LEAD (multi-toque) =================== */
-let _jrnClientId='',_jrnDays=90,_jrnRaw=null,_jrnSel=null,_jrnQ='',_jrnFCh='';
-const JRN_ICON={ad_click:'📣',link_click:'🔗',pageview:'🌐',wpp_click:'💬',form:'📝',message_in:'💬',message_out:'↩️',stage:'🎯',purchase:'🛒'};
+let _jrnClientId='',_jrnDays=90,_jrnRaw=null,_jrnSel=null,_jrnQ='',_jrnFCh='',_jrnFSt='';
+const JRN_ICON={ad_click:'📣',link_click:'🔗',pageview:'🌐',wpp_click:'💬',form:'📝',message_in:'💬',message_out:'↩️',stage:'🎯',purchase:'🛒',checkout:'🧾',deal:'🤝'};
 const JRN_CHCOL={meta:'#60a5fa',google:'#34d399',whatsapp:'#25d366',email:'#f0c040',organico:'#a78bfa',direto:'#94a3b8',referral:'#fb923c',rd:'#f0c040'};
 function _jrnCh(c){return JRN_CHCOL[String(c||'').toLowerCase()]||'#94a3b8';}
 function _jrnEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -3012,7 +3012,14 @@ function jrnBuild(){
     const canais=[...new Set(ts.map(t=>t.channel).filter(Boolean))];
     const pagos=canais.filter(ch=>PAGO.has(ch));
     const dur=ts.length>1?(new Date(ts[ts.length-1].ts)-new Date(ts[0].ts)):0;
-    return {pid,p,ts,n:ts.length,primeiro,ultimo,canais,pagos,converteu:!!alvo,alvo,
+    // VENDA x PEDIDO ABERTO: quem chegou no checkout mas não comprou é pedido não finalizado
+    const chk=ts.filter(t=>t.kind==='checkout');
+    const converteu=!!alvo;
+    const pedidoAberto=!converteu&&chk.length>0;
+    const status=converteu?'venda':(pedidoAberto?'pedido':'lead');
+    return {pid,p,ts,n:ts.length,primeiro,ultimo,canais,pagos,converteu,alvo,status,pedidoAberto,
+      checkouts:chk.length,ultimoCheckout:chk.length?chk[chk.length-1]:null,
+      valor:(alvo&&+alvo.value)||0,
       etapa:(ts.filter(t=>t.kind==='stage').slice(-1)[0]||{}).label||p.stage||'',
       dias:Math.round(dur/864e5),
       caminho:ts.map(t=>t.label||t.kind).filter((v,i,a)=>v&&v!==a[i-1])};
@@ -3029,12 +3036,20 @@ function jrnRender(){
   const diasConv=L.filter(x=>x.converteu&&x.dias>=0);
   const mediaD=diasConv.length?(diasConv.reduce((s,x)=>s+x.dias,0)/diasConv.length):0;
   const kpi=(l,v,s,cor)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 16px;flex:1;min-width:150px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">${l}</div><div style="font-size:21px;font-weight:800;margin-top:3px${cor?';color:'+cor:''}">${v}</div>${s?`<div style="font-size:11px;color:var(--faint);margin-top:2px">${s}</div>`:''}</div>`;
-  const kpis=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+  const vendas=L.filter(x=>x.status==='venda'), pedidos=L.filter(x=>x.status==='pedido');
+  const valorTot=vendas.reduce((s,x)=>s+(x.valor||0),0);
+  const baseChk=vendas.length+pedidos.length;
+  const abandono=baseChk?(pedidos.length/baseChk*100):0;
+  const kpis=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
     ${kpi('Leads mapeados',total.toLocaleString('pt-BR'),'com pelo menos 1 toque no período')}
-    ${kpi('Converteram',comConv.toLocaleString('pt-BR'),total?((comConv/total*100).toFixed(1)+'% dos leads'):'','#34d399')}
+    ${kpi('🛒 Vendas',vendas.length.toLocaleString('pt-BR'),(valorTot?fmt(valorTot)+' · ':'')+(total?((vendas.length/total*100).toFixed(1)+'% dos leads'):''),'#34d399')}
+    ${kpi('🧾 Pedidos não finalizados',pedidos.length.toLocaleString('pt-BR'),baseChk?(abandono.toFixed(0)+'% de abandono no checkout'):'chegaram no checkout e não fecharam','#f0c040')}
     ${kpi('Toques por lead',mediaT.toFixed(1),'média de interações até hoje')}
     ${kpi('Passaram por 2+ canais',multi.toLocaleString('pt-BR'),total?((multi/total*100).toFixed(0)+'% multi-canal'):'')}
-    ${comConv?kpi('Tempo até converter',mediaD.toFixed(0)+' dia'+(mediaD===1?'':'s'),'do 1º toque à conversão'):''}
+    ${comConv?kpi('Tempo até vender',mediaD.toFixed(0)+' dia'+(mediaD===1?'':'s'),'do 1º toque à venda'):''}
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+    ${[['','Todos',L.length,''],['venda','🛒 Jornadas de venda',vendas.length,'#34d399'],['pedido','🧾 Pedidos não finalizados',pedidos.length,'#f0c040'],['lead','Ainda em nutrição',L.length-baseChk,'']].map(([k,l,n,cor])=>`<button class="btn sm ${_jrnFSt===k?'primary':'ghost'}" onclick="_jrnFSt='${k}';jrnRender()" style="${_jrnFSt!==k&&cor?'color:'+cor:''}">${l} <b>${n}</b></button>`).join('')}
   </div>`;
   // ---- Primeiro toque × Último toque (atribuição comparada) ----
   const cnt=(arr,f)=>{const m={};arr.forEach(x=>{const k=f(x);if(k)m[k]=(m[k]||0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]);};
@@ -3058,6 +3073,7 @@ function jrnRender(){
   // ---- Lista de leads ----
   const q=_jrnQ.toLowerCase();
   const filt=L.filter(x=>{
+    if(_jrnFSt&&x.status!==_jrnFSt)return false;
     if(_jrnFCh&&!x.canais.includes(_jrnFCh))return false;
     if(!q)return true;
     return ((x.p.name||'')+' '+(x.p.phone||'')+' '+(x.p.email||'')).toLowerCase().includes(q);
@@ -3066,14 +3082,15 @@ function jrnRender(){
   const linha=x=>{
     const nm=x.p.name||x.p.phone||x.p.email||'(sem nome)';
     const chips=x.canais.map(ch=>`<span style="font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:5px;color:${_jrnCh(ch)};background:${_jrnCh(ch)}22;text-transform:capitalize">${_jrnEsc(ch)}</span>`).join(' ');
-    return `<tr onclick="jrnOpen('${x.pid}')" style="cursor:pointer" title="Ver a linha do tempo completa">
+    const bg=x.status==='venda'?'background:rgba(52,211,153,.07);border-left:3px solid #34d399':(x.status==='pedido'?'background:rgba(240,192,64,.06);border-left:3px solid #f0c040':'border-left:3px solid transparent');
+    return `<tr onclick="jrnOpen('${x.pid}')" style="cursor:pointer;${bg}" title="Ver a linha do tempo completa">
       <td style="padding:8px 10px;font-size:12.5px;border-bottom:1px solid var(--border)"><b>${_jrnEsc(nm)}</b>${x.p.email?`<div style="font-size:10.5px;color:var(--faint)">${_jrnEsc(x.p.email)}</div>`:''}</td>
       <td style="padding:8px 10px;font-size:11.5px;border-bottom:1px solid var(--border);color:${_jrnCh(x.primeiro&&x.primeiro.channel)}">${_jrnEsc((x.primeiro&&(x.primeiro.label||x.primeiro.channel))||'—')}</td>
       <td style="padding:8px 10px;font-size:11.5px;border-bottom:1px solid var(--border)">${_jrnEsc((x.ultimo&&(x.ultimo.label||x.ultimo.channel))||'—')}</td>
       <td style="padding:8px 10px;border-bottom:1px solid var(--border)">${chips}</td>
       <td style="padding:8px 10px;text-align:center;font-weight:700;border-bottom:1px solid var(--border)">${x.n}</td>
       <td style="padding:8px 10px;text-align:center;font-size:11.5px;border-bottom:1px solid var(--border);color:var(--muted)">${x.dias?x.dias+'d':'—'}</td>
-      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">${x.converteu?'<span style="color:#34d399;font-weight:700;font-size:11px">🛒 CONVERTEU</span>':`<span style="font-size:11px;color:var(--faint)">${_jrnEsc(x.etapa||'—')}</span>`}</td>
+      <td style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)">${x.status==='venda'?`<span style="color:#34d399;font-weight:800;font-size:10.5px">🛒 VENDA${x.valor?' · '+fmt(x.valor):''}</span>`:x.status==='pedido'?`<span style="color:#f0c040;font-weight:800;font-size:10.5px" title="chegou no checkout e não finalizou">🧾 PEDIDO ABERTO</span>`:`<span style="font-size:11px;color:var(--faint)">${_jrnEsc(x.etapa||'—')}</span>`}</td>
     </tr>`;
   };
   const th=(s,c)=>`<th style="text-align:${c||'left'};padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">${s}</th>`;
@@ -3165,7 +3182,7 @@ function jrnOpen(pid){
   ov.innerHTML=`<div class="card" style="width:min(640px,96vw);max-height:88vh;display:flex;flex-direction:column">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px">
       <div><h3 style="margin:0;font-size:16px">🧭 ${_jrnEsc(nm)}</h3>
-        <div style="font-size:11.5px;color:var(--muted);margin-top:3px">${x.n} toques · ${x.canais.length} canal(is) · ${x.dias?x.dias+' dias de jornada':'mesmo dia'}${x.converteu?' · <b style="color:#34d399">converteu 🛒</b>':''}</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:3px">${x.n} toques · ${x.canais.length} canal(is) · ${x.dias?x.dias+' dias de jornada':'mesmo dia'}${x.status==='venda'?' · <b style="color:#34d399">🛒 VENDA'+(x.valor?' '+fmt(x.valor):'')+'</b>':x.status==='pedido'?' · <b style="color:#f0c040">🧾 PEDIDO NÃO FINALIZADO</b>':''}</div>
         ${x.p.phone||x.p.email?`<div style="font-size:11px;color:var(--faint);margin-top:2px">${_jrnEsc([x.p.phone,x.p.email].filter(Boolean).join(' · '))}</div>`:''}</div>
       <button class="btn xs ghost" onclick="document.getElementById('jrnOverlay').remove()">✕</button></div>
     <div style="overflow-y:auto;padding-right:4px">${it}</div>

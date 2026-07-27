@@ -3128,6 +3128,14 @@ function _jChannel(source?: string, medium?: string, gclid?: string, fbclid?: st
   if (referrer) return "referral";
   return "direto";
 }
+// classifica o evento do RD: compra confirmada, pedido/checkout iniciado, negociação ou formulário comum
+function _rdKind(ev?: string): string {
+  const e = String(ev || "").toLowerCase();
+  if (/compra|purchase|venda\b|pagamento|pago|aprovad|matricul/.test(e)) return "purchase";
+  if (/checkout|carrinho|\bcart\b|pedido|\border\b/.test(e)) return "checkout";
+  if (/negocia|deal|oportunidad/.test(e)) return "deal";
+  return "form";
+}
 // grafo de identidade em memória durante a reconstrução (union-find simples)
 function _identityGraph() {
   const parent: Record<string, string> = {}, info: Record<string, any> = {};
@@ -3156,7 +3164,7 @@ async function journeyRebuild(m: any) {
     if (ek) ks.push("email:" + ek); if (pk) ks.push("phone:" + pk);
     if (!ks.length) continue;
     const root = G.union(ks); G.setInfo(root, { name: r.name, email: r.email, phone: r.phone });
-    push({ keys: ks, ts: r.converted_at, kind: "form", channel: _jChannel(r.source, r.medium, "", "", "", selfDom), source: r.source, medium: r.medium, campaign: r.campaign, content: r.content, term: r.term, label: r.event_identifier || "conversão", ref_table: "rd_conversions", ref_id: r.id });
+    push({ keys: ks, ts: r.converted_at, kind: _rdKind(r.event_identifier), channel: _jChannel(r.source, r.medium, "", "", "", selfDom), source: r.source, medium: r.medium, campaign: r.campaign, content: r.content, term: r.term, label: r.event_identifier || "conversão", ref_table: "rd_conversions", ref_id: r.id });
   }
 
   // ---- 2) WhatsApp: conversa (origem do anúncio) + 1º contato + trocas de etapa ----
