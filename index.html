@@ -3055,13 +3055,28 @@ async function jrnLoadAnalytics(){
     <table style="width:100%;border-collapse:collapse">${rows.slice(0,8).map(r=>`<tr><td style="padding:4px 6px;font-size:11.5px;border-bottom:1px solid rgba(255,255,255,.05);max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_jrnEsc(cols.k(r))}</td><td style="padding:4px 6px;text-align:right;font-size:11.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.05)">${cols.v(r)}</td></tr>`).join('')}</table></div>`:'';
   const err=e=>`<div style="font-size:11.5px;color:#f87171;padding:6px 0">⚠ ${_jrnEsc(e)}</div>`;
   let h='';
-  if(ga)h+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px">
-    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px">📈 Google Analytics 4 <span style="text-transform:none;color:var(--faint)">— tráfego agregado do site</span></div>
-    ${ga._err?err(ga._err):`<div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:8px">
-      ${tbl('Canais',ga.canais,{k:r=>r.sessionDefaultChannelGroup,v:r=>Math.round(r.sessions).toLocaleString('pt-BR')+' sess.'})}
-      ${tbl('Origem / mídia',ga.origens,{k:r=>r.sessionSource+' / '+r.sessionMedium,v:r=>Math.round(r.sessions).toLocaleString('pt-BR')})}
-      ${tbl('Páginas',ga.paginas,{k:r=>r.pagePath,v:r=>Math.round(r.screenPageViews).toLocaleString('pt-BR')})}
-    </div>`}</div>`;
+  const _R=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{maximumFractionDigits:0});
+  const _N=v=>Math.round(Number(v)||0).toLocaleString('pt-BR');
+  if(ga){
+    const T=ga.total||{};
+    const resumo=(!ga._err&&T.sessoes)?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 12px">
+      ${[['Receita',_R(T.receita),'#34d399'],['Compras',_N(T.compras),''],['Sessões',_N(T.sessoes),''],['Conversões',_N(T.conversoes),'']].map(([l,v,cor])=>`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 13px;flex:1;min-width:110px"><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">${l}</div><div style="font-size:17px;font-weight:800;margin-top:1px${cor?';color:'+cor:''}">${v}</div></div>`).join('')}</div>`:'';
+    // campanhas com receita — ordena pelo que mais vendeu
+    const camps=(ga.campanhas||[]).slice().sort((a,b)=>(b.purchaseRevenue||0)-(a.purchaseRevenue||0)).filter(c=>(c.purchaseRevenue||0)>0||(c.transactions||0)>0);
+    const campTbl=camps.length?`<div style="margin-top:6px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px">💰 Campanhas que mais venderam</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <tr><th style="text-align:left;padding:5px 6px;font-size:9.5px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Campanha</th><th style="text-align:left;padding:5px 6px;font-size:9.5px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Origem</th><th style="text-align:right;padding:5px 6px;font-size:9.5px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Receita</th><th style="text-align:right;padding:5px 6px;font-size:9.5px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Compras</th></tr>
+        ${camps.slice(0,12).map(c=>`<tr><td style="padding:5px 6px;font-size:11.5px;border-bottom:1px solid rgba(255,255,255,.05);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_jrnEsc(c.sessionCampaignName)}</td><td style="padding:5px 6px;font-size:10.5px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.05)">${_jrnEsc(c.sessionSource+'/'+c.sessionMedium)}</td><td style="padding:5px 6px;text-align:right;font-size:11.5px;font-weight:700;color:#34d399;border-bottom:1px solid rgba(255,255,255,.05)">${_R(c.purchaseRevenue)}</td><td style="padding:5px 6px;text-align:right;font-size:11.5px;border-bottom:1px solid rgba(255,255,255,.05)">${_N(c.transactions)}</td></tr>`).join('')}
+      </table></div></div>`:'';
+    h+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px">📈 Google Analytics 4 <span style="text-transform:none;color:var(--faint)">— tráfego e receita do site (agregado)</span></div>
+    ${ga._err?err(ga._err):resumo+`<div style="display:flex;gap:18px;flex-wrap:wrap">
+      ${tbl('Canais (receita)',ga.canais,{k:r=>r.sessionDefaultChannelGroup,v:r=>(r.purchaseRevenue>0?_R(r.purchaseRevenue):_N(r.sessions)+' sess.')})}
+      ${tbl('Origem / mídia',ga.origens,{k:r=>r.sessionSource+' / '+r.sessionMedium,v:r=>_N(r.sessions)})}
+      ${tbl('Páginas',ga.paginas,{k:r=>r.pagePath,v:r=>_N(r.screenPageViews)})}
+    </div>`+campTbl}</div>`;
+  }
   if(gs)h+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px">
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px">🔎 Search Console <span style="text-transform:none;color:var(--faint)">— o que buscaram antes de chegar</span></div>
     ${gs._err?err(gs._err):`<div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:8px">

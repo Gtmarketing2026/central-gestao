@@ -3044,13 +3044,17 @@ async function ga4Report(m: any) {
       return o;
     });
   };
-  const [canais, paginas, origens] = await Promise.all([
-    run(["sessionDefaultChannelGroup"], ["sessions", "totalUsers", "conversions", "engagementRate"], 20).catch((e) => ({ _err: String(e.message || e) } as any)),
+  const [canais, paginas, origens, campanhas] = await Promise.all([
+    run(["sessionDefaultChannelGroup"], ["sessions", "totalUsers", "conversions", "purchaseRevenue", "transactions"], 20).catch((e) => ({ _err: String(e.message || e) } as any)),
     run(["pagePath"], ["screenPageViews", "totalUsers"], 25).catch(() => []),
-    run(["sessionSource", "sessionMedium"], ["sessions", "conversions"], 25).catch(() => []),
+    run(["sessionSource", "sessionMedium"], ["sessions", "conversions", "purchaseRevenue", "transactions"], 25).catch(() => []),
+    // campanha com RECEITA e COMPRAS — é o que liga o GA4 à jornada/atribuição
+    run(["sessionCampaignName", "sessionSource", "sessionMedium"], ["sessions", "transactions", "purchaseRevenue", "conversions"], 40).catch(() => []),
   ]);
   if ((canais as any)._err) throw new Error((canais as any)._err);
-  return { propertyId: prop, periodo: { since: m.since, until: m.until }, canais, paginas, origens };
+  const tot = (arr: any[], k: string) => (Array.isArray(arr) ? arr : []).reduce((s: number, r: any) => s + (Number(r[k]) || 0), 0);
+  return { propertyId: prop, periodo: { since: m.since, until: m.until }, canais, paginas, origens, campanhas,
+    total: { receita: tot(canais as any[], "purchaseRevenue"), compras: tot(canais as any[], "transactions"), sessoes: tot(canais as any[], "sessions"), conversoes: tot(canais as any[], "conversions") } };
 }
 // Diagnóstico: quais propriedades do Search Console a service account enxerga
 async function gscSites() {
@@ -3073,7 +3077,10 @@ async function gscReport(m: any) {
     if (lista.length && !lista.includes(site)) {
       const dom = (u: string) => String(u).replace(/^sc-domain:/, "").replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").toLowerCase();
       const alvo = dom(site);
-      const hit = lista.find((s) => dom(s) === alvo);
+      // entre as candidatas do mesmo domínio, a propriedade de DOMÍNIO (sc-domain:) é a mais completa —
+      // cobre http/https/www/subdomínios. Só cai na de prefixo de URL se não houver domínio.
+      const cands = lista.filter((s) => dom(s) === alvo).sort((a, b) => (b.startsWith("sc-domain:") ? 1 : 0) - (a.startsWith("sc-domain:") ? 1 : 0));
+      const hit = cands[0];
       if (hit) site = hit;
       else throw new Error(`a service account não tem acesso a "${site}". Propriedades disponíveis: ${lista.join(", ") || "(nenhuma)"} — adicione ${_gsaEmail()} como usuário da propriedade certa no Search Console.`);
     }
