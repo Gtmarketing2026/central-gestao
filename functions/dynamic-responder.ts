@@ -3128,6 +3128,67 @@ function _jChannel(source?: string, medium?: string, gclid?: string, fbclid?: st
   if (referrer) return "referral";
   return "direto";
 }
+// ---- Vendas da planilha de pedidos, casadas por HASH (o e-mail/telefone nunca é gravado) ----
+async function _sha(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+// data BR (dd/mm/aaaa) ou ISO → ISO
+function _dtBR(v: any): string {
+  const s = String(v || "").trim(); if (!s) return "";
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}T12:00:00Z`;
+  const i = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (i) return `${i[0]}T12:00:00Z`;
+  return "";
+}
+// status da planilha → venda confirmada ou pedido em aberto
+function _ordStatus(v: any): "purchase" | "checkout" | "" {
+  const s = String(v || "").toLowerCase();
+  if (!s) return "checkout";
+  if (/aprovad|pago|paga|conclu|complet|autoriz|captur|finaliz|entregue/.test(s)) return "purchase";
+  if (/cancel|recus|estorn|expir|reembols|falh|negad|charge/.test(s)) return ""; // não conta como pedido em aberto
+  return "checkout"; // pendente, aguardando, processando…
+}
+// Lê a aba de pedidos e devolve os toques de compra JÁ CASADOS por hash com as identidades do lead.
+// Nada de e-mail/CPF/nome/CEP sai desta função — só pessoa, data, valor, produto e status.
+async function ordersFromSheet(spreadsheetId: string, tab: string, hashToPerson: Record<string, string>, de = 2, blocos = 2) {
+  const keyJson = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY"); if (!keyJson) return { toques: [], lidas: 0, casadas: 0 };
+  const auth = new google.auth.GoogleAuth({ credentials: JSON.parse(keyJson), scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"] });
+  const sheets = google.sheets({ version: "v4", auth });
+  // lê o cabeçalho e depois pagina em blocos (planilha grande não cabe na memória de uma vez)
+  const h0 = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${tab}'!A1:Z1` });
+  const head = (((h0.data.values || [])[0]) || []).map((h: any) => String(h || "").toLowerCase().trim());
+  if (!head.length) return { toques: [], lidas: 0, casadas: 0 };
+  const col = (...names: string[]) => { for (const n of names) { const i = head.findIndex((h) => h === n || h.includes(n)); if (i >= 0) return i; } return -1; };
+  const cData = col("data"), cMail = col("email", "e-mail"), cCel = col("celular", "fone", "telefone"), cSt = col("status"), cTot = col("total", "valor"), cProd = col("produto"), cId = col("id");
+  const toques: any[] = []; let casadas = 0, lidas = 0;
+  const BLOCO = 3000; let ultima = de, fimDaPlanilha = false;
+  for (let b = 0, ini = de; b < blocos; b++, ini += BLOCO) {
+    ultima = ini;
+    const fim = ini + BLOCO - 1;
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${tab}'!A${ini}:Z${fim}` });
+    const rows: any[][] = res.data.values || [];
+    if (!rows.length) break;
+    lidas += rows.length;
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r]; if (!row || !row.length) continue;
+    const kind = _ordStatus(cSt >= 0 ? row[cSt] : "");
+    if (!kind) continue; // cancelado/estornado: ignora
+    // casa por hash — o valor cru some da memória logo em seguida
+    let pid = "";
+    if (cMail >= 0 && row[cMail]) pid = hashToPerson["email:" + String(row[cMail]).trim().toLowerCase()] || "";
+    if (!pid && cCel >= 0 && row[cCel]) { const d = String(row[cCel]).replace(/[^0-9]/g, ""); if (d.length >= 8) pid = hashToPerson["phone:" + d.slice(-8)] || ""; }
+    if (!pid) continue;
+    casadas++;
+    const ts = _dtBR(cData >= 0 ? row[cData] : ""); if (!ts) continue;
+    toques.push({ _pid: pid, ts, kind, channel: "site", label: kind === "purchase" ? ("Compra" + (cProd >= 0 && row[cProd] ? " · " + String(row[cProd]).slice(0, 60) : "")) : ("Pedido " + String(cSt >= 0 ? row[cSt] : "em aberto").slice(0, 30)),
+      value: cTot >= 0 ? (parseNumberBR(row[cTot]) || 0) : 0, ref_table: "sheet_order", ref_id: String((cId >= 0 && row[cId]) || (tab + "_" + (ini + r))) });
+    }
+    ultima = ini + rows.length;
+    if (rows.length < BLOCO) { fimDaPlanilha = true; break; }
+  }
+  return { toques, lidas, casadas, proxima: fimDaPlanilha ? 0 : ultima, fim: fimDaPlanilha };
+}
 // classifica o evento do RD: compra confirmada, pedido/checkout iniciado, negociação ou formulário comum
 function _rdKind(ev?: string): string {
   const e = String(ev || "").toLowerCase();
@@ -3231,7 +3292,7 @@ async function journeyRebuild(m: any) {
   // um passe só: resolve a pessoa de cada toque e acumula primeiro/último contato (evita varrer tudo por pessoa)
   const span: Record<string, { min: string; max: string }> = {};
   for (const t of touches) {
-    const pid = personOf(t.keys); t._pid = pid; if (!pid || !t.ts) continue;
+    const pid = t._pid || personOf(t.keys); t._pid = pid; if (!pid || !t.ts) continue;
     const s = span[pid] || (span[pid] = { min: t.ts, max: t.ts });
     if (t.ts < s.min) s.min = t.ts; if (t.ts > s.max) s.max = t.ts;
   }
@@ -3252,6 +3313,25 @@ async function journeyRebuild(m: any) {
   // pessoas que deixaram de existir (viraram outra depois de um merge) — some com elas
   try { await fetch(`${_SB_URL}/rest/v1/lead_people?client_id=eq.${encodeURIComponent(clientId)}&updated_at=lt.${nowIso}`, { method: "DELETE", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, Prefer: "return=minimal" } }); } catch (_e) { /* segue */ }
   return { pessoas: peopleRows.length, identidades: identRows.length, toques: nT, fontes: { rd: (rd || []).length, whatsapp: (convs || []).length, etapas: (jr || []).length, pixel: (ev || []).length } };
+}
+
+// Vendas da planilha → toques de compra, casadas por HASH. Roda separado do rebuild (planilha grande).
+async function journeyOrders(m: any) {
+  const clientId = String(m.clientId || "").trim();
+  if (!clientId) throw new Error("clientId obrigatório");
+  const cli = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=report_orders_sheet_url,report_orders_tab`))[0] || {};
+  const sid = (String(cli.report_orders_sheet_url || "").match(/\/d\/([a-zA-Z0-9-_]+)/) || [])[1];
+  const tab = String(m.tab || cli.report_orders_tab || "").trim();
+  if (!sid || !tab) return { erro: "cliente sem planilha de pedidos configurada" };
+  // mapa hash→pessoa a partir das identidades já gravadas (e-mail/telefone viram hash em memória)
+  const ident = await _sbAll("lead_identities", `client_id=eq.${encodeURIComponent(clientId)}&kind=in.(email,phone)&select=person_id,kind,value`);
+  const h2p: Record<string, string> = {};
+  for (const i of (ident || [])) h2p[`${i.kind}:${i.value}`] = i.person_id;
+  const r = await ordersFromSheet(sid, tab, h2p, Number(m.de) || 2, Number(m.blocos) || 2);
+  const rows = r.toques.map((t: any) => ({ id: "t_" + _wuid(), client_id: clientId, person_id: t._pid, ts: t.ts, kind: t.kind, channel: t.channel, label: t.label, value: t.value || 0, ref_table: t.ref_table, ref_id: t.ref_id }));
+  for (let i = 0; i < rows.length; i += 400) await _sbUpsert("lead_touchpoints", rows.slice(i, i + 400), "ref_table,ref_id");
+  const compras = rows.filter((x: any) => x.kind === "purchase");
+  return { linhasLidas: r.lidas, casadasComLead: r.casadas, gravadas: rows.length, compras: compras.length, receita: compras.reduce((s: number, x: any) => s + (x.value || 0), 0), identidades: (ident || []).length, proxima: (r as any).proxima, fim: (r as any).fim };
 }
 // Reprocessa a jornada de TODOS os clientes ativos (usado pelo botão "atualizar todos" e pelo cron)
 async function journeyRebuildAll(m: any) {
@@ -3553,6 +3633,30 @@ Deno.serve(async (req) => {
     }
     if (body.gsaEmail) {
       return new Response(JSON.stringify({ data: { email: _gsaEmail() } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // Só os CABEÇALHOS de uma aba (linha 1). Nome de coluna não é dado pessoal — serve pra mapear a planilha
+    // sem trazer nenhuma linha de dado. Por isso não passa pela trava de abas bloqueadas.
+    if (body.sheetHeaders) {
+      const keyJson = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY");
+      if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY nao configurada");
+      const auth = new google.auth.GoogleAuth({ credentials: JSON.parse(keyJson), scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"] });
+      const sheets = google.sheets({ version: "v4", auth });
+      const sid = String(body.sheetHeaders.spreadsheetId || "");
+      const out: any = {};
+      if (!body.sheetHeaders.tabs) { // sem abas: lista os nomes das abas
+        const meta = await sheets.spreadsheets.get({ spreadsheetId: sid });
+        out._abas = (meta.data.sheets || []).map((s: any) => s.properties.title);
+      } else {
+        for (const tab of body.sheetHeaders.tabs) {
+          try { const r = await sheets.spreadsheets.values.get({ spreadsheetId: sid, range: `'${tab}'!A1:AZ1` }); out[tab] = (r.data.values && r.data.values[0]) || []; }
+          catch (e) { out[tab] = { error: (e as Error).message }; }
+        }
+      }
+      return new Response(JSON.stringify({ data: out }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.journeyOrders) {
+      const r = await journeyOrders(body.journeyOrders);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.journeyRebuildAll) {
       const r = await journeyRebuildAll(body.journeyRebuildAll);

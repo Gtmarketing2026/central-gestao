@@ -3063,13 +3063,22 @@ function jrnRender(){
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">🏁 Último clique <span style="text-transform:none;color:var(--faint)">— quem fechou</span></div>${barra(ult,base.length)}</div>
   </div>`;
   // ---- Caminhos mais comuns ----
-  const paths={};L.filter(x=>x.n>1).forEach(x=>{const k=x.caminho.slice(0,5).join(' → ');if(k)paths[k]=(paths[k]||0)+1;});
-  const topP=Object.entries(paths).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  const caminhos=topP.length?`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:16px">
+  // caminhos: um bloco pros que VENDERAM e outro pros que pararam no pedido
+  const rota=arr=>{const m={};arr.filter(x=>x.n>1).forEach(x=>{const k=x.caminho.slice(0,5).join(' → ');if(k)m[k]=(m[k]||0)+1;});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,7);};
+  const bloco=(tit,sub,rows,cor,base)=>rows.length?`<div style="flex:1;min-width:300px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;${cor?'border-top:3px solid '+cor:''}">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:${cor||'var(--muted)'};margin-bottom:3px">${tit}</div>
+    <div style="font-size:11px;color:var(--faint);margin-bottom:10px">${sub}</div>
+    ${rows.map(([k,v])=>`<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)"><b style="min-width:52px;color:${cor||'var(--accent)'}">${v}x</b><span style="font-size:11.5px;line-height:1.5">${_jrnEsc(k)}${base?`<span style="color:var(--faint)"> · ${(v/base*100).toFixed(0)}%</span>`:''}</span></div>`).join('')}
+  </div>`:'';
+  const rVenda=rota(vendas), rPed=rota(pedidos), rTodos=rota(L);
+  const caminhos=(rVenda.length||rPed.length)?`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+    ${bloco('🛒 Caminhos que levaram à VENDA','o que os compradores percorreram, em ordem',rVenda,'#34d399',vendas.length)}
+    ${bloco('🧾 Caminhos que pararam no pedido','chegaram no checkout e não fecharam — onde atacar',rPed,'#f0c040',pedidos.length)}
+  </div>`:(rTodos.length?`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:16px">
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px">🛣 Caminhos mais comuns</div>
     <div style="font-size:11px;color:var(--faint);margin-bottom:10px">por onde os leads costumam passar (em ordem)</div>
-    ${topP.map(([k,v])=>`<div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)"><b style="min-width:44px;color:var(--accent)">${v}x</b><span style="font-size:12px;line-height:1.5">${_jrnEsc(k)}</span></div>`).join('')}
-  </div>`:'';
+    ${rTodos.map(([k,v])=>`<div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)"><b style="min-width:44px;color:var(--accent)">${v}x</b><span style="font-size:12px;line-height:1.5">${_jrnEsc(k)}</span></div>`).join('')}
+  </div>`:'');
   // ---- Lista de leads ----
   const q=_jrnQ.toLowerCase();
   const filt=L.filter(x=>{
