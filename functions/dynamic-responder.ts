@@ -3333,6 +3333,28 @@ async function journeyOrders(m: any) {
   const compras = rows.filter((x: any) => x.kind === "purchase");
   return { linhasLidas: r.lidas, casadasComLead: r.casadas, gravadas: rows.length, compras: compras.length, receita: compras.reduce((s: number, x: any) => s + (x.value || 0), 0), identidades: (ident || []).length, proxima: (r as any).proxima, fim: (r as any).fim };
 }
+// Tick diário: processa SÓ as linhas novas da planilha de pedidos de cada cliente (cursor em journey_sync).
+// Retomável: se a planilha tiver muita linha nova, o cursor avança e o próximo tick continua de onde parou.
+async function journeyOrdersTick(m: any) {
+  const blocos = Number(m && m.blocos) || 2;   // ~6 mil linhas por cliente por rodada
+  const clis = await _sbAll("clients", "status=eq.Ativo&select=id,name,report_orders_sheet_url,report_orders_tab");
+  const sync = await _sbAll("journey_sync", "select=client_id,tab,last_row");
+  const cur: Record<string, number> = {}; (sync || []).forEach((s: any) => { cur[`${s.client_id}|${s.tab}`] = s.last_row || 2; });
+  const out: any[] = [];
+  for (const c of (clis || [])) {
+    const sid = (String(c.report_orders_sheet_url || "").match(/\/d\/([a-zA-Z0-9-_]+)/) || [])[1];
+    const tab = String(c.report_orders_tab || "").trim();
+    if (!sid || !tab) continue;
+    const de = cur[`${c.id}|${tab}`] || 2;
+    try {
+      const r: any = await journeyOrders({ clientId: c.id, tab, de, blocos });
+      const prox = r.proxima || de; // se acabou a planilha, mantém o cursor (as linhas novas entram depois dele)
+      await _sbUpsert("journey_sync", [{ client_id: c.id, tab, last_row: r.fim ? Math.max(de, (de + (r.linhasLidas || 0))) : prox, last_run: new Date().toISOString(), resultado: { compras: r.compras, casadas: r.casadasComLead, lidas: r.linhasLidas, fim: !!r.fim } }], "client_id,tab");
+      out.push({ cliente: c.name, de, lidas: r.linhasLidas, compras: r.compras, casadas: r.casadasComLead, fim: !!r.fim });
+    } catch (e) { out.push({ cliente: c.name, erro: String((e as any).message || e).slice(0, 120) }); }
+  }
+  return { clientes: out.length, detalhe: out };
+}
 // Reprocessa a jornada de TODOS os clientes ativos (usado pelo botão "atualizar todos" e pelo cron)
 async function journeyRebuildAll(m: any) {
   const dias = Number(m && m.dias) || 90;
@@ -3653,6 +3675,10 @@ Deno.serve(async (req) => {
         }
       }
       return new Response(JSON.stringify({ data: out }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.journeyOrdersTick) {
+      const r = await journeyOrdersTick(body.journeyOrdersTick);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.journeyOrders) {
       const r = await journeyOrders(body.journeyOrders);

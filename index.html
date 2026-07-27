@@ -3023,7 +3023,7 @@ function jrnBuild(){
       etapa:(ts.filter(t=>t.kind==='stage').slice(-1)[0]||{}).label||p.stage||'',
       dias:Math.round(dur/864e5),
       caminho:ts.map(t=>t.label||t.kind).filter((v,i,a)=>v&&v!==a[i-1])};
-  }).sort((a,b)=>b.n-a.n||(a.p.last_seen<b.p.last_seen?1:-1));
+  }).sort((a,b)=>(b.valor||0)-(a.valor||0)||b.n-a.n||(a.p.last_seen<b.p.last_seen?1:-1));
 }
 function jrnRender(){
   const body=document.getElementById('jrnBody');if(!body||!_jrnRaw)return;
@@ -3108,6 +3108,12 @@ function jrnRender(){
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">👥 Leads · ${filt.length} de ${L.length}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <input value="${_jrnEsc(_jrnQ).replace(/"/g,'&quot;')}" oninput="_jrnQ=this.value;jrnRender()" placeholder="🔎 nome, telefone ou e-mail…" style="width:auto;min-width:200px;font-size:12px">
+        <select onchange="_jrnFSt=this.value;jrnRender()" style="width:auto;font-size:12px" title="Filtrar por status da jornada">
+          <option value="" ${_jrnFSt===''?'selected':''}>Todos os status (${L.length})</option>
+          <option value="venda" ${_jrnFSt==='venda'?'selected':''}>🛒 Vendas (${vendas.length})</option>
+          <option value="pedido" ${_jrnFSt==='pedido'?'selected':''}>🧾 Pedidos não finalizados (${pedidos.length})</option>
+          <option value="lead" ${_jrnFSt==='lead'?'selected':''}>Em nutrição (${L.length-baseChk})</option>
+        </select>
         <select onchange="_jrnFCh=this.value;jrnRender()" style="width:auto;font-size:12px"><option value="">Todos os canais</option>${chOpts.map(ch=>`<option value="${_jrnEsc(ch)}" ${_jrnFCh===ch?'selected':''}>${_jrnEsc(ch)}</option>`).join('')}</select>
       </div>
     </div>
