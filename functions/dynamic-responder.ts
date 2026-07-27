@@ -3013,6 +3013,61 @@ async function waResolveAllOrigins(): Promise<{ resolved: number; clients: numbe
   return { resolved: done, clients: cids.length };
 }
 
+// ===== Google Analytics 4 + Search Console (mesma service account das planilhas) =====
+// Camada AGREGADA: valida/complementa a jornada individual do nosso pixel (o GA4 não expõe usuário a usuário).
+async function _gsaToken(scopes: string[]): Promise<string> {
+  const keyJson = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY");
+  if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY não configurada nos secrets");
+  const auth = new google.auth.GoogleAuth({ credentials: JSON.parse(keyJson), scopes });
+  const client = await auth.getClient();
+  const t: any = await client.getAccessToken();
+  const tok = typeof t === "string" ? t : (t && t.token);
+  if (!tok) throw new Error("não consegui autenticar a service account");
+  return tok;
+}
+function _gsaEmail(): string { try { return JSON.parse(Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY") || "{}").client_email || ""; } catch { return ""; } }
+async function ga4Report(m: any) {
+  const prop = String(m.propertyId || "").replace(/[^0-9]/g, "");
+  if (!prop) throw new Error("propertyId do GA4 obrigatório (só os números, ex: 123456789)");
+  const token = await _gsaToken(["https://www.googleapis.com/auth/analytics.readonly"]);
+  const run = async (dims: string[], mets: string[], limit = 50) => {
+    const r = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${prop}:runReport`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ dateRanges: [{ startDate: m.since, endDate: m.until }], dimensions: dims.map((name) => ({ name })), metrics: mets.map((name) => ({ name })), limit }),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(`GA4: ${j.error.message}${/permission|PERMISSION/i.test(j.error.message || "") ? ` — dê acesso de Leitor à ${_gsaEmail()} na propriedade ${prop}` : ""}`);
+    return (j.rows || []).map((row: any) => {
+      const o: any = {};
+      (j.dimensionHeaders || []).forEach((h: any, i: number) => { o[h.name] = row.dimensionValues[i].value; });
+      (j.metricHeaders || []).forEach((h: any, i: number) => { o[h.name] = Number(row.metricValues[i].value) || 0; });
+      return o;
+    });
+  };
+  const [canais, paginas, origens] = await Promise.all([
+    run(["sessionDefaultChannelGroup"], ["sessions", "totalUsers", "conversions", "engagementRate"], 20).catch((e) => ({ _err: String(e.message || e) } as any)),
+    run(["pagePath"], ["screenPageViews", "totalUsers"], 25).catch(() => []),
+    run(["sessionSource", "sessionMedium"], ["sessions", "conversions"], 25).catch(() => []),
+  ]);
+  if ((canais as any)._err) throw new Error((canais as any)._err);
+  return { propertyId: prop, periodo: { since: m.since, until: m.until }, canais, paginas, origens };
+}
+async function gscReport(m: any) {
+  const site = String(m.siteUrl || "").trim();
+  if (!site) throw new Error("siteUrl do Search Console obrigatório (ex: https://site.com.br/ ou sc-domain:site.com.br)");
+  const token = await _gsaToken(["https://www.googleapis.com/auth/webmasters.readonly"]);
+  const q = async (dimensions: string[], rowLimit = 25) => {
+    const r = await fetch(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ startDate: m.since, endDate: m.until, dimensions, rowLimit }),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(`Search Console: ${j.error.message}${/permission|not have|403/i.test(j.error.message || "") ? ` — adicione ${_gsaEmail()} como usuário da propriedade` : ""}`);
+    return (j.rows || []).map((row: any) => ({ chave: (row.keys || []).join(" · "), cliques: row.clicks || 0, impressoes: row.impressions || 0, ctr: +((row.ctr || 0) * 100).toFixed(2), posicao: +(row.position || 0).toFixed(1) }));
+  };
+  const [termos, paginas] = await Promise.all([q(["query"], 30), q(["page"], 20).catch(() => [])]);
+  return { site, periodo: { since: m.since, until: m.until }, termos, paginas };
+}
 // ===================== JORNADA DO LEAD =====================
 // Junta TODAS as fontes numa linha do tempo por pessoa, casando identidades (telefone/email/anon/ctwa).
 // Idempotente: cada toque é gravado com (ref_table, ref_id) único — rodar de novo não duplica.
@@ -3399,6 +3454,17 @@ Deno.serve(async (req) => {
     if (body.googleTermAction) {
       const r = await googleTermAction(body.googleTermAction);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.ga4Report) {
+      const r = await ga4Report(body.ga4Report);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.gscReport) {
+      const r = await gscReport(body.gscReport);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.gsaEmail) {
+      return new Response(JSON.stringify({ data: { email: _gsaEmail() } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.journeyRebuild) {
       const r = await journeyRebuild(body.journeyRebuild);
