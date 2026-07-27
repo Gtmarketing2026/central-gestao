@@ -147,7 +147,7 @@ function ck(n,v,d){if(v===undefined){var m=document.cookie.match('(^|;)\\\\s*'+n
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,10)}
 var anon=ck('_alc_a');if(!anon){anon=uid();ck('_alc_a',anon,365)}
 var sess=sessionStorage.getItem('_alc_s');if(!sess){sess=uid();try{sessionStorage.setItem('_alc_s',sess)}catch(e){}}
-var o={utm_source:q('utm_source'),utm_medium:q('utm_medium'),utm_campaign:q('utm_campaign'),utm_content:q('utm_content'),utm_term:q('utm_term'),fbclid:q('fbclid'),gclid:q('gclid')||q('gbraid')||q('wbraid')};
+var o={utm_source:q('utm_source'),utm_medium:q('utm_medium'),utm_campaign:q('utm_campaign'),utm_content:q('utm_content'),utm_term:q('utm_term'),fbclid:q('fbclid'),gclid:q('gclid')||q('gbraid')||q('wbraid'),campaignid:q('campaignid')||q('campaign_id'),adgroupid:q('adgroupid')||q('adset_id'),adid:q('adid')||q('ad_id'),keyword:q('keyword')||q('utm_term'),matchtype:q('matchtype'),placement:q('placement')||q('network')};
 var has=Object.keys(o).some(function(k){return o[k]});
 try{var st=JSON.parse(localStorage.getItem('_alc_o')||'null');if(has){localStorage.setItem('_alc_o',JSON.stringify(o))}else if(st){o=st}}catch(e){}
 function send(t,x){var b={cid:CID,type:t,anon:anon,sess:sess,ref:document.referrer||'',landing:location.pathname+location.search,ua:navigator.userAgent};for(var k in o)b[k]=o[k];if(x)for(var j in x)b[j]=x[j];var s=JSON.stringify(b);try{if(navigator.sendBeacon){navigator.sendBeacon(BASE+'/collect',s);return}}catch(e){}try{fetch(BASE+'/collect',{method:'POST',body:s,keepalive:true,headers:{'Content-Type':'application/json'}}).catch(function(){})}catch(e){}}
@@ -184,7 +184,11 @@ async function handleCollect(req: Request) {
     utm_content: clip(b.utm_content, 200), utm_term: clip(b.utm_term, 200),
     fbclid: clip(b.fbclid, 300), gclid: clip(b.gclid, 300),
     referrer: clip(b.ref, 300), landing: clip(b.landing, 300), user_agent: clip(b.ua, 300),
-    meta: b.dest ? { dest: clip(b.dest, 300) } : null,
+    meta: (b.dest || b.campaignid || b.adgroupid || b.adid || b.keyword || b.matchtype || b.placement) ? {
+      dest: b.dest ? clip(b.dest, 300) : undefined,
+      campaignid: clip(b.campaignid, 40), adgroupid: clip(b.adgroupid, 40), adid: clip(b.adid, 40),
+      keyword: clip(b.keyword, 200), matchtype: clip(b.matchtype, 20), placement: clip(b.placement, 60),
+    } : null,
   });
   return new Response("ok", { headers: { ...cors, "Content-Type": "text/plain" } });
 }

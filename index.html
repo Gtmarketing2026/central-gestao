@@ -3094,7 +3094,7 @@ function jrnRender(){
     const bg=x.status==='venda'?'background:rgba(52,211,153,.07);border-left:3px solid #34d399':(x.status==='pedido'?'background:rgba(240,192,64,.06);border-left:3px solid #f0c040':'border-left:3px solid transparent');
     return `<tr onclick="jrnOpen('${x.pid}')" style="cursor:pointer;${bg}" title="Ver a linha do tempo completa">
       <td style="padding:8px 10px;font-size:12.5px;border-bottom:1px solid var(--border)"><b>${_jrnEsc(nm)}</b>${x.p.email?`<div style="font-size:10.5px;color:var(--faint)">${_jrnEsc(x.p.email)}</div>`:''}</td>
-      <td style="padding:8px 10px;font-size:11.5px;border-bottom:1px solid var(--border);color:${_jrnCh(x.primeiro&&x.primeiro.channel)}">${_jrnEsc((x.primeiro&&(x.primeiro.label||x.primeiro.channel))||'—')}</td>
+      <td style="padding:8px 10px;font-size:11.5px;border-bottom:1px solid var(--border);color:${_jrnCh(x.primeiro&&x.primeiro.channel)}" title="${_jrnEsc([(x.primeiro&&x.primeiro.campaign),(x.primeiro&&x.primeiro.term)].filter(Boolean).join(' · ')).replace(/"/g,'&quot;')}">${_jrnEsc((x.primeiro&&(x.primeiro.label||x.primeiro.channel))||'—')}${(x.primeiro&&(x.primeiro.campaign||x.primeiro.term))?`<div style="font-size:9.5px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${_jrnEsc(x.primeiro.term||x.primeiro.campaign)}</div>`:''}</td>
       <td style="padding:8px 10px;font-size:11.5px;border-bottom:1px solid var(--border)">${_jrnEsc((x.ultimo&&(x.ultimo.label||x.ultimo.channel))||'—')}</td>
       <td style="padding:8px 10px;border-bottom:1px solid var(--border)">${chips}</td>
       <td style="padding:8px 10px;text-align:center;font-weight:700;border-bottom:1px solid var(--border)">${x.n}</td>
@@ -3178,12 +3178,14 @@ function jrnOpen(pid){
   const it=x.ts.map((t,i)=>{
     const dt=new Date(t.ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
     const det=[t.campaign,t.adset,t.ad].filter(Boolean).join(' › ');
+    const kw=t.term?`<div style="font-size:11px;margin-top:1px"><span style="color:var(--faint)">palavra-chave:</span> <b style="color:#f0c040">${_jrnEsc(t.term)}</b></div>`:'';
+    const om=(!det&&(t.source||t.medium))?`<div style="font-size:10.5px;color:var(--faint);margin-top:1px">origem: ${_jrnEsc([t.source,t.medium].filter(Boolean).join(' / '))}</div>`:'';
     const extra=(t.meta&&(t.meta.texto||t.meta.motivo))||'';
     return `<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;${i?'border-top:1px solid rgba(255,255,255,.05)':''}">
       <div style="font-size:16px;flex:none;width:24px;text-align:center">${JRN_ICON[t.kind]||'•'}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:12.5px;font-weight:600">${_jrnEsc(t.label||t.kind)}</div>
-        ${det?`<div style="font-size:11px;color:var(--muted);margin-top:1px">${_jrnEsc(det)}</div>`:''}
+        ${det?`<div style="font-size:11px;color:var(--muted);margin-top:1px">📣 ${_jrnEsc(det)}</div>`:''}${kw}${om}
         ${t.page?`<div style="font-size:11px;color:var(--faint);word-break:break-all">${_jrnEsc(t.page)}</div>`:''}
         ${extra?`<div style="font-size:11px;color:var(--faint);font-style:italic;margin-top:2px">"${_jrnEsc(String(extra).slice(0,150))}"</div>`:''}
       </div>
@@ -3197,7 +3199,13 @@ function jrnOpen(pid){
   ov.innerHTML=`<div class="card" style="width:min(640px,96vw);max-height:88vh;display:flex;flex-direction:column">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px">
       <div><h3 style="margin:0;font-size:16px">🧭 ${_jrnEsc(nm)}</h3>
-        <div style="font-size:11.5px;color:var(--muted);margin-top:3px">${x.n} toques · ${x.canais.length} canal(is) · ${x.dias?x.dias+' dias de jornada':'mesmo dia'}${x.status==='venda'?' · <b style="color:#34d399">🛒 VENDA'+(x.valor?' '+fmt(x.valor):'')+'</b>':x.status==='pedido'?' · <b style="color:#f0c040">🧾 PEDIDO NÃO FINALIZADO</b>':''}</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:3px">${x.n} toques · ${x.canais.map(ch=>`<span style="font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:5px;color:${_jrnCh(ch)};background:${_jrnCh(ch)}22;text-transform:capitalize">${_jrnEsc(ch)}</span>`).join(' ')} · ${x.dias?x.dias+' dias de jornada':'mesmo dia'}${x.status==='venda'?' · <b style="color:#34d399">🛒 VENDA'+(x.valor?' '+fmt(x.valor):'')+'</b>':x.status==='pedido'?' · <b style="color:#f0c040">🧾 PEDIDO NÃO FINALIZADO</b>':''}</div>
+        ${(function(){const e=x.ts.find(t=>t.campaign||t.term||t.kind==='ad_click')||x.primeiro;if(!e)return '';
+          const q=new Date(e.ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+          const d=[e.campaign,e.adset,e.ad].filter(Boolean).join(' › ');
+          return `<div style="font-size:11px;margin-top:5px;padding:6px 9px;background:var(--surface2);border-radius:8px;border-left:3px solid ${_jrnCh(e.channel)}">
+            <span style="color:var(--faint)">Entrou por</span> <b style="color:${_jrnCh(e.channel)};text-transform:capitalize">${_jrnEsc(e.channel||'—')}</b> <span style="color:var(--faint)">em ${q}</span>
+            ${d?`<div style="margin-top:2px">📣 ${_jrnEsc(d)}</div>`:''}${e.term?`<div style="margin-top:1px">🔑 <b style="color:#f0c040">${_jrnEsc(e.term)}</b></div>`:''}</div>`;})()}
         ${x.p.phone||x.p.email?`<div style="font-size:11px;color:var(--faint);margin-top:2px">${_jrnEsc([x.p.phone,x.p.email].filter(Boolean).join(' · '))}</div>`:''}</div>
       <button class="btn xs ghost" onclick="document.getElementById('jrnOverlay').remove()">✕</button></div>
     <div style="overflow-y:auto;padding-right:4px">${it}</div>
