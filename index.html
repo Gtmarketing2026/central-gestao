@@ -733,6 +733,7 @@
     <div class="section-head" style="margin-top:0"><h2>🧭 Jornada do Lead <span id="jrnClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <span id="jrnRange"></span>
+        <button class="btn sm ghost" onclick="jrnConexoes(this)" title="Ver o que cada cliente já tem conectado e o que falta">🔌 Conexões</button>
         <button class="btn sm ghost" onclick="jrnRebuild(this)" title="Reprocessa a jornada com os dados mais recentes de todas as fontes">🔄 Atualizar jornada</button>
       </div>
     </div>
@@ -2940,6 +2941,59 @@ async function jrnRebuild(btn){
     btn.textContent='✓ '+((d&&d.toques)||0)+' toques';setTimeout(()=>{btn.textContent=o;btn.disabled=false;},1800);
     loadJornada(_jrnClientId);
   }catch(e){alert('Erro ao atualizar: '+(e.message||e));btn.textContent=o;btn.disabled=false;}
+}
+// Painel de conexões: o que cada cliente já tem ligado e o que falta pra jornada completa
+async function jrnConexoes(btn){
+  const body=document.getElementById('jrnBody');if(!body)return;
+  const o=btn?btn.textContent:'';if(btn){btn.disabled=true;btn.textContent='Carregando…';}
+  body.innerHTML='<div class="empty">Verificando conexões de todos os clientes…</div>';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{journeyStatus:true}});
+    if(error)throw error;const L=(data&&data.data)||[];
+    if(btn){btn.disabled=false;btn.textContent=o;}
+    const ok=v=>`<span style="color:#34d399;font-weight:700">✓</span>`, no=(t)=>`<span style="color:var(--faint)" title="${t||''}">—</span>`;
+    const pix=c=>c.pixelEventos>0?`<span style="color:#34d399;font-weight:700" title="${c.pixelEventos} eventos">✓ ${c.pixelEventos}</span>`:(c.pixelToken?`<span style="color:#f0c040;font-weight:700" title="token gerado, mas o script ainda não está no site">token</span>`:no('sem token'));
+    const prontos=L.filter(c=>c.toques>0).length;
+    const th=s=>`<th style="padding:7px 8px;font-size:9.5px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);text-align:center">${s}</th>`;
+    const linhas=L.map(c=>{
+      const falta=[];
+      if(!c.pixelToken||!c.pixelEventos)falta.push('pixel no site');
+      if(!c.ga4)falta.push('GA4');if(!c.searchConsole)falta.push('Search Console');
+      if(!c.whatsapp)falta.push('WhatsApp');
+      return `<tr>
+        <td style="padding:7px 8px;font-size:12px;border-bottom:1px solid var(--border)"><b>${_jrnEsc(c.nome)}</b>${c.toques?`<div style="font-size:10px;color:#34d399">${c.toques.toLocaleString('pt-BR')} toques na jornada</div>`:''}</td>
+        <td style="text-align:center;border-bottom:1px solid var(--border)">${c.metaAds?ok():no()}</td>
+        <td style="text-align:center;border-bottom:1px solid var(--border)">${c.googleAds?ok():no()}</td>
+        <td style="text-align:center;border-bottom:1px solid var(--border)">${c.ga4?ok():no()}</td>
+        <td style="text-align:center;border-bottom:1px solid var(--border)">${c.searchConsole?ok():no()}</td>
+        <td style="text-align:center;border-bottom:1px solid var(--border);font-size:11px">${pix(c)}</td>
+        <td style="text-align:center;border-bottom:1px solid var(--border)">${c.whatsapp?ok():no()}</td>
+        <td style="text-align:center;border-bottom:1px solid var(--border);font-size:11px">${c.rdEventos?`<span style="color:#34d399;font-weight:700">✓</span>`:no()}</td>
+        <td style="padding:7px 8px;font-size:10.5px;color:var(--faint);border-bottom:1px solid var(--border)">${falta.length?'falta: '+falta.join(', '):'<span style="color:#34d399">completo</span>'}</td>
+        <td style="text-align:center;border-bottom:1px solid var(--border)"><button class="btn xs ghost" onclick="openClientConfig('${c.id}')" title="Abrir cadastro pra conectar">⚙</button></td>
+      </tr>`;}).join('');
+    body.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;overflow-x:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">🔌 Conexões por cliente · ${prontos} de ${L.length} já com jornada</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn sm ghost" onclick="jrnRebuildAll(this)" title="Reprocessa a jornada de todos os clientes">🔄 Atualizar todos</button>
+          <button class="btn sm ghost" onclick="loadJornada(_jrnClientId)">← Voltar</button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--faint);margin-bottom:10px">O sistema já está pronto pra todos — é só conectar o que falta em cada um. Clique no ⚙ pra abrir o cadastro do cliente.</div>
+      <table style="width:100%;border-collapse:collapse">
+        <tr><th style="text-align:left;padding:7px 8px;font-size:9.5px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">Cliente</th>${th('Meta')}${th('Google')}${th('GA4')}${th('Search C.')}${th('Pixel')}${th('WhatsApp')}${th('RD')}<th style="text-align:left;padding:7px 8px;font-size:9.5px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">O que falta</th>${th('')}</tr>
+        ${linhas}</table></div>`;
+  }catch(e){body.innerHTML=`<div class="empty">Erro: ${_jrnEsc(e.message||e)}</div>`;if(btn){btn.disabled=false;btn.textContent=o;}}
+}
+async function jrnRebuildAll(btn){
+  const o=btn.textContent;btn.disabled=true;btn.textContent='Processando todos…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{journeyRebuildAll:{dias:90}}});
+    if(error)throw error;const d=(data&&data.data)||{};
+    btn.textContent='✓ '+((d.clientes)||0)+' clientes';setTimeout(()=>{btn.textContent=o;btn.disabled=false;},2000);
+    jrnConexoes(null);
+  }catch(e){alert('Erro: '+(e.message||e));btn.textContent=o;btn.disabled=false;}
 }
 // agrupa os toques por pessoa e calcula a atribuição (1º clique, último antes da conversão, canais assistentes)
 function jrnBuild(){
