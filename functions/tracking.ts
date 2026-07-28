@@ -360,14 +360,18 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
     });
     if (!fromMe && convId) toClassify.add(convId); // msg nova do lead → IA classifica sozinha (não depende do gestor abrir o CRM)
   }
-  // classificação automática por IA das conversas que receberam msg do lead (independe do gestor estar online)
-  for (const cid of [...toClassify].slice(0, 8)) {
-    try { fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ wa: { op: "extract", convId: cid, autoApply: true } }) }).catch(() => {}); } catch (_e) {}
+  // classificação automática por IA das conversas que receberam msg do lead (independe do gestor estar online).
+  // IMPORTANTE: sem waitUntil o worker morre ao responder "ok" e o fetch é abortado — a conversa ficava sem etapa.
+  const bg: Promise<unknown>[] = [];
+  for (const cid of [...toClassify].slice(0, 25)) {
+    bg.push(fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ wa: { op: "extract", convId: cid, autoApply: true } }) }).catch(() => {}));
   }
   // chegou conversa de anúncio → resolve campanha›conjunto›anúncio na hora (não espera o cron de 20min)
   if (needResolve) {
-    try { fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ resolveAllOrigins: true }) }).catch(() => {}); } catch (_e) {}
+    bg.push(fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ resolveAllOrigins: true }) }).catch(() => {}));
   }
+  // segura o worker vivo até o trabalho de fundo terminar (senão o Deno aborta os fetches pendentes)
+  if (bg.length) { try { (globalThis as any).EdgeRuntime?.waitUntil?.(Promise.all(bg)); } catch (_e) { /* ignora */ } }
   return ok();
 }
 
