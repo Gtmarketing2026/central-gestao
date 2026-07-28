@@ -64,16 +64,27 @@ async function aggregateOrdersTabs(sheets: any, spreadsheetIds: string[], tab: s
   return { aggregated: true, rows: Object.values(agg), rowsScanned, sheetRowCount, partialErrors: errors.length ? errors : undefined };
 }
 
+// IA: usa o GEMINI (Google) quando houver GEMINI_API_KEY — o Google expõe um endpoint compatível com o da OpenAI,
+// então o resto do código não muda. Sem essa chave, cai na OpenAI. Trocar de provedor é só mexer nos secrets.
+const _GEMINI_MODEL: Record<string, string> = { "gpt-4o": "gemini-2.5-flash", "gpt-4o-mini": "gemini-2.5-flash" };
+function _iaProvider() {
+  const g = Deno.env.get("GEMINI_API_KEY");
+  if (g) return { key: g, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", nome: "Gemini", mapa: _GEMINI_MODEL };
+  const o = Deno.env.get("OPENAI_API_KEY");
+  if (o) return { key: o, url: "https://api.openai.com/v1/chat/completions", nome: "OpenAI", mapa: null as any };
+  throw new Error("Nenhuma chave de IA configurada (GEMINI_API_KEY ou OPENAI_API_KEY)");
+}
 async function callOpenAI(body: any) {
-  const apiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!apiKey) throw new Error("OPENAI_API_KEY nao configurada");
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+  const p = _iaProvider();
+  const modelo = body.model || "gpt-4o-mini";
+  const payload = { temperature: 0.6, max_tokens: 1000, ...body, model: p.mapa ? (p.mapa[modelo] || "gemini-2.5-flash") : modelo };
+  const resp = await fetch(p.url, {
     method: "POST",
-    headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "gpt-4o-mini", temperature: 0.6, max_tokens: 1000, ...body }),
+    headers: { "Authorization": `Bearer ${p.key}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
   const json = await resp.json();
-  if (!resp.ok) throw new Error(json.error?.message || "Erro na API da OpenAI");
+  if (!resp.ok) throw new Error(json.error?.message || `Erro na API da ${p.nome}`);
   return json;
 }
 
@@ -2626,10 +2637,22 @@ async function waFetchB64(url: string): Promise<string> {
 }
 // transcreve um áudio (URL) via Whisper
 async function waTranscribe(url: string): Promise<string> {
-  const key = Deno.env.get("OPENAI_API_KEY"); if (!key) return "";
+  const gem = Deno.env.get("GEMINI_API_KEY");
   try {
     const a = await fetch(url); if (!a.ok) return "";
     const blob = await a.blob();
+    if (gem) { // Gemini transcreve o áudio direto (o Whisper é exclusivo da OpenAI)
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      let bin = ""; for (let i = 0; i < buf.length; i += 8192) bin += String.fromCharCode(...buf.subarray(i, i + 8192));
+      const b64 = btoa(bin);
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${gem}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: "Transcreva este áudio em português, apenas o texto falado." }, { inline_data: { mime_type: blob.type || "audio/ogg", data: b64 } }] }] }),
+      });
+      const j = await r.json();
+      return String(j?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+    }
+    const key = Deno.env.get("OPENAI_API_KEY"); if (!key) return "";
     const fd = new FormData(); fd.append("file", blob, "audio.mp3"); fd.append("model", "whisper-1");
     const r = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: fd });
     const j = await r.json(); return (j && j.text) ? String(j.text).trim() : "";
