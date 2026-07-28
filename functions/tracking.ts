@@ -371,6 +371,11 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
   else if (body.data && Array.isArray(body.data)) msgs = body.data;
   else if (body.data && body.data.message) msgs = [body.data.message];
   else if (body.chatid || body.messageid) msgs = [body];
+  // Formato desconhecido: guarda o payload pra eu conseguir escrever o tradutor (sem isso o webhook some em silêncio)
+  if (!msgs.length) {
+    try { await sbInsert("wa_webhook_log", { id: uid(), instance_id: instId, reconhecido: false, payload: body }); } catch (_e) { /* segue */ }
+    return ok();
+  }
   // Instância da AndréIA: encaminha as mensagens do grupo configurado pro cérebro dela (não vai pro CRM)
   const aw = (((await sbSelect("account_config", "id=eq.main&select=data"))[0]?.data) || {}).andreia_wa || {};
   if (aw.instance_id === instId) {
