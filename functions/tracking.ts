@@ -305,6 +305,46 @@ function evolutionToMsgs(body: any): any[] {
     };
   }).filter((m: any) => m.chatid);
 }
+
+// WhatsApp Cloud API (Meta oficial): {object:"whatsapp_business_account", entry:[{changes:[{field:"messages", value:{contacts,messages,metadata}}]}]}
+// Traduz pro formato interno. O bônus: o objeto "referral" traz o AD_ID REAL do clique no anúncio (CTWA).
+function cloudApiToMsgs(body: any): any[] {
+  const out: any[] = [];
+  for (const ent of (body?.entry || [])) {
+    for (const ch of (ent.changes || [])) {
+      const v = ch.value || {};
+      if (!Array.isArray(v.messages)) continue;
+      const nomePorWaid: Record<string, string> = {};
+      (v.contacts || []).forEach((c: any) => { if (c.wa_id) nomePorWaid[c.wa_id] = c.profile?.name || ""; });
+      for (const m of v.messages) {
+        const from = String(m.from || "");
+        const txt = m.text?.body || m.button?.text || m.interactive?.list_reply?.title || m.interactive?.button_reply?.title
+          || m.image?.caption || m.video?.caption || m.document?.caption || "";
+        const t = String(m.type || "").toLowerCase();
+        const tipo = /audio|voice/.test(t) ? "audio" : /image|sticker/.test(t) ? "image" : /document/.test(t) ? "document" : "";
+        // referral = clique no anúncio (CTWA) com o id do anúncio de verdade
+        const rf = m.referral || null;
+        const ctx = rf ? { externalAdReply: {
+          sourceId: rf.source_id || "", sourceType: rf.source_type || "", sourceUrl: rf.source_url || "",
+          ctwaClid: rf.ctwa_clid || "", title: rf.headline || "", body: rf.body || "",
+          thumbnailUrl: rf.image_url || rf.thumbnail_url || "", mediaType: rf.media_type || "",
+        } } : {};
+        out.push({
+          chatid: from, sender_pn: from, sender: from, isGroup: false,
+          fromMe: false, wasSentByApi: false,
+          messageid: m.id || "", id: m.id || "",
+          text: txt, senderName: nomePorWaid[from] || "",
+          messageType: m.type || "text",
+          messageTimestamp: (Number(m.timestamp) || 0) * 1000,
+          mediaType: tipo,
+          content: { text: txt, contextInfo: ctx },
+          _cloud: true, _phoneNumberId: v.metadata?.phone_number_id || "",
+        });
+      }
+    }
+  }
+  return out;
+}
 async function handleWaWebhook(instId: string, req: Request): Promise<Response> {
   const ok = () => new Response("ok", { headers: { ...cors, "Content-Type": "text/plain" } });
   let body: any;
@@ -321,7 +361,10 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
   }
   // mensagens: pode vir 1 ou várias
   let msgs: any[] = [];
+  // WhatsApp Cloud API (Meta oficial)
+  if (body.object === "whatsapp_business_account" && Array.isArray(body.entry)) msgs = cloudApiToMsgs(body);
   // Evolution API (provider=evolution): payload {event:"messages.upsert", data:{key,message,...}}
+  else
   if (String(body.event || "").includes(".") && body.data && (body.data.key || (Array.isArray(body.data) && body.data[0]?.key))) msgs = evolutionToMsgs(body);
   else if (Array.isArray(body.messages)) msgs = body.messages;
   else if (body.message) msgs = [body.message];
@@ -655,6 +698,13 @@ Deno.serve(async (req) => {
   // POST /wa/webhook/<instanceId>  -> ingere eventos do uazapi (mensagens/conexão) da instância
   const mWa = p.match(/^\/wa\/webhook\/([^/]+)$/);
   if (mWa) {
+    // Verificação do webhook da Cloud API (Meta): GET com hub.challenge — o token de verificação é o id da instância
+    if (req.method === "GET" && url.searchParams.get("hub.mode") === "subscribe") {
+      const tk = url.searchParams.get("hub.verify_token") || "";
+      const ch = url.searchParams.get("hub.challenge") || "";
+      if (tk && tk === mWa[1]) return new Response(ch, { headers: { "Content-Type": "text/plain" } });
+      return new Response("token invalido", { status: 403, headers: { "Content-Type": "text/plain" } });
+    }
     if (req.method !== "POST") return new Response("wa webhook ok", { headers: { ...cors, "Content-Type": "text/plain" } });
     return handleWaWebhook(mWa[1], req);
   }
