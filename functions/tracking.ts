@@ -273,6 +273,38 @@ function waMsgText(m: any): string {
 // uazapi manda messageTimestamp em MILISSEGUNDOS (13 dígitos); alguns em segundos (10). Normaliza.
 function waTs(v: any): string { const n = Number(v) || 0; if (!n) return new Date().toISOString(); return new Date(n > 1e12 ? n : n * 1000).toISOString(); }
 // Recebe eventos do uazapi (verify_jwt=false). Guarda cru + normaliza conversa/mensagem/atribuição.
+
+// Evolution API manda {event:"messages.upsert", instance, data:{key:{remoteJid,fromMe,id}, pushName, message:{...}, messageTimestamp, contextInfo}}
+// Traduz pro mesmo formato que o resto do código já entende (uazapi/Baileys).
+function evolutionToMsgs(body: any): any[] {
+  const ev = String(body?.event || "").toLowerCase();
+  if (ev && !ev.includes("messages")) return []; // só mensagens (connection.update é tratado antes)
+  const arr = Array.isArray(body?.data) ? body.data : (body?.data ? [body.data] : []);
+  return arr.map((d: any) => {
+    const k = d.key || {};
+    const msg = d.message || {};
+    const ctx = msg.extendedTextMessage?.contextInfo || msg.imageMessage?.contextInfo || msg.videoMessage?.contextInfo || d.contextInfo || {};
+    const jid = String(k.remoteJid || d.remoteJid || "");
+    const txt = msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.videoMessage?.caption || d.text || "";
+    const mt = String(d.messageType || Object.keys(msg)[0] || "").toLowerCase();
+    const tipo = /audio|ptt/.test(mt) ? "audio" : /image/.test(mt) ? "image" : /document/.test(mt) ? "document" : "";
+    return {
+      chatid: jid, sender_pn: jid, sender: jid,
+      isGroup: jid.endsWith("@g.us"),
+      fromMe: !!k.fromMe,
+      wasSentByApi: !!d.wasSentByApi,
+      messageid: k.id || d.id || "", id: k.id || d.id || "",
+      text: txt,
+      senderName: d.pushName || d.senderName || "",
+      messageType: d.messageType || "",
+      messageTimestamp: d.messageTimestamp || d.timestamp || Date.now(),
+      mediaType: tipo,
+      // o extrator de origem (CTWA) lê content.contextInfo — mantém o mesmo caminho
+      content: { text: txt, contextInfo: ctx, ...msg },
+      _evolution: true,
+    };
+  }).filter((m: any) => m.chatid);
+}
 async function handleWaWebhook(instId: string, req: Request): Promise<Response> {
   const ok = () => new Response("ok", { headers: { ...cors, "Content-Type": "text/plain" } });
   let body: any;
@@ -289,7 +321,9 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
   }
   // mensagens: pode vir 1 ou várias
   let msgs: any[] = [];
-  if (Array.isArray(body.messages)) msgs = body.messages;
+  // Evolution API (provider=evolution): payload {event:"messages.upsert", data:{key,message,...}}
+  if (String(body.event || "").includes(".") && body.data && (body.data.key || (Array.isArray(body.data) && body.data[0]?.key))) msgs = evolutionToMsgs(body);
+  else if (Array.isArray(body.messages)) msgs = body.messages;
   else if (body.message) msgs = [body.message];
   else if (body.data && Array.isArray(body.data)) msgs = body.data;
   else if (body.data && body.data.message) msgs = [body.data.message];
