@@ -4222,11 +4222,15 @@ async function loadRastreamento(clientId){
     const statusCard=`<div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
         <h3 style="margin:0">📡 Status do Pixel</h3>
-        <span style="font-size:11px;font-weight:800;letter-spacing:.04em;padding:3px 10px;border-radius:999px;${active?'color:#34d399;background:rgba(52,211,153,.13);border:1px solid rgba(52,211,153,.4)':'color:var(--faint);background:var(--surface2);border:1px solid var(--border)'}">${active?'● ATIVO':'○ AGUARDANDO INSTALAÇÃO'}</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn sm ghost" id="rastCheckBtn" onclick="rastVerificarPixel(this)" title="Abre o site do cliente e procura o pixel no HTML e no Google Tag Manager">🔎 Verificar instalação</button>
+          <span style="font-size:11px;font-weight:800;letter-spacing:.04em;padding:3px 10px;border-radius:999px;${active?'color:#34d399;background:rgba(52,211,153,.13);border:1px solid rgba(52,211,153,.4)':'color:var(--faint);background:var(--surface2);border:1px solid var(--border)'}">${active?'● ATIVO':'○ AGUARDANDO INSTALAÇÃO'}</span>
+        </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px">
         ${flowStep('🌐 Anúncio / Origem',true)}<span style="color:var(--faint)">→</span>${flowStep('📡 Site + Pixel',active)}<span style="color:var(--faint)">→</span>${flowStep('💬 WhatsApp',wpp>0)}<span style="color:var(--faint)">→</span>${flowStep('🔗 Match',false)}
       </div>
+      <div id="rastCheckMsg" style="display:none;margin-bottom:12px"></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
         ${tile('👁','<span style="font-variant-numeric:tabular-nums">'+pv.toLocaleString('pt-BR')+'</span>','PageViews')}
         ${tile('💬',wpp.toLocaleString('pt-BR'),'Cliques WhatsApp')}
@@ -4291,6 +4295,26 @@ async function loadRastreamento(clientId){
   }catch(e){body.innerHTML=`<div class="empty">Erro ao carregar rastreamento: ${e.message||e}</div>`;}
 }
 let _rastToken='',_rastHandle='';
+// Verifica se o pixel está instalado no site do cliente (procura no HTML e dentro do GTM)
+async function rastVerificarPixel(btn){
+  const c=DB.clients.find(x=>x.id===_rastClientId);if(!c){alert('Selecione um cliente.');return;}
+  const box=document.getElementById('rastCheckMsg');
+  const o=btn.textContent;btn.disabled=true;btn.textContent='Verificando…';
+  if(box){box.style.display='block';box.innerHTML='<div style="font-size:12px;color:var(--faint);padding:8px 0">Abrindo o site e procurando o pixel…</div>';}
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{pixelCheck:{clientId:c.id}}});
+    if(error)throw error;const r=(data&&data.data)||{};
+    const cor=r.ok?'#34d399':'#f0c040';
+    const extra=r.ok?'':(r.motivo==='sem_site'?` <button class="btn sm ghost" style="font-size:11px" onclick="openClientConfig('${c.id}')">Cadastrar site</button>`:'');
+    if(box)box.innerHTML=`<div style="background:${r.ok?'rgba(52,211,153,.08)':'rgba(240,192,64,.08)'};border:1px solid ${cor}55;border-left:3px solid ${cor};border-radius:10px;padding:10px 14px;font-size:12.5px">
+      <b style="color:${cor}">${r.ok?'✅ Pixel instalado':'⚠ Pixel não encontrado'}</b>${r.via==='gtm'?' <span style="font-size:10.5px;color:var(--faint)">via Google Tag Manager</span>':r.via==='html'?' <span style="font-size:10.5px;color:var(--faint)">no HTML do site</span>':''}
+      <div style="color:var(--muted);margin-top:3px">${_rastEsc(r.msg||'')}</div>
+      ${r.site?`<div style="font-size:11px;color:var(--faint);margin-top:2px">${_rastEsc(r.site)}</div>`:''}${extra}
+    </div>`;
+  }catch(e){ if(box)box.innerHTML=`<div style="font-size:12px;color:#f87171;padding:8px 0">Erro ao verificar: ${_rastEsc(e.message||e)}</div>`; }
+  btn.disabled=false;btn.textContent=o;
+}
+
 function rastCopy(text,btn){navigator.clipboard.writeText(text).then(()=>{const o=btn.textContent;btn.textContent='Copiado ✓';setTimeout(()=>btn.textContent=o,1400);}).catch(()=>{});}
 // Salva o "nome do cliente no link" (handle) → deixa o link curto e com a marca (ex.: /motirobar/bio)
 async function rastSaveHandle(btn){

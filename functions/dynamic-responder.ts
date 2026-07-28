@@ -3040,6 +3040,38 @@ async function waResolveAllOrigins(): Promise<{ resolved: number; clients: numbe
   return { resolved: done, clients: cids.length };
 }
 
+
+// Verifica se o pixel está mesmo instalado no site do cliente: procura no HTML e, se não achar,
+// procura dentro do container do Google Tag Manager (instalação via GTM não aparece no HTML).
+async function pixelCheck(m: any) {
+  const clientId = String(m.clientId || "").trim();
+  if (!clientId) throw new Error("clientId obrigatório");
+  const cli = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,site_url`))[0] || {};
+  const cfg = (await sbGet("tracking_config", `client_id=eq.${encodeURIComponent(clientId)}&select=token`))[0] || {};
+  const token = cfg.token || "";
+  let site = String(cli.site_url || "").trim();
+  if (!site) return { ok: false, motivo: "sem_site", msg: "Cadastre o site do cliente (aba Relatórios) pra eu conseguir verificar." };
+  if (!/^https?:\/\//i.test(site)) site = "https://" + site;
+  if (!token) return { ok: false, motivo: "sem_token", msg: "Este cliente ainda não tem token de pixel." };
+  const achou = (t: string) => t.includes(token) || t.includes("pixel.gt-marketing.app.br/pixel/script");
+  let html = "";
+  try {
+    const r = await fetch(site, { headers: { "User-Agent": "Mozilla/5.0 (compatible; GTMarketingBot/1.0)" }, redirect: "follow" });
+    html = await r.text();
+  } catch (e) { return { ok: false, motivo: "site_off", msg: `Não consegui abrir ${site}: ${String((e as any).message || e).slice(0, 80)}` }; }
+  if (achou(html)) return { ok: true, via: "html", site, msg: "Pixel encontrado direto no HTML do site." };
+  // procura via Google Tag Manager
+  const gtms = [...new Set((html.match(/GTM-[A-Z0-9]{4,}/g) || []))];
+  for (const g of gtms.slice(0, 3)) {
+    try {
+      const rc = await fetch(`https://www.googletagmanager.com/gtm.js?id=${g}`);
+      const js = await rc.text();
+      if (achou(js)) return { ok: true, via: "gtm", gtm: g, site, msg: `Pixel encontrado no Google Tag Manager (${g}) — publicado e ativo.` };
+    } catch (_e) { /* segue */ }
+  }
+  return { ok: false, motivo: "nao_encontrado", site, gtms,
+    msg: gtms.length ? `Não achei o pixel no site nem no GTM (${gtms.join(", ")}). Se acabou de publicar no GTM, espere 1 min e verifique de novo.` : "Não achei o pixel no HTML do site. Cole o script antes do </head> ou instale via GTM." };
+}
 // ===== Google Analytics 4 + Search Console (mesma service account das planilhas) =====
 // Camada AGREGADA: valida/complementa a jornada individual do nosso pixel (o GA4 não expõe usuário a usuário).
 async function _gsaToken(scopes: string[]): Promise<string> {
@@ -3702,6 +3734,10 @@ Deno.serve(async (req) => {
         }
       }
       return new Response(JSON.stringify({ data: out }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.pixelCheck) {
+      const r = await pixelCheck(body.pixelCheck);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.journeyOrdersTick) {
       const r = await journeyOrdersTick(body.journeyOrdersTick);
