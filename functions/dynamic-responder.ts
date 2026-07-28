@@ -66,7 +66,7 @@ async function aggregateOrdersTabs(sheets: any, spreadsheetIds: string[], tab: s
 
 // IA: usa o GEMINI (Google) quando houver GEMINI_API_KEY — o Google expõe um endpoint compatível com o da OpenAI,
 // então o resto do código não muda. Sem essa chave, cai na OpenAI. Trocar de provedor é só mexer nos secrets.
-const _GEMINI_MODEL: Record<string, string> = { "gpt-4o": "gemini-2.5-flash", "gpt-4o-mini": "gemini-2.5-flash" };
+const _GEMINI_MODEL: Record<string, string> = { "gpt-4o": "gemini-3.5-flash", "gpt-4o-mini": "gemini-3.5-flash-lite" };
 function _iaProvider() {
   const g = Deno.env.get("GEMINI_API_KEY");
   if (g) return { key: g, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", nome: "Gemini", mapa: _GEMINI_MODEL };
@@ -77,7 +77,11 @@ function _iaProvider() {
 async function callOpenAI(body: any) {
   const p = _iaProvider();
   const modelo = body.model || "gpt-4o-mini";
-  const payload = { temperature: 0.6, max_tokens: 1000, ...body, model: p.mapa ? (p.mapa[modelo] || "gemini-2.5-flash") : modelo };
+  const payload: any = { temperature: 0.6, max_tokens: 1000, ...body, model: p.mapa ? (p.mapa[modelo] || "gemini-3.5-flash") : modelo };
+  if (p.mapa) { // Gemini gasta parte do orçamento "pensando" — dá folga e pede raciocínio curto pra resposta não vir truncada
+    payload.max_tokens = Math.max(1200, (payload.max_tokens || 1000) * 3);
+    payload.reasoning_effort = "low";
+  }
   const resp = await fetch(p.url, {
     method: "POST",
     headers: { "Authorization": `Bearer ${p.key}`, "Content-Type": "application/json" },
@@ -2645,7 +2649,7 @@ async function waTranscribe(url: string): Promise<string> {
       const buf = new Uint8Array(await blob.arrayBuffer());
       let bin = ""; for (let i = 0; i < buf.length; i += 8192) bin += String.fromCharCode(...buf.subarray(i, i + 8192));
       const b64 = btoa(bin);
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${gem}`, {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${gem}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: "Transcreva este áudio em português, apenas o texto falado." }, { inline_data: { mime_type: blob.type || "audio/ogg", data: b64 } }] }] }),
       });
