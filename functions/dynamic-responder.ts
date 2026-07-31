@@ -66,7 +66,13 @@ async function aggregateOrdersTabs(sheets: any, spreadsheetIds: string[], tab: s
 
 // IA: usa o GEMINI (Google) quando houver GEMINI_API_KEY — o Google expõe um endpoint compatível com o da OpenAI,
 // então o resto do código não muda. Sem essa chave, cai na OpenAI. Trocar de provedor é só mexer nos secrets.
-const _GEMINI_MODEL: Record<string, string> = { "gpt-4o": "gemini-3.5-flash", "gpt-4o-mini": "gemini-3.5-flash-lite" };
+const _GEMINI_MODEL: Record<string, string> = { "gpt-4o": "gemini-flash-latest", "gpt-4o-mini": "gemini-3.5-flash-lite" };
+// se o modelo estiver sobrecarregado ("high demand"), tenta o próximo da fila
+const _GEMINI_FALLBACK: Record<string, string[]> = {
+  "gemini-flash-latest": ["gemini-3.5-flash-lite", "gemini-3.5-flash"],
+  "gemini-3.5-flash-lite": ["gemini-flash-latest", "gemini-3.5-flash"],
+  "gemini-3.5-flash": ["gemini-flash-latest", "gemini-3.5-flash-lite"],
+};
 function _iaProvider() {
   const g = Deno.env.get("GEMINI_API_KEY");
   if (g) return { key: g, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", nome: "Gemini", mapa: _GEMINI_MODEL };
@@ -82,14 +88,22 @@ async function callOpenAI(body: any) {
     payload.max_tokens = Math.max(1200, (payload.max_tokens || 1000) * 3);
     payload.reasoning_effort = "low";
   }
-  const resp = await fetch(p.url, {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${p.key}`, "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const json = await resp.json();
-  if (!resp.ok) throw new Error(json.error?.message || `Erro na API da ${p.nome}`);
-  return json;
+  const tentar = async (mod: string) => {
+    const r = await fetch(p.url, { method: "POST", headers: { "Authorization": `Bearer ${p.key}`, "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, model: mod }) });
+    const j = await r.json();
+    const jj = Array.isArray(j) ? j[0] : j;
+    return { ok: r.ok && !jj?.error, json: jj, erro: jj?.error?.message || (r.ok ? "" : `HTTP ${r.status}`) };
+  };
+  let t = await tentar(payload.model);
+  // modelo sobrecarregado/limite: tenta os alternativos antes de desistir
+  if (!t.ok && p.mapa && /high demand|overload|unavailable|RESOURCE_EXHAUSTED|quota|503|429/i.test(t.erro)) {
+    for (const alt of (_GEMINI_FALLBACK[payload.model] || [])) {
+      t = await tentar(alt);
+      if (t.ok) break;
+    }
+  }
+  if (!t.ok) throw new Error(t.erro || `Erro na API da ${p.nome}`);
+  return t.json;
 }
 
 const DNA_SHAPE = `{
@@ -2729,6 +2743,14 @@ async function waAgentHandle(w: any) {
   if (sess && sess.pending && sess.pending._awaitCampaign) {
     const tl0 = text.toLowerCase().replace(/[\s.!,]+/g, " ").trim();
     if (/^(nao|n|cancela|cancelar|deixa|esquece|para|negativo)$/.test(tl0)) { await saveSess({ pending: null, last_msgid: w.msgid }); await send("Ok, cancelei 👍"); return { ok: true }; }
+    // ESCAPE: a espera só vale por 10 min e só pra mensagem curta que pareça nome de campanha.
+    // Sem isso a AndréIA ficava presa e lia QUALQUER pedido novo como "nome da campanha".
+    const _velho = sess.updated_at ? (Date.now() - new Date(sess.updated_at).getTime()) > 10 * 60000 : false;
+    const _pedidoNovo = text.length > 60 || /^(me d|qual|quais|como|quanto|mostra|manda|gera|cria|resumo|relat|kpi|analis|status|preciso|quero)/i.test(text.trim());
+    if (_velho || _pedidoNovo) { await saveSess({ pending: null }); sess.pending = null; } // solta e segue pro fluxo normal
+  }
+  if (sess && sess.pending && sess.pending._awaitCampaign) {
+    const tl0 = text.toLowerCase().replace(/[\s.!,]+/g, " ").trim();
     const cidp = sess.pending.client_id || null;
     const camp = cidp ? await waResolveCampaign(cidp, text) : null;
     if (camp) {
