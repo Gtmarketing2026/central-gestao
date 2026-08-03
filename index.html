@@ -4243,8 +4243,9 @@ async function loadRastreamento(clientId){
     _rastToken=cfg.token;
     // métricas + links em paralelo
     const cnt=async type=>{const{count}=await sb.from('track_events').select('*',{count:'exact',head:true}).eq('client_id',c.id).eq('type',type);return count||0;};
-    const [pv,wpp,lc,lastRes,linksRes,lcEvRes]=await Promise.all([
-      cnt('pageview'),cnt('wpp_click'),cnt('link_click'),
+    const [pv,wpp,lc,form,matched,lastRes,linksRes,lcEvRes]=await Promise.all([
+      cnt('pageview'),cnt('wpp_click'),cnt('link_click'),cnt('form'),
+      sb.from('wa_conversations').select('*',{count:'exact',head:true}).eq('client_id',c.id).in('origin_type',['anuncio','utm']).then(r=>r.count||0),
       sb.from('track_events').select('created_at').eq('client_id',c.id).order('created_at',{ascending:false}).limit(1),
       sb.from('track_links').select('*').eq('client_id',c.id).order('created_at'),
       sb.from('track_events').select('link_slug').eq('client_id',c.id).eq('type','link_click')
@@ -4275,14 +4276,19 @@ async function loadRastreamento(clientId){
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px">
-        ${flowStep('🌐 Anúncio / Origem',true)}<span style="color:var(--faint)">→</span>${flowStep('📡 Site + Pixel',active)}<span style="color:var(--faint)">→</span>${flowStep('💬 WhatsApp',wpp>0)}<span style="color:var(--faint)">→</span>${flowStep('🔗 Match',false)}
+        ${flowStep('🌐 Anúncio / Origem',true)}<span style="color:var(--faint)">→</span>${flowStep('📡 Site + Pixel',active)}<span style="color:var(--faint)">→</span>${flowStep('💬 WhatsApp',wpp>0)}<span style="color:var(--faint)">→</span>${flowStep('🔗 Match',matched>0)}
       </div>
       <div id="rastCheckMsg" style="display:none;margin-bottom:12px"></div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         ${tile('👁','<span style="font-variant-numeric:tabular-nums">'+pv.toLocaleString('pt-BR')+'</span>','PageViews')}
+        ${tile('📝',form.toLocaleString('pt-BR'),'Formulário')}
         ${tile('💬',wpp.toLocaleString('pt-BR'),'Cliques WhatsApp')}
         ${tile('🔗',lc.toLocaleString('pt-BR'),'Cliques em Links')}
+        ${tile('✅',matched.toLocaleString('pt-BR'),'Conversas c/ origem confirmada',matched>0?'#34d399':undefined)}
         ${tile('🕐',lastTxt,'Última visita')}
+      </div>
+      <div style="font-size:11.5px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:16px">
+        💡 <b>Cliques WhatsApp</b> = pessoas que clicaram no botão de WhatsApp do site (o pixel já sabe se veio de anúncio/UTM). <b>Conversas c/ origem confirmada</b> = dessas, quantas realmente abriram o WhatsApp e mandaram a mensagem — aí sim entram no CRM já com campanha/palavra-chave identificada. As demais conversas do CRM ("orgânico") vieram de contato direto (número salvo, indicação, etc.) — não passaram pelo botão do site, então não tem como saber a origem.
       </div>
       <div style="font-size:12.5px;font-weight:600;margin-bottom:6px">Script de instalação</div>
       <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">Cole antes do <code style="background:var(--surface2);padding:1px 5px;border-radius:5px">&lt;/head&gt;</code> no HTML do site do cliente.</div>
