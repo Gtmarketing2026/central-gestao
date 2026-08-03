@@ -2993,37 +2993,62 @@ async function waHandler(w: any) {
     return { ok: status >= 200 && status < 300, status, resp: j };
   }
   if (w.op === "poll") {
-    const { j } = await waCall(host, token, "/message/find", "POST", { limit: w.limit || 60 });
-    const msgs: any[] = (j && j.messages) || [];
-    const oneToOne = msgs.filter((m) => !(m.isGroup || String(m.chatid || "").endsWith("@g.us")));
-    const ids = oneToOne.map((m) => String(m.messageid || m.id || "")).filter(Boolean);
+    // sincronização (recupera histórico se o WhatsApp caiu / webhook falhou): sinceDays filtra o quanto puxar.
+    // A API do provedor não tem filtro de data nativo — pedimos um lote grande e cortamos localmente pela timestamp
+    // (a resposta vem ordenada da mais recente pra mais antiga, então paramos de processar assim que passar do corte).
+    const sinceDays = Number(w.sinceDays) || 0;
+    const limit = sinceDays ? Math.min(Math.max(Number(w.limit) || 3000, 500), 5000) : (w.limit || 60);
+    const cutoff = sinceDays ? Date.now() - sinceDays * 864e5 : 0;
+    const { j } = await waCall(host, token, "/message/find", "POST", { limit });
+    // a API devolve um array puro (não {messages:[...]}) — antes disso o parsing sempre resultava em [] e o poll não importava nada
+    const msgsAll: any[] = Array.isArray(j) ? j : ((j && j.messages) || []);
+    let msgs = msgsAll.filter((m) => !(m.isGroup || String(m.chatid || "").endsWith("@g.us")));
+    if (cutoff) msgs = msgs.filter((m) => waTs(m.messageTimestamp) >= new Date(cutoff).toISOString());
+    const ids = msgs.map((m) => String(m.messageid || m.id || "")).filter(Boolean);
     const known = new Set<string>();
-    if (ids.length) { const ex = await sbGet("wa_messages", `wa_msgid=in.(${ids.map((x) => encodeURIComponent(x)).join(",")})&select=wa_msgid`); (ex || []).forEach((r: any) => known.add(r.wa_msgid)); }
+    for (let i = 0; i < ids.length; i += 300) { const chunk = ids.slice(i, i + 300); const ex = await sbGet("wa_messages", `wa_msgid=in.(${chunk.map((x) => encodeURIComponent(x)).join(",")})&select=wa_msgid`); (ex || []).forEach((r: any) => known.add(r.wa_msgid)); }
+    const novas = msgs.filter((m) => { const id = String(m.messageid || m.id || ""); return id && !known.has(id); });
+    // agrupa por telefone: 1 lookup/upsert de conversa por pessoa, não por mensagem (era o gargalo em lotes grandes)
+    const byPhone: Record<string, any[]> = {};
+    for (const m of novas) { const phone = String(m.chatid || m.sender_pn || m.sender || "").replace(/@.*$/, "").replace(/[^0-9]/g, ""); if (!phone) continue; (byPhone[phone] = byPhone[phone] || []).push(m); }
+    const phones = Object.keys(byPhone);
+    const existingMap: Record<string, any> = {};
+    for (let i = 0; i < phones.length; i += 200) { const chunk = phones.slice(i, i + 200); const ex = await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=in.(${chunk.map((x) => encodeURIComponent(x)).join(",")})&select=id,chat_id,origin_type,name`); (ex || []).forEach((r: any) => { existingMap[r.chat_id] = r; }); }
     const adCache: Record<string, Record<string, string> | null> = {};
     const newInbound = new Set<string>();
+    const msgRows: any[] = [];
     let added = 0;
-    for (const m of oneToOne) {
-      const msgid = String(m.messageid || m.id || ""); if (!msgid || known.has(msgid)) continue;
-      const phone = String(m.chatid || m.sender_pn || m.sender || "").replace(/@.*$/, "").replace(/[^0-9]/g, ""); if (!phone) continue;
-      const fromMe = !!m.fromMe; const text = waText(m); const ts = waTs(m.messageTimestamp);
-      const existing = (await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=eq.${phone}&select=id,origin_type,name&limit=1`))[0];
-      let convId = existing?.id; let origin = fromMe ? null : waOrigin(m);
-      if (!fromMe) { const rf = await _waRefOrigin(text); if (rf) origin = rf; }
-      if (origin && origin.type === "anuncio" && origin.data.source_id && !origin.data.campaign) {
-        const key = String(origin.data.source_id);
-        if (adCache[key] === undefined) adCache[key] = await waResolveAd(key);
-        if (adCache[key]) Object.assign(origin.data, adCache[key]);
+    for (const phone of phones) {
+      const group = byPhone[phone].sort((a, b) => (a.messageTimestamp || 0) - (b.messageTimestamp || 0)); // mais antiga → mais nova
+      const existing = existingMap[phone];
+      let convId = existing?.id;
+      const last = group[group.length - 1];
+      const lastText = waText(last), lastTs = waTs(last.messageTimestamp);
+      const anyInbound = group.some((m) => !m.fromMe);
+      // origem: pega da 1ª mensagem inbound do lote (é a que carrega o clique/anúncio original)
+      let origin: any = null;
+      const firstInbound = group.find((m) => !m.fromMe);
+      if (firstInbound) {
+        origin = waOrigin(firstInbound);
+        if (!origin) { const rf = await _waRefOrigin(waText(firstInbound)); if (rf) origin = rf; }
+        if (origin && origin.type === "anuncio" && origin.data.source_id && !origin.data.campaign) {
+          const key = String(origin.data.source_id);
+          if (adCache[key] === undefined) adCache[key] = await waResolveAd(key);
+          if (adCache[key]) Object.assign(origin.data, adCache[key]);
+        }
       }
-      if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: phone, name: m.senderName || phone, last_text: text, last_at: ts, unread: fromMe ? 0 : 1, origin_type: origin ? origin.type : "organico", origin: origin ? origin.data : null }); }
-      else { const patch: Record<string, unknown> = { last_text: text, last_at: ts }; if (!fromMe) patch.unread = 1; if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; } if (m.senderName && (!existing.name || existing.name === phone || /^\d+$/.test(String(existing.name)))) patch.name = m.senderName; await sbPatchD("wa_conversations", `id=eq.${convId}`, patch); }
-      await sbPost("wa_messages", { id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: msgid, direction: fromMe ? "out" : "in", msg_type: m.messageType || "text", text, ts, raw: m });
-      if (!fromMe) newInbound.add(convId);
-      added++;
+      const nomeMsg = [...group].reverse().find((m) => m.senderName)?.senderName;
+      if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: phone, name: nomeMsg || phone, last_text: lastText, last_at: lastTs, unread: anyInbound ? 1 : 0, origin_type: origin ? origin.type : "organico", origin: origin ? origin.data : null }); }
+      else { const patch: Record<string, unknown> = { last_text: lastText, last_at: lastTs }; if (anyInbound) patch.unread = 1; if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; } if (nomeMsg && (!existing.name || existing.name === phone || /^\d+$/.test(String(existing.name)))) patch.name = nomeMsg; await sbPatchD("wa_conversations", `id=eq.${convId}`, patch); }
+      for (const m of group) { msgRows.push({ id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: String(m.messageid || m.id || ""), direction: m.fromMe ? "out" : "in", msg_type: m.messageType || "text", text: waText(m), ts: waTs(m.messageTimestamp), raw: m }); added++; }
+      if (anyInbound) newInbound.add(convId);
     }
+    // grava as mensagens em lotes (era 1 insert por mensagem — lento demais pra sincronizar semanas de histórico)
+    for (let i = 0; i < msgRows.length; i += 300) await sbPost("wa_messages", msgRows.slice(i, i + 300) as any);
     // classificação AUTOMÁTICA por IA das conversas que receberam nova mensagem do lead (limita p/ controlar custo)
     let classified = 0;
-    if (newInbound.size) { for (const cid of [...newInbound].slice(0, 6)) { try { await waExtract(cid, true); classified++; } catch (_e) {} } }
-    return { added, scanned: msgs.length, classified };
+    if (newInbound.size) { for (const cid of [...newInbound].slice(0, 10)) { try { await waExtract(cid, true); classified++; } catch (_e) {} } }
+    return { added, scanned: msgsAll.length, filtrados: msgs.length, classified, conversas: phones.length };
   }
   if (w.op === "resolveOrigins") {
     const convs = await sbGet("wa_conversations", `client_id=${clientFilter}&origin_type=eq.anuncio&select=id,origin`);

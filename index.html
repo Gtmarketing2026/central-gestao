@@ -650,7 +650,12 @@
         <button class="btn sm ghost" onclick="crmAnalyticsOpen()">📊 Analytics</button>
         <button class="btn sm ghost" onclick="crmConfigOpen()">⚙️ Configurar</button>
         <button class="btn sm ghost" onclick="toggleCrmGuide()">📖 Guia</button>
-        <button class="btn sm ghost" id="crmPollBtn" onclick="crmPoll(true)">🔄 Atualizar</button>
+        <button class="btn sm ghost" id="crmPollBtn" onclick="crmPoll(true)" title="Busca as mensagens mais recentes">🔄 Atualizar</button>
+        <select id="crmSyncSel" onchange="if(this.value)crmSync(this.value);this.value=''" title="Se o WhatsApp caiu ou o webhook falhou, puxa o histórico direto do provedor pra recuperar o que faltou" style="width:auto;font-size:12px">
+          <option value="">⏬ Sincronizar…</option>
+          <option value="7">Últimos 7 dias</option>
+          <option value="30">Últimos 30 dias</option>
+        </select>
       </div>
     </div>
     <div id="crmGuide"></div>
@@ -2696,6 +2701,19 @@ async function loadCrm(){
   crmPoll(false); startCrmPoll();
 }
 function crmToggleAgency(){_crmViewAgency=!_crmViewAgency;_crmActive=null;_crmFCampaign='';loadCrm();}
+// Sincroniza o histórico direto do provedor (pro caso do WhatsApp ter caído / webhook ter falhado e faltar conversa).
+async function crmSync(dias){
+  if(!_crmInstId){alert('Selecione um cliente com WhatsApp conectado.');return;}
+  if(!confirm(`Buscar as mensagens dos últimos ${dias} dias direto do WhatsApp? Pode levar um tempinho pra contas com muito volume.`))return;
+  const btn=document.getElementById('crmPollBtn');const o=btn?btn.textContent:'';if(btn){btn.disabled=true;btn.textContent='Sincronizando…';}
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,sinceDays:+dias}}});
+    if(error)throw error;const r=(data&&data.data)||{};
+    await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id);
+    alert(`Sincronizado: ${r.added||0} mensagem(ns) recuperada(s) em ${r.conversas||0} conversa(s) (varreu ${r.scanned||0} mensagens do período disponível).`);
+  }catch(e){alert('Erro ao sincronizar: '+(e.message||e));}
+  if(btn){btn.disabled=false;btn.textContent=o;}
+}
 async function crmPoll(manual){
   const btn=document.getElementById('crmPollBtn');if(manual&&btn){btn.textContent='…';btn.disabled=true;}
   const _inst=_crmInsts.find(i=>i.id===_crmInstId);const _cli=DB.clients.find(c=>c.id===((_inst&&_inst.client_id)||activeClientId));const _metaAcc=(_cli&&_cli.metaAccountIds)||[];const _gAcc=(_cli&&_cli.googleAccountIds)||[];
