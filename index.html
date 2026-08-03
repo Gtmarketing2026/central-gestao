@@ -1551,9 +1551,38 @@
       <div style="margin-top:8px;font-size:12px;color:var(--muted)">Total: <strong id="sPayTotal">R$ 0,00</strong></div>
     </div>
     <p style="font-size:11px;color:var(--faint);margin-top:10px">As cobranças aparecem na aba Financeiro.</p>
+    <hr class="budget-divider">
+    <div class="form-row" style="margin-bottom:10px">
+      <span style="font-size:13px;font-weight:600;color:var(--text)">🎯 Investimento em mídia (verba do evento)</span>
+      <div style="font-size:11px;color:var(--faint);margin-top:2px">Opcional. Ex.: R$10.000 pra investir, divididos em etapas por data (R$2.000 até dia X, R$2.000 até dia Y…).</div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row"><label>Verba total (R$)</label><input id="sBudget" type="number" placeholder="0" oninput="budgetStageCalc()"></div>
+    </div>
+    <div id="sBudgetStages"></div>
+    <button class="btn sm" type="button" style="margin-top:4px" onclick="addBudgetStageRow()">+ Adicionar etapa</button>
+    <div id="sBudgetStageAlert" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+    <hr class="budget-divider">
+    <div class="form-row"><label>📝 Observações do evento</label><textarea id="sObs" rows="3" placeholder="Detalhes, combinados com o cliente, particularidades do evento…"></textarea></div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('showModal')">Cancelar</button>
       <button class="btn primary" onclick="saveShow()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- TAREFAS INICIAIS DO SHOW (pergunta ao criar um show novo) -->
+<div class="modal-bg" id="showTasksModal">
+  <div class="modal">
+    <h3>Criar tarefas iniciais deste show?</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px" id="showTasksIntro"></p>
+    <div id="showTasksList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+    <div class="form-row"><label>Direcionar para</label>
+      <select id="showTasksOwner"><option value="">Sem responsável</option></select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal('showTasksModal')">Agora não</button>
+      <button class="btn primary" onclick="confirmShowTasks()">Criar tarefas</button>
     </div>
   </div>
 </div>
@@ -1809,8 +1838,8 @@ const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||''
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
 const mapFinance = r => ({id:r.id,type:r.type||'receita',client:r.client||'',desc:r.description||'',val:+r.val||0,due:r.due||'',status:r.status||'pendente',_auto:r.auto||false,creditor:r.creditor||'',repeat:r.repeat||'',category:r.category||'',fixedType:r.fixed_type||''});
 const dbFinance = o => ({id:o.id,type:o.type||'receita',client:o.client||null,description:o.desc||'',val:+o.val||0,due:o.due||'',status:o.status||'pendente',auto:o._auto||false,creditor:o.creditor||null,repeat:o.repeat||'',category:o.category||null,fixed_type:o.fixedType||null});
-const mapShow = r => ({id:r.id,client:r.client||'',name:r.name||'',date:r.date||'',val:+r.val||0,state:r.state||'ativo',payments:r.payments||[]});
-const dbShow = o => ({id:o.id,client:o.client||null,name:o.name||'',date:o.date||'',val:+o.val||0,state:o.state||'ativo',payments:o.payments||[]});
+const mapShow = r => ({id:r.id,client:r.client||'',name:r.name||'',date:r.date||'',val:+r.val||0,state:r.state||'ativo',payments:r.payments||[],budget:+r.budget||0,budgetStages:r.budget_stages||[],obs:r.obs||''});
+const dbShow = o => ({id:o.id,client:o.client||null,name:o.name||'',date:o.date||'',val:+o.val||0,state:o.state||'ativo',payments:o.payments||[],budget:+o.budget||0,budget_stages:o.budgetStages||[],obs:o.obs||''});
 
 /* ---- UPDATE CHECK ---- */
 async function checkUpdate(){
@@ -5895,8 +5924,57 @@ function payTotalUpdate(){document.getElementById('sPayTotal').textContent=fmt(p
 function renderPayRows(){document.getElementById('sPayList').innerHTML=payRows.map((r,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center"><input type="date" value="${r.date||''}" onchange="payRows[${i}].date=this.value"><input type="number" placeholder="Valor" value="${r.val||''}" style="width:110px" oninput="payRows[${i}].val=+this.value;payTotalUpdate()"><select onchange="payRows[${i}].status=this.value" style="width:120px"><option value="pendente"${r.status!=='pago'?' selected':''}>A cobrar</option><option value="pago"${r.status==='pago'?' selected':''}>Recebido</option></select><button class="btn sm ghost danger" onclick="payRows.splice(${i},1);renderPayRows();payTotalUpdate()">✕</button></div>`).join('');payTotalUpdate()}
 function addPayRow(){payRows.push({id:uid(),date:'',val:'',status:'pendente'});renderPayRows()}
 function togglePayMode(){const multi=document.getElementById('sPayMode').value==='multi';document.getElementById('sSingleBox').style.display=multi?'none':'block';document.getElementById('sMultiBox').style.display=multi?'block':'none';if(multi&&!payRows.length){const v=+document.getElementById('sVal').value||0;payRows=[{id:uid(),date:document.getElementById('sPayDate').value||document.getElementById('sDate').value,val:v||'',status:'pendente'}];renderPayRows()}}
-function openShowModal(id){fillClientSelects();const s=id?DB.shows.find(x=>x.id===id):{};document.getElementById('showModalTitle').textContent=id?'Editar show':'Registrar show';sId.value=id||'';sClient.value=s.client||'';sName.value=s.name||'';sDate.value=s.date||today();document.getElementById('sState').value=s.state||'ativo';const hasMulti=s.payments&&s.payments.length>1;document.getElementById('sPayMode').value=hasMulti?'multi':'single';const sp=(s.payments&&s.payments.length===1)?s.payments[0]:null;sVal.value=hasMulti?'':(sp?sp.val:(s.val||''));document.getElementById('sPayDate').value=sp?sp.date:(s.date||today());document.getElementById('sPaid').checked=sp?sp.status==='pago':false;payRows=hasMulti?s.payments.map(p=>({...p})):[];togglePayMode();if(hasMulti)renderPayRows();openModal('showModal')}
-async function saveShow(){if(!sClient.value)return sClient.focus();const multi=document.getElementById('sPayMode').value==='multi';const base={id:sId.value||uid(),client:sClient.value,name:sName.value.trim(),date:sDate.value,state:document.getElementById('sState').value};let o;if(multi){const pays=payRows.filter(r=>r.val||r.date).map(r=>({id:r.id||uid(),date:r.date,val:+r.val||0,status:r.status||'pendente'}));o={...base,val:pays.reduce((a,p)=>a+p.val,0),payments:pays}}else{const v=+sVal.value||0,pd=document.getElementById('sPayDate').value||sDate.value,paid=document.getElementById('sPaid').checked;o={...base,val:v,payments:[{id:uid(),date:pd,val:v,status:paid?'pago':'pendente'}]}}closeModal('showModal');await _upsertShow(o);renderAll()}
+// ---- Verba de mídia do show, dividida em etapas por data (ex.: R$2.000 até 05/08, R$2.000 até 12/08…) ----
+let budgetStageRows=[];
+function renderBudgetStageRows(){
+  document.getElementById('sBudgetStages').innerHTML=budgetStageRows.map((r,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+      <input type="number" placeholder="Valor (R$)" value="${r.val||''}" style="width:130px" oninput="budgetStageRows[${i}].val=+this.value;budgetStageCalc()">
+      <span style="font-size:12px;color:var(--faint)">até</span>
+      <input type="date" value="${r.until||''}" style="width:auto" onchange="budgetStageRows[${i}].until=this.value">
+      <button class="btn sm ghost danger" type="button" onclick="budgetStageRows.splice(${i},1);renderBudgetStageRows()">✕</button></div>`).join('');
+  budgetStageCalc();
+}
+function addBudgetStageRow(){budgetStageRows.push({id:uid(),val:'',until:''});renderBudgetStageRows()}
+function budgetStageCalc(){
+  const el=document.getElementById('sBudgetStageAlert');if(!el)return;
+  if(!budgetStageRows.length){el.textContent='';return}
+  const total=+document.getElementById('sBudget').value||0;
+  const soma=budgetStageRows.reduce((s,r)=>s+(+r.val||0),0);
+  if(total&&Math.abs(soma-total)>0.01)el.innerHTML=`⚠ Soma das etapas (${fmt(soma)}) ${soma>total?'ultrapassa':'está abaixo d'}a verba total (${fmt(total)}) em ${fmt(Math.abs(soma-total))}`;
+  else el.innerHTML=soma?`Soma das etapas: <b>${fmt(soma)}</b> ${total?'· bate com a verba total ✓':''}`:'';
+}
+function openShowModal(id){fillClientSelects();const s=id?DB.shows.find(x=>x.id===id):{};document.getElementById('showModalTitle').textContent=id?'Editar show':'Registrar show';sId.value=id||'';sClient.value=s.client||'';sName.value=s.name||'';sDate.value=s.date||today();document.getElementById('sState').value=s.state||'ativo';const hasMulti=s.payments&&s.payments.length>1;document.getElementById('sPayMode').value=hasMulti?'multi':'single';const sp=(s.payments&&s.payments.length===1)?s.payments[0]:null;sVal.value=hasMulti?'':(sp?sp.val:(s.val||''));document.getElementById('sPayDate').value=sp?sp.date:(s.date||today());document.getElementById('sPaid').checked=sp?sp.status==='pago':false;payRows=hasMulti?s.payments.map(p=>({...p})):[];togglePayMode();if(hasMulti)renderPayRows();
+  document.getElementById('sBudget').value=s.budget||'';budgetStageRows=(s.budgetStages||[]).map(r=>({...r}));renderBudgetStageRows();
+  document.getElementById('sObs').value=s.obs||'';
+  openModal('showModal')}
+async function saveShow(){if(!sClient.value)return sClient.focus();const isNew=!sId.value;const multi=document.getElementById('sPayMode').value==='multi';
+  const stages=budgetStageRows.filter(r=>r.val||r.until).map(r=>({id:r.id||uid(),val:+r.val||0,until:r.until||''}));
+  const base={id:sId.value||uid(),client:sClient.value,name:sName.value.trim(),date:sDate.value,state:document.getElementById('sState').value,budget:+document.getElementById('sBudget').value||0,budgetStages:stages,obs:document.getElementById('sObs').value.trim()};
+  let o;if(multi){const pays=payRows.filter(r=>r.val||r.date).map(r=>({id:r.id||uid(),date:r.date,val:+r.val||0,status:r.status||'pendente'}));o={...base,val:pays.reduce((a,p)=>a+p.val,0),payments:pays}}else{const v=+sVal.value||0,pd=document.getElementById('sPayDate').value||sDate.value,paid=document.getElementById('sPaid').checked;o={...base,val:v,payments:[{id:uid(),date:pd,val:v,status:paid?'pago':'pendente'}]}}
+  closeModal('showModal');await _upsertShow(o);renderAll();
+  if(isNew)openShowTasksModal(o);
+}
+// ---- Tarefas iniciais do show (pergunta só ao CRIAR um show novo) ----
+const SHOW_DEFAULT_TASKS=['Criar pixel','Criar público','Criar campanhas'];
+let _showTasksCtx=null;
+function openShowTasksModal(show){
+  _showTasksCtx=show;
+  document.getElementById('showTasksIntro').textContent=`${show.name||'Este show'} · ${clientName(show.client)} — marque as que quer criar já.`;
+  document.getElementById('showTasksList').innerHTML=SHOW_DEFAULT_TASKS.map((t,i)=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" class="checkbox" id="stTask${i}" checked style="width:auto">${t}</label>`).join('');
+  const sel=document.getElementById('showTasksOwner');sel.innerHTML='<option value="">Sem responsável</option>'+DB.team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
+  openModal('showTasksModal');
+}
+async function confirmShowTasks(){
+  const show=_showTasksCtx;if(!show)return;
+  const owner=document.getElementById('showTasksOwner').value;
+  const picked=SHOW_DEFAULT_TASKS.filter((_,i)=>document.getElementById('stTask'+i).checked);
+  closeModal('showTasksModal');
+  for(const t of picked){
+    const task={id:uid(),client:show.client,name:`${t} — ${show.name||'show'}`,owner,status:'todo',due:show.date||'',prio:'media',repeat:'',notes:'',link:'',channels:[],urgent:false,checklist:[],comments:[]};
+    await _upsertTask(task);
+  }
+  if(picked.length)renderAll();
+}
 async function delShow(id){if(!confirm('Excluir show?'))return;await sb.from('shows').delete().eq('id',id);DB.shows=DB.shows.filter(s=>s.id!==id);renderAll()}
 
 /* ---- TASKS ---- */
