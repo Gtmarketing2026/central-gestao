@@ -1616,6 +1616,16 @@ const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 const DB = {clients:[], tasks:[], finance:[], shows:[], team:[], creditors:[], wallet:[]};
 
 const fmt = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
+// Converte o campo "Valor" do lead (texto livre, ex.: "R$ 1.500,00") em número. Usado pra somar faturamento por etapa do CRM.
+function _crmValorNum(v){
+  if(v==null)return 0;
+  let s=String(v).trim().replace(/[^\d.,-]/g,'');
+  if(!s)return 0;
+  if(s.includes(',')&&s.includes('.'))s=s.replace(/\./g,'').replace(',','.');
+  else if(s.includes(','))s=s.replace(',','.');
+  const n=parseFloat(s);
+  return isFinite(n)?n:0;
+}
 const today = () => {const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function dateBR(d){if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}`}
@@ -3404,9 +3414,9 @@ function crmAnaRender(C,meta,capi){
   const per=(k,l)=>`<button class="btn sm ${_crmAnaDays===k?'primary':'ghost'}" onclick="crmAnalyticsOpen(${k})">${l}</button>`;
   const kpi=(lbl,val,sub)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;flex:1;min-width:150px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">${lbl}</div><div style="font-size:22px;font-weight:800;margin-top:4px">${val}</div>${sub?`<div style="font-size:11px;color:var(--faint);margin-top:2px">${sub}</div>`:''}</div>`;
   // funil
-  const byStage={};stages.forEach(s=>byStage[s.key]=0);C.forEach(c=>{const k=c.stage&&byStage[c.stage]!=null?c.stage:null;if(k)byStage[k]++;});
+  const byStage={};const byValue={};stages.forEach(s=>{byStage[s.key]=0;byValue[s.key]=0;});C.forEach(c=>{const k=c.stage&&byStage[c.stage]!=null?c.stage:null;if(k){byStage[k]++;byValue[k]+=_crmValorNum((c.fields||{}).valor);}});
   const maxF=Math.max(1,...stages.map(s=>byStage[s.key]));
-  const funil=stages.map(s=>`<div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>${(s.label||'').replace(/</g,'&lt;')}</span><b>${byStage[s.key]}</b></div><div style="height:22px;background:var(--surface2);border-radius:7px;overflow:hidden"><div style="height:100%;width:${Math.max(byStage[s.key]/maxF*100,2)}%;background:${s.color||'#60a5fa'};border-radius:7px"></div></div></div>`).join('');
+  const funil=stages.map(s=>`<div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;margin-bottom:3px"><span>${(s.label||'').replace(/</g,'&lt;')}</span><span style="text-align:right"><b>${byStage[s.key]}</b>${byValue[s.key]?`<b style="margin-left:8px;color:#34d399">${fmtR(byValue[s.key])}</b>`:''}</span></div><div style="height:22px;background:var(--surface2);border-radius:7px;overflow:hidden"><div style="height:100%;width:${Math.max(byStage[s.key]/maxF*100,2)}%;background:${s.color||'#60a5fa'};border-radius:7px"></div></div></div>`).join('');
   // funil de JORNADA (acumulado) + taxas
   const _jrn=crmJourneyFunnel(C,(_crmAnaRaw&&_crmAnaRaw.journey)||[]);
   const _jc=_jrn.counts,_jp=_jrn.prog;
@@ -8457,17 +8467,17 @@ function renderDashSeg(){
 async function loadDashCrm(clientId){
   const el=document.getElementById('dashCrmCard');if(!el)return;el.style.display='none';
   try{
-    const {data}=await sb.from('wa_conversations').select('stage,origin_type,num_errado,irrelevante').eq('client_id',clientId).gte('last_at',_dashSince||daysAgoISO(30)).limit(5000);
+    const {data}=await sb.from('wa_conversations').select('stage,origin_type,num_errado,irrelevante,fields').eq('client_id',clientId).gte('last_at',_dashSince||daysAgoISO(30)).limit(5000);
     if(!data||!data.length)return;
-    const STAGES=crmStages().filter(s=>s.key!=='sem');const byStage={};STAGES.forEach(s=>byStage[s.key]=0);let total=0,anun=0;
-    data.forEach(r=>{total++;if(byStage[r.stage]!=null)byStage[r.stage]++;if(r.origin_type==='anuncio')anun++;});
+    const STAGES=crmStages().filter(s=>s.key!=='sem');const byStage={};const byValue={};STAGES.forEach(s=>{byStage[s.key]=0;byValue[s.key]=0;});let total=0,anun=0;
+    data.forEach(r=>{total++;if(byStage[r.stage]!=null){byStage[r.stage]++;byValue[r.stage]+=_crmValorNum((r.fields||{}).valor);}if(r.origin_type==='anuncio')anun++;});
     const qual=(byStage.mql||0)+(byStage.sql||0)+(byStage.comprou||0)+(byStage.posvenda||0);
     const vendas=(byStage.comprou||0)+(byStage.posvenda||0);
     const maxF=Math.max(1,...STAGES.map(s=>byStage[s.key]));
     const kpi=(l,v,s)=>`<div style="flex:1;min-width:120px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 14px"><div style="font-size:10.5px;color:var(--muted);text-transform:uppercase">${l}</div><div style="font-size:20px;font-weight:800;margin-top:3px">${v}</div>${s?`<div style="font-size:11px;color:var(--faint)">${s}</div>`:''}</div>`;
     el.style.display='';el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px"><h3 style="margin:0">🗣 CRM — Funil de Atendimento</h3><button class="btn sm ghost" onclick="goToTab('crm')">Abrir CRM</button></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">${kpi('Leads',total,anun?anun+' de anúncio':'')}${kpi('Qualificados',qual,total?(qual/total*100).toFixed(0)+'% de qualificação':'')}${kpi('Vendas',vendas,total?(vendas/total*100).toFixed(0)+'% de conversão':'')}</div>
-    ${STAGES.map(s=>`<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>${(s.label||'').replace(/</g,'&lt;')}</span><b>${byStage[s.key]}</b></div><div style="height:18px;background:var(--surface2);border-radius:6px;overflow:hidden"><div style="height:100%;width:${Math.max(byStage[s.key]/maxF*100,2)}%;background:${s.color||'#60a5fa'};border-radius:6px"></div></div></div>`).join('')}`;
+    ${STAGES.map(s=>`<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;margin-bottom:3px"><span>${(s.label||'').replace(/</g,'&lt;')}</span><span style="text-align:right"><b>${byStage[s.key]}</b>${byValue[s.key]?`<b style="margin-left:8px;color:#34d399">${fmt(byValue[s.key])}</b>`:''}</span></div><div style="height:18px;background:var(--surface2);border-radius:6px;overflow:hidden"><div style="height:100%;width:${Math.max(byStage[s.key]/maxF*100,2)}%;background:${s.color||'#60a5fa'};border-radius:6px"></div></div></div>`).join('')}`;
   }catch(e){}
 }
 async function loadDashGoogleDet(){
