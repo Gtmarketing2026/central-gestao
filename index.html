@@ -2863,7 +2863,7 @@ function crmFields(){return (_acctCfg&&Array.isArray(_acctCfg.crm_fields)&&_acct
   {key:'nome',label:'Nome',type:'texto',hint:'Nome próprio que o lead usou'},
   {key:'email',label:'Email',type:'texto',hint:''},
   {key:'produto',label:'Produto/Serviço de Interesse',type:'texto',hint:''},
-  {key:'valor',label:'Valor',type:'valor',hint:''}];}
+  {key:'valor',label:'Valor',type:'valor',hint:'Valor TOTAL do negócio — se for parcelado (entrada + parcelas), some tudo'}];}
 let _crmDrawerTab='conversa';
 function crmSetDrawerTab(t){_crmDrawerTab=t;renderCrmDrawer();}
 function renderCrmDrawer(){
@@ -3342,7 +3342,8 @@ function _isLostStage(s){return /perd|lost|desqualific/i.test(String((s&&s.key)|
 function crmFunnelSVG(items){
   const n=items.length;if(!n)return '<div class="empty" style="padding:18px">Sem dados no período.</div>';
   const esc=s=>String(s||'').replace(/</g,'&lt;');
-  const W=900,segH=48,H=n*segH+10,cx=330,maxHW=300,minHW=40;
+  const hasSub=items.some(it=>it.sub);
+  const W=900,segH=hasSub?60:48,H=n*segH+10,cx=330,maxHW=300,minHW=40;
   const top=items[0].value||0;
   const hw=v=>{const p=top>0?Math.max(0,Math.min(1,(v||0)/top)):0;return minHW+(maxHW-minHW)*p;};
   let body='';
@@ -3353,11 +3354,15 @@ function crmFunnelSVG(items){
     // se o rótulo não couber no segmento (funil muito estreito), joga o nome pra esquerda e mantém só o número dentro
     const lbl=esc(it.label),cabe=(lbl.length*6.4)<(Math.min(w1,w2)*2-8);
     if(cabe){
-      body+=`<text x="${cx}" y="${mid+1}" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1115">${lbl}</text>`;
-      body+=`<text x="${cx}" y="${mid+16}" text-anchor="middle" font-size="14" font-weight="800" fill="#0f1115">${(it.value||0).toLocaleString('pt-BR')}</text>`;
+      const yl=hasSub?mid-8:mid+1,yv=hasSub?mid+8:mid+16;
+      body+=`<text x="${cx}" y="${yl}" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1115">${lbl}</text>`;
+      body+=`<text x="${cx}" y="${yv}" text-anchor="middle" font-size="14" font-weight="800" fill="#0f1115">${(it.value||0).toLocaleString('pt-BR')}</text>`;
+      if(it.sub)body+=`<text x="${cx}" y="${yv+13}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#0f1115" opacity=".78">${esc(it.sub)}</text>`;
     }else{
-      body+=`<text x="${cx-maxHW-10}" y="${mid+9}" text-anchor="end" font-size="11.5" font-weight="700" fill="${col}">${lbl}</text>`;
-      body+=`<text x="${cx}" y="${mid+9}" text-anchor="middle" font-size="13" font-weight="800" fill="#0f1115">${(it.value||0).toLocaleString('pt-BR')}</text>`;
+      const yv=hasSub?mid+3:mid+9;
+      body+=`<text x="${cx-maxHW-10}" y="${yv}" text-anchor="end" font-size="11.5" font-weight="700" fill="${col}">${lbl}</text>`;
+      body+=`<text x="${cx}" y="${yv}" text-anchor="middle" font-size="13" font-weight="800" fill="#0f1115">${(it.value||0).toLocaleString('pt-BR')}</text>`;
+      if(it.sub)body+=`<text x="${cx}" y="${yv+13}" text-anchor="middle" font-size="10" font-weight="700" fill="#0f1115" opacity=".78">${esc(it.sub)}</text>`;
     }
     const pctTotal=top?((it.value||0)/top*100):0;
     const prev=i>0?(items[i-1].value||0):null;
@@ -3382,10 +3387,10 @@ function crmJourneyIndexer(jrn){
 }
 function crmJourneyFunnel(C,jrn){
   const ix=crmJourneyIndexer(jrn);
-  const counts=ix.prog.map(()=>0);
+  const counts=ix.prog.map(()=>0);const values=ix.prog.map(()=>0);
   let lost=0;const lostAt={};
-  C.forEach(cv=>{const mx=ix.maxIdx(cv);for(let i=0;i<=mx;i++)counts[i]++;if(ix.isLost(cv)){lost++;lostAt[mx]=(lostAt[mx]||0)+1;}});
-  return {prog:ix.prog,counts,lost,lostAt,items:ix.prog.map((s,i)=>({label:s.label||s.key,value:counts[i],color:s.color}))};
+  C.forEach(cv=>{const mx=ix.maxIdx(cv);const v=_crmValorNum((cv.fields||{}).valor);for(let i=0;i<=mx;i++){counts[i]++;values[i]+=v;}if(ix.isLost(cv)){lost++;lostAt[mx]=(lostAt[mx]||0)+1;}});
+  return {prog:ix.prog,counts,values,lost,lostAt,items:ix.prog.map((s,i)=>({label:s.label||s.key,value:counts[i],color:s.color,sub:values[i]?fmt(values[i]):''}))};
 }
 // agrupa as conversas por campanha / conjunto / anúncio e conta quantas JÁ PASSARAM por cada etapa
 function crmGroupByLevel(C,jrn,level,spendMaps){
