@@ -1091,7 +1091,7 @@ async function googleAdsInsights(g: any) {
     for (const row of campRows) {
       const label = row.campaign?.name || "Google Ads";
       const s = gadsShape(row.metrics);
-      if (!byCamp[label]) byCamp[label] = { campaign: label, campaignId: row.campaign?.id ? String(row.campaign.id) : null, account: acc.name || acc.id, accountId: acc.id, objetivo: googleObjetivo(row.campaign?.advertisingChannelType), _google: true, orcamentoDiario: row.campaignBudget?.amountMicros ? +row.campaignBudget.amountMicros / 1e6 : null, budgetResource: row.campaignBudget?.resourceName || null, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0, records: [] };
+      if (!byCamp[label]) { const _cb = row.campaign?.id ? convByCamp[String(row.campaign.id)] : null; byCamp[label] = { campaign: label, campaignId: row.campaign?.id ? String(row.campaign.id) : null, account: acc.name || acc.id, accountId: acc.id, objetivo: googleObjetivoConv(row.campaign?.advertisingChannelType, _cb ? { purchases: _cb.purchases, leads: _cb.leads, conversas: _cb.conversas } : null), _google: true, orcamentoDiario: row.campaignBudget?.amountMicros ? +row.campaignBudget.amountMicros / 1e6 : null, budgetResource: row.campaignBudget?.resourceName || null, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0, records: [] }; }
       const c = byCamp[label];
       c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks;
       c.revenue += s.revenue; c.purchases += s.purchases; c.videoViews += s.videoViews; c.engajamentos += s.engajamentos;
@@ -1107,7 +1107,7 @@ async function googleAdsInsights(g: any) {
         adId: ad.id ? "g" + ad.id : null, adName, campaign: row.campaign?.name || "", campaignId: campId || null,
         adset: row.adGroup?.name || "", adsetId: row.adGroup?.id ? String(row.adGroup.id) : null,
         account: acc.name || acc.id, thumbnail: null, _google: true,
-        objetivo: googleObjetivo(row.campaign?.advertisingChannelType),
+        objetivo: googleObjetivoConv(row.campaign?.advertisingChannelType, ab ? { purchases: ab.purchases, leads: ab.leads, conversas: ab.conversas } : null),
         spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: 0, frequency: 0,
         ctr: s.ctr, cpc: s.cpc, cpm: s.cpm, purchases: s.purchases, revenue: s.revenue, roas: s.roas,
         leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos,
@@ -2134,9 +2134,12 @@ function _objMetric(t: any, google: boolean, obj?: string | null) {
   const isVideo = obj === "video";
   const isAlcance = obj === "alcance" || obj === "distribuicao";
   const isEngaj = obj === "engajamento";
+  // Google: metrics.conversions é genérico (form/WhatsApp/ligação/compra/etc.) — não afirmar "Compras" nem ROAS sem confirmação de venda real (planilha).
+  if (isVenda && google) return `Conversões ${Math.round(t.purchases || 0)} · Custo/conv ${_fmtR(t.purchases ? spend / t.purchases : 0)}`;
   if (isVenda) { const roas = t.roas != null ? t.roas : (spend ? (t.revenue || 0) / spend : 0); return `Compras ${Math.round(t.purchases || 0)} · ROAS ${(roas || 0).toFixed(2)}`; }
-  if (isLead) return `Leads ${t.leads || 0} · CPL ${_fmtR(t.leads ? spend / t.leads : 0)}`;
-  if (isMsg) return `Conversas ${t.conversas || 0} · Custo/conversa ${_fmtR(t.conversas ? spend / t.conversas : 0)}`;
+  // total do Google não separa leads/conversas por tipo (só o detalhamento por campanha/anúncio) — cai pro total bruto de conversões.
+  if (isLead) { const cnt = t.leads || (google ? Math.round(t.purchases || 0) : 0); return `Leads ${cnt} · CPL ${_fmtR(cnt ? spend / cnt : 0)}`; }
+  if (isMsg) { const cnt = t.conversas || (google ? Math.round(t.purchases || 0) : 0); return `Conversas ${cnt} · Custo/conversa ${_fmtR(cnt ? spend / cnt : 0)}`; }
   if (isVideo) return `Views ${Math.round(t.videoViews || 0)} · Custo/view ${_fmtR(t.videoViews ? spend / t.videoViews : 0)}`;
   if (isAlcance) { const cpm = t.cpm != null ? t.cpm : (t.impressions ? spend / t.impressions * 1000 : 0); const freq = t.reach ? t.impressions / t.reach : 0; return `Alcance ${Math.round(t.reach || 0).toLocaleString("pt-BR")} · CPM ${_fmtR(cpm)}${freq ? ` · Freq ${freq.toFixed(2)}` : ""}`; }
   if (isEngaj) return `Engajamentos ${Math.round(t.engajamentos || 0).toLocaleString("pt-BR")} · Custo ${_fmtR(t.engajamentos ? spend / t.engajamentos : 0)}`;
@@ -2157,8 +2160,8 @@ function _objRC(t: any, google: boolean, obj?: string | null): string {
   // Google: metrics.conversions é genérico (form/WhatsApp/ligação/compra/etc.) — não afirmar "Compras" (só a planilha de VENDAS confirma venda real)
   if (isVenda && google) { const br = Array.isArray(t.convActions) && t.convActions.length ? ` (${t.convActions.slice(0, 4).map((a: any) => `${a.name}: ${n(a.count)}`).join(", ")})` : ""; return `Conversões ${n(t.purchases)} · Custo/conv. ${_fmtR(t.purchases ? spend / t.purchases : 0)}${br}`; }
   if (isVenda) return `Compras ${n(t.purchases)} · CPA ${_fmtR(t.purchases ? spend / t.purchases : 0)}`;
-  if (isLead) return `Leads ${n(t.leads)} · CPL ${_fmtR(t.leads ? spend / t.leads : 0)}`;
-  if (isMsg) return `Conversas ${n(t.conversas)} · Custo/conversa ${_fmtR(t.conversas ? spend / t.conversas : 0)}`;
+  if (isLead) { const cnt = t.leads || (google ? Math.round(t.purchases || 0) : 0); return `Leads ${n(cnt)} · CPL ${_fmtR(cnt ? spend / cnt : 0)}`; }
+  if (isMsg) { const cnt = t.conversas || (google ? Math.round(t.purchases || 0) : 0); return `Conversas ${n(cnt)} · Custo/conversa ${_fmtR(cnt ? spend / cnt : 0)}`; }
   if (isVideo) return `Views ${n(t.videoViews)} · Custo/view ${_fmtR(t.videoViews ? spend / t.videoViews : 0)}`;
   if (isAlcance) { const cpm = t.cpm != null ? t.cpm : (t.impressions ? spend / t.impressions * 1000 : 0); return `Alcance ${n(t.reach)} · CPM ${_fmtR(cpm)}`; }
   if (isEngaj) return `Engajamentos ${n(t.engajamentos)} · Custo/eng ${_fmtR(t.engajamentos ? spend / t.engajamentos : 0)}`;
@@ -3584,8 +3587,8 @@ async function waAutoText(tipo: string, escopo = "padrao", prompt = "", nivel = 
   if (tipo === "receber") return [_waFmtFinanceiro(await waFinanceiro({ tipo: "receita", status: "pendente", mes: _mesAtual() }), "💰 *A receber este mês*")];
   if (tipo === "pagar") return [_waFmtFinanceiro(await waFinanceiro({ tipo: "despesa", status: "pendente", mes: _mesAtual() }), "💸 *A pagar este mês*")];
   if (tipo === "pendencias") return [await waPendenciasText()];
-  if (tipo === "atencao") return [await waAgentOneShot(`Quem precisa de atenção hoje? Analise os clientes ativos (use resumo_todos_clientes e, se precisar, meta_insights por cliente) e destaque só os que estão abaixo da meta, gastando sem resultado, ou parados. Se estiver tudo bem, diga que está tudo em ordem. Curto.${escNota}`)];
-  if (tipo === "recomendacoes") return [await waAgentOneShot(`Recomendações da semana: com base nos dados reais dos clientes ativos, liste 2 a 3 ações priorizadas (o que pausar, escalar ou ajustar), citando o cliente. Curto e prático.${escNota}`)];
+  if (tipo === "atencao") return [await waAgentOneShot(`Quem precisa de atenção hoje? Analise os clientes ativos (use resumo_todos_clientes e, se precisar, meta_insights por cliente) e destaque só os que estão abaixo da meta, gastando sem resultado, ou parados. IMPORTANTE: cada cliente tem um objetivo diferente (venda, leads, mensagens/WhatsApp, tráfego, alcance...) — a métrica que o resumo mostra já é a certa pro objetivo dele. NUNCA cite "sem compra"/"0 compras"/ROAS baixo como problema de um cliente cujo objetivo não é venda — olhe a métrica do objetivo dele (leads, conversas, cliques etc.) pra decidir se está indo bem ou não. Se estiver tudo bem, diga que está tudo em ordem. Curto.${escNota}`)];
+  if (tipo === "recomendacoes") return [await waAgentOneShot(`Recomendações da semana: com base nos dados reais dos clientes ativos, liste 2 a 3 ações priorizadas (o que pausar, escalar ou ajustar), citando o cliente. Considere o objetivo de cada cliente (venda, leads, mensagens, tráfego...) — não recomende nada baseado em "sem venda"/ROAS de quem não tem objetivo de venda. Curto e prático.${escNota}`)];
   return [];
 }
 async function _andreiaGroupInst() {
