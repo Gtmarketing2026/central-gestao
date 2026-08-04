@@ -2652,6 +2652,7 @@ const CRM_STAGES=[
   {key:'perdido',label:'Perdido',color:'#f87171',desc:'Desistiu, sumiu ou disse que não tem interesse.'},
 ];
 let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
+let _crmSel=new Set();
 let _crmSearch='',_crmFOrigin='',_crmFCampaign='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFFlag='',_crmFCampo='';
 let _crmGuideOpen=(localStorage.getItem('crmGuide')!=='0');
 function toggleCrmGuide(){_crmGuideOpen=!_crmGuideOpen;localStorage.setItem('crmGuide',_crmGuideOpen?'1':'0');renderCrmGuide();}
@@ -2732,6 +2733,7 @@ async function crmPoll(manual){
 }
 async function loadCrmConvs(){
   const inst=_crmInsts.find(i=>i.id===_crmInstId);if(!inst)return;
+  _crmSel.clear();
   let q=sb.from('wa_conversations').select('*').order('last_at',{ascending:false}).limit(500);
   q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
   const {data}=await q;_crmConvs=data||[];
@@ -2800,11 +2802,95 @@ function renderCrm(){
   const cols=STAGES.map(st=>{
     const items=byStage[st.key];
     const cards=items.map(cv=>crmCardHTML(cv)).join('')||'<div style="font-size:11px;color:var(--faint);text-align:center;padding:16px 0">—</div>';
+    const ids=items.map(cv=>cv.id);const allSel=ids.length&&ids.every(id=>_crmSel.has(id));
     return `<div class="crmCol" ondragover="event.preventDefault();this.style.background='var(--surface2)'" ondragleave="this.style.background=''" ondrop="crmDrop(event,'${st.key}')" style="flex:1 1 230px;min-width:210px;background:var(--surface);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;max-height:calc(100vh - 250px)">
-      <div style="padding:10px 12px;border-bottom:2px solid ${st.color};display:flex;justify-content:space-between;align-items:center"><b style="font-size:12.5px">${st.label}</b><span style="font-size:11px;color:var(--muted);background:var(--surface2);border-radius:20px;padding:1px 8px">${items.length}</span></div>
+      <div style="padding:10px 12px;border-bottom:2px solid ${st.color};display:flex;justify-content:space-between;align-items:center;gap:6px">
+        <label style="display:flex;align-items:center;gap:7px;cursor:${ids.length?'pointer':'default'};min-width:0"><input type="checkbox" ${allSel?'checked':''} ${ids.length?'':'disabled'} onclick="crmSelStageAll('${st.key}')" style="width:auto;flex:none" title="Selecionar todos desta etapa"><b style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${st.label}</b></label>
+        <span style="font-size:11px;color:var(--muted);background:var(--surface2);border-radius:20px;padding:1px 8px;flex:none">${items.length}</span></div>
       <div style="padding:8px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">${cards}</div></div>`;
   }).join('');
-  document.getElementById('crmBody').innerHTML=`<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px">${cols}</div>`;
+  document.getElementById('crmBody').innerHTML=`<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px">${cols}</div>${crmSelToolbarHTML()}`;
+}
+function crmSelToggle(id){if(_crmSel.has(id))_crmSel.delete(id);else _crmSel.add(id);renderCrm();}
+function crmSelClear(){_crmSel.clear();renderCrm();}
+function crmSelStageAll(stageKey){
+  const STAGES=crmStages();const firstKey=STAGES[0]?STAGES[0].key:'sem';
+  const ids=_crmFiltered().filter(cv=>(cv.stage&&STAGES.some(s=>s.key===cv.stage)?cv.stage:firstKey)===stageKey).map(cv=>cv.id);
+  const allSel=ids.length&&ids.every(id=>_crmSel.has(id));
+  if(allSel)ids.forEach(id=>_crmSel.delete(id));else ids.forEach(id=>_crmSel.add(id));
+  renderCrm();
+}
+function crmToggleDD(btn){
+  const menu=btn.nextElementSibling;if(!menu)return;
+  const open=menu.style.display==='block';
+  document.querySelectorAll('.crmDDMenu').forEach(m=>m.style.display='none');
+  menu.style.display=open?'none':'block';
+}
+document.addEventListener('click',e=>{if(!e.target.closest('.crmDD'))document.querySelectorAll('.crmDDMenu').forEach(m=>m.style.display='none');});
+function crmSelToolbarHTML(){
+  const n=_crmSel.size;if(!n)return'';
+  const STAGES=crmStages();
+  const ddItem=(lbl,fn)=>`<button class="btn sm ghost" style="width:100%;justify-content:flex-start;text-align:left" onclick="${fn}">${lbl}</button>`;
+  const moveOpts=STAGES.map(s=>ddItem(s.label,`crmBulkMove('${s.key}')`)).join('');
+  return `<div style="position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:500;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:8px 10px;box-shadow:0 8px 30px rgba(0,0,0,.4)">
+    <span style="font-size:12.5px;font-weight:700;padding:0 6px;white-space:nowrap">${n} selecionado${n===1?'':'s'}</span>
+    <div class="crmDD" style="position:relative"><button class="btn sm ghost" onclick="crmToggleDD(this)">🏷️ Rotular ▾</button>
+      <div class="crmDDMenu" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:200px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+        ${ddItem('⚑ Irrelevante','crmBulkFlag(\'irrelevante\')')}
+        ${ddItem('⚠ Número errado','crmBulkFlag(\'num_errado\')')}
+        ${ddItem('✓ Relevante (limpar marcas)','crmBulkFlag(\'limpar\')')}
+      </div></div>
+    <div class="crmDD" style="position:relative"><button class="btn sm ghost" onclick="crmToggleDD(this)">➡️ Mover ▾</button>
+      <div class="crmDDMenu" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:170px;max-height:260px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)">${moveOpts}</div></div>
+    <button class="btn sm ghost" onclick="crmBulkCSV()">⬇️ CSV</button>
+    <button class="btn sm ghost" style="color:#f87171" onclick="crmSelClear()">✕ Limpar</button>
+  </div>`;
+}
+function _csvEsc(v){const s=String(v==null?'':v).replace(/"/g,'""');return /[",;\n]/.test(s)?'"'+s+'"':s;}
+function crmBulkCSV(){
+  document.querySelectorAll('.crmDDMenu').forEach(m=>m.style.display='none');
+  const ids=[..._crmSel];if(!ids.length)return;
+  const STAGES=crmStages();
+  const rows=ids.map(id=>_crmConvs.find(x=>x.id===id)).filter(Boolean);
+  const head=['Nome','Telefone','Etapa','Origem','Produto','Valor','Email','Primeiro contato','Último contato'];
+  const lines=[head.map(_csvEsc).join(';')];
+  rows.forEach(cv=>{
+    const f=cv.fields||{};const st=STAGES.find(s=>s.key===cv.stage);
+    const origem=cv.origin_type==='anuncio'?'Anúncio':cv.origin_type==='utm'?'UTM':'Orgânico';
+    lines.push([cv.name||cv.chat_id,cv.chat_id,st?st.label:(cv.stage||''),origem,f.produto||'',f.valor||'',f.email||'',cv._first?_crmDH(cv._first):'',cv.last_at?_crmDH(cv.last_at):''].map(_csvEsc).join(';'));
+  });
+  const csv='﻿'+lines.join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='crm_'+today()+'.csv';document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
+}
+async function crmBulkFlag(kind){
+  document.querySelectorAll('.crmDDMenu').forEach(m=>m.style.display='none');
+  const ids=[..._crmSel];if(!ids.length)return;
+  let patch;
+  if(kind==='irrelevante')patch={irrelevante:true,irrelevante_motivo:'Marcado manualmente em lote'};
+  else if(kind==='num_errado')patch={num_errado:true};
+  else patch={irrelevante:false,num_errado:false,irrelevante_motivo:null};
+  await sb.from('wa_conversations').update(patch).in('id',ids);
+  ids.forEach(id=>{const cv=_crmConvs.find(x=>x.id===id);if(cv)Object.assign(cv,patch);});
+  _crmSel.clear();renderCrm();
+}
+async function crmBulkMove(stage){
+  document.querySelectorAll('.crmDDMenu').forEach(m=>m.style.display='none');
+  const ids=[..._crmSel];if(!ids.length)return;
+  const st=crmStages().find(s=>s.key===stage);
+  const rows=[],toUpdate=[];
+  ids.forEach(id=>{const cv=_crmConvs.find(x=>x.id===id);if(!cv||cv.stage===stage)return;
+    rows.push({id:uid(),conversation_id:id,client_id:cv.client_id||null,from_stage:cv.stage||null,to_stage:stage,source:'manual',why:'Movido em lote pela equipe',actor:teamName(currentTeamId)||'equipe'});
+    toUpdate.push(id);cv.stage=stage;
+  });
+  if(!toUpdate.length){_crmSel.clear();renderCrm();return;}
+  await sb.from('wa_conversations').update({stage}).in('id',toUpdate);
+  await sb.from('wa_journey').insert(rows);
+  if(st&&st.event)toUpdate.forEach(id=>crmFireCapi(id,stage));
+  if(_crmActive&&toUpdate.includes(_crmActive.id)){_crmActive.stage=stage;renderCrmDrawer();}
+  _crmSel.clear();renderCrm();
 }
 function crmCardHTML(cv){
   const o=cv.origin||{};const f=cv.fields||{};
@@ -2834,10 +2920,13 @@ function crmCardHTML(cv){
   // rodapé: primeiro → último contato
   const datas=`<div style="display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:var(--faint);margin-top:2px">${cv._first?`<span title="primeiro contato">🕐 ${_crmDH(cv._first)}</span>`:'<span></span>'}${cv.last_at?`<span title="último contato" style="text-align:right">↳ ${_crmDH(cv.last_at)}</span>`:''}</div>`;
   const novo=cv.unread?'<div style="text-align:right;margin-top:4px"><span style="font-size:9px;font-weight:800;color:#0a0906;background:var(--accent);border-radius:20px;padding:1px 6px">novo</span></div>':'';
-  return `<div draggable="true" ondragstart="crmDragStart(event,'${cv.id}')" onclick="openCrmConv('${cv.id}')" style="background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:11px 12px;cursor:pointer">
-    ${head}${fone}${flagsRow}${origem}
+  const sel=_crmSel.has(cv.id);
+  const checkbox=`<input type="checkbox" onclick="event.stopPropagation();crmSelToggle('${cv.id}')" ${sel?'checked':''} style="width:auto;flex:none;margin-top:2px" title="Selecionar">`;
+  return `<div draggable="true" ondragstart="crmDragStart(event,'${cv.id}')" onclick="openCrmConv('${cv.id}')" style="background:var(--surface2);border:1px solid ${sel?'var(--accent)':'var(--border)'};border-radius:11px;padding:11px 12px;cursor:pointer;display:flex;gap:8px">
+    ${checkbox}
+    <div style="flex:1;min-width:0">${head}${fone}${flagsRow}${origem}
     ${div}${met}${prod}${valor}${email}
-    ${div}${datas}${novo}</div>`;
+    ${div}${datas}${novo}</div></div>`;
 }
 function crmDragStart(e,id){e.dataTransfer.setData('text/plain',id);e.dataTransfer.effectAllowed='move';}
 async function crmDrop(e,stage){
