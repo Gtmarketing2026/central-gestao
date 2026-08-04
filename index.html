@@ -3432,7 +3432,7 @@ function crmFunnelSVG(items){
   const n=items.length;if(!n)return '<div class="empty" style="padding:18px">Sem dados no período.</div>';
   const esc=s=>String(s||'').replace(/</g,'&lt;');
   const hasSub=items.some(it=>it.sub);
-  const W=900,segH=hasSub?60:48,H=n*segH+10,cx=330,maxHW=300,minHW=40;
+  const W=900,segH=hasSub?60:48,H=n*segH+10,cx=430,maxHW=260,minHW=40;
   const top=items[0].value||0;
   const hw=v=>{const p=top>0?Math.max(0,Math.min(1,(v||0)/top)):0;return minHW+(maxHW-minHW)*p;};
   let body='';
