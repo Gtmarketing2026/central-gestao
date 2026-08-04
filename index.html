@@ -1662,6 +1662,9 @@ const METRIC_CATALOG={
   custoPorEngajamento:{label:'Custo por Engajamento',calc:a=>a.engajamentos?a.spend/a.engajamentos:0,fmt:'money'},
 };
 const FUNNEL_CATALOG={impressoes:{label:'Impressões',calc:a=>a.impressions},alcance:{label:'Alcance',calc:a=>a.reach},videoViews:{label:'Views de Vídeo',calc:a=>a.videoViews},cliques:{label:'Cliques no Link',calc:a=>a.clicks},engajamentos:{label:'Engajamentos',calc:a=>a.engajamentos},conversas:{label:'Conversas',calc:a=>a.conversas},addCarrinho:{label:'Add ao Carrinho',calc:a=>a.addCarrinho},checkout:{label:'Checkout',calc:a=>a.checkout},leads:{label:'Leads',calc:a=>a.leads},compras:{label:'Compras/Vendas',calc:a=>a.compras}};
+// Métricas que o Google Ads não alimenta neste sistema (sempre zero pra esse canal) — não oferecer no seletor quando o Dashboard está em "Google Ads".
+const GOOGLE_METRIC_GAP=new Set(['alcance','frequencia','addCarrinho','checkout','leads','cpl','conversas','custoPorConversa']);
+const _dashCatalogOpts=(catalog,taken)=>Object.entries(catalog).filter(([k])=>!taken.includes(k)&&!(_dashSource==='google'&&GOOGLE_METRIC_GAP.has(k)));
 // Modelos-base TRAVADOS, um por objetivo do Meta
 const BASE_TEMPLATES=[
   {id:'base_conversao',name:'Vendas / Conversão (base)',objectiveType:'conversao',keyMetric:'compras',metrics:['valorGasto','roas','receita','custoPorCompra','compras','cpc','ctr'],funnel:['impressoes','alcance','cliques','checkout','compras'],isBase:true,source:'meta'},
@@ -8472,7 +8475,7 @@ function renderDashKpiEditor(){
   const s=dashKpiKeys();
   const rows=s.map((k,i)=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 9px;font-size:12px"><b>${i+1}.</b> ${METRIC_CATALOG[k].label}
     <a onclick="dashKpiMove(${i},-1)" style="cursor:pointer;color:var(--muted)">◀</a><a onclick="dashKpiMove(${i},1)" style="cursor:pointer;color:var(--muted)">▶</a><a onclick="dashKpiRemove(${i})" style="cursor:pointer;color:#f87171;font-weight:700">×</a></span>`).join('');
-  const opts=Object.entries(METRIC_CATALOG).filter(([k])=>!s.includes(k)).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
+  const opts=_dashCatalogOpts(METRIC_CATALOG,s).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
   p.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">${rows}
     <select onchange="dashKpiAdd(this.value);this.value=''" style="width:auto;font-size:12px"><option value="">+ adicionar métrica…</option>${opts}</select>
     <button class="btn sm primary" type="button" onclick="dashKpiSaveDefault()">💾 Salvar padrão do cliente</button>
@@ -8487,7 +8490,8 @@ function renderDashBench(){
   if(!bm){el.style.display='none';return}
   const agg=dashAggFiltered();
   const map=[['ctr','ctr','CTR',1],['cpc','cpc','CPC',-1],['cpm','cpm','CPM',-1],['roas','roas','ROAS',1],['cpa','custoPorCompra','Custo por Compra',-1],['cpl','cpl','CPL',-1],['custoConversa','custoPorConversa','Custo por Conversa',-1],['custoView','custoPorView','Custo por View',-1]];
-  const rows=map.filter(([bk])=>bm[bk]!=null&&+bm[bk]!==0).map(([bk,mk,lbl,dir])=>{
+  // canal Google puro não alimenta leads/conversas nesse sistema — meta de CPL/Custo-por-Conversa ficaria zerada e pareceria uma "melhora" falsa.
+  const rows=map.filter(([bk,mk])=>bm[bk]!=null&&+bm[bk]!==0&&!(_dashSource==='google'&&GOOGLE_METRIC_GAP.has(mk))).map(([bk,mk,lbl,dir])=>{
     const mc=METRIC_CATALOG[mk];const cur=mc.calc(agg);const bench=+bm[bk];
     const delta=bench?((cur-bench)/bench)*100:0;
     const good=dir>0?delta>=0:delta<=0;
@@ -8825,7 +8829,7 @@ function renderDashFunnelEditor(){
   const s=dashFunnelStages();
   const rows=s.map((k,i)=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 9px;font-size:12px"><b>${i+1}.</b> ${FUNNEL_CATALOG[k].label}
     <a onclick="dashFunnelMove(${i},-1)" title="mover antes" style="cursor:pointer;color:var(--muted)">◀</a><a onclick="dashFunnelMove(${i},1)" title="mover depois" style="cursor:pointer;color:var(--muted)">▶</a><a onclick="dashFunnelRemove(${i})" title="remover" style="cursor:pointer;color:#f87171;font-weight:700">×</a></span>`).join('');
-  const opts=Object.entries(FUNNEL_CATALOG).filter(([k])=>!s.includes(k)).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
+  const opts=_dashCatalogOpts(FUNNEL_CATALOG,s).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
   p.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">${rows}
     <select onchange="dashFunnelAdd(this.value);this.value=''" style="width:auto;font-size:12px"><option value="">+ adicionar etapa…</option>${opts}</select>
     <button class="btn sm primary" type="button" onclick="dashFunnelSaveDefault()">💾 Salvar padrão do cliente</button>
