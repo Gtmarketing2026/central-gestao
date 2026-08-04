@@ -78,6 +78,8 @@
   .btn.danger:hover{border-color:var(--red);color:var(--red)}
   input,select,textarea{font-family:inherit;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 11px;border-radius:var(--radius-sm);font-size:13px;width:100%}
   input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  input[type=number]{-moz-appearance:textfield}
+  input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
   label{font-size:12px;color:var(--muted);display:block;margin-bottom:5px}
   table{width:100%;border-collapse:collapse}
   th{text-align:left;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:10px 12px;border-bottom:1px solid var(--border)}
@@ -8770,7 +8772,7 @@ function dashShareHTML(){
   ${img('cDashLine')?`<div class="sec"><h2>📈 Evolução Diária</h2>${img('cDashLine')}</div>`:''}
   ${funBars?`<div class="sec"><h2>🔻 Funil</h2>${funBars}</div>`:''}
   ${bench}
-  ${(img('cDashBar')||img('cDashDonut'))?`<div class="sec"><h2>🏆 Top & Distribuição</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">${img('cDashBar')}${img('cDashDonut')}</div></div>`:''}
+  ${(function(){const lv=dashLevelData(_dashLevel,_dashLevelMetric);const topHtml=lv.length?dashTopLevelHTML(lv,{bg:'#22222c',muted:'#9aa0aa'}):'';const donutImg=img('cDashDonut');return (topHtml||donutImg)?`<div class="sec"><h2>🏆 Top & Distribuição</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">${topHtml?`<div>${topHtml}</div>`:''}${donutImg}</div></div>`:'';})()}
   ${extra}
   <div class="ft">Gerado em ${new Date().toLocaleDateString('pt-BR')} · GT Marketing</div>
   </body></html>`;
@@ -8913,10 +8915,30 @@ function dashLevelData(level,key){
   const groups={};
   dashFilteredAds().forEach(a=>{
     const name=level==='campanha'?(a.campaign||'—'):level==='conjunto'?((a.campaign||'')+' · '+(a.adset||'—')):(a.adName||'—');
-    if(!groups[name])groups[name]={name,spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,conversas:0,videoViews:0,engajamentos:0};
+    if(!groups[name])groups[name]={name,spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,conversas:0,videoViews:0,engajamentos:0,thumbnail:null};
     ['spend','impressions','clicks','reach','revenue','purchases','leads','conversas','videoViews','engajamentos'].forEach(f=>groups[name][f]+=(a[f]||0));
+    if(level==='anuncio'&&!groups[name].thumbnail&&a.thumbnail)groups[name].thumbnail=a.thumbnail;
   });
-  return Object.values(groups).map(g=>({name:g.name,value:dashVal(g,key)})).filter(x=>x.value>0).sort((a,b)=>b.value-a.value);
+  return Object.values(groups).map(g=>({name:g.name,value:dashVal(g,key),thumbnail:g.thumbnail})).filter(x=>x.value>0).sort((a,b)=>b.value-a.value);
+}
+// Lista "Top por Nível" com miniatura do criativo (quando nível=anúncio) — o(bg,muted) permite reusar no HTML exportado (sem CSS vars).
+function dashTopLevelHTML(data,o){
+  o=o||{};const bg=o.bg||'var(--surface2)',mut=o.muted||'var(--faint)';
+  const top=data.slice(0,10);
+  if(!top.length)return `<div style="padding:10px;color:${mut};font-size:12px">Sem dados no período.</div>`;
+  const max=Math.max(...top.map(d=>d.value))||1;
+  const fmtD=DASH_METRICS[_dashLevelMetric]||{fmt:'int'};
+  const esc=s=>String(s||'').replace(/</g,'&lt;');
+  const ico=_dashLevel==='anuncio'?'🖼':_dashLevel==='conjunto'?'🎯':'📣';
+  return `<div style="display:flex;flex-direction:column;gap:10px">${top.map(d=>{
+    const pct=Math.max(d.value/max*100,3);
+    const thumb=d.thumbnail?`<img src="${d.thumbnail}" referrerpolicy="no-referrer" style="width:38px;height:38px;object-fit:cover;border-radius:8px;flex:none;background:#111">`:`<div style="width:38px;height:38px;border-radius:8px;background:${bg};display:flex;align-items:center;justify-content:center;flex:none;font-size:15px">${ico}</div>`;
+    const nm=d.name.length>42?d.name.slice(0,42)+'…':d.name;
+    return `<div style="display:flex;align-items:center;gap:10px">${thumb}<div style="flex:1;min-width:0">
+      <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:3px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.name)}">${esc(nm)}</span><b style="flex:none">${fmtMetric(d.value,fmtD.fmt)}</b></div>
+      <div style="height:10px;background:${bg};border-radius:6px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${DASH_PAL[0]};border-radius:6px"></div></div>
+    </div></div>`;
+  }).join('')}</div>`;
 }
 function _destroyChart(k){if(_dashCharts[k]){_dashCharts[k].destroy();_dashCharts[k]=null;}}
 function drawDashLine(){
@@ -8929,8 +8951,8 @@ function drawDashLine(){
 }
 function drawDashLevel(){
   const data=dashLevelData(_dashLevel,_dashLevelMetric);
-  const bar=document.getElementById('cDashBar'),don=document.getElementById('cDashDonut');
-  if(bar&&window.Chart){_destroyChart('bar');const top=data.slice(0,10);_dashCharts.bar=new Chart(bar,{type:'bar',data:{labels:top.map(d=>d.name.length>28?d.name.slice(0,28)+'…':d.name),datasets:[{data:top.map(d=>d.value),backgroundColor:DASH_PAL[0],borderRadius:4}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#9aa0aa'},grid:{color:'rgba(255,255,255,.05)'}},y:{ticks:{color:'#c7ccd4',font:{size:10}},grid:{display:false}}}}});}
+  const box=document.getElementById('dashTopLevelBox');if(box)box.innerHTML=dashTopLevelHTML(data);
+  const don=document.getElementById('cDashDonut');
   if(don&&window.Chart){_destroyChart('donut');const top=data.slice(0,7);const outros=data.slice(7).reduce((s,d)=>s+d.value,0);const labels=top.map(d=>d.name.length>22?d.name.slice(0,22)+'…':d.name);const vals=top.map(d=>d.value);if(outros>0){labels.push('Outros');vals.push(outros);}_dashCharts.donut=new Chart(don,{type:'doughnut',data:{labels,datasets:[{data:vals,backgroundColor:DASH_PAL,borderColor:'#131210',borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'right',labels:{color:'#9aa0aa',boxWidth:10,padding:8,font:{size:10}}}}}});}
 }
 function setDashLine(w,v){if(w==='a')_dashLineA=v;else _dashLineB=v;drawDashLine();}
@@ -9028,7 +9050,7 @@ function renderMetaDashboard(c,rep,since,until){
           <h3 style="margin:0">🏆 Top por Nível</h3>
           <div style="display:flex;gap:6px;align-items:center"><div style="display:flex;gap:4px">${lvlBtns}</div><select onchange="setDashLevelMetric(this.value)" style="width:auto;font-size:12px">${dashMetOpts(_dashLevelMetric)}</select></div>
         </div>
-        <div class="chart-box tall"><canvas id="cDashBar"></canvas></div>
+        <div id="dashTopLevelBox" class="chart-box tall" style="overflow-y:auto"></div>
       </div>
       <div class="card">
         <h3 style="margin:0 0 10px">🍩 Distribuição</h3>
