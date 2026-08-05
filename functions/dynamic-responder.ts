@@ -3345,13 +3345,21 @@ async function ga4Report(m: any) {
 // GA4 por DIA × ORIGEM/MÍDIA × CAMPANHA × CONTEÚDO DO ANÚNCIO — evento purchase (transações) e receita.
 // Alimenta o Banco de Dados como canal "ga4". Retenção de dados do GA4 (2/14 meses) só afeta relatórios de
 // usuário/evento individual — relatórios agregados (data + dimensões como essas) seguem consultáveis sempre.
+// Receita = "Valor do evento" (eventValue) filtrado por eventName=purchase — bate com a Exploração que o gestor já usa
+// no GA4 (não usar purchaseRevenue: é a receita "oficial" de e-commerce do GA4, calculada diferente e não confere).
 async function ga4DailyBySource(m: any) {
   const prop = String(m.propertyId || "").replace(/[^0-9]/g, "");
   if (!prop) throw new Error("propertyId do GA4 obrigatório");
   const token = await _gsaToken(["https://www.googleapis.com/auth/analytics.readonly"]);
   const r = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${prop}:runReport`, {
     method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ dateRanges: [{ startDate: m.since, endDate: m.until }], dimensions: [{ name: "date" }, { name: "sessionSourceMedium" }, { name: "sessionCampaignName" }, { name: "sessionManualAdContent" }], metrics: [{ name: "transactions" }, { name: "purchaseRevenue" }], limit: 100000 }),
+    body: JSON.stringify({
+      dateRanges: [{ startDate: m.since, endDate: m.until }],
+      dimensions: [{ name: "date" }, { name: "sessionSourceMedium" }, { name: "sessionCampaignName" }, { name: "sessionManualAdContent" }],
+      metrics: [{ name: "eventCount" }, { name: "eventValue" }],
+      dimensionFilter: { filter: { fieldName: "eventName", stringFilter: { value: "purchase" } } },
+      limit: 100000,
+    }),
   });
   const j = await r.json();
   if (j.error) throw new Error(`GA4: ${j.error.message}`);
