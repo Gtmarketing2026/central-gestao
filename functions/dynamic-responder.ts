@@ -331,6 +331,7 @@ async function metaAdsInsights(m: any) {
   async function fetchInsights(acct: string, level: string, extra = "") {
     let lvlFields = "";
     if (level === "campaign") lvlFields = ",campaign_name,campaign_id";
+    else if (level === "adset") lvlFields = ",campaign_name,campaign_id,adset_name,adset_id";
     else if (level === "ad") lvlFields = ",campaign_name,campaign_id,adset_name,adset_id,ad_name,ad_id";
     let url: string | null = `${base}/act_${acct}/insights?level=${level}&fields=${fields}${lvlFields}${range}${extra}&use_unified_attribution_setting=true&limit=200&access_token=${token}`;
     const out: any[] = [];
@@ -424,6 +425,7 @@ async function metaAdsInsights(m: any) {
   }
   const totAgg: any = { spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0 };
   const byCamp: Record<string, any> = {};
+  const byAdset: Record<string, any> = {};
   const ads: any[] = [];
   const wantObj = m.byAd || m.byCampaign;
   // Contas em PARALELO, e dentro de cada conta as chamadas (conta/objetivos/anuncios/campanhas/thumbs) tambem em paralelo.
@@ -448,7 +450,7 @@ async function metaAdsInsights(m: any) {
   const perAccount = await Promise.all(accounts.map(async (acc) => {
     const statusIssue = await fetchAccountStatus(acc.id);
     try {
-      const [accountRows, acctDaily, objByCampId, adRows, campRows, campDedup] = await Promise.all([
+      const [accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, adsetRows] = await Promise.all([
         fetchInsights(acc.id, "account"),
         m.daily ? fetchInsights(acc.id, "account", "&time_increment=1") : Promise.resolve([] as any[]),
         wantObj ? fetchObjectives(acc.id) : Promise.resolve({} as Record<string, any>),
@@ -457,16 +459,17 @@ async function metaAdsInsights(m: any) {
         // ALCANCE nao e somavel: a busca diaria (time_increment=1) soma a mesma pessoa a cada dia.
         // Buscamos tambem SEM quebra diaria pra ter o reach/frequencia DEDUPLICADO por campanha no periodo.
         (m.byCampaign && m.daily) ? fetchInsights(acc.id, "campaign", "") : Promise.resolve([] as any[]),
+        m.byAdset ? fetchInsights(acc.id, "adset", m.daily ? "&time_increment=1" : "") : Promise.resolve([] as any[]),
       ]);
-      return { acc, accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, error: statusIssue as string | null };
+      return { acc, accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, adsetRows, error: statusIssue as string | null };
     } catch (e) {
       // conta com erro NAO derruba as outras: devolve vazia + motivo (front mostra o disclaimer)
-      return { acc, accountRows: [] as any[], acctDaily: [] as any[], objByCampId: {} as Record<string, any>, adRows: [] as any[], campRows: [] as any[], campDedup: [] as any[], error: statusIssue || (e as any)?.message || String(e) };
+      return { acc, accountRows: [] as any[], acctDaily: [] as any[], objByCampId: {} as Record<string, any>, adRows: [] as any[], campRows: [] as any[], campDedup: [] as any[], adsetRows: [] as any[], error: statusIssue || (e as any)?.message || String(e) };
     }
   }));
   const accountErrors = perAccount.filter((p) => p.error).map((p) => ({ id: p.acc.id, name: p.acc.name || p.acc.id, error: p.error }));
   const totRecByDate: Record<string, any> = {};
-  for (const { acc, accountRows, acctDaily, objByCampId, adRows, campRows, campDedup } of perAccount) {
+  for (const { acc, accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, adsetRows } of perAccount) {
     for (const row of acctDaily) {
       const s = shape(row); const k = row.date_start;
       if (!totRecByDate[k]) totRecByDate[k] = { date: k, sales: 0, spend: 0, revenue: 0, clicks: 0, impressions: 0, reach: 0, leads: 0, conversas: 0, videoViews: 0, engajamentos: 0, addToCart: 0, checkout: 0 };
@@ -509,6 +512,14 @@ async function metaAdsInsights(m: any) {
       const s = shape(row);
       if (byCamp[label]) byCamp[label].reach += s.reach; // soma so entre contas (audiencias distintas), nunca entre dias/anuncios
     }
+    for (const row of adsetRows) {
+      const label = (row.campaign_name || "Meta Ads") + " › " + (row.adset_name || "Conjunto");
+      const s = shape(row);
+      if (!byAdset[label]) byAdset[label] = { campaign: row.campaign_name || "", adset: row.adset_name || "", spend: 0, records: [] };
+      const c = byAdset[label];
+      c.spend += s.spend;
+      if (m.daily) c.records.push({ date: row.date_start, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: s.reach, leads: s.leads, conversas: s.conversas, videoViews: s.videoViews, engajamentos: s.engajamentos });
+    }
   }
   const total = {
     ...totAgg,
@@ -532,7 +543,7 @@ async function metaAdsInsights(m: any) {
     const thumbs = await fetchThumbsByIds(topIds);
     for (const a of ads) if (thumbs[a.adId]) a.thumbnail = thumbs[a.adId];
   }
-  return { total, campaigns, ads, accounts, accountErrors, period: m.since && m.until ? { since: m.since, until: m.until } : { datePreset: m.datePreset || "last_30d" } };
+  return { total, campaigns, adsets: Object.values(byAdset), ads, accounts, accountErrors, period: m.since && m.until ? { since: m.since, until: m.until } : { datePreset: m.datePreset || "last_30d" } };
 }
 
 // Saldo pré-pago da conta (pix/boleto): funding_source_details traz o saldo disponível
@@ -1041,11 +1052,12 @@ async function googleAdsInsights(g: any) {
   const totAgg: any = { spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0 };
   const totRecByDate: Record<string, any> = {};
   const byCamp: Record<string, any> = {};
+  const byAdset: Record<string, any> = {};
   const ads: any[] = [];
 
   const perAccount = await Promise.all(accounts.map(async (acc) => {
     try {
-      const [accountRows, acctDaily, campRows, adRows, campConvRows, adConvRows] = await Promise.all([
+      const [accountRows, acctDaily, campRows, adRows, campConvRows, adConvRows, adsetRows] = await Promise.all([
         gadsSearch(acc.id, `SELECT ${GADS_METRICS} FROM customer WHERE ${range}`, token),
         g.daily ? gadsSearch(acc.id, `SELECT segments.date, ${GADS_METRICS} FROM customer WHERE ${range}`, token) : Promise.resolve([] as any[]),
         g.byCampaign ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, campaign.advertising_channel_type, campaign_budget.amount_micros, campaign_budget.resource_name${g.daily ? ", segments.date" : ""}, ${GADS_METRICS_FULL} FROM campaign WHERE ${range}`, token) : Promise.resolve([] as any[]),
@@ -1053,10 +1065,11 @@ async function googleAdsInsights(g: any) {
         // quebra das conversões por AÇÃO (form, WhatsApp, ligação, compra...) — por campanha e por anúncio
         (g.byCampaign || g.byAd) ? gadsSearch(acc.id, `SELECT campaign.id, segments.conversion_action_name, segments.conversion_action_category, metrics.conversions FROM campaign WHERE ${range} AND metrics.conversions > 0`, token).catch(() => [] as any[]) : Promise.resolve([] as any[]),
         g.byAd ? gadsSearch(acc.id, `SELECT ad_group_ad.ad.id, segments.conversion_action_name, segments.conversion_action_category, metrics.conversions FROM ad_group_ad WHERE ${range} AND metrics.conversions > 0`, token).catch(() => [] as any[]) : Promise.resolve([] as any[]),
+        g.byAdset ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, ad_group.id, ad_group.name${g.daily ? ", segments.date" : ""}, ${GADS_METRICS_FULL} FROM ad_group WHERE ${range}`, token) : Promise.resolve([] as any[]),
       ]);
-      return { acc, accountRows, acctDaily, campRows, adRows, campConvRows, adConvRows, error: null as string | null };
+      return { acc, accountRows, acctDaily, campRows, adRows, campConvRows, adConvRows, adsetRows, error: null as string | null };
     } catch (e) {
-      return { acc, accountRows: [] as any[], acctDaily: [] as any[], campRows: [] as any[], adRows: [] as any[], campConvRows: [] as any[], adConvRows: [] as any[], error: (e as any)?.message || String(e) };
+      return { acc, accountRows: [] as any[], acctDaily: [] as any[], campRows: [] as any[], adRows: [] as any[], campConvRows: [] as any[], adConvRows: [] as any[], adsetRows: [] as any[], error: (e as any)?.message || String(e) };
     }
   }));
   const accountErrors = perAccount.filter((p) => p.error).map((p) => ({ id: p.acc.id, name: p.acc.name || p.acc.id, error: p.error }));
@@ -1075,7 +1088,7 @@ async function googleAdsInsights(g: any) {
   }
   const _actList = (acts: Record<string, number>) => Object.entries(acts).map(([name, count]) => ({ name, count: Math.round(count), bucket: _gConvBucket(name, "") })).sort((a, b) => b.count - a.count);
 
-  for (const { acc, accountRows, acctDaily, campRows, adRows } of perAccount) {
+  for (const { acc, accountRows, acctDaily, campRows, adRows, adsetRows } of perAccount) {
     for (const row of accountRows) {
       const s = gadsShape(row.metrics);
       totAgg.spend += s.spend; totAgg.impressions += s.impressions; totAgg.clicks += s.clicks;
@@ -1114,6 +1127,14 @@ async function googleAdsInsights(g: any) {
         convActions: ab ? _actList(ab.acts) : undefined,
         cpa: s.purchases ? s.spend / s.purchases : 0,
       });
+    }
+    for (const row of (adsetRows || [])) {
+      const label = (row.campaign?.name || "Google Ads") + " › " + (row.adGroup?.name || "Grupo de anúncios");
+      const s = gadsShape(row.metrics);
+      if (!byAdset[label]) byAdset[label] = { campaign: row.campaign?.name || "", adset: row.adGroup?.name || "", spend: 0, records: [] };
+      const c = byAdset[label];
+      c.spend += s.spend;
+      if (g.daily && row.segments?.date) c.records.push({ date: row.segments.date, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: 0, leads: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos });
     }
   }
   const total = {
@@ -1160,7 +1181,7 @@ async function googleAdsInsights(g: any) {
     }
   }
   ads.sort((a: any, b: any) => b.spend - a.spend);
-  return { total, campaigns, ads, accounts, accountErrors, period: { since, until } };
+  return { total, campaigns, adsets: Object.values(byAdset), ads, accounts, accountErrors, period: { since, until } };
 }
 
 // ===== TikTok Ads =====
@@ -1272,18 +1293,18 @@ async function pinterestAdsInsights(m: any) {
 async function channelMetricsCollect(m: any) {
   const since = m.since, until = m.until;
   if (!since || !until) throw new Error("since e until obrigatórios (YYYY-MM-DD)");
-  const ON_CONFLICT = "client_id,channel,date,source_medium,campaign,ad_content";
+  const ON_CONFLICT = "client_id,channel,date,source_medium,campaign,adset,ad_content";
   const clientsAll = await _sbAll("clients", "select=id,name,status,meta_account_id,google_account_id,ga4_property_id");
   const targets = (Array.isArray(m.clientIds) && m.clientIds.length)
     ? clientsAll.filter((c: any) => m.clientIds.includes(c.id))
     : clientsAll.filter((c: any) => c.status !== "Encerrado" && (c.meta_account_id || c.google_account_id || c.ga4_property_id));
   let saved = 0; const errors: any[] = [];
-  // Meta/Google: 1 linha por dia × CAMPANHA (não por ad — evita explosão de volume). GA4 não tem essa função porque
-  // já vem quebrado por dia×origem/mídia×campanha×conteúdo direto do runReport (ver ga4DailyBySource).
-  const toRows = (clientId: string, channel: string, campaign: string, records: any[]) => records.filter((r: any) => r.date).map((rec: any) => {
+  // Meta/Google: 1 linha por dia × CONJUNTO/GRUPO DE ANÚNCIOS (não por ad — evita explosão de volume). GA4 não tem essa
+  // função porque já vem quebrado por dia×origem/mídia×campanha×conteúdo direto do runReport (ver ga4DailyBySource).
+  const toRows = (clientId: string, channel: string, campaign: string, adset: string, records: any[]) => records.filter((r: any) => r.date).map((rec: any) => {
     const impressions = rec.impressions || 0, clicks = rec.clicks || 0, spend = rec.spend || 0;
     return {
-      id: `${clientId}_${channel}_${rec.date}_${campaign}`.slice(0, 300), client_id: clientId, channel, date: rec.date, source_medium: "", campaign, ad_content: "",
+      id: `${clientId}_${channel}_${rec.date}_${campaign}_${adset}`.slice(0, 300), client_id: clientId, channel, date: rec.date, source_medium: "", campaign, adset, ad_content: "",
       spend, impressions, clicks, ctr: impressions ? (clicks / impressions) * 100 : 0, cpm: impressions ? (spend / impressions) * 1000 : 0, reach: rec.reach || 0,
       purchases: rec.sales || 0, revenue: rec.revenue || 0, leads: rec.leads || 0, conversas: rec.conversas || 0,
       video_views: rec.videoViews || 0, engajamentos: rec.engajamentos || 0, updated_at: new Date().toISOString(),
@@ -1294,15 +1315,15 @@ async function channelMetricsCollect(m: any) {
     const gIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
     if (mIds.length) {
       try {
-        const r = await metaAdsInsights({ accounts: mIds.map((id: string) => ({ id, name: id })), since, until, daily: true, byCampaign: true });
-        const rows = ((r as any).campaigns || []).flatMap((camp: any) => toRows(c.id, "meta", camp.campaign || "Meta Ads", camp.records || []));
+        const r = await metaAdsInsights({ accounts: mIds.map((id: string) => ({ id, name: id })), since, until, daily: true, byCampaign: true, byAdset: true });
+        const rows = ((r as any).adsets || []).flatMap((as: any) => toRows(c.id, "meta", as.campaign || "Meta Ads", as.adset || "", as.records || []));
         if (rows.length) { await _sbUpsert("channel_metrics_daily", rows, ON_CONFLICT); saved += rows.length; }
       } catch (e) { errors.push({ client: c.name, channel: "meta", error: String((e as any)?.message || e) }); }
     }
     if (gIds.length) {
       try {
-        const r = await googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until, daily: true, byCampaign: true });
-        const rows = ((r as any).campaigns || []).flatMap((camp: any) => toRows(c.id, "google", camp.campaign || "Google Ads", camp.records || []));
+        const r = await googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until, daily: true, byCampaign: true, byAdset: true });
+        const rows = ((r as any).adsets || []).flatMap((as: any) => toRows(c.id, "google", as.campaign || "Google Ads", as.adset || "", as.records || []));
         if (rows.length) { await _sbUpsert("channel_metrics_daily", rows, ON_CONFLICT); saved += rows.length; }
       } catch (e) { errors.push({ client: c.name, channel: "google", error: String((e as any)?.message || e) }); }
     }
@@ -1311,7 +1332,7 @@ async function channelMetricsCollect(m: any) {
         const recs = await ga4DailyBySource({ propertyId: c.ga4_property_id, since, until });
         const rows = recs.map((rec: any) => ({
           id: `${c.id}_ga4_${rec.date}_${rec.sourceMedium}_${rec.campaign}_${rec.adContent}`.slice(0, 300), client_id: c.id, channel: "ga4", date: rec.date,
-          source_medium: rec.sourceMedium, campaign: rec.campaign || "", ad_content: rec.adContent || "",
+          source_medium: rec.sourceMedium, campaign: rec.campaign || "", adset: "", ad_content: rec.adContent || "",
           spend: 0, impressions: 0, clicks: 0, reach: 0, purchases: rec.purchases, revenue: rec.revenue,
           leads: 0, conversas: 0, video_views: 0, engajamentos: 0, updated_at: new Date().toISOString(),
         }));
