@@ -1272,17 +1272,21 @@ async function pinterestAdsInsights(m: any) {
 async function channelMetricsCollect(m: any) {
   const since = m.since, until = m.until;
   if (!since || !until) throw new Error("since e until obrigatórios (YYYY-MM-DD)");
-  const clientsAll = await _sbAll("clients", "select=id,name,status,meta_account_id,google_account_id");
+  const ON_CONFLICT = "client_id,channel,date,source_medium";
+  const clientsAll = await _sbAll("clients", "select=id,name,status,meta_account_id,google_account_id,ga4_property_id");
   const targets = (Array.isArray(m.clientIds) && m.clientIds.length)
     ? clientsAll.filter((c: any) => m.clientIds.includes(c.id))
-    : clientsAll.filter((c: any) => c.status !== "Encerrado" && (c.meta_account_id || c.google_account_id));
+    : clientsAll.filter((c: any) => c.status !== "Encerrado" && (c.meta_account_id || c.google_account_id || c.ga4_property_id));
   let saved = 0; const errors: any[] = [];
-  const toRows = (clientId: string, channel: string, records: any[]) => records.filter((r: any) => r.date).map((rec: any) => ({
-    id: `${clientId}_${channel}_${rec.date}`, client_id: clientId, channel, date: rec.date,
-    spend: rec.spend || 0, impressions: rec.impressions || 0, clicks: rec.clicks || 0, reach: rec.reach || 0,
-    purchases: rec.sales || 0, revenue: rec.revenue || 0, leads: rec.leads || 0, conversas: rec.conversas || 0,
-    video_views: rec.videoViews || 0, engajamentos: rec.engajamentos || 0, updated_at: new Date().toISOString(),
-  }));
+  const toRows = (clientId: string, channel: string, records: any[]) => records.filter((r: any) => r.date).map((rec: any) => {
+    const impressions = rec.impressions || 0, clicks = rec.clicks || 0, spend = rec.spend || 0;
+    return {
+      id: `${clientId}_${channel}_${rec.date}`, client_id: clientId, channel, date: rec.date, source_medium: "",
+      spend, impressions, clicks, ctr: impressions ? (clicks / impressions) * 100 : 0, cpm: impressions ? (spend / impressions) * 1000 : 0, reach: rec.reach || 0,
+      purchases: rec.sales || 0, revenue: rec.revenue || 0, leads: rec.leads || 0, conversas: rec.conversas || 0,
+      video_views: rec.videoViews || 0, engajamentos: rec.engajamentos || 0, updated_at: new Date().toISOString(),
+    };
+  });
   for (const c of targets) {
     const mIds = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
     const gIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
@@ -1290,15 +1294,26 @@ async function channelMetricsCollect(m: any) {
       try {
         const r = await metaAdsInsights({ accounts: mIds.map((id: string) => ({ id, name: id })), since, until, daily: true });
         const rows = toRows(c.id, "meta", (r as any).total?.records || []);
-        if (rows.length) { await _sbUpsert("channel_metrics_daily", rows, "client_id,channel,date"); saved += rows.length; }
+        if (rows.length) { await _sbUpsert("channel_metrics_daily", rows, ON_CONFLICT); saved += rows.length; }
       } catch (e) { errors.push({ client: c.name, channel: "meta", error: String((e as any)?.message || e) }); }
     }
     if (gIds.length) {
       try {
         const r = await googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until, daily: true, byCampaign: true });
         const rows = toRows(c.id, "google", (r as any).total?.records || []);
-        if (rows.length) { await _sbUpsert("channel_metrics_daily", rows, "client_id,channel,date"); saved += rows.length; }
+        if (rows.length) { await _sbUpsert("channel_metrics_daily", rows, ON_CONFLICT); saved += rows.length; }
       } catch (e) { errors.push({ client: c.name, channel: "google", error: String((e as any)?.message || e) }); }
+    }
+    if (c.ga4_property_id) {
+      try {
+        const recs = await ga4DailyBySource({ propertyId: c.ga4_property_id, since, until });
+        const rows = recs.map((rec: any) => ({
+          id: `${c.id}_ga4_${rec.date}_${rec.sourceMedium}`, client_id: c.id, channel: "ga4", date: rec.date, source_medium: rec.sourceMedium,
+          spend: 0, impressions: 0, clicks: 0, reach: 0, purchases: rec.purchases, revenue: rec.revenue,
+          leads: 0, conversas: 0, video_views: 0, engajamentos: 0, updated_at: new Date().toISOString(),
+        }));
+        if (rows.length) { await _sbUpsert("channel_metrics_daily", rows, ON_CONFLICT); saved += rows.length; }
+      } catch (e) { errors.push({ client: c.name, channel: "ga4", error: String((e as any)?.message || e) }); }
     }
   }
   return { saved, clientesProcessados: targets.length, errors };
@@ -3323,6 +3338,25 @@ async function ga4Report(m: any) {
   const tot = (arr: any[], k: string) => (Array.isArray(arr) ? arr : []).reduce((s: number, r: any) => s + (Number(r[k]) || 0), 0);
   return { propertyId: prop, periodo: { since: m.since, until: m.until }, canais, paginas, origens, campanhas,
     total: { receita: tot(canais as any[], "purchaseRevenue"), compras: tot(canais as any[], "transactions"), sessoes: tot(canais as any[], "sessions"), conversoes: tot(canais as any[], "conversions") } };
+}
+// GA4 por DIA × ORIGEM/MÍDIA — evento purchase (transações) e receita. Alimenta o Banco de Dados como canal "ga4".
+// Retenção de dados do GA4 (2/14 meses) só afeta relatórios de usuário/evento individual — relatórios agregados
+// (data + dimensão como essa) continuam consultáveis independente da retenção configurada na propriedade.
+async function ga4DailyBySource(m: any) {
+  const prop = String(m.propertyId || "").replace(/[^0-9]/g, "");
+  if (!prop) throw new Error("propertyId do GA4 obrigatório");
+  const token = await _gsaToken(["https://www.googleapis.com/auth/analytics.readonly"]);
+  const r = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${prop}:runReport`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ dateRanges: [{ startDate: m.since, endDate: m.until }], dimensions: [{ name: "date" }, { name: "sessionSourceMedium" }], metrics: [{ name: "transactions" }, { name: "purchaseRevenue" }], limit: 100000 }),
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(`GA4: ${j.error.message}`);
+  return (j.rows || []).map((row: any) => {
+    const raw = row.dimensionValues[0].value || ""; // YYYYMMDD
+    const date = raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}` : raw;
+    return { date, sourceMedium: row.dimensionValues[1].value || "(not set)", purchases: Number(row.metricValues[0].value) || 0, revenue: Number(row.metricValues[1].value) || 0 };
+  }).filter((r: any) => r.purchases > 0 || r.revenue > 0);
 }
 // Diagnóstico: quais propriedades do Search Console a service account enxerga
 async function gscSites() {

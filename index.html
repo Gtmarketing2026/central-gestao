@@ -3859,21 +3859,64 @@ async function loadConfiguracoes(){
 }
 /* ===== Banco de Dados (histórico diário por canal — CSV / Power BI) ===== */
 let _bdSince='',_bdUntil='',_bdClient='',_bdChannel='';
+const BD_CHANNEL_LABEL={meta:'Meta',google:'Google',ga4:'Google Analytics',tiktok:'TikTok',pinterest:'Pinterest'};
+const BD_METRIC_CATALOG={
+  source_medium:{label:'Origem/Mídia',fmt:'text'},
+  spend:{label:'Investimento',fmt:'money'},
+  impressions:{label:'Impressões',fmt:'int'},
+  clicks:{label:'Cliques no Link',fmt:'int'},
+  ctr:{label:'CTR',fmt:'pct'},
+  cpm:{label:'CPM',fmt:'money'},
+  reach:{label:'Alcance',fmt:'int'},
+  purchases:{label:'Resultados',fmt:'int'},
+  revenue:{label:'Receita',fmt:'money'},
+  leads:{label:'Leads',fmt:'int'},
+  conversas:{label:'Conversas',fmt:'int'},
+  video_views:{label:'Views de Vídeo (ThruPlay)',fmt:'int'},
+  engajamentos:{label:'Engajamentos',fmt:'int'},
+};
+const BD_DEFAULT_COLS=['source_medium','spend','impressions','clicks','ctr','cpm','purchases'];
+let _bdCols=null;
+function bdCols(){
+  if(_bdCols)return _bdCols;
+  try{const s=JSON.parse(localStorage.getItem('bdCols')||'null');if(Array.isArray(s)&&s.length){_bdCols=s.filter(k=>BD_METRIC_CATALOG[k]);return _bdCols;}}catch(e){}
+  _bdCols=BD_DEFAULT_COLS.slice();return _bdCols;
+}
+function bdColsApply(cols){_bdCols=cols;localStorage.setItem('bdCols',JSON.stringify(cols));bdRenderTable();renderBdColsEditor();}
+function bdColMove(i,d){const s=bdCols().slice();const j=i+d;if(j<0||j>=s.length)return;[s[i],s[j]]=[s[j],s[i]];bdColsApply(s);}
+function bdColRemove(i){const s=bdCols().slice();s.splice(i,1);bdColsApply(s);}
+function bdColAdd(k){if(!k||!BD_METRIC_CATALOG[k])return;const s=bdCols();if(!s.includes(k))bdColsApply(s.concat(k));}
+function bdColReset(){localStorage.removeItem('bdCols');_bdCols=null;bdRenderTable();renderBdColsEditor();}
+function toggleBdColsEditor(){const p=document.getElementById('bdColsEditor');if(!p)return;p.style.display=p.style.display==='none'?'block':'none';renderBdColsEditor();}
+function renderBdColsEditor(){
+  const p=document.getElementById('bdColsEditor');if(!p||p.style.display==='none')return;
+  const s=bdCols();
+  const rows=s.map((k,i)=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 9px;font-size:12px"><b>${i+1}.</b> ${BD_METRIC_CATALOG[k].label}
+    <a onclick="bdColMove(${i},-1)" title="mover antes" style="cursor:pointer;color:var(--muted)">◀</a><a onclick="bdColMove(${i},1)" title="mover depois" style="cursor:pointer;color:var(--muted)">▶</a><a onclick="bdColRemove(${i})" title="remover" style="cursor:pointer;color:#f87171;font-weight:700">×</a></span>`).join('');
+  const opts=Object.entries(BD_METRIC_CATALOG).filter(([k])=>!s.includes(k)).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
+  p.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">${rows}
+    <select onchange="bdColAdd(this.value);this.value=''" style="width:auto;font-size:12px"><option value="">+ adicionar coluna…</option>${opts}</select>
+    <button class="btn sm ghost" onclick="bdColReset()">↺ restaurar padrão</button></div>
+    <div style="font-size:11px;color:var(--faint);margin-bottom:10px">◀ ▶ mudam a ordem · × remove. O CSV sempre baixa com todas as métricas disponíveis — esse filtro é só pra tela.</div>`;
+}
 function _bdDateFmt(d){if(!d)return'—';const s=String(d).slice(0,10);const[y,m,dd]=s.split('-');return`${dd}/${m}/${y}`}
 async function loadBancoDados(){
   const el=document.getElementById('bdBody');if(!el)return;
   _bdSince=_bdSince||daysAgoISO(30);_bdUntil=_bdUntil||today();
   const clientOpts=DB.clients.slice().sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}" ${_bdClient===c.id?'selected':''}>${c.name.replace(/</g,'&lt;')}</option>`).join('');
+  const chOpts=Object.entries(BD_CHANNEL_LABEL).map(([k,l])=>`<option value="${k}" ${_bdChannel===k?'selected':''}>${l}</option>`).join('');
   el.innerHTML=`
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:10px">
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">DE</label><input type="date" id="bdSince" value="${_bdSince}" style="width:auto;font-size:12px"></div>
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ATÉ</label><input type="date" id="bdUntil" value="${_bdUntil}" style="width:auto;font-size:12px"></div>
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CLIENTE</label><select id="bdClient" style="width:auto;font-size:12px"><option value="">Todos</option>${clientOpts}</select></div>
-        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CANAL</label><select id="bdChannel" style="width:auto;font-size:12px"><option value="" ${!_bdChannel?'selected':''}>Todos</option><option value="meta" ${_bdChannel==='meta'?'selected':''}>Meta</option><option value="google" ${_bdChannel==='google'?'selected':''}>Google</option></select></div>
+        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CANAL</label><select id="bdChannel" style="width:auto;font-size:12px"><option value="" ${!_bdChannel?'selected':''}>Todos</option>${chOpts}</select></div>
         <button class="btn sm primary" onclick="bdApplyFilters()">Aplicar</button>
+        <button class="btn sm ghost" onclick="toggleBdColsEditor()">✎ Editar colunas</button>
         <button class="btn sm ghost" onclick="bdDownloadCSV(this)">⬇️ Baixar CSV</button>
       </div>
+      <div id="bdColsEditor" style="display:none;margin-bottom:6px"></div>
       <div id="bdSummary" style="display:flex;gap:10px;flex-wrap:wrap"></div>
     </div>
     <div class="card" style="margin-bottom:16px">
@@ -3900,8 +3943,9 @@ function bdApplyFilters(){
   _bdChannel=document.getElementById('bdChannel').value||'';
   return bdRenderTable();
 }
+const BD_ALL_FIELDS='date,channel,client_id,source_medium,spend,impressions,clicks,ctr,cpm,reach,purchases,revenue,leads,conversas,video_views,engajamentos';
 async function bdFetchRows(limit){
-  let q=sb.from('channel_metrics_daily').select('date,channel,spend,impressions,clicks,reach,purchases,revenue,leads,conversas,client_id').gte('date',_bdSince).lte('date',_bdUntil).order('date',{ascending:false});
+  let q=sb.from('channel_metrics_daily').select(BD_ALL_FIELDS).gte('date',_bdSince).lte('date',_bdUntil).order('date',{ascending:false});
   if(_bdClient)q=q.eq('client_id',_bdClient);
   if(_bdChannel)q=q.eq('channel',_bdChannel);
   if(limit)q=q.limit(limit);
@@ -3914,27 +3958,29 @@ async function bdRenderTable(){
   if(wrap)wrap.innerHTML='<div class="empty">Carregando…</div>';
   try{
     const rows=await bdFetchRows(500);
-    const tot=rows.reduce((a,r)=>{a.spend+=+r.spend||0;a.clicks+=+r.clicks||0;return a;},{spend:0,clicks:0});
+    const tot=rows.reduce((a,r)=>{a.spend+=+r.spend||0;return a;},{spend:0});
     if(sum)sum.innerHTML=`
       <div style="flex:1;min-width:130px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div style="font-size:10px;color:var(--muted)">Investimento (linhas mostradas)</div><div style="font-size:17px;font-weight:800">${fmt(tot.spend)}</div></div>
       <div style="flex:1;min-width:130px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div style="font-size:10px;color:var(--muted)">Linhas no período</div><div style="font-size:17px;font-weight:800">${rows.length}${rows.length===500?'+':''}</div></div>`;
     if(!rows.length){if(wrap)wrap.innerHTML='<div class="empty">Sem dados nesse filtro.</div>';return;}
     const nameOf=id=>{const c=DB.clients.find(x=>x.id===id);return c?c.name:id;};
-    const th=l=>`<th style="text-align:right;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">${l}</th>`;
+    const cols=bdCols();
+    const cellVal=(k,r)=>{
+      if(k==='source_medium')return r.source_medium?String(r.source_medium).replace(/</g,'&lt;'):'<span style="color:var(--faint)">—</span>';
+      const mc=BD_METRIC_CATALOG[k];return fmtMetric(r[k]||0,mc.fmt);
+    };
+    const th=k=>`<th style="text-align:${k==='source_medium'?'left':'right'};font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border);white-space:nowrap">${BD_METRIC_CATALOG[k].label.toUpperCase()}</th>`;
     const rowsHtml=rows.map(r=>`<tr>
       <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border);white-space:nowrap">${_bdDateFmt(r.date)}</td>
       <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border)">${(nameOf(r.client_id)||'').replace(/</g,'&lt;')}</td>
-      <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border)">${r.channel==='meta'?'Meta':'Google'}</td>
-      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${fmt(r.spend)}</td>
-      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${(r.impressions||0).toLocaleString('pt-BR')}</td>
-      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${(r.clicks||0).toLocaleString('pt-BR')}</td>
-      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${Math.round(r.purchases||0)}</td>
+      <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border)">${BD_CHANNEL_LABEL[r.channel]||r.channel}</td>
+      ${cols.map(k=>`<td style="padding:6px 10px;font-size:12px;text-align:${k==='source_medium'?'left':'right'};border-bottom:1px solid var(--border);white-space:nowrap">${cellVal(k,r)}</td>`).join('')}
     </tr>`).join('');
     if(wrap)wrap.innerHTML=`<table style="width:100%;border-collapse:collapse"><tr>
       <th style="text-align:left;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">DATA</th>
       <th style="text-align:left;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">CLIENTE</th>
       <th style="text-align:left;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">CANAL</th>
-      ${th('GASTO')}${th('IMPRESSÕES')}${th('CLIQUES')}${th('RESULTADOS')}
+      ${cols.map(th).join('')}
       </tr>${rowsHtml}</table>${rows.length===500?'<div style="font-size:11px;color:var(--faint);margin-top:8px">Mostrando as 500 linhas mais recentes do filtro — baixe o CSV pra ver tudo.</div>':''}`;
   }catch(e){if(wrap)wrap.innerHTML='<div class="empty">Erro: '+(e.message||e)+'</div>';}
 }
@@ -3944,10 +3990,11 @@ async function bdDownloadCSV(btn){
     const rows=await bdFetchRows(20000);
     if(!rows.length){alert('Sem dados nesse filtro.');if(btn){btn.disabled=false;btn.textContent=o;}return;}
     const nameOf=id=>{const c=DB.clients.find(x=>x.id===id);return c?c.name:id;};
-    const head=['Data','Cliente','Canal','Investimento','Impressões','Cliques','Alcance','Resultados','Receita','Leads','Conversas'];
+    const money=v=>(+v||0).toFixed(2).replace('.',',');
+    const head=['Data','Cliente','Canal','Origem/Mídia','Investimento','Impressões','Cliques','CTR','CPM','Alcance','Resultados','Receita','Leads','Conversas','Views de Vídeo','Engajamentos'];
     const lines=[head.map(_csvEsc).join(';')];
     rows.forEach(r=>{
-      lines.push([r.date,nameOf(r.client_id),r.channel==='meta'?'Meta':'Google',(+r.spend||0).toFixed(2).replace('.',','),r.impressions||0,r.clicks||0,r.reach||0,Math.round(r.purchases||0),(+r.revenue||0).toFixed(2).replace('.',','),r.leads||0,r.conversas||0].map(_csvEsc).join(';'));
+      lines.push([r.date,nameOf(r.client_id),BD_CHANNEL_LABEL[r.channel]||r.channel,r.source_medium||'',money(r.spend),r.impressions||0,r.clicks||0,(+r.ctr||0).toFixed(2).replace('.',','),money(r.cpm),r.reach||0,Math.round(r.purchases||0),money(r.revenue),r.leads||0,r.conversas||0,r.video_views||0,r.engajamentos||0].map(_csvEsc).join(';'));
     });
     const csv='﻿'+lines.join('\r\n');
     const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
