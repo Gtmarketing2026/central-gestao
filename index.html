@@ -3858,10 +3858,24 @@ async function loadConfiguracoes(){
   checkIntegMeta();checkIntegGoogle();gcalCheckConn();
 }
 /* ===== Banco de Dados (histórico diário por canal — CSV / Power BI) ===== */
-let _bdSince='',_bdUntil='',_bdClient='',_bdChannel='',_bdSourceMedium='';
+let _bdSince='',_bdUntil='',_bdClient='',_bdChannel='',_bdSourceMedium=[],_bdSmMode='include',_bdObjetivo='',_bdSmAll=[];
+// Objetivo = mesmo conceito do Dashboard (campanha de Venda/Lead/Mensagem/Alcance/Engajamento/Vídeo): pré-seleciona as
+// colunas certas pro objetivo e define qual métrica vira o card "Resultados". Só vale pra canais de anúncio — o
+// Analytics tem cara própria (Receita + Vendas), ver bdSummaryCardsHTML().
+const BD_OBJETIVOS={
+  '':{label:'Todos os KPIs',cols:null,resultKey:'purchases',resultLabel:'Resultados'},
+  vendas:{label:'🛒 Vendas / Conversão',cols:['campaign','source_medium','spend','purchases','revenue'],resultKey:'purchases',resultLabel:'Vendas'},
+  leads:{label:'📋 Leads',cols:['campaign','source_medium','spend','leads'],resultKey:'leads',resultLabel:'Leads'},
+  mensagens:{label:'💬 Mensagens',cols:['campaign','source_medium','spend','conversas'],resultKey:'conversas',resultLabel:'Conversas'},
+  alcance:{label:'📣 Distribuição / Alcance',cols:['campaign','source_medium','spend','impressions','reach','ctr','cpm'],resultKey:'impressions',resultLabel:'Impressões'},
+  engajamento:{label:'❤️ Engajamento',cols:['campaign','source_medium','spend','engajamentos','ctr'],resultKey:'engajamentos',resultLabel:'Engajamentos'},
+  video:{label:'🎬 Vídeo',cols:['campaign','source_medium','spend','video_views'],resultKey:'video_views',resultLabel:'Views de Vídeo'},
+};
 const BD_CHANNEL_LABEL={meta:'Meta',google:'Google',ga4:'Google Analytics',tiktok:'TikTok',pinterest:'Pinterest'};
 const BD_METRIC_CATALOG={
+  campaign:{label:'Campanha',fmt:'text'},
   source_medium:{label:'Origem/Mídia',fmt:'text'},
+  ad_content:{label:'Anúncio/Conteúdo',fmt:'text'},
   spend:{label:'Investimento',fmt:'money'},
   impressions:{label:'Impressões',fmt:'int'},
   clicks:{label:'Cliques no Link',fmt:'int'},
@@ -3875,7 +3889,8 @@ const BD_METRIC_CATALOG={
   video_views:{label:'Views de Vídeo (ThruPlay)',fmt:'int'},
   engajamentos:{label:'Engajamentos',fmt:'int'},
 };
-const BD_DEFAULT_COLS=['source_medium','spend','impressions','clicks','ctr','cpm','purchases','revenue'];
+const BD_TEXT_COLS=['campaign','source_medium','ad_content'];
+const BD_DEFAULT_COLS=['campaign','source_medium','spend','impressions','clicks','ctr','cpm','purchases','revenue'];
 let _bdCols=null;
 function bdCols(){
   if(_bdCols)return _bdCols;
@@ -3886,7 +3901,7 @@ function bdColsApply(cols){_bdCols=cols;localStorage.setItem('bdCols',JSON.strin
 function bdColMove(i,d){const s=bdCols().slice();const j=i+d;if(j<0||j>=s.length)return;[s[i],s[j]]=[s[j],s[i]];bdColsApply(s);}
 function bdColRemove(i){const s=bdCols().slice();s.splice(i,1);bdColsApply(s);}
 function bdColAdd(k){if(!k||!BD_METRIC_CATALOG[k])return;const s=bdCols();if(!s.includes(k))bdColsApply(s.concat(k));}
-function bdColReset(){localStorage.removeItem('bdCols');_bdCols=null;bdRenderTable();renderBdColsEditor();}
+function bdColReset(){localStorage.removeItem('bdCols');_bdCols=null;_bdObjetivo='';const o=document.getElementById('bdObjetivo');if(o)o.value='';bdRenderTable();renderBdColsEditor();}
 function toggleBdColsEditor(){const p=document.getElementById('bdColsEditor');if(!p)return;p.style.display=p.style.display==='none'?'block':'none';renderBdColsEditor();}
 function renderBdColsEditor(){
   const p=document.getElementById('bdColsEditor');if(!p||p.style.display==='none')return;
@@ -3897,14 +3912,84 @@ function renderBdColsEditor(){
   p.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">${rows}
     <select onchange="bdColAdd(this.value);this.value=''" style="width:auto;font-size:12px"><option value="">+ adicionar coluna…</option>${opts}</select>
     <button class="btn sm ghost" onclick="bdColReset()">↺ restaurar padrão</button></div>
-    <div style="font-size:11px;color:var(--faint);margin-bottom:10px">◀ ▶ mudam a ordem · × remove. O CSV baixa exatamente essas colunas, na mesma ordem.</div>`;
+    <div style="font-size:11px;color:var(--faint);margin-bottom:10px">◀ ▶ mudam a ordem · × remove. Colunas sem nenhum dado no filtro atual somem da tela sozinhas. O CSV baixa exatamente as colunas visíveis, na mesma ordem.</div>`;
+}
+// ---- Objetivo: aplica o preset de colunas certo ----
+function bdSetObjetivo(v){
+  _bdObjetivo=v||'';
+  const obj=BD_OBJETIVOS[_bdObjetivo];
+  if(obj&&obj.cols){_bdCols=obj.cols.slice();localStorage.setItem('bdCols',JSON.stringify(_bdCols));}
+  bdRenderTable();
+}
+// ---- Origem/Mídia: busca + seleção múltipla (a lista pode ter dezenas de valores do GA4) ----
+function toggleBdSmPicker(){const p=document.getElementById('bdSmPicker');if(!p)return;const open=p.style.display!=='none';p.style.display=open?'none':'block';if(!open)bdRenderSmPicker('');}
+function bdRenderSmPicker(q){
+  const p=document.getElementById('bdSmPicker');if(!p)return;
+  if(q==null)q=(document.getElementById('bdSmSearch')||{}).value||'';
+  const ql=q.toLowerCase();
+  const list=_bdSmAll.filter(v=>v.toLowerCase().includes(ql));
+  const rowsHtml=list.slice(0,300).map(v=>`<label style="display:flex;align-items:center;gap:7px;padding:3px 2px;font-size:12.5px;cursor:pointer"><input type="checkbox" ${_bdSourceMedium.includes(v)?'checked':''} onchange="bdToggleSm('${v.replace(/'/g,"\\'")}',this.checked)" style="width:auto;flex:none">${v.replace(/</g,'&lt;')}</label>`).join('')||'<div style="font-size:11.5px;color:var(--faint);padding:4px 0">Nada encontrado.</div>';
+  const modeBtn=(mode,lbl)=>`<button type="button" class="btn sm ${_bdSmMode===mode?'primary':'ghost'}" style="font-size:11px;flex:1;justify-content:center" onclick="bdSmSetMode('${mode}')">${lbl}</button>`;
+  p.innerHTML=`<div style="display:flex;gap:6px;margin-bottom:8px">${modeBtn('include','Incluir só estas')}${modeBtn('exclude','Excluir estas')}</div>
+    <input id="bdSmSearch" placeholder="🔎 buscar origem/mídia…" value="${q.replace(/"/g,'&quot;')}" oninput="bdRenderSmPicker(this.value)" style="width:100%;font-size:12px;margin-bottom:8px">
+    <div style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px 10px">${rowsHtml}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px"><a onclick="bdSmClear()" style="font-size:11.5px;color:var(--accent);cursor:pointer">limpar seleção</a><button type="button" class="btn sm primary" style="font-size:11.5px" onclick="toggleBdSmPicker();bdRenderTable()">Aplicar (${_bdSourceMedium.length})</button></div>`;
+  const inp=document.getElementById('bdSmSearch');if(inp){inp.focus();const v=inp.value;inp.value='';inp.value=v;}
+}
+function bdSmSetMode(mode){_bdSmMode=mode;bdRenderSmPicker();bdSmBtnLabel();}
+function bdToggleSm(v,checked){if(checked){if(!_bdSourceMedium.includes(v))_bdSourceMedium.push(v);}else{_bdSourceMedium=_bdSourceMedium.filter(x=>x!==v);}bdSmBtnLabel();}
+function bdSmClear(){_bdSourceMedium=[];bdRenderSmPicker();bdSmBtnLabel();}
+function bdSmBtnLabel(){const b=document.getElementById('bdSmBtn');if(b)b.textContent='🔎 Origem/Mídia'+(_bdSourceMedium.length?` (${_bdSourceMedium.length} ${_bdSmMode==='exclude'?'excluídas':'incluídas'})`:'');}
+// Opções da origem/mídia dependem do período/cliente/canal filtrado — repopula toda vez que esses mudam.
+async function bdRefreshSourceMediumOptions(){
+  try{
+    let q=sb.from('channel_metrics_daily').select('source_medium').gte('date',_bdSince).lte('date',_bdUntil).neq('source_medium','').limit(5000);
+    if(_bdClient)q=q.eq('client_id',_bdClient);
+    if(_bdChannel)q=q.eq('channel',_bdChannel);
+    const {data,error}=await q;
+    if(error)return;
+    _bdSmAll=[...new Set((data||[]).map(r=>r.source_medium))].sort((a,b)=>a.localeCompare(b));
+    _bdSourceMedium=_bdSourceMedium.filter(v=>_bdSmAll.includes(v));
+    bdSmBtnLabel();
+  }catch(e){}
+}
+// ---- Visões salvas (nível conta — cada visão guarda cliente/canal/origem-mídia/objetivo/colunas, NÃO o período) ----
+function bdViews(){return (_acctCfg&&Array.isArray(_acctCfg.bd_views))?_acctCfg.bd_views:[];}
+async function bdSaveView(){
+  const name=(prompt('Nome da visão (ex: "Google Ads", "GA4 — vendas")')||'').trim();if(!name)return;
+  const view={id:uid(),name,client:_bdClient,channel:_bdChannel,sourceMedium:_bdSourceMedium.slice(),smMode:_bdSmMode,objetivo:_bdObjetivo,cols:bdCols().slice()};
+  const views=bdViews().filter(v=>v.name!==name).concat(view);
+  await saveAccountConfig({bd_views:views});
+  renderBdViews();
+}
+async function bdApplyView(id){
+  const v=bdViews().find(x=>x.id===id);if(!v)return;
+  _bdClient=v.client||'';_bdChannel=v.channel||'';_bdSourceMedium=(v.sourceMedium||[]).slice();_bdSmMode=v.smMode||'include';_bdObjetivo=v.objetivo||'';
+  const elC=document.getElementById('bdClient');if(elC)elC.value=_bdClient;
+  const elCh=document.getElementById('bdChannel');if(elCh)elCh.value=_bdChannel;
+  const elO=document.getElementById('bdObjetivo');if(elO)elO.value=_bdObjetivo;
+  const obj=BD_OBJETIVOS[_bdObjetivo];
+  _bdCols=(obj&&obj.cols)?obj.cols.slice():((v.cols&&v.cols.length)?v.cols.slice():BD_DEFAULT_COLS.slice());
+  localStorage.setItem('bdCols',JSON.stringify(_bdCols));
+  await bdRefreshSourceMediumOptions();
+  bdSmBtnLabel();
+  bdRenderTable();
+}
+async function bdDeleteView(id,ev){ev&&ev.stopPropagation();if(!confirm('Remover essa visão salva?'))return;const views=bdViews().filter(v=>v.id!==id);await saveAccountConfig({bd_views:views});renderBdViews();}
+function renderBdViews(){
+  const el=document.getElementById('bdViewsRow');if(!el)return;
+  const views=bdViews();
+  el.innerHTML=(`<button class="btn sm ghost" style="font-size:11.5px" onclick="bdSaveView()">💾 Salvar visão atual</button>`)+
+    (views.length?views.map(v=>`<span onclick="bdApplyView('${v.id}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:12px">${v.name.replace(/</g,'&lt;')}<a onclick="bdDeleteView('${v.id}',event)" title="remover" style="color:#f87171;font-weight:700">×</a></span>`).join(''):'<span style="font-size:11.5px;color:var(--faint)">Nenhuma visão salva ainda.</span>');
 }
 function _bdDateFmt(d){if(!d)return'—';const s=String(d).slice(0,10);const[y,m,dd]=s.split('-');return`${dd}/${m}/${y}`}
 async function loadBancoDados(){
   const el=document.getElementById('bdBody');if(!el)return;
+  await loadAccountConfig();
   _bdSince=_bdSince||daysAgoISO(30);_bdUntil=_bdUntil||today();
   const clientOpts=DB.clients.slice().sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}" ${_bdClient===c.id?'selected':''}>${c.name.replace(/</g,'&lt;')}</option>`).join('');
   const chOpts=Object.entries(BD_CHANNEL_LABEL).map(([k,l])=>`<option value="${k}" ${_bdChannel===k?'selected':''}>${l}</option>`).join('');
+  const objOpts=Object.entries(BD_OBJETIVOS).map(([k,v])=>`<option value="${k}" ${_bdObjetivo===k?'selected':''}>${v.label}</option>`).join('');
   el.innerHTML=`
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:10px">
@@ -3912,11 +3997,16 @@ async function loadBancoDados(){
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ATÉ</label><input type="date" id="bdUntil" value="${_bdUntil}" style="width:auto;font-size:12px"></div>
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CLIENTE</label><select id="bdClient" style="width:auto;font-size:12px"><option value="">Todos</option>${clientOpts}</select></div>
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CANAL</label><select id="bdChannel" style="width:auto;font-size:12px"><option value="" ${!_bdChannel?'selected':''}>Todos</option>${chOpts}</select></div>
-        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ORIGEM/MÍDIA</label><select id="bdSourceMedium" style="width:auto;font-size:12px;max-width:200px"><option value="">Todas</option></select></div>
+        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">OBJETIVO</label><select id="bdObjetivo" onchange="bdSetObjetivo(this.value)" style="width:auto;font-size:12px">${objOpts}</select></div>
+        <div style="position:relative"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">&nbsp;</label>
+          <button type="button" class="btn sm ghost" id="bdSmBtn" onclick="toggleBdSmPicker()">🔎 Origem/Mídia</button>
+          <div id="bdSmPicker" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:50;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px;width:260px;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div>
+        </div>
         <button class="btn sm primary" onclick="bdApplyFilters()">Aplicar</button>
         <button class="btn sm ghost" onclick="toggleBdColsEditor()">✎ Editar colunas</button>
         <button class="btn sm ghost" onclick="bdDownloadCSV(this)">⬇️ Baixar CSV</button>
       </div>
+      <div id="bdViewsRow" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;padding-bottom:10px;border-bottom:1px dashed var(--border)"></div>
       <div id="bdColsEditor" style="display:none;margin-bottom:6px"></div>
       <div id="bdSummary" style="display:flex;gap:10px;flex-wrap:wrap"></div>
     </div>
@@ -3935,6 +4025,7 @@ async function loadBancoDados(){
       <h3 style="margin:0 0 10px">Histórico</h3>
       <div id="bdTableWrap" style="overflow-x:auto"></div>
     </div>`;
+  renderBdViews();bdSmBtnLabel();
   await bdApplyFilters();
 }
 function bdApplyFilters(){
@@ -3942,64 +4033,74 @@ function bdApplyFilters(){
   _bdUntil=document.getElementById('bdUntil').value||today();
   _bdClient=document.getElementById('bdClient').value||'';
   _bdChannel=document.getElementById('bdChannel').value||'';
-  _bdSourceMedium=document.getElementById('bdSourceMedium').value||'';
   bdRefreshSourceMediumOptions();
   return bdRenderTable();
 }
-// Opções da origem/mídia dependem do período/cliente/canal filtrado — repopula toda vez que esses mudam.
-async function bdRefreshSourceMediumOptions(){
-  const sel=document.getElementById('bdSourceMedium');if(!sel)return;
-  try{
-    let q=sb.from('channel_metrics_daily').select('source_medium').gte('date',_bdSince).lte('date',_bdUntil).neq('source_medium','').limit(5000);
-    if(_bdClient)q=q.eq('client_id',_bdClient);
-    if(_bdChannel)q=q.eq('channel',_bdChannel);
-    const {data,error}=await q;
-    if(error)return;
-    const vals=[...new Set((data||[]).map(r=>r.source_medium))].sort((a,b)=>a.localeCompare(b));
-    if(_bdSourceMedium&&!vals.includes(_bdSourceMedium))_bdSourceMedium='';
-    sel.innerHTML=`<option value="">Todas</option>${vals.map(v=>`<option value="${v.replace(/"/g,'&quot;')}" ${_bdSourceMedium===v?'selected':''}>${v.replace(/</g,'&lt;')}</option>`).join('')}`;
-  }catch(e){}
-}
-const BD_ALL_FIELDS='date,channel,client_id,source_medium,spend,impressions,clicks,ctr,cpm,reach,purchases,revenue,leads,conversas,video_views,engajamentos';
+const BD_ALL_FIELDS='date,channel,client_id,source_medium,campaign,ad_content,spend,impressions,clicks,ctr,cpm,reach,purchases,revenue,leads,conversas,video_views,engajamentos';
 async function bdFetchRows(limit){
   let q=sb.from('channel_metrics_daily').select(BD_ALL_FIELDS).gte('date',_bdSince).lte('date',_bdUntil).order('date',{ascending:false});
   if(_bdClient)q=q.eq('client_id',_bdClient);
   if(_bdChannel)q=q.eq('channel',_bdChannel);
-  if(_bdSourceMedium)q=q.eq('source_medium',_bdSourceMedium);
+  if(_bdSourceMedium.length){
+    if(_bdSmMode==='exclude')q=q.not('source_medium','in','('+_bdSourceMedium.map(v=>'"'+v.replace(/"/g,'""')+'"').join(',')+')');
+    else q=q.in('source_medium',_bdSourceMedium);
+  }
   if(limit)q=q.limit(limit);
   const {data,error}=await q;
   if(error)throw error;
   return data||[];
+}
+function bdSummaryCardsHTML(rows){
+  const card=(lbl,val)=>`<div style="flex:1;min-width:130px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div style="font-size:10px;color:var(--muted)">${lbl}</div><div style="font-size:17px;font-weight:800">${val}</div></div>`;
+  const linhas=card('Linhas no período',`${rows.length}${rows.length===500?'+':''}`);
+  if(_bdChannel==='ga4'){
+    const revenue=rows.reduce((s,r)=>s+(+r.revenue||0),0),vendas=rows.reduce((s,r)=>s+(+r.purchases||0),0);
+    return card('Receita',fmt(revenue))+card('Vendas',Math.round(vendas).toLocaleString('pt-BR'))+linhas;
+  }
+  const obj=BD_OBJETIVOS[_bdObjetivo]||BD_OBJETIVOS[''];
+  const spend=rows.reduce((s,r)=>s+(+r.spend||0),0),resultado=rows.reduce((s,r)=>s+(+r[obj.resultKey]||0),0);
+  return card('Investimento',fmt(spend))+card(obj.resultLabel,Math.round(resultado).toLocaleString('pt-BR'))+linhas;
 }
 async function bdRenderTable(){
   const wrap=document.getElementById('bdTableWrap');const sum=document.getElementById('bdSummary');
   if(wrap)wrap.innerHTML='<div class="empty">Carregando…</div>';
   try{
     const rows=await bdFetchRows(500);
-    const tot=rows.reduce((a,r)=>{a.spend+=+r.spend||0;return a;},{spend:0});
-    if(sum)sum.innerHTML=`
-      <div style="flex:1;min-width:130px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div style="font-size:10px;color:var(--muted)">Investimento (linhas mostradas)</div><div style="font-size:17px;font-weight:800">${fmt(tot.spend)}</div></div>
-      <div style="flex:1;min-width:130px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div style="font-size:10px;color:var(--muted)">Linhas no período</div><div style="font-size:17px;font-weight:800">${rows.length}${rows.length===500?'+':''}</div></div>`;
+    if(sum)sum.innerHTML=bdSummaryCardsHTML(rows);
     if(!rows.length){if(wrap)wrap.innerHTML='<div class="empty">Sem dados nesse filtro.</div>';return;}
     const nameOf=id=>{const c=DB.clients.find(x=>x.id===id);return c?c.name:id;};
-    const cols=bdCols();
+    // colunas sem NENHUM dado no filtro atual somem da tela sozinhas (ex: Investimento/CTR pro canal Analytics)
+    const cols=bdCols().filter(k=>rows.some(r=>BD_TEXT_COLS.includes(k)?!!r[k]:(+r[k]||0)>0));
     const cellVal=(k,r)=>{
-      if(k==='source_medium')return r.source_medium?String(r.source_medium).replace(/</g,'&lt;'):'<span style="color:var(--faint)">—</span>';
+      if(BD_TEXT_COLS.includes(k))return r[k]?String(r[k]).replace(/</g,'&lt;'):'<span style="color:var(--faint)">—</span>';
       const mc=BD_METRIC_CATALOG[k];return fmtMetric(r[k]||0,mc.fmt);
     };
-    const th=k=>`<th style="text-align:${k==='source_medium'?'left':'right'};font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border);white-space:nowrap">${BD_METRIC_CATALOG[k].label.toUpperCase()}</th>`;
+    const th=k=>`<th style="text-align:${BD_TEXT_COLS.includes(k)?'left':'right'};font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border);white-space:nowrap">${BD_METRIC_CATALOG[k].label.toUpperCase()}</th>`;
+    // linha de Total no topo (igual ao GA4) — CTR/CPM recalculados pela soma (média simples estaria errada), o resto é soma direta.
+    const impTot=rows.reduce((s,r)=>s+(+r.impressions||0),0),clkTot=rows.reduce((s,r)=>s+(+r.clicks||0),0),spTot=rows.reduce((s,r)=>s+(+r.spend||0),0);
+    const totalCell=k=>{
+      if(BD_TEXT_COLS.includes(k))return `<td style="padding:6px 10px;font-size:12px;border-bottom:2px solid var(--border)"></td>`;
+      if(k==='ctr')return `<td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:2px solid var(--border)">${fmtMetric(impTot?clkTot/impTot*100:0,'pct')}</td>`;
+      if(k==='cpm')return `<td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:2px solid var(--border)">${fmtMetric(impTot?spTot/impTot*1000:0,'money')}</td>`;
+      const sum=rows.reduce((s,r)=>s+(+r[k]||0),0);
+      return `<td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:2px solid var(--border)">${fmtMetric(sum,BD_METRIC_CATALOG[k].fmt)}</td>`;
+    };
+    const totalRow=`<tr style="background:var(--surface2);font-weight:800">
+      <td style="padding:6px 10px;font-size:12px;border-bottom:2px solid var(--border)" colspan="3">Total</td>
+      ${cols.map(totalCell).join('')}
+    </tr>`;
     const rowsHtml=rows.map(r=>`<tr>
       <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border);white-space:nowrap">${_bdDateFmt(r.date)}</td>
       <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border)">${(nameOf(r.client_id)||'').replace(/</g,'&lt;')}</td>
       <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border)">${BD_CHANNEL_LABEL[r.channel]||r.channel}</td>
-      ${cols.map(k=>`<td style="padding:6px 10px;font-size:12px;text-align:${k==='source_medium'?'left':'right'};border-bottom:1px solid var(--border);white-space:nowrap">${cellVal(k,r)}</td>`).join('')}
+      ${cols.map(k=>`<td style="padding:6px 10px;font-size:12px;text-align:${BD_TEXT_COLS.includes(k)?'left':'right'};border-bottom:1px solid var(--border);white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis">${cellVal(k,r)}</td>`).join('')}
     </tr>`).join('');
     if(wrap)wrap.innerHTML=`<table style="width:100%;border-collapse:collapse"><tr>
       <th style="text-align:left;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">DATA</th>
       <th style="text-align:left;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">CLIENTE</th>
       <th style="text-align:left;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">CANAL</th>
       ${cols.map(th).join('')}
-      </tr>${rowsHtml}</table>${rows.length===500?'<div style="font-size:11px;color:var(--faint);margin-top:8px">Mostrando as 500 linhas mais recentes do filtro — baixe o CSV pra ver tudo.</div>':''}`;
+      </tr>${totalRow}${rowsHtml}</table>${rows.length===500?'<div style="font-size:11px;color:var(--faint);margin-top:8px">Mostrando as 500 linhas mais recentes do filtro (a linha Total soma só essas) — baixe o CSV pra ver tudo.</div>':''}`;
   }catch(e){if(wrap)wrap.innerHTML='<div class="empty">Erro: '+(e.message||e)+'</div>';}
 }
 async function bdDownloadCSV(btn){
@@ -4009,9 +4110,9 @@ async function bdDownloadCSV(btn){
     if(!rows.length){alert('Sem dados nesse filtro.');if(btn){btn.disabled=false;btn.textContent=o;}return;}
     const nameOf=id=>{const c=DB.clients.find(x=>x.id===id);return c?c.name:id;};
     const money=v=>(+v||0).toFixed(2).replace('.',',');
-    const cols=bdCols();
+    const cols=bdCols().filter(k=>rows.some(r=>BD_TEXT_COLS.includes(k)?!!r[k]:(+r[k]||0)>0));
     const csvVal=(k,r)=>{
-      if(k==='source_medium')return r.source_medium||'';
+      if(BD_TEXT_COLS.includes(k))return r[k]||'';
       if(k==='ctr')return (+r.ctr||0).toFixed(2).replace('.',',');
       if(k==='spend'||k==='cpm'||k==='revenue')return money(r[k]);
       return r[k]||0;
@@ -4029,6 +4130,7 @@ async function bdDownloadCSV(btn){
   }catch(e){alert('Erro ao gerar CSV: '+(e.message||e));}
   if(btn){btn.disabled=false;btn.textContent=o;}
 }
+document.addEventListener('click',e=>{const p=document.getElementById('bdSmPicker');if(p&&p.style.display!=='none'&&!e.target.closest('#bdSmPicker')&&e.target.id!=='bdSmBtn')p.style.display='none';});
 /* ===== AndréIA no WhatsApp (grupo) ===== */
 function _andreiaInstId(){return (_acctCfg&&_acctCfg.andreia_wa&&_acctCfg.andreia_wa.instance_id)||'';}
 async function renderAndreiaWa(){
