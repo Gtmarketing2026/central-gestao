@@ -3940,6 +3940,29 @@ function bdSmSetMode(mode){_bdSmMode=mode;bdRenderSmPicker();bdSmBtnLabel();}
 function bdToggleSm(v,checked){if(checked){if(!_bdSourceMedium.includes(v))_bdSourceMedium.push(v);}else{_bdSourceMedium=_bdSourceMedium.filter(x=>x!==v);}bdSmBtnLabel();}
 function bdSmClear(){_bdSourceMedium=[];bdRenderSmPicker();bdSmBtnLabel();}
 function bdSmBtnLabel(){const b=document.getElementById('bdSmBtn');if(b)b.textContent='🔎 Origem/Mídia'+(_bdSourceMedium.length?` (${_bdSourceMedium.length} ${_bdSmMode==='exclude'?'excluídas':'incluídas'})`:'');}
+// Clique direto na célula "Origem/Mídia" de uma linha — atalho pra "incluir só isto" / "excluir isto" sem abrir o picker (igual GA4).
+function bdCellMenu(ev,value){
+  document.querySelectorAll('.bdCellMenu').forEach(m=>m.remove());
+  const rect=ev.target.getBoundingClientRect();
+  const menu=document.createElement('div');
+  menu.className='bdCellMenu';
+  menu.style.cssText=`position:fixed;left:${Math.round(rect.left)}px;top:${Math.round(rect.bottom+4)}px;z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.4);min-width:200px`;
+  const short=value.length>28?value.slice(0,28)+'…':value;
+  menu.innerHTML=`<button type="button" class="btn sm ghost" style="display:flex;width:100%;text-align:left;margin-bottom:2px;font-size:12px" onclick="bdCellFilter('${value.replace(/'/g,"\\'")}','include')">✅ Incluir só "${short}"</button>
+    <button type="button" class="btn sm ghost" style="display:flex;width:100%;text-align:left;font-size:12px" onclick="bdCellFilter('${value.replace(/'/g,"\\'")}','exclude')">🚫 Excluir "${short}"</button>`;
+  document.body.appendChild(menu);
+  setTimeout(()=>document.addEventListener('click',function h(){menu.remove();document.removeEventListener('click',h);},{once:true}),0);
+}
+function bdCellFilter(value,mode){
+  if(mode==='include'){_bdSourceMedium=[value];_bdSmMode='include';}
+  else{
+    if(_bdSmMode!=='exclude')_bdSourceMedium=[];
+    _bdSmMode='exclude';
+    if(!_bdSourceMedium.includes(value))_bdSourceMedium.push(value);
+  }
+  bdSmBtnLabel();
+  bdRenderTable();
+}
 // Opções da origem/mídia dependem do período/cliente/canal filtrado — repopula toda vez que esses mudam.
 async function bdRefreshSourceMediumOptions(){
   try{
@@ -4072,6 +4095,7 @@ async function bdRenderTable(){
     // colunas sem NENHUM dado no filtro atual somem da tela sozinhas (ex: Investimento/CTR pro canal Analytics)
     const cols=bdCols().filter(k=>rows.some(r=>BD_TEXT_COLS.includes(k)?!!r[k]:(+r[k]||0)>0));
     const cellVal=(k,r)=>{
+      if(k==='source_medium'&&r[k])return `<span onclick="event.stopPropagation();bdCellMenu(event,'${String(r[k]).replace(/'/g,"\\'").replace(/</g,'&lt;')}')" style="cursor:pointer;border-bottom:1px dotted var(--faint)" title="Clique pra incluir/excluir só este">${String(r[k]).replace(/</g,'&lt;')}</span>`;
       if(BD_TEXT_COLS.includes(k))return r[k]?String(r[k]).replace(/</g,'&lt;'):'<span style="color:var(--faint)">—</span>';
       const mc=BD_METRIC_CATALOG[k];return fmtMetric(r[k]||0,mc.fmt);
     };
