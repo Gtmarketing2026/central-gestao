@@ -6250,7 +6250,12 @@ async function dropTask(e,status){e.preventDefault();const t=DB.tasks.find(x=>x.
 function skipSunday(dateStr){if(!dateStr)return dateStr;const d=new Date(dateStr+'T12:00:00');if(d.getDay()===0)d.setDate(d.getDate()+1);return d.toISOString().slice(0,10)}
 function nextDate(d,r){const b=d?new Date(d+'T12:00:00'):new Date();const cd=repeatCustomDays(r);if(cd!==null)b.setDate(b.getDate()+cd);else if(r==='diaria')b.setDate(b.getDate()+1);else if(r==='semanal')b.setDate(b.getDate()+7);else if(r==='quinzenal')b.setDate(b.getDate()+15);else if(r==='mensal')b.setMonth(b.getMonth()+1);return skipSunday(b.toISOString().slice(0,10))}
 async function completeTask(t){
-  if(t.repeat){const carryChecklist=(t.checklist||[]).filter(ci=>!ci.done).map(ci=>({...ci}));await _upsertTask({...t,id:uid(),status:'todo',due:nextDate(t.due,t.repeat),checklist:carryChecklist});t.repeat=''}
+  if(t.repeat){
+    const carryChecklist=(t.checklist||[]).filter(ci=>!ci.done).map(ci=>({...ci}));
+    // auto-corrige o nome se o cliente foi renomeado desde que essa cadeia recorrente começou (senão o alerta de relatórios nunca mais casa o nome)
+    const freshName=(t.client&&/\([^()]*\)$/.test(t.name||''))?t.name.replace(/\([^()]*\)$/,'('+clientName(t.client)+')'):t.name;
+    await _upsertTask({...t,id:uid(),name:freshName,status:'todo',due:nextDate(t.due,t.repeat),checklist:carryChecklist});t.repeat=''
+  }
   t.status='done';await _upsertTask(t);
   // Se for tarefa de relatório mensal, avança a data do próximo relatório no cliente
   if(t.client&&t.name===`Enviar ao cliente (${clientName(t.client)})`){
@@ -7037,23 +7042,20 @@ async function marcarSemanalEnviado(clientId,dayName){
   const thisWeekISO=isoWeek(today());
   // Verifica se já existe tarefa desta semana
   let task=DB.tasks.find(t=>t.client===clientId&&t.name===taskName&&t.due&&isoWeek(t.due)===thisWeekISO);
-  if(task){
-    // Marca como concluída
-    task.status='done';
-    await _upsertTask(task);
-  } else {
-    // Cria já concluída com a data do dia configurado (na semana atual ou anterior)
+  if(!task){
+    // Cria com a data do dia configurado (na semana atual ou anterior), pronta pra completar
     const target=WR_DAY_NUM[dayName]??1;
     const d=new Date(today()+'T12:00:00');
     let diff=target-d.getDay();
     if(diff>0)diff-=7; // garante que seja esta semana (passado)
     d.setDate(d.getDate()+diff);
     const due=d.toISOString().slice(0,10);
-    task={id:uid(),client:clientId,name:taskName,status:'done',due,assignee:'',priority:'normal',repeat:'',notes:''};
+    task={id:uid(),client:clientId,name:taskName,status:'todo',due,assignee:'',priority:'normal',repeat:'semanal',notes:''};
     DB.tasks.push(task);
-    await sb.from('tasks').upsert(dbTask(task));
   }
-  renderAll();
+  // reaproveita completeTask: mantém a cadeia semanal viva (cria a próxima ocorrência) — marcar "enviado" só por aqui,
+  // sem passar por completeTask, matava a recorrência e a tarefa nunca mais era recriada nas semanas seguintes.
+  await completeTask(task);
 }
 function nextWeekdayDate(dayName){
   const target=WR_DAY_NUM[dayName]??1;
