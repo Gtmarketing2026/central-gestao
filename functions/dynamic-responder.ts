@@ -1172,12 +1172,15 @@ async function tiktokListAccounts(clientId: string) {
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=tiktok_config&limit=1`))[0];
   const cfg = c?.tiktok_config || {};
   if (!cfg.access_token) return { error: "Cliente não conectou o TikTok Ads ainda." };
-  const ids: string[] = cfg.advertiser_ids || [];
-  if (!ids.length) return { accounts: [] };
-  const r = await fetch(`https://business-api.tiktok.com/open_api/v1.3/advertiser/info/?advertiser_ids=${encodeURIComponent(JSON.stringify(ids))}`, { headers: { "Access-Token": cfg.access_token } });
+  const acc = await sbGet("account_config", "id=eq.main&select=data");
+  const tk = (acc[0]?.data || {}).tiktok_ads || {};
+  if (!tk.app_id || !tk.secret) return { error: "Faltam as credenciais do App do TikTok em Configurações." };
+  // /oauth2/advertiser/get/ devolve as contas de anúncio que o cliente autorizou pro nosso app (escopo "Ad Account Management").
+  const p = new URLSearchParams({ app_id: tk.app_id, secret: tk.secret });
+  const r = await fetch(`https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/?${p}`, { headers: { "Access-Token": cfg.access_token } });
   const j = await r.json();
   if (j.code !== 0) return { error: "TikTok: " + (j.message || "erro ao listar contas") };
-  const list = (j?.data?.list || []).map((a: any) => ({ id: a.advertiser_id, name: a.name || a.advertiser_id }));
+  const list = (j?.data?.list || []).map((a: any) => ({ id: a.advertiser_id, name: a.advertiser_name || a.advertiser_id }));
   return { accounts: list };
 }
 async function tiktokAdsInsights(m: any) {
