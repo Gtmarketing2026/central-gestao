@@ -1163,6 +1163,105 @@ async function googleAdsInsights(g: any) {
   return { total, campaigns, ads, accounts, accountErrors, period: { since, until } };
 }
 
+// ===== TikTok Ads =====
+// Conexão é POR CLIENTE (cada um conecta a própria conta, igual RD Station/Nuvemshop) — não tem MCC como Meta/Google.
+// O access_token do TikTok não expira sozinho (fica válido até o usuário revogar), então não precisa de refresh_token.
+// ⚠️ Fase 1 (sem credenciais reais testadas ainda): shape da API (endpoints/campos) seguido pela documentação oficial —
+// pode precisar de ajuste fino assim que a 1ª conta real conectar (ex.: nome exato de algum campo do relatório).
+async function tiktokListAccounts(clientId: string) {
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=tiktok_config&limit=1`))[0];
+  const cfg = c?.tiktok_config || {};
+  if (!cfg.access_token) return { error: "Cliente não conectou o TikTok Ads ainda." };
+  const ids: string[] = cfg.advertiser_ids || [];
+  if (!ids.length) return { accounts: [] };
+  const r = await fetch(`https://business-api.tiktok.com/open_api/v1.3/advertiser/info/?advertiser_ids=${encodeURIComponent(JSON.stringify(ids))}`, { headers: { "Access-Token": cfg.access_token } });
+  const j = await r.json();
+  if (j.code !== 0) return { error: "TikTok: " + (j.message || "erro ao listar contas") };
+  const list = (j?.data?.list || []).map((a: any) => ({ id: a.advertiser_id, name: a.name || a.advertiser_id }));
+  return { accounts: list };
+}
+async function tiktokAdsInsights(m: any) {
+  const clientId = m.clientId;
+  if (!clientId) throw new Error("clientId obrigatório");
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=tiktok_config&limit=1`))[0];
+  const cfg = c?.tiktok_config || {};
+  if (!cfg.access_token) throw new Error("Cliente não conectou o TikTok Ads.");
+  const advertiserId = m.advertiserId || cfg.advertiser_id || (cfg.advertiser_ids || [])[0];
+  if (!advertiserId) throw new Error("Nenhuma conta de anúncio TikTok selecionada pra esse cliente.");
+  const since = m.since, until = m.until;
+  if (!since || !until) throw new Error("since e until obrigatórios (YYYY-MM-DD)");
+  const body = {
+    advertiser_id: advertiserId, report_type: "BASIC", data_level: "AUCTION_CAMPAIGN",
+    dimensions: ["campaign_id"], start_date: since, end_date: until,
+    metrics: ["campaign_name", "spend", "impressions", "clicks", "conversion", "ctr", "cpc", "cpm"],
+    page_size: 200,
+  };
+  const r = await fetch("https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/", {
+    method: "POST", headers: { "Access-Token": cfg.access_token, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const j = await r.json();
+  if (j.code !== 0) throw new Error("TikTok Ads: " + (j.message || "erro na API"));
+  const rows = j?.data?.list || [];
+  const totAgg = { spend: 0, impressions: 0, clicks: 0, purchases: 0 };
+  const campaigns = rows.map((row: any) => {
+    const d = row.metrics || {};
+    const spend = parseFloat(d.spend || "0"), impressions = parseInt(d.impressions || "0", 10) || 0, clicks = parseInt(d.clicks || "0", 10) || 0, conv = parseFloat(d.conversion || "0");
+    totAgg.spend += spend; totAgg.impressions += impressions; totAgg.clicks += clicks; totAgg.purchases += conv;
+    return { campaign: d.campaign_name || row.dimensions?.campaign_id || "TikTok Ads", campaignId: row.dimensions?.campaign_id || null, spend, impressions, clicks, purchases: conv, ctr: parseFloat(d.ctr || "0"), cpc: parseFloat(d.cpc || "0"), cpm: parseFloat(d.cpm || "0"), _tiktok: true };
+  });
+  const total = { ...totAgg, ctr: totAgg.impressions ? (totAgg.clicks / totAgg.impressions) * 100 : 0, cpc: totAgg.clicks ? totAgg.spend / totAgg.clicks : 0, cpm: totAgg.impressions ? (totAgg.spend / totAgg.impressions) * 1000 : 0 };
+  return { total, campaigns, _tiktok: true, period: { since, until } };
+}
+
+// ===== Pinterest Ads =====
+// Access token do Pinterest expira — sempre renova pelo refresh_token antes de chamar a API (evita guardar estado de expiração).
+async function pinterestAccessToken(clientId: string): Promise<{ token: string; cfg: any }> {
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=pinterest_config&limit=1`))[0];
+  const cfg = c?.pinterest_config || {};
+  if (!cfg.refresh_token) throw new Error("Cliente não conectou o Pinterest Ads.");
+  const acc = await sbGet("account_config", "id=eq.main&select=data");
+  const pt = (acc[0]?.data || {}).pinterest_ads || {};
+  if (!pt.client_id || !pt.client_secret) throw new Error("Faltam as credenciais do App do Pinterest em Configurações.");
+  const basic = btoa(`${pt.client_id}:${pt.client_secret}`);
+  const r = await fetch("https://api.pinterest.com/v5/oauth/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${basic}` }, body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: cfg.refresh_token }) });
+  const j = await r.json();
+  if (!r.ok || !j.access_token) throw new Error("Pinterest: falha ao renovar token (" + (j.message || r.status) + ")");
+  return { token: j.access_token, cfg };
+}
+async function pinterestListAccounts(clientId: string) {
+  try {
+    const { token } = await pinterestAccessToken(clientId);
+    const r = await fetch("https://api.pinterest.com/v5/ad_accounts", { headers: { Authorization: `Bearer ${token}` } });
+    const j = await r.json();
+    if (!r.ok) return { error: "Pinterest: " + (j.message || `HTTP ${r.status}`) };
+    const list = (j.items || []).map((a: any) => ({ id: a.id, name: a.name || a.id }));
+    return { accounts: list };
+  } catch (e) { return { error: String((e as any)?.message || e) }; }
+}
+async function pinterestAdsInsights(m: any) {
+  const clientId = m.clientId;
+  if (!clientId) throw new Error("clientId obrigatório");
+  const { token, cfg } = await pinterestAccessToken(clientId);
+  const adAccountId = m.adAccountId || cfg.ad_account_id;
+  if (!adAccountId) throw new Error("Nenhuma conta de anúncio Pinterest selecionada pra esse cliente.");
+  const since = m.since, until = m.until;
+  if (!since || !until) throw new Error("since e until obrigatórios (YYYY-MM-DD)");
+  const cols = "SPEND_IN_DOLLAR,IMPRESSION_1,CLICKTHROUGH_1,TOTAL_CONVERSIONS,CTR,CPC_IN_DOLLAR,ECPM_IN_DOLLAR";
+  const p = new URLSearchParams({ start_date: since, end_date: until, columns: cols, granularity: "TOTAL", level: "CAMPAIGN" });
+  const r = await fetch(`https://api.pinterest.com/v5/ad_accounts/${encodeURIComponent(adAccountId)}/campaigns/analytics?${p}`, { headers: { Authorization: `Bearer ${token}` } });
+  const j = await r.json();
+  if (!r.ok) throw new Error("Pinterest Ads: " + (j.message || `HTTP ${r.status}`));
+  const rows = Array.isArray(j) ? j : [];
+  const totAgg = { spend: 0, impressions: 0, clicks: 0, purchases: 0 };
+  const campaigns = rows.map((row: any) => {
+    const spend = Number(row.SPEND_IN_DOLLAR || 0), impressions = Number(row.IMPRESSION_1 || 0), clicks = Number(row.CLICKTHROUGH_1 || 0), conv = Number(row.TOTAL_CONVERSIONS || 0);
+    totAgg.spend += spend; totAgg.impressions += impressions; totAgg.clicks += clicks; totAgg.purchases += conv;
+    return { campaign: row.CAMPAIGN_ID || row.campaign_id || "Pinterest Ads", campaignId: row.CAMPAIGN_ID || row.campaign_id || null, spend, impressions, clicks, purchases: conv, ctr: Number(row.CTR || 0), cpc: Number(row.CPC_IN_DOLLAR || 0), cpm: Number(row.ECPM_IN_DOLLAR || 0), _pinterest: true };
+  });
+  const total = { ...totAgg, ctr: totAgg.impressions ? (totAgg.clicks / totAgg.impressions) * 100 : 0, cpc: totAgg.clicks ? totAgg.spend / totAgg.clicks : 0, cpm: totAgg.impressions ? (totAgg.spend / totAgg.impressions) * 1000 : 0 };
+  return { total, campaigns, _pinterest: true, period: { since, until } };
+}
+
 // Pausa/reativa palavra(s)-chave no Google (mutate status de ad_group_criterion). Pode vir 1 ou várias instâncias do mesmo texto.
 async function googleKeywordAction(m: any) {
   const action = m.action === "enable" ? "enable" : "pause";
@@ -3862,6 +3961,22 @@ Deno.serve(async (req) => {
     }
     if (body.googleAccounts) {
       const r = await googleListAccounts();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.tiktokAds) {
+      const r = await tiktokAdsInsights(body.tiktokAds);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.tiktokAccounts) {
+      const r = await tiktokListAccounts(String(body.tiktokAccounts.clientId || ""));
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.pinterestAds) {
+      const r = await pinterestAdsInsights(body.pinterestAds);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.pinterestAccounts) {
+      const r = await pinterestListAccounts(String(body.pinterestAccounts.clientId || ""));
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.metaAds) {

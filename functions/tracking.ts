@@ -136,6 +136,68 @@ async function handleRdCallback(url: URL) {
 }
 function clip(s: unknown, n = 400) { const v = s == null ? null : String(s); return v ? v.slice(0, n) : null; }
 
+// OAuth do TikTok Ads: recebe ?auth_code (TikTok não usa "code") + state=clientId, troca por access_token e guarda no cliente.
+// TikTok não expira o access_token (fica válido até o usuário revogar) — não tem refresh_token nesse fluxo.
+async function handleTikTokCallback(url: URL) {
+  const strip = (s: string) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const page = (t: string, m: string, ok: boolean) => new Response((ok ? "[OK] " : "[!] ") + strip(t) + "\n\n" + strip(m) + "\n\nPode fechar esta aba e voltar ao sistema.", { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
+  const authCode = url.searchParams.get("auth_code") || url.searchParams.get("code");
+  const clientId = url.searchParams.get("state");
+  if (!authCode) return page("Autorizacao nao concluida", "Nao recebi o auth_code do TikTok.", false);
+  if (!clientId) return page("Cliente nao identificado", "Refaca a conexao pelo cadastro do cliente.", false);
+  const acc = await sbSelect("account_config", `id=eq.main&select=data`);
+  const tk = (acc[0]?.data || {}).tiktok_ads || {};
+  if (!tk.app_id || !tk.secret) return page("Faltam credenciais do App", "Configure o App ID e o Secret do TikTok em Configuracoes.", false);
+  try {
+    const r = await fetch("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ app_id: tk.app_id, secret: tk.secret, auth_code: authCode }),
+    });
+    const j = await r.json();
+    const d = j?.data;
+    if (!r.ok || !d?.access_token) return page("Falha ao conectar", "O TikTok nao devolveu o token: " + (j?.message || `HTTP ${r.status}`), false);
+    const cRows = await sbSelect("clients", `id=eq.${encodeURIComponent(clientId)}&select=tiktok_config,name`);
+    if (!cRows[0]) return page("Cliente nao encontrado", "O cliente informado nao existe mais.", false);
+    const cfg = { ...(cRows[0].tiktok_config || {}), access_token: d.access_token, advertiser_ids: d.advertiser_ids || [], scope: d.scope || [], connected_at: new Date().toISOString() };
+    await sbPatch("clients", `id=eq.${encodeURIComponent(clientId)}`, { tiktok_config: cfg });
+    return page("TikTok Ads conectado!", `A conta TikTok de "${cRows[0].name || "cliente"}" foi conectada (${(d.advertiser_ids || []).length} conta(s) de anuncio encontrada(s)). Volte ao cadastro do cliente pra escolher qual conta usar.`, true);
+  } catch (e) {
+    return page("Erro ao conectar", String((e as any)?.message || e), false);
+  }
+}
+
+// OAuth do Pinterest Ads: fluxo padrao com refresh_token (expira, precisa renovar periodicamente).
+async function handlePinterestCallback(url: URL) {
+  const strip = (s: string) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const page = (t: string, m: string, ok: boolean) => new Response((ok ? "[OK] " : "[!] ") + strip(t) + "\n\n" + strip(m) + "\n\nPode fechar esta aba e voltar ao sistema.", { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
+  const code = url.searchParams.get("code");
+  const clientId = url.searchParams.get("state");
+  const err = url.searchParams.get("error");
+  if (err) return page("Conexao cancelada", "Voce recusou o acesso (" + err + ").", false);
+  if (!code) return page("Autorizacao nao concluida", "Nao recebi o codigo do Pinterest.", false);
+  if (!clientId) return page("Cliente nao identificado", "Refaca a conexao pelo cadastro do cliente.", false);
+  const acc = await sbSelect("account_config", `id=eq.main&select=data`);
+  const pt = (acc[0]?.data || {}).pinterest_ads || {};
+  if (!pt.client_id || !pt.client_secret) return page("Faltam credenciais do App", "Configure o Client ID e o Secret do Pinterest em Configuracoes.", false);
+  const redirect = `${url.origin}/functions/v1/tracking/pinterest/callback`;
+  try {
+    const basic = btoa(`${pt.client_id}:${pt.client_secret}`);
+    const r = await fetch("https://api.pinterest.com/v5/oauth/token", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${basic}` },
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirect }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.access_token) return page("Falha ao conectar", "O Pinterest nao devolveu o token: " + (j.message || j.error_description || `HTTP ${r.status}`), false);
+    const cRows = await sbSelect("clients", `id=eq.${encodeURIComponent(clientId)}&select=pinterest_config,name`);
+    if (!cRows[0]) return page("Cliente nao encontrado", "O cliente informado nao existe mais.", false);
+    const cfg = { ...(cRows[0].pinterest_config || {}), access_token: j.access_token, refresh_token: j.refresh_token || null, connected_at: new Date().toISOString() };
+    await sbPatch("clients", `id=eq.${encodeURIComponent(clientId)}`, { pinterest_config: cfg });
+    return page("Pinterest Ads conectado!", `A conta Pinterest de "${cRows[0].name || "cliente"}" foi conectada. Volte ao cadastro do cliente pra escolher qual conta de anuncio usar.`, true);
+  } catch (e) {
+    return page("Erro ao conectar", String((e as any)?.message || e), false);
+  }
+}
+
 // ---- pixel script (embute client_id + base) ----
 function pixelScript(cid: string, base: string) {
   return `(function(){
@@ -676,6 +738,9 @@ Deno.serve(async (req) => {
 
   if (p === "/nuvemshop/callback") return handleNuvemshopCallback(url);
 
+  if (p === "/tiktok/callback") return handleTikTokCallback(url);
+  if (p === "/pinterest/callback") return handlePinterestCallback(url);
+
   // GET /calendar/sync -> lê o Google Agenda (OAuth ou iCal) e cria tarefas das reuniões
   if (p === "/calendar/sync") return handleCalendarSync();
   if (p === "/calendar/create" && req.method === "POST") return handleCalCreate(req);
@@ -721,7 +786,7 @@ Deno.serve(async (req) => {
 
   // Link CURTO com o handle do cliente: GET /<handle> ou /<handle>/<slug>  (ex.: /motirobar/bio)
   // handle vazio → usa o slug "bio" como padrão. Resolve o handle → client_id e reaproveita o redirect rastreado.
-  const RESERVED = new Set(["collect", "wa", "rd", "google", "nuvemshop", "calendar", "automations", "pixel", "l", "favicon.ico", "robots.txt"]);
+  const RESERVED = new Set(["collect", "wa", "rd", "google", "nuvemshop", "tiktok", "pinterest", "calendar", "automations", "pixel", "l", "favicon.ico", "robots.txt"]);
   const mHandle = p.match(/^\/([a-z0-9][a-z0-9_-]{1,60})(?:\/([a-z0-9_-]{1,60}))?\/?$/i);
   if (mHandle && req.method === "GET" && !RESERVED.has(mHandle[1].toLowerCase())) {
     const handle = mHandle[1].toLowerCase();

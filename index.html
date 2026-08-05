@@ -963,6 +963,20 @@
           <div id="cNuvemConnectRow"></div>
         </div>
       </div>
+      <div class="cad-collapse">
+        <div class="cad-collapse-hd" onclick="this.parentElement.classList.toggle('open')"><span class="t">🎵 TikTok Ads</span><span class="cad-caret">▾</span></div>
+        <div class="cad-collapse-bd">
+          <div class="cad-sub">Conecte a conta TikTok Ads <b>deste cliente</b> pra puxar investimento, cliques e resultados.</div>
+          <div id="cTiktokConnectRow"></div>
+        </div>
+      </div>
+      <div class="cad-collapse">
+        <div class="cad-collapse-hd" onclick="this.parentElement.classList.toggle('open')"><span class="t">📌 Pinterest Ads</span><span class="cad-caret">▾</span></div>
+        <div class="cad-collapse-bd">
+          <div class="cad-sub">Conecte a conta Pinterest Ads <b>deste cliente</b> pra puxar investimento, cliques e resultados.</div>
+          <div id="cPinterestConnectRow"></div>
+        </div>
+      </div>
     </div>
 
     <div class="cpanel" data-panel="relatorios" style="display:none">
@@ -1852,7 +1866,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||''});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||''});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],budget_campaigns:o.budgetCampaigns||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,ga4_property_id:o.ga4PropertyId||null,gsc_site_url:o.gscSiteUrl||null,whatsapp:o.whatsapp||null,pixel_id:o.pixelId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -3765,10 +3779,30 @@ async function loadConfiguracoes(){
   const body=document.getElementById('configBody');if(!body)return;
   await loadAccountConfig();
   const rd=_acctCfg.rd_station||{};
+  const tk=_acctCfg.tiktok_ads||{};
+  const pt=_acctCfg.pinterest_ads||{};
   body.innerHTML=`
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;margin:4px 0 12px">🔌 Integrações</div>
     ${integCard('meta','Ⓜ️','Meta Ads','Contas de anúncio do Facebook/Instagram (token da API).',integStatusPill('load','Checando…'),'')}
     ${integCard('google','🔎','Google Ads','Contas via MCC do Google Ads.',integStatusPill('load','Checando…'),'')}
+    ${integCard('tiktok','🎵','TikTok Ads (App)','Credenciais do App (nível conta). A conexão é feita em cada cliente.',
+      integStatusPill(tk.app_id&&tk.secret?'ok':'off',tk.app_id&&tk.secret?'✓ App configurado':'Faltam credenciais'),
+      `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        <div style="flex:1;min-width:200px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">APP ID</label><input id="tkAppId" placeholder="${tk.app_id?tk.app_id:'do app do TikTok'}" style="width:100%;font-size:12px"></div>
+        <div style="flex:1;min-width:200px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">SECRET</label><input id="tkSecret" type="password" placeholder="${tk.secret?'•••••••••• (salvo)':'do app do TikTok'}" style="width:100%;font-size:12px"></div>
+        <button class="btn sm primary" style="flex:none" onclick="saveTiktokApp()">Salvar credenciais</button>
+        ${tk.app_id?`<button class="btn sm ghost" style="flex:none;color:var(--red)" onclick="clearTiktokApp()">Remover</button>`:''}
+      </div>
+      <div style="font-size:11px;color:var(--faint);margin-top:8px">Crie um app no <a href="https://ads.tiktok.com/marketing_api/homepage" target="_blank" rel="noopener">TikTok for Business Developer Portal</a> com Redirect URI <code style="background:var(--surface2);padding:1px 5px;border-radius:5px;word-break:break-all">${SUPA_URL}/functions/v1/tracking/tiktok/callback</code>. Para conectar o TikTok de um cliente, vá no cadastro dele → aba <b>Mídia</b> → "Conectar TikTok Ads".</div>`)}
+    ${integCard('pinterest','📌','Pinterest Ads (App)','Credenciais do App (nível conta). A conexão é feita em cada cliente.',
+      integStatusPill(pt.client_id&&pt.client_secret?'ok':'off',pt.client_id&&pt.client_secret?'✓ App configurado':'Faltam credenciais'),
+      `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        <div style="flex:1;min-width:200px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CLIENT ID</label><input id="ptClientId" placeholder="${pt.client_id?pt.client_id:'do app do Pinterest'}" style="width:100%;font-size:12px"></div>
+        <div style="flex:1;min-width:200px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">SECRET</label><input id="ptSecret" type="password" placeholder="${pt.client_secret?'•••••••••• (salvo)':'do app do Pinterest'}" style="width:100%;font-size:12px"></div>
+        <button class="btn sm primary" style="flex:none" onclick="savePinterestApp()">Salvar credenciais</button>
+        ${pt.client_id?`<button class="btn sm ghost" style="flex:none;color:var(--red)" onclick="clearPinterestApp()">Remover</button>`:''}
+      </div>
+      <div style="font-size:11px;color:var(--faint);margin-top:8px">Crie um app no <a href="https://developers.pinterest.com/apps/" target="_blank" rel="noopener">Pinterest Developer Portal</a> (escopo <code style="background:var(--surface2);padding:1px 5px;border-radius:5px">ads:read</code>) com Redirect URI <code style="background:var(--surface2);padding:1px 5px;border-radius:5px;word-break:break-all">${SUPA_URL}/functions/v1/tracking/pinterest/callback</code>. Para conectar o Pinterest de um cliente, vá no cadastro dele → aba <b>Mídia</b> → "Conectar Pinterest Ads".</div>`)}
     ${integCard('rd','📣','RD Station (App)','Credenciais do App (nível conta). A conexão é feita em cada cliente.',
       integStatusPill(rd.client_id&&rd.client_secret?'ok':'off',rd.client_id&&rd.client_secret?'✓ App configurado':'Faltam credenciais'),
       `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
@@ -3961,6 +3995,34 @@ async function clearRdStation(){
   await saveAccountConfig({rd_station:{}});
   loadConfiguracoes();
 }
+async function saveTiktokApp(){
+  const cur=(await loadAccountConfig()).tiktok_ads||{};
+  const app_id=(document.getElementById('tkAppId').value||'').trim()||cur.app_id||'';
+  const secretInput=(document.getElementById('tkSecret').value||'').trim();
+  const secret=secretInput||cur.secret||'';
+  if(!app_id||!secret){alert('Cole o App ID e o Secret do app do TikTok.');return;}
+  await saveAccountConfig({tiktok_ads:{app_id,secret}});
+  loadConfiguracoes();
+}
+async function clearTiktokApp(){
+  if(!confirm('Remover as credenciais do App do TikTok? As conexões dos clientes deixam de funcionar.'))return;
+  await saveAccountConfig({tiktok_ads:{}});
+  loadConfiguracoes();
+}
+async function savePinterestApp(){
+  const cur=(await loadAccountConfig()).pinterest_ads||{};
+  const client_id=(document.getElementById('ptClientId').value||'').trim()||cur.client_id||'';
+  const secretInput=(document.getElementById('ptSecret').value||'').trim();
+  const client_secret=secretInput||cur.client_secret||'';
+  if(!client_id||!client_secret){alert('Cole o Client ID e o Secret do app do Pinterest.');return;}
+  await saveAccountConfig({pinterest_ads:{client_id,client_secret}});
+  loadConfiguracoes();
+}
+async function clearPinterestApp(){
+  if(!confirm('Remover as credenciais do App do Pinterest? As conexões dos clientes deixam de funcionar.'))return;
+  await saveAccountConfig({pinterest_ads:{}});
+  loadConfiguracoes();
+}
 async function saveNuvemApp(){
   const cur=(await loadAccountConfig()).nuvemshop||{};
   const app_id=(document.getElementById('nsAppId').value||'').trim()||cur.app_id||'';
@@ -4071,6 +4133,105 @@ async function connectRdForClient(clientId){
   const url='https://api.rd.services/auth/dialog?client_id='+encodeURIComponent(app.client_id)+'&redirect_uri='+encodeURIComponent(redirect)+'&state='+encodeURIComponent(clientId);
   window.open(url,'_blank','width=560,height=760');
   alert('Abri a tela do RD Station numa aba nova. IMPORTANTE: esteja logado na conta RD DESTE cliente. Autorize por lá; depois recarregue o cadastro pra ver "Conectado".');
+}
+/* ---- TikTok Ads / Pinterest Ads — conexão POR CLIENTE (mesmo molde do RD Station) ---- */
+function renderTiktokConnect(clientId,cfg){
+  const el=document.getElementById('cTiktokConnectRow');if(!el)return;
+  if(!clientId){el.innerHTML='<div style="font-size:11px;color:var(--faint)">Salve o cliente primeiro pra poder conectar o TikTok.</div>';return;}
+  cfg=cfg||{};
+  const connected=!!cfg.access_token;
+  const when=connected&&cfg.connected_at?new Date(cfg.connected_at).toLocaleString('pt-BR'):'';
+  const accounts=cfg.advertiser_ids||[];
+  const accSel=accounts.length?`<div style="margin-top:8px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CONTA DE ANÚNCIO</label>
+    <select style="width:100%;font-size:12px" onchange="saveTiktokAdvertiser('${clientId}',this.value)"><option value="">— escolha —</option>${accounts.map(id=>`<option value="${id}" ${cfg.advertiser_id===id?'selected':''}>${id}</option>`).join('')}</select></div>`:'';
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="font-size:12px;font-weight:700;color:${connected?'#34d399':'var(--faint)'}">${connected?'✓ TikTok conectado':'○ TikTok não conectado'}</span>
+    ${when?`<span style="font-size:11px;color:var(--faint)">desde ${when}</span>`:''}
+    <button type="button" class="btn sm ${connected?'ghost':'primary'}" onclick="connectTiktokForClient('${clientId}')">${connected?'Reconectar':'Conectar TikTok Ads'}</button>
+    ${connected&&cfg.advertiser_id?`<button type="button" class="btn sm ghost" onclick="testarCanalAds('${clientId}','tiktok',this)">🔄 Testar / ver números</button>`:''}
+  </div>
+  ${accSel}
+  <div id="cTiktokTest" style="font-size:12px;margin-top:8px"></div>
+  ${connected?'':'<div style="font-size:11px;color:var(--faint);margin-top:6px">Esteja logado na conta TikTok Business deste cliente antes de autorizar.</div>'}`;
+}
+async function connectTiktokForClient(clientId){
+  const app=(await loadAccountConfig()).tiktok_ads||{};
+  if(!app.app_id){alert('Primeiro configure o App ID e o Secret do TikTok em ⚙️ Configurações.');return;}
+  const redirect=SUPA_URL+'/functions/v1/tracking/tiktok/callback';
+  const url='https://business-api.tiktok.com/portal/auth?app_id='+encodeURIComponent(app.app_id)+'&redirect_uri='+encodeURIComponent(redirect)+'&state='+encodeURIComponent(clientId);
+  window.open(url,'_blank','width=560,height=760');
+  alert('Abri a tela do TikTok numa aba nova. Esteja logado na conta TikTok Business DESTE cliente. Autorize por lá; depois recarregue o cadastro pra ver "Conectado" e escolha a conta de anúncio.');
+}
+async function saveTiktokAdvertiser(clientId,advertiserId){
+  const c=DB.clients.find(x=>x.id===clientId);const cfg={...((c&&c.tiktokConfig)||{}),advertiser_id:advertiserId};
+  const {error}=await sb.from('clients').update({tiktok_config:cfg}).eq('id',clientId);
+  if(error){alert('Erro ao salvar: '+error.message);return;}
+  if(c)c.tiktokConfig=cfg;
+  renderTiktokConnect(clientId,cfg);
+}
+function renderPinterestConnect(clientId,cfg){
+  const el=document.getElementById('cPinterestConnectRow');if(!el)return;
+  if(!clientId){el.innerHTML='<div style="font-size:11px;color:var(--faint)">Salve o cliente primeiro pra poder conectar o Pinterest.</div>';return;}
+  cfg=cfg||{};
+  const connected=!!cfg.refresh_token;
+  const when=connected&&cfg.connected_at?new Date(cfg.connected_at).toLocaleString('pt-BR'):'';
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="font-size:12px;font-weight:700;color:${connected?'#34d399':'var(--faint)'}">${connected?'✓ Pinterest conectado':'○ Pinterest não conectado'}</span>
+    ${when?`<span style="font-size:11px;color:var(--faint)">desde ${when}</span>`:''}
+    <button type="button" class="btn sm ${connected?'ghost':'primary'}" onclick="connectPinterestForClient('${clientId}')">${connected?'Reconectar':'Conectar Pinterest Ads'}</button>
+    ${connected?`<button type="button" class="btn sm ghost" onclick="loadPinterestAccounts('${clientId}')">🔄 Carregar contas</button>`:''}
+    ${connected&&cfg.ad_account_id?`<button type="button" class="btn sm ghost" onclick="testarCanalAds('${clientId}','pinterest',this)">🔄 Testar / ver números</button>`:''}
+  </div>
+  <div id="cPinterestAccSel" style="margin-top:8px">${cfg.ad_account_id?`<span style="font-size:11px;color:var(--faint)">Conta selecionada: <code style="background:var(--surface2);padding:1px 5px;border-radius:5px">${cfg.ad_account_id}</code></span>`:''}</div>
+  <div id="cPinterestTest" style="font-size:12px;margin-top:8px"></div>
+  ${connected?'':'<div style="font-size:11px;color:var(--faint);margin-top:6px">Esteja logado na conta Pinterest deste cliente antes de autorizar.</div>'}`;
+}
+async function connectPinterestForClient(clientId){
+  const app=(await loadAccountConfig()).pinterest_ads||{};
+  if(!app.client_id){alert('Primeiro configure o Client ID e o Secret do Pinterest em ⚙️ Configurações.');return;}
+  const redirect=SUPA_URL+'/functions/v1/tracking/pinterest/callback';
+  const url='https://www.pinterest.com/oauth/?client_id='+encodeURIComponent(app.client_id)+'&redirect_uri='+encodeURIComponent(redirect)+'&response_type=code&scope='+encodeURIComponent('ads:read,user_accounts:read')+'&state='+encodeURIComponent(clientId);
+  window.open(url,'_blank','width=560,height=760');
+  alert('Abri a tela do Pinterest numa aba nova. Esteja logado na conta Pinterest DESTE cliente. Autorize por lá; depois recarregue o cadastro, clique em "Carregar contas" e escolha a conta de anúncio.');
+}
+async function loadPinterestAccounts(clientId){
+  const box=document.getElementById('cPinterestAccSel');if(box)box.innerHTML='Carregando contas…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{pinterestAccounts:{clientId}}});
+    if(error)throw error;const r=(data&&data.data)||{};
+    if(r.error){if(box)box.innerHTML='<span style="color:#f87171;font-size:11px">'+r.error+'</span>';return;}
+    const accounts=r.accounts||[];
+    if(!accounts.length){if(box)box.innerHTML='<span style="font-size:11px;color:var(--faint)">Nenhuma conta de anúncio encontrada.</span>';return;}
+    const c=DB.clients.find(x=>x.id===clientId);const sel=(c&&c.pinterestConfig&&c.pinterestConfig.ad_account_id)||'';
+    if(box)box.innerHTML=`<label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CONTA DE ANÚNCIO</label>
+      <select style="width:100%;font-size:12px" onchange="savePinterestAccount('${clientId}',this.value)"><option value="">— escolha —</option>${accounts.map(a=>`<option value="${a.id}" ${sel===a.id?'selected':''}>${(a.name||a.id).replace(/</g,'&lt;')}</option>`).join('')}</select>`;
+  }catch(e){if(box)box.innerHTML='<span style="color:#f87171;font-size:11px">Erro: '+(e.message||e)+'</span>';}
+}
+async function savePinterestAccount(clientId,adAccountId){
+  const c=DB.clients.find(x=>x.id===clientId);const cfg={...((c&&c.pinterestConfig)||{}),ad_account_id:adAccountId};
+  const {error}=await sb.from('clients').update({pinterest_config:cfg}).eq('id',clientId);
+  if(error){alert('Erro ao salvar: '+error.message);return;}
+  if(c)c.pinterestConfig=cfg;
+  renderPinterestConnect(clientId,cfg);
+}
+// Testa a conexão puxando os últimos 7 dias — valida ponta a ponta (fase 1, antes de integrar no Dashboard/funil de verdade).
+async function testarCanalAds(clientId,canal,btn){
+  const box=document.getElementById(canal==='tiktok'?'cTiktokTest':'cPinterestTest');
+  const o=btn?btn.textContent:'';if(btn){btn.disabled=true;btn.textContent='Testando…';}
+  if(box)box.innerHTML='Puxando os últimos 7 dias…';
+  try{
+    const since=daysAgoISO(7),until=today();
+    const key=canal==='tiktok'?'tiktokAds':'pinterestAds';
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{[key]:{clientId,since,until}}});
+    if(error)throw error;const r=(data&&data.data)||{};
+    if(r.error)throw new Error(r.error);
+    const t=r.total||{};
+    if(box)box.innerHTML=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+      <b style="color:#34d399">✓ Conectado e puxando dados reais</b> (últimos 7 dias)<br>
+      Investimento: <b>${fmt(t.spend||0)}</b> · Impressões: <b>${(t.impressions||0).toLocaleString('pt-BR')}</b> · Cliques: <b>${(t.clicks||0).toLocaleString('pt-BR')}</b> · Resultados: <b>${Math.round(t.purchases||0)}</b>
+      </div>`;
+  }catch(e){if(box)box.innerHTML='<span style="color:#f87171;font-size:12px">Erro: '+(e.message||e)+'</span>';}
+  if(btn){btn.disabled=false;btn.textContent=o;}
 }
 /* ================= RAIO-X DO CLIENTE (análise profunda) ================= */
 let _rxClientId='',_rxSince='',_rxUntil='',_rxPreset='90',_rxData=null,_rxCharts={},_rxTplId='';
@@ -6663,6 +6824,8 @@ function openClientModal(id){
   document.getElementById('cGoogleAccountHint').textContent='';
   renderRdConnect(id,c.rdConfig);
   renderNuvemConnect(id,c.nuvemshopConfig);
+  renderTiktokConnect(id,c.tiktokConfig);
+  renderPinterestConnect(id,c.pinterestConfig);
   // templates do cliente (novo multi); migra na hora quem só tem o legado
   let tplIds=Array.isArray(c.reportTemplateIds)?c.reportTemplateIds.slice():null;
   if(!tplIds){tplIds=[];if(c.reportTemplateId)tplIds.push(c.reportTemplateId);(c.reportFocos||[]).forEach(f=>{const id='base_'+f;if(!tplIds.includes(id))tplIds.push(id)});}
