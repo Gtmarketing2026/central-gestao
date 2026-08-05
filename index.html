@@ -282,6 +282,7 @@
       <button class="tab" data-tab="configuracoes">⚙️ Configurações</button>
       <button class="tab" data-tab="modelos">📋 Templates</button>
       <button class="tab" onclick="goToTab('configuracoes')">🔌 Integrações</button>
+      <button class="tab" data-tab="bancodados">🗄️ Banco de Dados</button>
       </div>
     </nav>
   </aside>
@@ -763,6 +764,13 @@
     <div class="section-head" style="margin-top:0"><h2>📡 Rastreamento <span id="rastClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
     <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Bridge site → WhatsApp com atribuição por anúncio — sessões, cliques e links rastreáveis. A base da jornada do lead.</div>
     <div id="rastBody"></div>
+  </section>
+
+  <!-- BANCO DE DADOS (histórico diário por canal — CSV / Power BI) -->
+  <section class="panel" id="bancodados">
+    <div class="section-head" style="margin-top:0"><h2>🗄️ Banco de Dados</h2></div>
+    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Histórico diário de investimento e resultado por canal (Meta/Google), atualizado sozinho todo dia. Exporta em CSV ou conecta direto no Power BI.</div>
+    <div id="bdBody"></div>
   </section>
 
   <!-- CONFIG DO CLIENTE (página de cards) -->
@@ -2104,6 +2112,7 @@ function goToTab(tabId){
   if(tabId==='campanhas')loadCampanhas(activeClientId);
   if(tabId==='rastreamento')loadRastreamento(activeClientId);
   if(tabId==='configuracoes')loadConfiguracoes();
+  if(tabId==='bancodados')loadBancoDados();
   if(tabId==='raiox')loadRaioX(activeClientId);
   if(tabId==='jornada')loadJornada(activeClientId);
   if(tabId==='crm')loadCrm();
@@ -3847,6 +3856,106 @@ async function loadConfiguracoes(){
     <div style="font-size:11px;color:var(--faint);margin-top:6px">O status de Meta e Google é verificado ao vivo. Se aparecer "reconectar", o token expirou — me avise que renovamos.</div>`;
   // status ao vivo Meta + Google
   checkIntegMeta();checkIntegGoogle();gcalCheckConn();
+}
+/* ===== Banco de Dados (histórico diário por canal — CSV / Power BI) ===== */
+let _bdSince='',_bdUntil='',_bdClient='',_bdChannel='';
+function _bdDateFmt(d){if(!d)return'—';const s=String(d).slice(0,10);const[y,m,dd]=s.split('-');return`${dd}/${m}/${y}`}
+async function loadBancoDados(){
+  const el=document.getElementById('bdBody');if(!el)return;
+  _bdSince=_bdSince||daysAgoISO(30);_bdUntil=_bdUntil||today();
+  const clientOpts=DB.clients.slice().sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}" ${_bdClient===c.id?'selected':''}>${c.name.replace(/</g,'&lt;')}</option>`).join('');
+  el.innerHTML=`
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:10px">
+        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">DE</label><input type="date" id="bdSince" value="${_bdSince}" style="width:auto;font-size:12px"></div>
+        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ATÉ</label><input type="date" id="bdUntil" value="${_bdUntil}" style="width:auto;font-size:12px"></div>
+        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CLIENTE</label><select id="bdClient" style="width:auto;font-size:12px"><option value="">Todos</option>${clientOpts}</select></div>
+        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CANAL</label><select id="bdChannel" style="width:auto;font-size:12px"><option value="" ${!_bdChannel?'selected':''}>Todos</option><option value="meta" ${_bdChannel==='meta'?'selected':''}>Meta</option><option value="google" ${_bdChannel==='google'?'selected':''}>Google</option></select></div>
+        <button class="btn sm primary" onclick="bdApplyFilters()">Aplicar</button>
+        <button class="btn sm ghost" onclick="bdDownloadCSV(this)">⬇️ Baixar CSV</button>
+      </div>
+      <div id="bdSummary" style="display:flex;gap:10px;flex-wrap:wrap"></div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin:0 0 10px">📊 Power BI — conexão direta</h3>
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">No Power BI Desktop: <b>Obter Dados → Banco de Dados → PostgreSQL</b>. Usuário só leitura, enxerga só essa tabela (não vê financeiro, clientes nem senhas).</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;font-size:12.5px">
+        <div><div style="color:var(--faint);font-size:10px;text-transform:uppercase;margin-bottom:2px">Servidor</div><code style="background:var(--surface2);padding:2px 6px;border-radius:5px;word-break:break-all">aws-1-sa-east-1.pooler.supabase.com:5432</code></div>
+        <div><div style="color:var(--faint);font-size:10px;text-transform:uppercase;margin-bottom:2px">Banco de dados</div><code style="background:var(--surface2);padding:2px 6px;border-radius:5px">postgres</code></div>
+        <div><div style="color:var(--faint);font-size:10px;text-transform:uppercase;margin-bottom:2px">Usuário</div><code style="background:var(--surface2);padding:2px 6px;border-radius:5px;word-break:break-all">powerbi_reader.mocrfqmdjwvyhqvdpimm</code></div>
+        <div><div style="color:var(--faint);font-size:10px;text-transform:uppercase;margin-bottom:2px">Senha</div><span style="color:var(--faint)">no cofre local (~/.central-gestao/powerbi_reader.pass)</span></div>
+        <div><div style="color:var(--faint);font-size:10px;text-transform:uppercase;margin-bottom:2px">Tabela</div><code style="background:var(--surface2);padding:2px 6px;border-radius:5px">channel_metrics_daily</code></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 10px">Histórico</h3>
+      <div id="bdTableWrap" style="overflow-x:auto"></div>
+    </div>`;
+  await bdApplyFilters();
+}
+function bdApplyFilters(){
+  _bdSince=document.getElementById('bdSince').value||daysAgoISO(30);
+  _bdUntil=document.getElementById('bdUntil').value||today();
+  _bdClient=document.getElementById('bdClient').value||'';
+  _bdChannel=document.getElementById('bdChannel').value||'';
+  return bdRenderTable();
+}
+async function bdFetchRows(limit){
+  let q=sb.from('channel_metrics_daily').select('date,channel,spend,impressions,clicks,reach,purchases,revenue,leads,conversas,client_id').gte('date',_bdSince).lte('date',_bdUntil).order('date',{ascending:false});
+  if(_bdClient)q=q.eq('client_id',_bdClient);
+  if(_bdChannel)q=q.eq('channel',_bdChannel);
+  if(limit)q=q.limit(limit);
+  const {data,error}=await q;
+  if(error)throw error;
+  return data||[];
+}
+async function bdRenderTable(){
+  const wrap=document.getElementById('bdTableWrap');const sum=document.getElementById('bdSummary');
+  if(wrap)wrap.innerHTML='<div class="empty">Carregando…</div>';
+  try{
+    const rows=await bdFetchRows(500);
+    const tot=rows.reduce((a,r)=>{a.spend+=+r.spend||0;a.clicks+=+r.clicks||0;return a;},{spend:0,clicks:0});
+    if(sum)sum.innerHTML=`
+      <div style="flex:1;min-width:130px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div style="font-size:10px;color:var(--muted)">Investimento (linhas mostradas)</div><div style="font-size:17px;font-weight:800">${fmt(tot.spend)}</div></div>
+      <div style="flex:1;min-width:130px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div style="font-size:10px;color:var(--muted)">Linhas no período</div><div style="font-size:17px;font-weight:800">${rows.length}${rows.length===500?'+':''}</div></div>`;
+    if(!rows.length){if(wrap)wrap.innerHTML='<div class="empty">Sem dados nesse filtro.</div>';return;}
+    const nameOf=id=>{const c=DB.clients.find(x=>x.id===id);return c?c.name:id;};
+    const th=l=>`<th style="text-align:right;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">${l}</th>`;
+    const rowsHtml=rows.map(r=>`<tr>
+      <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border);white-space:nowrap">${_bdDateFmt(r.date)}</td>
+      <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border)">${(nameOf(r.client_id)||'').replace(/</g,'&lt;')}</td>
+      <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border)">${r.channel==='meta'?'Meta':'Google'}</td>
+      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${fmt(r.spend)}</td>
+      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${(r.impressions||0).toLocaleString('pt-BR')}</td>
+      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${(r.clicks||0).toLocaleString('pt-BR')}</td>
+      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${Math.round(r.purchases||0)}</td>
+    </tr>`).join('');
+    if(wrap)wrap.innerHTML=`<table style="width:100%;border-collapse:collapse"><tr>
+      <th style="text-align:left;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">DATA</th>
+      <th style="text-align:left;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">CLIENTE</th>
+      <th style="text-align:left;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">CANAL</th>
+      ${th('GASTO')}${th('IMPRESSÕES')}${th('CLIQUES')}${th('RESULTADOS')}
+      </tr>${rowsHtml}</table>${rows.length===500?'<div style="font-size:11px;color:var(--faint);margin-top:8px">Mostrando as 500 linhas mais recentes do filtro — baixe o CSV pra ver tudo.</div>':''}`;
+  }catch(e){if(wrap)wrap.innerHTML='<div class="empty">Erro: '+(e.message||e)+'</div>';}
+}
+async function bdDownloadCSV(btn){
+  const o=btn?btn.textContent:'';if(btn){btn.disabled=true;btn.textContent='Gerando…';}
+  try{
+    const rows=await bdFetchRows(20000);
+    if(!rows.length){alert('Sem dados nesse filtro.');if(btn){btn.disabled=false;btn.textContent=o;}return;}
+    const nameOf=id=>{const c=DB.clients.find(x=>x.id===id);return c?c.name:id;};
+    const head=['Data','Cliente','Canal','Investimento','Impressões','Cliques','Alcance','Resultados','Receita','Leads','Conversas'];
+    const lines=[head.map(_csvEsc).join(';')];
+    rows.forEach(r=>{
+      lines.push([r.date,nameOf(r.client_id),r.channel==='meta'?'Meta':'Google',(+r.spend||0).toFixed(2).replace('.',','),r.impressions||0,r.clicks||0,r.reach||0,Math.round(r.purchases||0),(+r.revenue||0).toFixed(2).replace('.',','),r.leads||0,r.conversas||0].map(_csvEsc).join(';'));
+    });
+    const csv='﻿'+lines.join('\r\n');
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='metricas_'+_bdSince+'_a_'+_bdUntil+'.csv';document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+  }catch(e){alert('Erro ao gerar CSV: '+(e.message||e));}
+  if(btn){btn.disabled=false;btn.textContent=o;}
 }
 /* ===== AndréIA no WhatsApp (grupo) ===== */
 function _andreiaInstId(){return (_acctCfg&&_acctCfg.andreia_wa&&_acctCfg.andreia_wa.instance_id)||'';}

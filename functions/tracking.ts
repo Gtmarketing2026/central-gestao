@@ -762,6 +762,24 @@ Deno.serve(async (req) => {
     } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
   }
 
+  // /metrics/tick -> salva o historico de channel_metrics_daily. Sem parametros: o dia de ontem (America/Sao_Paulo), pra
+  // todos os clientes (chamado pelo cron diario). Aceita ?since=&until=&clientIds=a,b,c pra reconstruir o passado em lotes.
+  if (p === "/metrics/tick") {
+    let since = url.searchParams.get("since") || "", until = url.searchParams.get("until") || "";
+    if (!since || !until) {
+      const now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      now.setDate(now.getDate() - 1);
+      since = until = now.toISOString().slice(0, 10);
+    }
+    const clientIdsParam = url.searchParams.get("clientIds");
+    const clientIds = clientIdsParam ? clientIdsParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+    try {
+      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ channelMetricsCollect: { since, until, clientIds } }) });
+      const t = await r.text();
+      return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
+    } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
+  }
+
   // GET /wa/connect/<instanceId> -> JSON com qrcode/paircode/status (usado pela página pública de conexão)
   const mWaC = p.match(/^\/wa\/connect\/([^/]+)$/);
   if (mWaC) return handleWaConnect(mWaC[1], url);
