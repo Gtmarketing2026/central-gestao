@@ -9960,7 +9960,8 @@ function andreiaExportBuild(fmt){
   const idx=_docExportIdx;const m=agentActiveChat&&agentActiveChat.messages[idx];if(!m)return;
   const r=document.querySelector('input[name=docLayout]:checked');const layout=r?r.value:'executivo';
   const c=DB.clients.find(x=>x.id===(agentActiveChat&&agentActiveChat.client_id));
-  const rawTitle=(agentActiveChat&&agentActiveChat.title)||'Documento';
+  const headingMatch=(m.text||'').match(/^#{1,3}\s+(.+)$/m);
+  const rawTitle=(headingMatch?headingMatch[1].trim():'')||'Diagnóstico AndréIA';
   const h={title:rawTitle.replace(/</g,'&lt;'),client:c?c.name.replace(/</g,'&lt;'):'',date:new Date().toLocaleDateString('pt-BR')};
   const html=_docWrap(layout,h,_mdToDocHtml(m.text));
   andreiaExportClose();
