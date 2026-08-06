@@ -3859,7 +3859,7 @@ async function loadConfiguracoes(){
 }
 /* ===== Banco de Dados (histórico diário por canal — CSV / Power BI) ===== */
 let _bdSince='',_bdUntil='',_bdClient='',_bdChannel='',_bdObjetivo='';
-let _bdTab='tabela',_bdSelCamps=[],_bdCharts={};
+let _bdTab='tabela',_bdSelCamps=[],_bdCharts={},_bdRuleMode='in',_bdRuleValues=[];
 function _bdDestroy(k){if(_bdCharts[k]){_bdCharts[k].destroy();_bdCharts[k]=null;}}
 function bdRefresh(){return _bdTab==='dash'?bdRenderDash():bdRenderTable();}
 // Filtros por texto tipo GA4: cada regra é {field, type:'contains'|'not_contains', value} e todas são combinadas com E.
@@ -3939,28 +3939,69 @@ async function bdRuleFieldValues(field){
   data.forEach(r=>{if(r[field])set.add(r[field]);});
   return [...set].sort((a,b)=>a.localeCompare(b,'pt'));
 }
+function _bdRuleFind(field){return _bdRules.find(r=>r.field===field&&(r.type==='in'||r.type==='not_in'));}
 async function bdRuleFieldChanged(){
   const field=(document.getElementById('bdRuleField')||{}).value||'source_medium';
-  const sel=document.getElementById('bdRuleInput');if(!sel)return;
-  sel.innerHTML='<option value="">Carregando…</option>';
-  const vals=await bdRuleFieldValues(field);
-  sel.innerHTML=vals.length?vals.map(v=>{const esc=String(v).replace(/</g,'&lt;');return `<option value="${esc}">${esc}</option>`;}).join(''):'<option value="">— nenhum valor nesse período —</option>';
+  const listEl=document.getElementById('bdRuleValueList');if(!listEl)return;
+  listEl.innerHTML='<div style="padding:8px;font-size:12px;color:var(--faint)">Carregando…</div>';
+  _bdRuleValues=await bdRuleFieldValues(field);
+  const rule=_bdRuleFind(field);
+  _bdRuleMode=rule?rule.type:'in';
+  bdRenderRuleValueList();
 }
-function bdAddRule(type){
+function bdSetRuleMode(mode){
+  _bdRuleMode=mode;
   const field=(document.getElementById('bdRuleField')||{}).value||'source_medium';
-  const inp=document.getElementById('bdRuleInput');
-  const value=(inp&&inp.value||'').trim();if(!value)return;
-  _bdRules.push({field,type,value});
-  renderBdRules();bdRefresh();
+  const rule=_bdRuleFind(field);
+  if(rule&&rule.values.length){rule.type=mode;renderBdRules();bdRefresh();}
+  bdRenderRuleValueList();
 }
-function bdRemoveRule(i){_bdRules.splice(i,1);renderBdRules();bdRefresh();}
-function bdClearView(){_bdRules=[];renderBdRules();bdRefresh();}
+function bdRenderRuleValueList(){
+  const listEl=document.getElementById('bdRuleValueList');if(!listEl)return;
+  const field=(document.getElementById('bdRuleField')||{}).value||'source_medium';
+  const rule=_bdRuleFind(field);
+  const checkedVals=rule?rule.values:[];
+  const modeIn=document.getElementById('bdRuleModeIn'),modeNotIn=document.getElementById('bdRuleModeNotIn');
+  if(modeIn)modeIn.className='btn sm '+(_bdRuleMode==='not_in'?'ghost':'primary');
+  if(modeNotIn)modeNotIn.className='btn sm '+(_bdRuleMode==='not_in'?'primary':'ghost');
+  listEl.innerHTML=_bdRuleValues.length?_bdRuleValues.map(v=>{
+    const esc=String(v).replace(/'/g,"\\'").replace(/</g,'&lt;');
+    const checked=checkedVals.includes(v);
+    return `<label class="bdRuleValRow" data-name="${esc.toLowerCase()}" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:12px">
+      <input type="checkbox" ${checked?'checked':''} onchange="bdRuleValueToggle('${esc}')">
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc}</span>
+    </label>`;
+  }).join(''):'<div style="padding:8px;font-size:12px;color:var(--faint)">— nenhum valor nesse período —</div>';
+}
+function bdRuleValueFilterList(q){
+  const needle=q.toLowerCase();
+  document.querySelectorAll('#bdRuleValueList .bdRuleValRow').forEach(row=>{row.style.display=row.dataset.name.includes(needle)?'flex':'none';});
+}
+function bdRuleValueToggle(value){
+  const field=(document.getElementById('bdRuleField')||{}).value||'source_medium';
+  let rule=_bdRuleFind(field);
+  if(!rule){rule={field,type:_bdRuleMode,values:[]};_bdRules.push(rule);}
+  rule.type=_bdRuleMode;
+  const i=rule.values.indexOf(value);
+  if(i>=0)rule.values.splice(i,1);else rule.values.push(value);
+  if(!rule.values.length)_bdRules=_bdRules.filter(r=>r!==rule);
+  renderBdRules();bdRefresh();bdRenderRuleValueList();
+}
+function bdRemoveRule(i){_bdRules.splice(i,1);renderBdRules();bdRefresh();bdRenderRuleValueList();}
+function bdClearView(){_bdRules=[];renderBdRules();bdRefresh();bdRenderRuleValueList();}
 function renderBdRules(){
   const el=document.getElementById('bdRulesRow');if(!el)return;
-  el.innerHTML=_bdRules.map((r,i)=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:12px">${BD_RULE_FIELDS[r.field]||r.field} <b style="color:${r.type==='contains'?'#34d399':'#f87171'}">${r.type==='contains'?'contém':'não contém'}</b> "${String(r.value).replace(/</g,'&lt;')}"<a onclick="bdRemoveRule(${i})" title="remover" style="color:#f87171;font-weight:700;cursor:pointer">×</a></span>`).join('');
+  el.innerHTML=_bdRules.map((r,i)=>{
+    if(r.values){
+      const n=r.values.length;
+      const preview=r.values.slice(0,2).map(v=>'"'+String(v).replace(/</g,'&lt;')+'"').join(', ')+(n>2?` +${n-2}`:'');
+      return `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:12px">${BD_RULE_FIELDS[r.field]||r.field} <b style="color:${r.type==='in'?'#34d399':'#f87171'}">${r.type==='in'?'é um de':'não é nenhum de'}</b> ${preview}<a onclick="bdRemoveRule(${i})" title="remover" style="color:#f87171;font-weight:700;cursor:pointer">×</a></span>`;
+    }
+    return `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:12px">${BD_RULE_FIELDS[r.field]||r.field} <b style="color:${r.type==='contains'?'#34d399':'#f87171'}">${r.type==='contains'?'contém':'não contém'}</b> "${String(r.value).replace(/</g,'&lt;')}"<a onclick="bdRemoveRule(${i})" title="remover" style="color:#f87171;font-weight:700;cursor:pointer">×</a></span>`;
+  }).join('');
   renderBdViews();
 }
-// Clique direto numa célula "Origem/Mídia"/"Campanha" da tabela — atalho pra virar regra "contém"/"não contém" sem digitar (igual GA4).
+// Clique direto numa célula "Origem/Mídia"/"Campanha" da tabela — atalho pra incluir/excluir esse valor sem abrir o seletor.
 function bdCellMenu(ev,field,value){
   document.querySelectorAll('.bdCellMenu').forEach(m=>m.remove());
   const rect=ev.target.getBoundingClientRect();
@@ -3968,14 +4009,18 @@ function bdCellMenu(ev,field,value){
   menu.className='bdCellMenu';
   menu.style.cssText=`position:fixed;left:${Math.round(rect.left)}px;top:${Math.round(rect.bottom+4)}px;z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.4);min-width:220px`;
   const short=value.length>28?value.slice(0,28)+'…':value;
-  menu.innerHTML=`<button type="button" class="btn sm ghost" style="display:flex;width:100%;text-align:left;margin-bottom:2px;font-size:12px" onclick="bdCellFilter('${field}','${value.replace(/'/g,"\\'")}','contains')">✅ Incluir (corresponde a "${short}")</button>
-    <button type="button" class="btn sm ghost" style="display:flex;width:100%;text-align:left;font-size:12px" onclick="bdCellFilter('${field}','${value.replace(/'/g,"\\'")}','not_contains')">🚫 Excluir (corresponde a "${short}")</button>`;
+  menu.innerHTML=`<button type="button" class="btn sm ghost" style="display:flex;width:100%;text-align:left;margin-bottom:2px;font-size:12px" onclick="bdCellFilter('${field}','${value.replace(/'/g,"\\'")}','in')">✅ Incluir (corresponde a "${short}")</button>
+    <button type="button" class="btn sm ghost" style="display:flex;width:100%;text-align:left;font-size:12px" onclick="bdCellFilter('${field}','${value.replace(/'/g,"\\'")}','not_in')">🚫 Excluir (corresponde a "${short}")</button>`;
   document.body.appendChild(menu);
   setTimeout(()=>document.addEventListener('click',function h(){menu.remove();document.removeEventListener('click',h);},{once:true}),0);
 }
 function bdCellFilter(field,value,type){
-  _bdRules.push({field,type,value});
+  let rule=_bdRuleFind(field);
+  if(!rule){rule={field,type,values:[]};_bdRules.push(rule);}
+  else rule.type=type;
+  if(!rule.values.includes(value))rule.values.push(value);
   renderBdRules();bdRefresh();
+  if((document.getElementById('bdRuleField')||{}).value===field)bdRuleFieldChanged();
 }
 // ---- Visões salvas (nível conta — cada visão guarda cliente/canal/origem-mídia/objetivo/colunas, NÃO o período) ----
 function bdViews(){return (_acctCfg&&Array.isArray(_acctCfg.bd_views))?_acctCfg.bd_views:[];}
@@ -3996,7 +4041,8 @@ async function bdApplyView(id){
   _bdCols=(obj&&obj.cols)?obj.cols.slice():((v.cols&&v.cols.length)?v.cols.slice():BD_DEFAULT_COLS.slice());
   localStorage.setItem('bdCols',JSON.stringify(_bdCols));
   renderBdRules();bdRuleFieldChanged();
-  bdRefresh();
+  const nav=document.getElementById('bdTabsNav');if(nav)nav.style.display=_bdChannel==='ga4'?'inline-flex':'none';
+  if(_bdChannel!=='ga4'&&_bdTab==='dash')bdTab('tabela');else bdRefresh();
 }
 async function bdDeleteView(id,ev){ev&&ev.stopPropagation();if(!confirm('Remover essa visão salva?'))return;const views=bdViews().filter(v=>v.id!==id);await saveAccountConfig({bd_views:views});renderBdViews();}
 function renderBdViews(){
@@ -4012,6 +4058,7 @@ async function loadBancoDados(){
   const el=document.getElementById('bdBody');if(!el)return;
   await loadAccountConfig();
   _bdSince=_bdSince||daysAgoISO(30);_bdUntil=_bdUntil||today();
+  if(_bdChannel!=='ga4')_bdTab='tabela';
   const clientOpts=DB.clients.slice().sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}" ${_bdClient===c.id?'selected':''}>${c.name.replace(/</g,'&lt;')}</option>`).join('');
   const chOpts=Object.entries(BD_CHANNEL_LABEL).map(([k,l])=>`<option value="${k}" ${_bdChannel===k?'selected':''}>${l}</option>`).join('');
   const objOpts=Object.entries(BD_OBJETIVOS).map(([k,v])=>`<option value="${k}" ${_bdObjetivo===k?'selected':''}>${v.label}</option>`).join('');
@@ -4027,20 +4074,23 @@ async function loadBancoDados(){
         <button class="btn sm ghost" onclick="toggleBdColsEditor()">✎ Editar colunas</button>
         <button class="btn sm ghost" onclick="bdDownloadCSV(this)">⬇️ Baixar CSV</button>
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;margin-bottom:8px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px">
-        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CAMPO</label><select id="bdRuleField" onchange="bdRuleFieldChanged()" style="width:auto;font-size:12px">${Object.entries(BD_RULE_FIELDS).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div>
-        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">VALOR</label><select id="bdRuleInput" style="width:220px;font-size:12px"><option value="">Carregando…</option></select></div>
-        <button type="button" class="btn sm ghost" onclick="bdAddRule('contains')">✅ Contém</button>
-        <button type="button" class="btn sm ghost" onclick="bdAddRule('not_contains')">🚫 Não contém</button>
+      <div style="margin-bottom:8px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:8px">
+          <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CAMPO</label><select id="bdRuleField" onchange="bdRuleFieldChanged()" style="width:auto;font-size:12px">${Object.entries(BD_RULE_FIELDS).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div>
+          <button type="button" id="bdRuleModeIn" class="btn sm primary" onclick="bdSetRuleMode('in')">✅ Incluir</button>
+          <button type="button" id="bdRuleModeNotIn" class="btn sm ghost" onclick="bdSetRuleMode('not_in')">🚫 Excluir</button>
+        </div>
+        <input id="bdRuleValueSearch" placeholder="🔎 Buscar valor…" style="width:100%;margin-bottom:6px;font-size:12px" oninput="bdRuleValueFilterList(this.value)">
+        <div id="bdRuleValueList" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px"><div style="padding:8px;font-size:12px;color:var(--faint)">Carregando…</div></div>
       </div>
       <div id="bdRulesRow" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
       <div id="bdViewsRow" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;padding-bottom:10px;border-bottom:1px dashed var(--border)"></div>
       <div id="bdColsEditor" style="display:none;margin-bottom:6px"></div>
       <div id="bdSummary" style="display:flex;gap:10px;flex-wrap:wrap"></div>
     </div>
-    <div class="seg" id="bdTabsNav" style="margin-bottom:16px">
+    <div class="seg" id="bdTabsNav" style="margin-bottom:16px;display:${_bdChannel==='ga4'?'inline-flex':'none'}">
       <button id="bdTabBtnTabela" class="${_bdTab==='dash'?'':'active'}" onclick="bdTab('tabela')">📋 Tabela</button>
-      <button id="bdTabBtnDash" class="${_bdTab==='dash'?'active':''}" onclick="bdTab('dash')">📊 Dash</button>
+      <button id="bdTabBtnDash" class="${_bdTab==='dash'?'active':''}" onclick="bdTab('dash')">📊 Dash — Analytics</button>
     </div>
     <div id="bdTabTabela" style="display:${_bdTab==='dash'?'none':'block'}">
       <div class="card" style="margin-bottom:16px">
@@ -4080,6 +4130,8 @@ function bdApplyFilters(){
   _bdChannel=document.getElementById('bdChannel').value||'';
   _bdSelCamps=[];
   bdRuleFieldChanged();
+  const nav=document.getElementById('bdTabsNav');if(nav)nav.style.display=_bdChannel==='ga4'?'inline-flex':'none';
+  if(_bdChannel!=='ga4'&&_bdTab==='dash')return bdTab('tabela');
   return bdRefresh();
 }
 const BD_ALL_FIELDS='date,channel,client_id,source_medium,campaign,adset,ad_content,spend,impressions,clicks,ctr,cpm,reach,purchases,revenue,leads,conversas,video_views,engajamentos';
@@ -4089,6 +4141,7 @@ async function bdFetchRows(limit){
   if(_bdClient)q=q.eq('client_id',_bdClient);
   if(_bdChannel)q=q.eq('channel',_bdChannel);
   _bdRules.forEach(r=>{
+    if(r.values)return; // regra por lista (in/not_in) — filtrada no cliente logo abaixo, evita escapar lista pro PostgREST
     const pat='%'+_bdLikeEsc(r.value)+'%';
     if(r.type==='not_contains')q=q.not(r.field,'ilike',pat);
     else q=q.ilike(r.field,pat);
@@ -4096,7 +4149,12 @@ async function bdFetchRows(limit){
   if(limit)q=q.limit(limit);
   const {data,error}=await q;
   if(error)throw error;
-  return data||[];
+  let rows=data||[];
+  _bdRules.forEach(r=>{
+    if(!r.values)return;
+    rows=r.type==='not_in'?rows.filter(row=>!r.values.includes(row[r.field])):rows.filter(row=>r.values.includes(row[r.field]));
+  });
+  return rows;
 }
 function bdSummaryCardsHTML(rows){
   const card=(lbl,val)=>`<div style="flex:1;min-width:130px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div style="font-size:10px;color:var(--muted)">${lbl}</div><div style="font-size:17px;font-weight:800">${val}</div></div>`;
@@ -4153,85 +4211,81 @@ async function bdRenderTable(){
   }catch(e){if(wrap)wrap.innerHTML='<div class="empty">Erro: '+(e.message||e)+'</div>';}
 }
 /* ===== Banco de Dados · aba Dash — análise por campanha (gráficos + comparativo + multi-seleção) ===== */
+const BD_DASH_DIM={source_medium:'Origem/Mídia',campaign:'Campanha',ad_content:'Anúncio/Conteúdo'};
+let _bdDashDim='source_medium';
+function bdSetDashDim(d){_bdDashDim=d;_bdSelCamps=[];bdRenderDash();}
 async function bdRenderDash(){
   const el=document.getElementById('bdTabDash');if(!el)return;
   el.innerHTML='<div class="empty">Carregando…</div>';
   try{
     const rows=await bdFetchRows(20000);
     if(!rows.length){el.innerHTML='<div class="empty">Sem dados nesse filtro.</div>';return;}
-    const obj=BD_OBJETIVOS[_bdObjetivo]||BD_OBJETIVOS[''];
-    const resultKey=_bdChannel==='ga4'?'purchases':obj.resultKey;
-    const resultLabel=_bdChannel==='ga4'?'Vendas (GA4)':obj.resultLabel;
-    const byCamp={};
+    const dim=_bdDashDim;
+    const byGrp={};
     rows.forEach(r=>{
-      const key=r.campaign||'(sem campanha)';
-      if(!byCamp[key])byCamp[key]={campaign:key,channel:r.channel,spend:0,impressions:0,clicks:0,result:0,byDate:{}};
-      const c=byCamp[key];
-      c.spend+=+r.spend||0;c.impressions+=+r.impressions||0;c.clicks+=+r.clicks||0;c.result+=+r[resultKey]||0;
-      const bd=c.byDate[r.date]||(c.byDate[r.date]={spend:0,result:0});
-      bd.spend+=+r.spend||0;bd.result+=+r[resultKey]||0;
+      const key=r[dim]||'(não definido)';
+      if(!byGrp[key])byGrp[key]={grp:key,revenue:0,purchases:0,byDate:{}};
+      const g=byGrp[key];
+      g.revenue+=+r.revenue||0;g.purchases+=+r.purchases||0;
+      const bd=g.byDate[r.date]||(g.byDate[r.date]={revenue:0,purchases:0});
+      bd.revenue+=+r.revenue||0;bd.purchases+=+r.purchases||0;
     });
-    const camps=Object.values(byCamp).sort((a,b)=>b.spend-a.spend);
-    _bdSelCamps=_bdSelCamps.filter(k=>byCamp[k]);
-    const activeSet=_bdSelCamps.length?_bdSelCamps:camps.slice(0,10).map(c=>c.campaign);
-    const activeCamps=camps.filter(c=>activeSet.includes(c.campaign));
-    const kpiRows=_bdSelCamps.length?rows.filter(r=>_bdSelCamps.includes(r.campaign||'(sem campanha)')):rows;
-    const spendTot=kpiRows.reduce((s,r)=>s+(+r.spend||0),0),resultTot=kpiRows.reduce((s,r)=>s+(+r[resultKey]||0),0);
-    const impTot=kpiRows.reduce((s,r)=>s+(+r.impressions||0),0),clkTot=kpiRows.reduce((s,r)=>s+(+r.clicks||0),0);
+    const grps=Object.values(byGrp).sort((a,b)=>b.revenue-a.revenue);
+    _bdSelCamps=_bdSelCamps.filter(k=>byGrp[k]);
+    const activeSet=_bdSelCamps.length?_bdSelCamps:grps.slice(0,10).map(g=>g.grp);
+    const activeGrps=grps.filter(g=>activeSet.includes(g.grp));
+    const kpiRows=_bdSelCamps.length?rows.filter(r=>_bdSelCamps.includes(r[dim]||'(não definido)')):rows;
+    const revTot=kpiRows.reduce((s,r)=>s+(+r.revenue||0),0),pTot=kpiRows.reduce((s,r)=>s+(+r.purchases||0),0);
     const card=(lbl,val)=>`<div style="flex:1;min-width:130px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div style="font-size:10px;color:var(--muted)">${lbl}</div><div style="font-size:17px;font-weight:800">${val}</div></div>`;
-    const kpiHTML=card('Investimento',fmt(spendTot))+card(resultLabel,Math.round(resultTot).toLocaleString('pt-BR'))+card('CTR',fmtMetric(impTot?clkTot/impTot*100:0,'pct'))+card('CPM',fmtMetric(impTot?spendTot/impTot*1000:0,'money'))+card('Campanhas no período',camps.length.toLocaleString('pt-BR'));
-    const pickerRows=camps.map(c=>{
-      const checked=_bdSelCamps.includes(c.campaign);
-      const esc=c.campaign.replace(/'/g,"\\'").replace(/</g,'&lt;');
+    const kpiHTML=card('Receita',fmt(revTot))+card('Vendas',Math.round(pTot).toLocaleString('pt-BR'))+card('Ticket médio',fmt(pTot?revTot/pTot:0))+card(`${BD_DASH_DIM[dim]} no período`,grps.length.toLocaleString('pt-BR'));
+    const dimTabsHTML=`<div class="seg" style="margin-bottom:14px">${Object.entries(BD_DASH_DIM).map(([k,l])=>`<button class="${_bdDashDim===k?'active':''}" onclick="bdSetDashDim('${k}')">${l}</button>`).join('')}</div>`;
+    const pickerRows=grps.map(g=>{
+      const checked=_bdSelCamps.includes(g.grp);
+      const esc=g.grp.replace(/'/g,"\\'").replace(/</g,'&lt;');
       return `<label class="bdCampRow" data-name="${esc.toLowerCase()}" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:12px">
         <input type="checkbox" ${checked?'checked':''} onchange="bdToggleCamp('${esc}')">
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc}</span>
-        <span style="color:var(--faint);font-size:10.5px;white-space:nowrap">${fmt(c.spend)}</span>
+        <span style="color:var(--faint);font-size:10.5px;white-space:nowrap">${fmt(g.revenue)}</span>
       </label>`;
     }).join('');
     const pickerHTML=`<div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-        <h3 style="margin:0">🎯 Campanhas ${_bdSelCamps.length?`— ${_bdSelCamps.length} selecionada${_bdSelCamps.length>1?'s':''}`:'— top 10 por investimento'}</h3>
+        <h3 style="margin:0">🎯 ${BD_DASH_DIM[dim]} ${_bdSelCamps.length?`— ${_bdSelCamps.length} selecionada${_bdSelCamps.length>1?'s':''}`:'— top 10 por receita'}</h3>
         <div style="display:flex;gap:6px">
           <button class="btn sm ghost" onclick="bdCampSelectAll()">Selecionar todas</button>
           <button class="btn sm ghost" onclick="bdCampClear()">Limpar seleção</button>
         </div>
       </div>
-      <input id="bdCampSearch" placeholder="🔎 Buscar campanha…" style="width:100%;margin-bottom:8px;font-size:12px" oninput="bdCampFilterList(this.value)">
+      <input id="bdCampSearch" placeholder="🔎 Buscar…" style="width:100%;margin-bottom:8px;font-size:12px" oninput="bdCampFilterList(this.value)">
       <div id="bdCampList" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px">${pickerRows}</div>
     </div>`;
-    const cmpRows=activeCamps.map(c=>`<tr>
-      <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.campaign.replace(/</g,'&lt;')}</td>
-      <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border);white-space:nowrap">${BD_CHANNEL_LABEL[c.channel]||c.channel}</td>
-      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${fmt(c.spend)}</td>
-      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${Math.round(c.result).toLocaleString('pt-BR')}</td>
-      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${fmtMetric(c.impressions?c.clicks/c.impressions*100:0,'pct')}</td>
-      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${fmtMetric(c.impressions?c.spend/c.impressions*1000:0,'money')}</td>
-      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${c.clicks.toLocaleString('pt-BR')}</td>
-      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${c.impressions.toLocaleString('pt-BR')}</td>
+    const cmpRows=activeGrps.map(g=>`<tr>
+      <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid var(--border);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${g.grp.replace(/</g,'&lt;')}</td>
+      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${fmt(g.revenue)}</td>
+      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${Math.round(g.purchases).toLocaleString('pt-BR')}</td>
+      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${fmt(g.purchases?g.revenue/g.purchases:0)}</td>
+      <td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:1px solid var(--border)">${revTot?fmtMetric(g.revenue/revTot*100,'pct'):'—'}</td>
     </tr>`).join('');
     const tableHTML=`<div class="card" style="margin-bottom:16px">
-      <h3 style="margin:0 0 10px">📋 Comparativo entre campanhas</h3>
+      <h3 style="margin:0 0 10px">📋 Comparativo por ${BD_DASH_DIM[dim].toLowerCase()}</h3>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><tr>
-        <th style="text-align:left;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">CAMPANHA</th>
-        <th style="text-align:left;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">CANAL</th>
-        <th style="text-align:right;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">INVESTIMENTO</th>
-        <th style="text-align:right;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">${resultLabel.toUpperCase()}</th>
-        <th style="text-align:right;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">CTR</th>
-        <th style="text-align:right;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">CPM</th>
-        <th style="text-align:right;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">CLIQUES</th>
-        <th style="text-align:right;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">IMPRESSÕES</th>
+        <th style="text-align:left;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">${BD_DASH_DIM[dim].toUpperCase()}</th>
+        <th style="text-align:right;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">RECEITA</th>
+        <th style="text-align:right;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">VENDAS</th>
+        <th style="text-align:right;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">TICKET MÉDIO</th>
+        <th style="text-align:right;font-size:10.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border)">% DA RECEITA</th>
       </tr>${cmpRows}</table></div></div>`;
     el.innerHTML=`
+      ${dimTabsHTML}
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">${kpiHTML}</div>
       ${pickerHTML}
       <div class="card" style="margin-bottom:16px"><h3 style="margin:0 0 10px">📈 Evolução diária</h3><div class="chart-box tall"><canvas id="bdLineChart"></canvas></div></div>
       <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-        <div class="card"><h3 style="margin:0 0 10px">🏆 Investimento por campanha</h3><div class="chart-box tall"><canvas id="bdBarChart"></canvas></div></div>
-        <div class="card"><h3 style="margin:0 0 10px">🍩 Distribuição de investimento</h3><div class="chart-box tall"><canvas id="bdDonutChart"></canvas></div></div>
+        <div class="card"><h3 style="margin:0 0 10px">🏆 Receita por ${BD_DASH_DIM[dim].toLowerCase()}</h3><div class="chart-box tall"><canvas id="bdBarChart"></canvas></div></div>
+        <div class="card"><h3 style="margin:0 0 10px">🍩 Distribuição de receita</h3><div class="chart-box tall"><canvas id="bdDonutChart"></canvas></div></div>
       </div>
       ${tableHTML}`;
-    bdDrawCharts(activeCamps,resultLabel);
+    bdDrawCharts(activeGrps);
   }catch(e){el.innerHTML='<div class="empty">Erro: '+(e.message||e)+'</div>';}
 }
 function bdCampFilterList(q){
@@ -4249,24 +4303,24 @@ function bdCampSelectAll(){
   bdRenderDash();
 }
 function bdCampClear(){_bdSelCamps=[];bdRenderDash();}
-function bdDrawCharts(activeCamps,resultLabel){
+function bdDrawCharts(activeGrps){
   if(!window.Chart)return;
   const allDates=new Set();
-  activeCamps.forEach(c=>Object.keys(c.byDate).forEach(d=>allDates.add(d)));
+  activeGrps.forEach(g=>Object.keys(g.byDate).forEach(d=>allDates.add(d)));
   const dates=[...allDates].sort();
-  const spendByDate=dates.map(d=>activeCamps.reduce((s,c)=>s+((c.byDate[d]&&c.byDate[d].spend)||0),0));
-  const resultByDate=dates.map(d=>activeCamps.reduce((s,c)=>s+((c.byDate[d]&&c.byDate[d].result)||0),0));
+  const revByDate=dates.map(d=>activeGrps.reduce((s,g)=>s+((g.byDate[d]&&g.byDate[d].revenue)||0),0));
+  const pByDate=dates.map(d=>activeGrps.reduce((s,g)=>s+((g.byDate[d]&&g.byDate[d].purchases)||0),0));
   const labels=dates.map(d=>d.slice(8,10)+'/'+d.slice(5,7));
   const ctxL=document.getElementById('bdLineChart');
   if(ctxL){_bdDestroy('line');_bdCharts.line=new Chart(ctxL,{type:'line',data:{labels,datasets:[
-    {label:'Investimento',data:spendByDate,borderColor:'#f0c040',backgroundColor:'rgba(240,192,64,.12)',tension:.35,fill:true,pointRadius:0,yAxisID:'y'},
-    {label:resultLabel||'Resultado',data:resultByDate,borderColor:'#60a5fa',backgroundColor:'transparent',tension:.35,pointRadius:0,yAxisID:'y1'}
+    {label:'Receita',data:revByDate,borderColor:'#f0c040',backgroundColor:'rgba(240,192,64,.12)',tension:.35,fill:true,pointRadius:0,yAxisID:'y'},
+    {label:'Vendas',data:pByDate,borderColor:'#60a5fa',backgroundColor:'transparent',tension:.35,pointRadius:0,yAxisID:'y1'}
   ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'#9aa0aa'}}},scales:{y:{position:'left',ticks:{color:'#f0c040'},grid:{color:'rgba(255,255,255,.05)'}},y1:{position:'right',ticks:{color:'#60a5fa'},grid:{display:false}},x:{ticks:{color:'#9aa0aa',maxRotation:0,autoSkip:true,maxTicksLimit:14},grid:{display:false}}}}});}
-  const top=activeCamps.slice().sort((a,b)=>b.spend-a.spend).slice(0,12);
+  const top=activeGrps.slice().sort((a,b)=>b.revenue-a.revenue).slice(0,12);
   const ctxB=document.getElementById('bdBarChart');
-  if(ctxB){_bdDestroy('bar');_bdCharts.bar=new Chart(ctxB,{type:'bar',data:{labels:top.map(c=>c.campaign.length>26?c.campaign.slice(0,26)+'…':c.campaign),datasets:[{data:top.map(c=>c.spend),backgroundColor:'#f0c040',borderRadius:4}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#9aa0aa'},grid:{color:'rgba(255,255,255,.05)'}},y:{ticks:{color:'#c7ccd4',font:{size:10}},grid:{display:false}}}}});}
+  if(ctxB){_bdDestroy('bar');_bdCharts.bar=new Chart(ctxB,{type:'bar',data:{labels:top.map(g=>g.grp.length>26?g.grp.slice(0,26)+'…':g.grp),datasets:[{data:top.map(g=>g.revenue),backgroundColor:'#f0c040',borderRadius:4}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#9aa0aa'},grid:{color:'rgba(255,255,255,.05)'}},y:{ticks:{color:'#c7ccd4',font:{size:10}},grid:{display:false}}}}});}
   const ctxD=document.getElementById('bdDonutChart');
-  if(ctxD){_bdDestroy('donut');const camps=activeCamps.slice().sort((a,b)=>b.spend-a.spend);const t7=camps.slice(0,7);const outros=camps.slice(7).reduce((s,c)=>s+c.spend,0);const labels=t7.map(c=>c.campaign.length>20?c.campaign.slice(0,20)+'…':c.campaign);const vals=t7.map(c=>c.spend);if(outros>0){labels.push('Outros');vals.push(outros);}
+  if(ctxD){_bdDestroy('donut');const grps=activeGrps.slice().sort((a,b)=>b.revenue-a.revenue);const t7=grps.slice(0,7);const outros=grps.slice(7).reduce((s,g)=>s+g.revenue,0);const labels=t7.map(g=>g.grp.length>20?g.grp.slice(0,20)+'…':g.grp);const vals=t7.map(g=>g.revenue);if(outros>0){labels.push('Outros');vals.push(outros);}
     _bdCharts.donut=new Chart(ctxD,{type:'doughnut',data:{labels,datasets:[{data:vals,backgroundColor:DASH_PAL,borderColor:'#131210',borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'right',labels:{color:'#9aa0aa',boxWidth:10,padding:8,font:{size:10}}}}}});}
 }
 async function bdDownloadCSV(btn){
