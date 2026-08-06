@@ -3854,6 +3854,28 @@ async function waConnectivityCheck() {
   }
   return { checked: (insts || []).length, caidos };
 }
+// Rotina de seguranca: roda public.security_audit() (RLS aberta pro anon, tabela sem RLS, view sem
+// security_invoker) via cron diario. So avisa (sino + grupo da AndréIA) quando aparece um achado NOVO,
+// pra nao repetir aviso todo dia do mesmo problema ja conhecido - compara com o que ficou salvo da ultima rodada.
+async function securityAuditTick() {
+  const r = await fetch(`${_SB_URL}/rest/v1/rpc/security_audit`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json" }, body: "{}" });
+  const rows: any[] = r.ok ? await r.json() : [];
+  const current = rows.map((x) => x.check_key);
+  const cfg = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
+  const prev: string[] = cfg.security_audit_issues || [];
+  const novos = rows.filter((x) => !prev.includes(x.check_key));
+  const resolvidos = prev.filter((k) => !current.includes(k));
+  if (novos.length) {
+    const team = await sbGet("team", "select=id");
+    const title = `🚨 ${novos.length} problema(s) de segurança encontrado(s) no banco`;
+    const detail = novos.map((x) => `[${x.severity}] ${x.detail}`).join("\n");
+    for (const t of (team || [])) { try { await sbPost("notifications", { id: _wuid(), to_team: t.id, from_team: "sistema", task_id: null, task_name: title, comment_text: detail.slice(0, 1500), read: false, type: "security_alert" }); } catch (_e) { /* */ } }
+    const g: any = await _andreiaGroupInst();
+    if (!g.erro) { try { await waCall(g.inst.uaz_host, g.inst.uaz_token, "/send/text", "POST", { number: g.group, text: `🚨 *Alerta de segurança*\n${WA_DIV}\n${novos.map((x) => `• ${x.detail}`).join("\n")}\n\nVerifique o quanto antes.` }); } catch (_e) { /* */ } }
+  }
+  await sbPatchD("account_config", "id=eq.main", { data: { ...cfg, security_audit_issues: current, security_audit_last_run: new Date().toISOString() } });
+  return { total: current.length, novos: novos.length, resolvidos: resolvidos.length };
+}
 async function waMeetingRemindersTick() {
   const autos = await sbGet("andreia_automations", "enabled=eq.true&tipo=eq.lembrete_reuniao&select=*");
   if (!autos.length) return { skip: "nenhum lembrete de reunião ativo" };
@@ -3927,6 +3949,10 @@ Deno.serve(async (req) => {
     }
     if (body.waConnCheck) {
       const r = await waConnectivityCheck();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.securityAuditTick) {
+      const r = await securityAuditTick();
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.resolveAllOrigins) {
