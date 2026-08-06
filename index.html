@@ -3968,7 +3968,7 @@ function bdRenderRuleValueList(){
     const esc=String(v).replace(/'/g,"\\'").replace(/</g,'&lt;');
     const checked=checkedVals.includes(v);
     return `<label class="bdRuleValRow" data-name="${esc.toLowerCase()}" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:12px">
-      <input type="checkbox" ${checked?'checked':''} onchange="bdRuleValueToggle('${esc}')">
+      <input type="checkbox" style="width:auto" ${checked?'checked':''} onchange="bdRuleValueToggle('${esc}')">
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc}</span>
     </label>`;
   }).join(''):'<div style="padding:8px;font-size:12px;color:var(--faint)">— nenhum valor nesse período —</div>';
@@ -4243,7 +4243,7 @@ async function bdRenderDash(){
       const checked=_bdSelCamps.includes(g.grp);
       const esc=g.grp.replace(/'/g,"\\'").replace(/</g,'&lt;');
       return `<label class="bdCampRow" data-name="${esc.toLowerCase()}" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:12px">
-        <input type="checkbox" ${checked?'checked':''} onchange="bdToggleCamp('${esc}')">
+        <input type="checkbox" style="width:auto" ${checked?'checked':''} onchange="bdToggleCamp('${esc}')">
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc}</span>
         <span style="color:var(--faint);font-size:10.5px;white-space:nowrap">${fmt(g.revenue)}</span>
       </label>`;
