@@ -1343,6 +1343,146 @@ async function channelMetricsCollect(m: any) {
   return { saved, clientesProcessados: targets.length, errors };
 }
 
+/* ===== AGENTE DE BRIEFING CRIATIVO (Etapa 1: análise dos criativos por funil) =====
+   Le criativos por anuncio (Meta/Google, ja existentes em metaAdsInsights/googleAdsInsights), resolve
+   o funil de cada um e chama a IA pra devolver a leitura por funil (melhores/piores, pontos positivos
+   e negativos). Etapas 2-4 (curadoria, geracao de fichas, chat de ajustes) ainda nao implementadas. */
+const REGRAS_DE_LINGUAGEM = "Regras de linguagem obrigatorias: nunca use os termos qualificado, lead quente, intencao de compra ou engajado. " +
+  "Nunca afirme causalidade a partir de correlacao. Nao use adjetivo sem numero que o sustente. " +
+  "Escreva em portugues do Brasil, tom tecnico e direto, sem linguagem de venda.";
+
+// Ordem de resolucao 1/2 do funil (campo proprio nao existe no sistema; aqui e so o parsing por nomenclatura).
+// Achado real analisando nomes de campanha de varios clientes: campanhas [FUNIL] usam FRIO/QUENTE/REMARKETING
+// como 3 campanhas separadas dentro do mesmo conjunto de conversao — mapeia bem pra Topo/Meio/Fundo.
+function _briefingResolveFunil(campanha: string, adset: string): string | null {
+  const s = `${campanha || ""} ${adset || ""}`.toUpperCase();
+  if (/MISTO|FRIO\s*\/\s*QUENTE|QUENTE\s*\/\s*FRIO/.test(s)) return null; // combinado de proposito, ambiguo
+  if (/\bBOFU\b|\bFUNDO\b|REMARKETING|RETARGETING|CARRINHO/.test(s)) return "Fundo";
+  if (/\bTOFU\b|\bTOPO\b|\bFRIO\b|ALCANCE|RECONHECIMENTO|REC\.?\s*MARCA|PROSPEC/.test(s)) return "Topo";
+  if (/\bMOFU\b|\bMEIO\b|\bQUENTE\b|ENGAJAMENTO|TR[AÁ]FEGO|TRAFEGO/.test(s)) return "Meio";
+  return null;
+}
+// Metrica de "resultado" certa pro objetivo do anuncio (mesma logica de classifyAdByObjective/raioXMetricRows do front, replicada aqui pro server).
+function _briefingResultado(a: any): { label: string; valor: number; custo: number | null } {
+  const tipo = (a.objetivo && a.objetivo.tipo) || "conversao";
+  const spend = a.spend || 0;
+  if (tipo === "leads") return { label: "leads", valor: a.leads || 0, custo: a.leads ? spend / a.leads : null };
+  if (tipo === "trafego") return { label: "cliques", valor: a.clicks || 0, custo: a.clicks ? spend / a.clicks : null };
+  if (tipo === "engajamento") return { label: "engajamentos", valor: a.engajamentos || 0, custo: a.engajamentos ? spend / a.engajamentos : null };
+  if (tipo === "mensagens") return { label: "conversas", valor: a.conversas || 0, custo: a.conversas ? spend / a.conversas : null };
+  if (tipo === "video") return { label: "views (ThruPlay)", valor: a.videoViews || 0, custo: a.videoViews ? spend / a.videoViews : null };
+  if (tipo === "alcance") return { label: "alcance", valor: a.reach || 0, custo: a.reach ? spend / a.reach : null };
+  return { label: "compras", valor: a.purchases || 0, custo: a.purchases ? spend / a.purchases : null }; // conversao/app/default
+}
+// Piso de elegibilidade por funil (sugerido, ajustavel — ver spec). Abaixo do piso o anuncio entra como "em leitura".
+function _briefingElegivel(funil: string | null, a: any): boolean {
+  if (funil === "Topo") return (a.impressions || 0) >= 2000;
+  if (funil === "Meio") return (a.impressions || 0) >= 1500;
+  if (funil === "Fundo") return (a.spend || 0) >= 50;
+  return (a.impressions || 0) >= 2000; // funil nao resolvido ainda: usa o piso mais permissivo, LLM decide o funil depois
+}
+async function _briefingCriativos(clientId: string, since: string, until: string) {
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=id,name,meta_account_id,google_account_id`))[0];
+  if (!c) throw new Error("Cliente não encontrado.");
+  const mIds = String(c.meta_account_id || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const gIds = String(c.google_account_id || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!mIds.length && !gIds.length) throw new Error("Cliente sem conta Meta ou Google conectada.");
+  const [mRes, gRes] = await Promise.all([
+    mIds.length ? metaAdsInsights({ accountIds: mIds, since, until, byAd: true }).catch((e: any) => ({ ads: [], error: String(e?.message || e) })) : Promise.resolve({ ads: [] as any[] }),
+    gIds.length ? googleAdsInsights({ accountIds: gIds, since, until, byAd: true }).catch((e: any) => ({ ads: [], error: String(e?.message || e) })) : Promise.resolve({ ads: [] as any[] }),
+  ]);
+  const rawAds = [...((mRes as any).ads || []), ...((gRes as any).ads || [])];
+  let inferidos = 0;
+  const criativos = rawAds.map((a: any, i: number) => {
+    const codigo = "AD" + String(i + 1).padStart(2, "0");
+    const funilResolvido = _briefingResolveFunil(a.campaign, a.adset);
+    if (!funilResolvido) inferidos++;
+    const elegivel = _briefingElegivel(funilResolvido, a);
+    const r = _briefingResultado(a);
+    return {
+      codigo, adId: a.adId, canal: a._google ? "Google" : "Meta", campanha: a.campaign || "", conjunto: a.adset || "",
+      funil: funilResolvido, elegivel,
+      spend: Math.round((a.spend || 0) * 100) / 100, impressions: a.impressions || 0, clicks: a.clicks || 0,
+      reach: a.reach || 0, frequency: +(a.frequency || 0).toFixed(2), ctr: +(a.ctr || 0).toFixed(2), cpm: +(a.cpm || 0).toFixed(2),
+      resultadoLabel: r.label, resultadoValor: Math.round(r.valor), custoPorResultado: r.custo != null ? Math.round(r.custo * 100) / 100 : null,
+      videoViews: a.videoViews || 0,
+    };
+  });
+  const total = criativos.length;
+  const pctInferido = total ? Math.round((inferidos / total) * 1000) / 10 : 0;
+  return { criativos, total, pctInferido, erros: [(mRes as any).error, (gRes as any).error].filter(Boolean) };
+}
+function _briefingDadosTxt(criativos: any[]) {
+  return criativos.filter((c) => c.elegivel).map((c) =>
+    `${c.codigo} | funil: ${c.funil || "não identificado"} | canal: ${c.canal} | campanha: ${c.campanha} | conjunto: ${c.conjunto} | ` +
+    `invest: R$${c.spend} | impressões: ${c.impressions} | alcance: ${c.reach} | freq: ${c.frequency} | cliques: ${c.clicks} | ` +
+    `CTR: ${c.ctr}% | CPM: R$${c.cpm} | ${c.resultadoLabel}: ${c.resultadoValor} | custo/${c.resultadoLabel}: ${c.custoPorResultado != null ? "R$" + c.custoPorResultado : "—"}`
+  ).join("\n");
+}
+async function _callOpenAIJson(messages: any[]): Promise<any> {
+  const json = await callOpenAI({ model: "gpt-4o", messages, max_tokens: 4000, temperature: 0.4 });
+  const raw = String(json.choices?.[0]?.message?.content || "");
+  const limpo = raw.replace(/```json/g, "").replace(/```/g, "").trim();
+  try { return JSON.parse(limpo); } catch (_e) {
+    // uma tentativa de reparo (JSON truncado/malformado) antes de falhar explicito
+    const repair = await callOpenAI({ model: "gpt-4o", messages: [...messages, { role: "assistant", content: raw }, { role: "user", content: "Sua resposta anterior não é um JSON válido (provavelmente truncou). Responda de novo APENAS com o JSON completo e válido, sem markdown, mais curto se precisar." }], max_tokens: 4000, temperature: 0.2 });
+    const raw2 = String(repair.choices?.[0]?.message?.content || "").replace(/```json/g, "").replace(/```/g, "").trim();
+    return JSON.parse(raw2); // se falhar de novo, sobe o erro — falha explicita, nunca renderiza parcial
+  }
+}
+async function briefingAnalise(input: any) {
+  const { clientId, since, until, objetivo, criadoPor } = input;
+  if (!clientId || !since || !until) throw new Error("clientId, since e until são obrigatórios.");
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name`))[0];
+  if (!c) throw new Error("Cliente não encontrado.");
+  const { criativos, total, pctInferido, erros } = await _briefingCriativos(clientId, since, until);
+  const elegiveis = criativos.filter((x) => x.elegivel);
+  if (!elegiveis.length) return { erro: "Nenhum criativo elegível no período. Amplie o período ou confira se o cliente tem conta Meta/Google conectada.", erros };
+  const dadosTxt = _briefingDadosTxt(criativos);
+  const prompt = `Voce e analista de criativos de trafego pago. Analise os criativos que rodaram e devolva a leitura para o time de producao, que precisa entender o que funcionou antes de criar peca nova.
+
+Cliente: ${c.name}
+Periodo: ${since} a ${until}
+Objetivo da campanha: ${objetivo || "não informado"}
+
+Criativos que rodaram:
+${dadosTxt}
+
+Organize a analise POR FUNIL: topo, meio e fundo. Inclua apenas os funis presentes nos dados.
+Se o funil nao estiver explicito (aparece como "não identificado"), infira pela campanha ou pelo nome do anuncio e acrescente (inferido) ao lado do codigo.
+
+Compare cada criativo apenas dentro do proprio funil. Custo por resultado de topo e de fundo nao sao grandezas equivalentes.
+
+Para cada criativo, traga pontos positivos e pontos negativos, mesmo nos melhores e nos piores: o melhor criativo tem algo a corrigir e o pior quase sempre tem algo aproveitavel. Escreva os pontos como instrucao util para quem vai produzir, nao como descricao de metrica.
+
+${REGRAS_DE_LINGUAGEM}
+
+Limites: no maximo 2 melhores e 2 piores por funil, no maximo 2 pontos positivos e 2 negativos por criativo, frases curtas de uma linha. No maximo 3 padroes no total. Padrao apoiado em menos de 3 pecas deve ter hipotese true.
+
+Responda APENAS com JSON valido, sem markdown, sem preambulo:
+{"leitura":"<um paragrafo curto sobre o periodo inteiro>",
+ "funis":[{"funil":"Topo","leitura":"<uma frase sobre este funil>","total_pecas":0,
+   "melhores":[{"codigo":"","metricas":"","positivos":[""],"negativos":[""]}],
+   "piores":[{"codigo":"","metricas":"","positivos":[""],"negativos":[""]}]}],
+ "padroes":[{"afirmacao":"","evidencia":"","pecas":0,"hipotese":false}]}`;
+  const parsed = await _callOpenAIJson([{ role: "user", content: prompt }]);
+
+  const briefingId = _wuid();
+  await sbPost("briefing", {
+    id: briefingId, client_id: clientId, criado_por: criadoPor || null,
+    periodo_inicio: since, periodo_fim: until, objetivo: objetivo || "",
+    status: "pronto", criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString(),
+  });
+  const analiseId = _wuid();
+  await sbPost("briefing_analise", {
+    id: analiseId, briefing_id: briefingId,
+    leitura: parsed.leitura || "", funis_json: parsed.funis || [], padroes_json: parsed.padroes || [],
+    criativos_analisados: elegiveis.length, criativos_em_leitura: total - elegiveis.length,
+    funil_inferido_pct: pctInferido, gerado_em: new Date().toISOString(),
+  });
+  return { briefingId, analiseId, ...parsed, criativos_analisados: elegiveis.length, criativos_em_leitura: total - elegiveis.length, funil_inferido_pct: pctInferido, avisoConfiabilidade: pctInferido > 30, erros };
+}
+
 // Pausa/reativa palavra(s)-chave no Google (mutate status de ad_group_criterion). Pode vir 1 ou várias instâncias do mesmo texto.
 async function googleKeywordAction(m: any) {
   const action = m.action === "enable" ? "enable" : "pause";
@@ -3959,6 +4099,10 @@ Deno.serve(async (req) => {
     }
     if (body.securityAuditTick) {
       const r = await securityAuditTick();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.briefingAnalise) {
+      const r = await briefingAnalise(body.briefingAnalise);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.resolveAllOrigins) {

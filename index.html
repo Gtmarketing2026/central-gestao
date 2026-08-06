@@ -255,6 +255,7 @@
       <button class="tab" data-tab="crm">💬 CRM</button>
       <button class="tab" data-tab="jornada">🧭 Jornada</button>
       <button class="tab" data-tab="raiox">🔍 Diagnóstico</button>
+      <button class="tab" data-tab="briefing">🎯 Briefing</button>
       <button class="tab" onclick="showComingSoon('Social','Resultados dos canais orgânicos e redes sociais (Instagram, bio, tráfego direto, etc.) num só lugar. Em construção.')">📸 Social</button>
       <button class="tab" data-tab="campanhas" style="position:relative">📣 Campanha<span id="campSubArrow" onclick="event.stopPropagation();toggleCampSubmenu()" title="Canais (Meta / Google)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
       <div id="campSubmenu" style="display:none">
@@ -734,6 +735,13 @@
     <div class="section-head" style="margin-top:0"><h2>🔍 Diagnóstico <span id="raioxClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
     <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Análise profunda do cliente — health score, winners × losers e recomendações.</div>
     <div id="raioxBody"></div>
+  </section>
+
+  <!-- AGENTE DE BRIEFING CRIATIVO (analisa criativos por funil, monta briefing de produção) -->
+  <section class="panel" id="briefing">
+    <div class="section-head" style="margin-top:0"><h2>🎯 Briefing Criativo <span id="brClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
+    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Lê sozinho os criativos que rodaram (Meta/Google), analisa por etapa de funil e mostra o que funcionou antes de pedir peça nova. Fase 1: análise — geração das fichas de produção vem em seguida.</div>
+    <div id="brBody"></div>
   </section>
 
   <!-- JORNADA DO LEAD (multi-toque: do 1º clique até a venda) -->
@@ -2114,6 +2122,7 @@ function goToTab(tabId){
   if(tabId==='configuracoes')loadConfiguracoes();
   if(tabId==='bancodados')loadBancoDados();
   if(tabId==='raiox')loadRaioX(activeClientId);
+  if(tabId==='briefing')loadBriefing(activeClientId);
   if(tabId==='jornada')loadJornada(activeClientId);
   if(tabId==='crm')loadCrm();
   else stopCrmPoll();
@@ -5001,6 +5010,85 @@ function rxDrawCharts(rep,dominant){
     _rxCharts.donut=new Chart(ctxD,{type:'doughnut',data:{labels,datasets:[{data:vals,backgroundColor:DASH_PAL,borderColor:'#131210',borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'right',labels:{color:'#9aa0aa',boxWidth:10,padding:8,font:{size:10}}}}}});}
 }
 function rxShareHTML(){alert('Exportar do Diagnóstico vem junto com a fase da IA (resumo + confronto). Por ora use o 📤 Compartilhar do Dashboard.');}
+/* ================= AGENTE DE BRIEFING CRIATIVO (Fase 1: análise por funil) ================= */
+let _brClientId='',_brResult=null;
+function _brEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+async function loadBriefing(clientId){
+  const c=DB.clients.find(x=>x.id===(clientId||activeClientId||_brClientId));
+  const body=document.getElementById('brBody');if(!body)return;
+  document.getElementById('brClientName').textContent=c?('· '+c.name):'';
+  if(!c){body.innerHTML='<div class="empty">Selecione um cliente na sidebar.</div>';return;}
+  _brClientId=c.id;_brResult=null;
+  if(!c.meta_account_id&&!c.google_account_id){body.innerHTML='<div class="empty">Esse cliente não tem conta Meta nem Google conectada — sem isso não dá pra ler os criativos que rodaram.</div>';return;}
+  body.innerHTML=`
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
+        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">PERÍODO ANALISADO — DE</label><input type="date" id="brSince" value="${daysAgoISO(30)}" style="width:auto;font-size:12px"></div>
+        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ATÉ</label><input type="date" id="brUntil" value="${today()}" style="width:auto;font-size:12px"></div>
+      </div>
+      <div class="fg"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">OBJETIVO DA CAMPANHA</label><input id="brObjetivo" placeholder="O que a campanha precisa entregar" style="width:100%;font-size:12.5px"></div>
+      <button class="btn primary" style="width:100%;margin-top:6px" onclick="brRunAnalise()" id="brBtn">Analisar criativos do período</button>
+      <div class="hint" style="font-size:11.5px;color:var(--faint);margin-top:8px">Lê sozinho os anúncios que rodaram no período (Meta e Google), separa por topo/meio/fundo de funil e traz o que funcionou e o que não funcionou — sem precisar colar dado nenhum.</div>
+    </div>
+    <div id="brOut"></div>`;
+}
+function brFunilBadgeColor(f){return f==='Topo'?'#38bdf8':f==='Meio'?'#f0c040':f==='Fundo'?'#34d399':'#9aa1b4';}
+async function brRunAnalise(){
+  const btn=document.getElementById('brBtn');const out=document.getElementById('brOut');
+  const since=document.getElementById('brSince').value,until=document.getElementById('brUntil').value;
+  if(!since||!until){alert('Preencha o período.');return;}
+  const objetivo=document.getElementById('brObjetivo').value.trim();
+  btn.disabled=true;btn.textContent='Lendo os criativos e analisando… pode levar um minuto';
+  out.innerHTML='<div class="empty" style="padding:30px"><div style="margin-bottom:8px">🔎 Buscando os anúncios que rodaram, separando por funil e escrevendo a leitura…</div></div>';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingAnalise:{clientId:_brClientId,since,until,objetivo,criadoPor:currentTeamId||null}}});
+    if(error)throw error;
+    const r=(data&&data.data)||{};
+    if(r.erro){out.innerHTML=`<div class="empty">${_brEsc(r.erro)}</div>`;return;}
+    _brResult=r;
+    brRenderAnalise(r);
+  }catch(e){
+    out.innerHTML=`<div class="empty">Erro ao analisar: ${_brEsc(e.message||e)}</div>`;
+  }finally{
+    btn.disabled=false;btn.textContent='Analisar criativos do período';
+  }
+}
+function brRenderAnalise(r){
+  const out=document.getElementById('brOut');
+  const aviso=r.avisoConfiabilidade?`<div class="card" style="margin-bottom:14px;border:1px solid rgba(240,192,64,.4);background:rgba(240,192,64,.08)"><b>⚠ Confiabilidade reduzida:</b> ${r.funil_inferido_pct}% dos criativos não tinham o funil explícito no nome — a IA inferiu pela campanha/anúncio. Vale revisar a nomenclatura das campanhas.</div>`:'';
+  const emLeitura=r.criativos_em_leitura?`<div style="font-size:11.5px;color:var(--faint);margin-bottom:14px">${r.criativos_em_leitura} anúncio(s) ficaram "em leitura" (volume abaixo do piso) e não entraram na análise.</div>`:'';
+  const itens=(arr)=>(arr&&arr.length)?arr.map(i=>`
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px">
+      <div style="font-family:monospace;font-weight:700;font-size:12.5px">${_brEsc(i.codigo)}</div>
+      <div style="font-family:monospace;font-size:11px;color:var(--faint);margin-bottom:5px">${_brEsc(i.metricas)}</div>
+      ${(i.positivos||[]).map(p=>`<div style="font-size:12.5px;color:#34d399;padding-left:14px;position:relative"><span style="position:absolute;left:0">+</span>${_brEsc(p)}</div>`).join('')}
+      ${(i.negativos||[]).map(n=>`<div style="font-size:12.5px;color:#f87171;padding-left:14px;position:relative"><span style="position:absolute;left:0">−</span>${_brEsc(n)}</div>`).join('')}
+    </div>`).join(''):'<div style="font-size:12px;color:var(--faint)">Sem peça com volume suficiente.</div>';
+  const funis=(r.funis||[]).map(fn=>`
+    <div style="display:flex;align-items:center;gap:10px;margin:20px 0 10px">
+      <h3 style="margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:${brFunilBadgeColor(fn.funil)}">${_brEsc(fn.funil)}</h3>
+      <div style="flex:1;height:1px;background:var(--border)"></div>
+      ${fn.total_pecas?`<span style="font-size:11px;color:var(--faint)">${fn.total_pecas} peça(s)</span>`:''}
+    </div>
+    ${fn.leitura?`<div style="font-size:13px;color:var(--muted);margin-bottom:10px">${_brEsc(fn.leitura)}</div>`:''}
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px">
+      <div><div style="font-size:11px;font-weight:700;color:#34d399;text-transform:uppercase;margin-bottom:8px">Melhor desempenho</div>${itens(fn.melhores)}</div>
+      <div><div style="font-size:11px;font-weight:700;color:#f87171;text-transform:uppercase;margin-bottom:8px">Pior desempenho</div>${itens(fn.piores)}</div>
+    </div>`).join('');
+  const padroes=(r.padroes&&r.padroes.length)?`<h3 style="margin:24px 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.04em">Padrões identificados</h3>${r.padroes.map(p=>`
+    <div class="card" style="margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px"><b style="font-size:13.5px">${_brEsc(p.afirmacao)}</b><span style="font-family:monospace;font-size:10.5px;font-weight:700;background:var(--accent-soft,rgba(240,192,64,.14));color:var(--accent);padding:2px 8px;border-radius:5px">${_brEsc(p.pecas)} peças${p.hipotese?' · hipótese':''}</span></div>
+      <div style="font-size:13px;color:var(--muted)">${_brEsc(p.evidencia)}</div>
+    </div>`).join('')}`:'';
+  out.innerHTML=`${aviso}
+    <div class="card" style="margin-bottom:16px;border-left:3px solid var(--accent)">${_brEsc(r.leitura)}</div>
+    ${emLeitura}
+    ${funis}
+    ${padroes}
+    <div class="card" style="margin-top:20px;text-align:center;padding:20px;border:1px dashed var(--border)">
+      <div style="font-size:12.5px;color:var(--muted)">Próxima fase: gerar as fichas de produção a partir dessa leitura. Ainda não disponível.</div>
+    </div>`;
+}
 /* ================= RASTREAMENTO (pixel + links + jornada do lead) ================= */
 const TRACK_BASE=SUPA_URL+'/functions/v1/tracking';
 // Domínio próprio (Cloudflare Worker → tracking) só pro que o CLIENTE vê: pixel e links rastreáveis.

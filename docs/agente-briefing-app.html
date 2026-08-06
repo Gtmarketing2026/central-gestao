@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agente de Briefing Criativo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0b10; --surface:#12141c; --surface-2:#191c26; --line:#262a37;
+  --txt:#e8eaf0; --txt-2:#9aa1b4; --txt-3:#646b80;
+  --accent:#8b5cf6; --accent-soft:rgba(139,92,246,.14);
+  --good:#22c55e; --warn:#f59e0b; --bad:#ef4444; --info:#38bdf8;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:'Inter',system-ui,sans-serif;font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+
+.top{border-bottom:1px solid var(--line);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:11px}
+.brand .dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.brand h1{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.brand span{font-size:12px;color:var(--txt-3)}
+
+.layout{display:grid;grid-template-columns:352px 1fr;gap:0;min-height:calc(100vh - 60px)}
+.left{border-right:1px solid var(--line);padding:20px;overflow-y:auto;max-height:calc(100vh - 60px)}
+.right{padding:24px 28px 40px;overflow-y:auto;max-height:calc(100vh - 60px)}
+
+.fg{margin-bottom:14px}
+.fg label{display:block;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--txt-3);margin-bottom:6px}
+input,select,textarea{
+  width:100%;background:var(--surface);border:1px solid var(--line);border-radius:8px;
+  color:var(--txt);font-family:inherit;font-size:13.5px;padding:9px 11px;outline:none;transition:border-color .15s;
+}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+textarea{resize:vertical;min-height:64px;line-height:1.5}
+textarea.data{min-height:130px;font-family:'JetBrains Mono',monospace;font-size:11.5px}
+::placeholder{color:var(--txt-3)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+.pills{display:flex;gap:6px;flex-wrap:wrap}
+.pill{
+  font-size:12px;padding:6px 11px;border-radius:7px;cursor:pointer;user-select:none;
+  background:var(--surface);border:1px solid var(--line);color:var(--txt-2);transition:.13s;
+}
+.pill:hover{border-color:var(--txt-3)}
+.pill.on{background:var(--accent-soft);border-color:rgba(139,92,246,.45);color:#c4b5fd;font-weight:600}
+
+.btn{
+  width:100%;background:var(--accent);border:none;border-radius:9px;color:#fff;
+  font-family:inherit;font-size:14px;font-weight:600;padding:12px;cursor:pointer;
+  margin-top:6px;transition:.15s;
+}
+.btn:hover:not(:disabled){background:#7c4ef0}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.hint{font-size:11.5px;color:var(--txt-3);margin-top:8px;line-height:1.5}
+
+.empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:60vh;text-align:center;color:var(--txt-3);gap:8px;
+}
+.empty h2{font-size:16px;font-weight:600;color:var(--txt-2)}
+.empty p{font-size:13.5px;max-width:340px}
+
+.loading{display:flex;align-items:center;gap:11px;color:var(--txt-2);padding:22px 0;font-size:13.5px}
+.spin{width:15px;height:15px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+.err{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:9px;padding:14px 16px;color:#fca5a5;font-size:13.5px;margin-bottom:16px}
+
+h2.sec{font-size:15px;font-weight:700;margin:26px 0 12px;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+h2.sec:first-child{margin-top:0}
+h2.sec .n{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);font-weight:600}
+
+.read{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:15px 18px;color:var(--txt-2);margin-bottom:18px}
+
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:15px 17px}
+.box h3{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-bottom:11px}
+.box.g h3{color:var(--good)} .box.b h3{color:var(--bad)}
+.item{padding:9px 0;border-bottom:1px solid rgba(38,42,55,.6)}
+.item:last-child{border-bottom:none;padding-bottom:0}
+.item .c{font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:600;display:block;margin-bottom:2px}
+.item .m{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--txt-3);margin-bottom:3px}
+.item .w{font-size:13px;color:var(--txt-2);line-height:1.5}
+
+.pat{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:15px 17px;margin-bottom:10px}
+.pat-h{display:flex;align-items:center;gap:9px;margin-bottom:6px;flex-wrap:wrap}
+.pat-h h3{font-size:14px;font-weight:600}
+.ev{font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;background:var(--accent-soft);color:#c4b5fd;padding:3px 8px;border-radius:5px}
+.pat p{color:var(--txt-2);font-size:13.5px}
+
+.sw{display:flex;align-items:flex-start;gap:11px;background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:12px 13px;cursor:pointer;user-select:none;transition:border-color .15s}
+.sw:hover{border-color:var(--txt-3)}
+.sw.on{border-color:rgba(139,92,246,.45)}
+.sw .track{width:34px;height:19px;border-radius:11px;background:var(--surface-2);border:1px solid var(--line);position:relative;flex-shrink:0;margin-top:2px;transition:.15s}
+.sw .knob{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--txt-3);transition:.15s}
+.sw.on .track{background:var(--accent-soft);border-color:rgba(139,92,246,.5)}
+.sw.on .knob{left:17px;background:var(--accent)}
+.sw .lb{font-size:13px;font-weight:600;display:block;margin-bottom:2px}
+.sw .ds{font-size:11.5px;color:var(--txt-3);line-height:1.45}
+.hide{display:none}
+
+.funil-h{display:flex;align-items:center;gap:11px;margin:22px 0 11px}
+.funil-h h3{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--txt)}
+.funil-h .ln{flex:1;height:1px;background:var(--line)}
+.funil-h .qt{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--txt-3)}
+.pn{margin-top:7px}
+.pn div{font-size:12.5px;line-height:1.5;padding-left:15px;position:relative;color:var(--txt-2);margin-bottom:3px}
+.pn.p div::before{content:'+';position:absolute;left:0;color:var(--good);font-weight:700}
+.pn.n div::before{content:'\2212';position:absolute;left:0;color:var(--bad);font-weight:700}
+.src{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--txt-3);margin-bottom:7px}
+.src .dt{width:6px;height:6px;border-radius:50%;background:var(--good);flex-shrink:0}
+
+.cur{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:14px 16px;margin-bottom:9px}
+.cur-h{display:flex;align-items:center;gap:9px;margin-bottom:7px;flex-wrap:wrap}
+.cur-h h3{font-size:14px;font-weight:600;flex:1;min-width:150px}
+.score{font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:5px}
+.score.hi{background:rgba(34,197,94,.13);color:var(--good)}
+.score.mid{background:rgba(245,158,11,.13);color:var(--warn)}
+.cur .tc{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);margin-bottom:7px}
+.cur p{font-size:13.5px;color:var(--txt-2);margin-bottom:6px}
+.cur p:last-child{margin-bottom:0}
+.blk{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.25);border-radius:7px;padding:9px 11px;font-size:12.5px;color:#fca5a5;margin-top:8px;line-height:1.5}
+
+.ficha{background:var(--surface);border:1px solid var(--line);border-radius:11px;margin-bottom:10px;overflow:hidden}
+.ficha summary{padding:14px 17px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ficha summary::-webkit-details-marker{display:none}
+.ficha summary:hover{background:var(--surface-2)}
+.ficha .fc{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:13px}
+.ficha .fn{flex:1;min-width:150px;font-size:13.5px;color:var(--txt-2)}
+.tags{display:flex;gap:5px;flex-wrap:wrap}
+.t{font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:3px 7px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line);color:var(--txt-3)}
+.t.a{background:var(--accent-soft);border-color:rgba(139,92,246,.35);color:#c4b5fd}
+.fb{padding:2px 17px 17px;border-top:1px solid var(--line)}
+.r{display:grid;grid-template-columns:118px 1fr;gap:13px;padding:10px 0;border-bottom:1px solid rgba(38,42,55,.5)}
+.r:last-child{border-bottom:none}
+.r .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--txt-3);font-weight:600;padding-top:2px}
+.r .v{font-size:13.5px}
+.beat{display:grid;grid-template-columns:74px 1fr;gap:11px;padding:4px 0}
+.beat .bt{font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;color:var(--accent);padding-top:2px}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.chip{font-size:11.5px;padding:3px 8px;border-radius:5px;background:var(--surface-2);border:1px solid var(--line);color:var(--txt-2)}
+.chip.no{border-color:rgba(239,68,68,.3);color:#fca5a5}
+
+.chat{margin-top:28px;border-top:1px solid var(--line);padding-top:20px}
+.chat h3{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--txt-3);margin-bottom:12px}
+.msgs{display:flex;flex-direction:column;gap:9px;margin-bottom:12px}
+.msg{padding:10px 14px;border-radius:10px;font-size:13.5px;max-width:82%}
+.msg.u{background:var(--accent-soft);border:1px solid rgba(139,92,246,.3);align-self:flex-end}
+.msg.a{background:var(--surface);border:1px solid var(--line);align-self:flex-start;color:var(--txt-2)}
+.chat-in{display:flex;gap:9px}
+.chat-in input{flex:1}
+.chat-in button{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;color:var(--txt);font-family:inherit;font-size:13.5px;font-weight:600;padding:0 18px;cursor:pointer;white-space:nowrap}
+.chat-in button:hover:not(:disabled){border-color:var(--accent)}
+.chat-in button:disabled{opacity:.45;cursor:not-allowed}
+
+@media(max-width:900px){
+  .layout{grid-template-columns:1fr}
+  .left{border-right:none;border-bottom:1px solid var(--line);max-height:none}
+  .right{max-height:none}
+  .cols{grid-template-columns:1fr}
+  .r{grid-template-columns:1fr;gap:4px}
+  .beat{grid-template-columns:1fr;gap:2px}
+}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="brand">
+    <span class="dot"></span>
+    <h1>Agente de Briefing Criativo</h1>
+    <span>analista + briefing · tráfego pago</span>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- ================= FORMULÁRIO ================= -->
+  <aside class="left">
+    <div class="fg">
+      <label>Cliente</label>
+      <input id="cliente" placeholder="Nome do cliente">
+    </div>
+
+    <div class="fg">
+      <label>Objetivo</label>
+      <textarea id="objetivo" placeholder="O que a campanha precisa entregar"></textarea>
+    </div>
+
+    <div class="fg">
+      <label>Público</label>
+      <textarea id="publico" placeholder="Quem deve ser impactado"></textarea>
+    </div>
+
+    <div class="fg">
+      <label>Ângulo</label>
+      <input id="angulo" placeholder="Dor ou desejo a ser trabalhado">
+    </div>
+
+    <div class="fg">
+      <label>Promessa</label>
+      <textarea id="promessa" placeholder="Mensagem central da peça"></textarea>
+    </div>
+
+    <div class="fg">
+      <label>Funil</label>
+      <div class="pills" id="funil">
+        <span class="pill" data-v="Topo">Topo</span>
+        <span class="pill" data-v="Meio">Meio</span>
+        <span class="pill" data-v="Fundo">Fundo</span>
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>Formato</label>
+      <div class="pills" id="formato">
+        <span class="pill" data-v="Estático">Estático</span>
+        <span class="pill" data-v="Motion">Motion</span>
+        <span class="pill" data-v="Vídeo">Vídeo</span>
+        <span class="pill" data-v="UGC">UGC</span>
+        <span class="pill" data-v="Carrossel">Carrossel</span>
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>Canal</label>
+      <div class="pills" id="canal">
+        <span class="pill" data-v="Meta">Meta</span>
+        <span class="pill" data-v="YouTube">YouTube</span>
+        <span class="pill" data-v="TikTok">TikTok</span>
+        <span class="pill" data-v="Google Display">Display</span>
+        <span class="pill" data-v="Google Search">Search</span>
+        <span class="pill" data-v="Pinterest">Pinterest</span>
+      </div>
+    </div>
+
+    <div class="two">
+      <div class="fg">
+        <label>Variações</label>
+        <input id="variacoes" type="number" min="1" max="12" value="4">
+      </div>
+      <div class="fg">
+        <label>Prazo</label>
+        <input id="prazo" type="date">
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>Referência</label>
+      <textarea id="referencia" placeholder="Peça anterior, material de apoio ou exemplo"></textarea>
+    </div>
+
+    <div class="fg">
+      <label>Período analisado</label>
+      <div class="two">
+        <input id="p_ini" type="date">
+        <input id="p_fim" type="date">
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>Criativos do período · obrigatório</label>
+      <div class="src"><span class="dt"></span>Origem: integração Meta e Google</div>
+      <textarea id="dados" class="data" placeholder="No sistema este campo é preenchido sozinho.&#10;&#10;No protótipo, cole o export:&#10;código | funil | formato | investimento | impressões | cliques | CTR | resultados | CPA | frequência"></textarea>
+      <div class="hint">A análise de performance sai daqui e é obrigatória — o time precisa ver o que rodou antes de produzir. Inclua a coluna de funil; sem ela o agente infere pela campanha e sinaliza.</div>
+    </div>
+
+    <div class="fg">
+      <div class="sw" id="swCur">
+        <div class="track"><div class="knob"></div></div>
+        <div>
+          <span class="lb">Curadoria de conteúdo</span>
+          <span class="ds">Procura material de Instagram e YouTube que possa virar recorte em vez de produção nova.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="fg hide" id="boxCur">
+      <label>Conteúdos disponíveis</label>
+      <textarea id="conteudos" class="data" placeholder="Cole os posts e vídeos.&#10;Ex: título | link | tipo | data | alcance | % não-seguidores | salvamentos | compartilhamentos | retenção | tem áudio de biblioteca&#10;&#10;Legendas e trechos de transcrição ajudam bastante."></textarea>
+      <div class="hint">Quanto mais métrica orgânica você colar, melhor a curadoria. Alcance de não-seguidores é o sinal mais forte para topo.</div>
+    </div>
+
+    <button class="btn" id="gerar">Gerar briefing</button>
+  </aside>
+
+  <!-- ================= SAÍDA ================= -->
+  <main class="right" id="out">
+    <div class="empty">
+      <h2>Preencha os campos e gere o briefing</h2>
+      <p>O agente lê os criativos que rodaram, identifica o que foi bem e o que foi mal, e monta as fichas de produção a partir disso.</p>
+    </div>
+  </main>
+
+</div>
+
+<script>
+// ---------- estado ----------
+var S = { analise:null, fichas:null, historico:[], form:null };
+
+// ---------- pills ----------
+document.querySelectorAll('.pills').forEach(function(g){
+  var single = g.id === 'funil';
+  g.addEventListener('click', function(e){
+    var p = e.target.closest('.pill'); if(!p) return;
+    if(single) g.querySelectorAll('.pill').forEach(function(x){ if(x!==p) x.classList.remove('on'); });
+    p.classList.toggle('on');
+  });
+});
+function pills(id){
+  return Array.from(document.querySelectorAll('#'+id+' .pill.on')).map(function(p){ return p.dataset.v; });
+}
+function val(id){ return document.getElementById(id).value.trim(); }
+
+var swCur = document.getElementById('swCur');
+swCur.addEventListener('click', function(){
+  this.classList.toggle('on');
+  document.getElementById('boxCur').classList.toggle('hide', !this.classList.contains('on'));
+});
+
+function coletar(){
+  return {
+    curadoria: swCur.classList.contains('on'),
+    conteudos: val('conteudos'),
+    cliente: val('cliente') || 'Cliente',
+    objetivo: val('objetivo'),
+    publico: val('publico'),
+    angulo: val('angulo'),
+    promessa: val('promessa'),
+    funil: pills('funil')[0] || 'Topo',
+    formatos: pills('formato'),
+    canais: pills('canal'),
+    variacoes: parseInt(val('variacoes') || '4', 10),
+    referencia: val('referencia'),
+    prazo: val('prazo'),
+    p_ini: val('p_ini'),
+    p_fim: val('p_fim'),
+    dados: val('dados')
+  };
+}
+
+// ---------- API ----------
+async function chamar(prompt){
+  var res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1000,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+  if(!res.ok) throw new Error("Falha na requisição (" + res.status + ")");
+  var data = await res.json();
+  var txt = data.content.map(function(i){ return i.type === "text" ? i.text : ""; }).join("");
+  var limpo = txt.replace(/```json/g, "").replace(/```/g, "").trim();
+  return JSON.parse(limpo);
+}
+
+var REGRAS = "Regras de linguagem obrigatorias: nunca use os termos qualificado, lead quente, intencao de compra ou engajado. " +
+  "Nunca afirme causalidade a partir de correlacao. Nao use adjetivo sem numero que o sustente. " +
+  "Escreva em portugues do Brasil, tom tecnico e direto, sem linguagem de venda.";
+
+function promptAnalise(f){
+  var per = (f.p_ini && f.p_fim) ? (f.p_ini + " a " + f.p_fim) : "periodo informado no export";
+  return "Voce e analista de criativos de trafego pago. Analise os criativos que rodaram e devolva a leitura " +
+    "para o time de producao, que precisa entender o que funcionou antes de criar peca nova.\n\n" +
+    "Cliente: " + f.cliente + "\nPeriodo: " + per + "\nObjetivo da campanha: " + f.objetivo + "\n\n" +
+    "Criativos que rodaram:\n" + f.dados + "\n\n" +
+    "Organize a analise POR FUNIL: topo, meio e fundo. Inclua apenas os funis presentes nos dados. " +
+    "Se o funil nao estiver explicito, infira pela campanha ou pelo nome do anuncio e acrescente (inferido) ao lado do codigo.\n\n" +
+    "Compare cada criativo apenas dentro do proprio funil. Custo por resultado de topo e de fundo nao sao grandezas equivalentes.\n\n" +
+    "Para cada criativo, traga pontos positivos e pontos negativos, mesmo nos melhores e nos piores: " +
+    "o melhor criativo tem algo a corrigir e o pior quase sempre tem algo aproveitavel. " +
+    "Escreva os pontos como instrucao util para quem vai produzir, nao como descricao de metrica.\n\n" + REGRAS + "\n\n" +
+    "Limites: no maximo 2 melhores e 2 piores por funil, no maximo 2 pontos positivos e 2 negativos por criativo, " +
+    "frases curtas de uma linha. No maximo 3 padroes no total. " +
+    "Padrao apoiado em menos de 3 pecas deve ter hipotese true.\n\n" +
+    "Responda APENAS com JSON valido, sem markdown, sem preambulo:\n" +
+    '{"leitura":"<um paragrafo curto sobre o periodo inteiro>",' +
+    '"funis":[{"funil":"Topo","leitura":"<uma frase sobre este funil>","total_pecas":0,' +
+    '"melhores":[{"codigo":"","metricas":"","positivos":[""],"negativos":[""]}],' +
+    '"piores":[{"codigo":"","metricas":"","positivos":[""],"negativos":[""]}]}],' +
+    '"padroes":[{"afirmacao":"","evidencia":"","pecas":0,"hipotese":false}]}';
+}
+
+function promptCuradoria(f){
+  return "Voce e curador de conteudo para trafego pago. Avalie o material organico abaixo e diga o que pode virar " +
+    "criativo pago por recorte, em vez de producao nova.\n\n" +
+    "Cliente: " + f.cliente + "\nAngulo desejado: " + f.angulo + "\nFunil desejado: " + f.funil +
+    "\nCanais: " + (f.canais.join(", ") || "Meta") + "\n\n" +
+    "Conteudos disponiveis:\n" + f.conteudos + "\n\n" +
+    "Criterios de pontuacao de 0 a 100, nesta ordem de peso:\n" +
+    "1. Percentual de alcance de nao-seguidores. E o melhor preditor de performance com publico frio.\n" +
+    "2. Compartilhamentos sobre alcance. Indica ressonancia.\n" +
+    "3. Salvamentos sobre alcance. Indica utilidade percebida, bom sinal de meio.\n" +
+    "4. Retencao ou tempo medio de visualizacao.\n" +
+    "5. Autocontencao: o trecho se entende sem o contexto anterior.\n\n" +
+    "Bloqueios que impedem o uso e devem ser reportados:\n" +
+    "- Audio de biblioteca do Instagram. A licenca organica nao cobre uso comercial.\n" +
+    "- Marca dagua de outra plataforma.\n" +
+    "- Rosto de terceiro sem cessao de imagem, que exige conferencia humana.\n" +
+    "- Resolucao abaixo de 1080p vertical.\n" +
+    "- Oferta ou preco desatualizado na peca.\n\n" + REGRAS + "\n\n" +
+    "Traga no maximo 5 candidatos, do maior para o menor score. Item com score abaixo de 60 nao entra. " +
+    "Se o material tiver timecode ou duracao, sugira janela de corte; se nao tiver, descreva o trecho.\n\n" +
+    "Responda APENAS com JSON valido, sem markdown, sem preambulo:\n" +
+    '{"leitura":"<uma frase sobre o inventario disponivel>",' +
+    '"candidatos":[{"titulo":"","origem":"","score":0,"funil":"","corte":"","aproveitar":"","complemento":"","bloqueios":""}]}';
+}
+
+function promptBriefing(f, analise, curadoria){
+  var base = "Voce e o agente de briefing criativo de uma operacao de trafego pago. " +
+    "Gere " + f.variacoes + " fichas de producao completas.\n\n" +
+    "Campos do briefing:\n" +
+    "Cliente: " + f.cliente + "\nObjetivo: " + f.objetivo + "\nPublico: " + f.publico +
+    "\nAngulo: " + f.angulo + "\nPromessa: " + f.promessa + "\nFunil: " + f.funil +
+    "\nFormatos: " + (f.formatos.join(", ") || "livre") +
+    "\nCanais: " + (f.canais.join(", ") || "Meta") +
+    "\nReferencia: " + (f.referencia || "nenhuma") + "\nPrazo: " + (f.prazo || "a definir") + "\n\n";
+
+  if(analise){
+    base += "Analise dos criativos que rodaram:\n" + JSON.stringify(analise) + "\n" +
+      "Use os padroes identificados para orientar os roteiros. Referencie os codigos vencedores quando fizer sentido.\n\n";
+  }
+
+  if(curadoria && (curadoria.candidatos || []).length){
+    base += "Material organico aprovado na curadoria:\n" + JSON.stringify(curadoria.candidatos) + "\n" +
+      "Sempre que um candidato cobrir a necessidade da ficha, gere a ficha como rota recorte em vez de producao nova: " +
+      "preencha rota com recorte, informe o material de origem em referencia, e no lugar do roteiro descreva a direcao " +
+      "de corte, o reenquadramento para a proporcao de destino e o que precisa ser gravado a mais. " +
+      "Recorte custa fracao de producao nova, entao prefira recorte quando houver candidato adequado.\n\n";
+  }
+
+  base += REGRAS + "\n\n" +
+    "Cada ficha precisa de roteiro e copy preenchidos. Headline com no maximo 40 caracteres. " +
+    "Nas especificacoes, inclua proporcao, duracao e requisitos do canal (safe zone, legenda, som). " +
+    "Seja conciso: cada campo de texto no maximo 2 frases.\n\n" +
+    "Responda APENAS com JSON valido, sem markdown, sem preambulo:\n" +
+    '{"fichas":[{"codigo":"AD01","titulo":"","prioridade":"P1","rota":"nova","funil":"","canal":"","formato":"",' +
+    '"objetivo":"","referencia":"","publico":"","angulo":"","promessa":"",' +
+    '"roteiro":{"hook":"","desenvolvimento":"","prova":"","cta":""},' +
+    '"copy":{"headline":"","texto":"","cta":""},' +
+    '"especificacoes":"","obrigatorio":[""],"proibido":[""],"prazo":""}]}';
+}
+
+// ---------- render ----------
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"]/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];
+  });
+}
+
+function render(){
+  var o = document.getElementById('out');
+  var h = "";
+  var n = 0;
+  function num(){ n++; return (n < 10 ? '0' : '') + n; }
+
+  if(S.analise){
+    var a = S.analise;
+    h += '<h2 class="sec"><span class="n">' + num() + '</span>Análise dos criativos</h2>';
+    h += '<div class="read">' + esc(a.leitura) + '</div>';
+
+    (a.funis || []).forEach(function(fn){
+      h += '<div class="funil-h"><h3>' + esc(fn.funil) + '</h3><span class="ln"></span>' +
+           (fn.total_pecas ? '<span class="qt">' + esc(fn.total_pecas) + ' peças</span>' : '') + '</div>';
+      if(fn.leitura) h += '<p style="color:var(--txt-2);font-size:13.5px;margin-bottom:11px">' + esc(fn.leitura) + '</p>';
+
+      h += '<div class="cols">';
+      h += '<div class="box g"><h3>Melhor desempenho</h3>' + itens(fn.melhores) + '</div>';
+      h += '<div class="box b"><h3>Pior desempenho</h3>' + itens(fn.piores) + '</div>';
+      h += '</div>';
+    });
+
+    if((a.padroes || []).length){
+      h += '<h2 class="sec"><span class="n">' + num() + '</span>Padrões identificados</h2>';
+      a.padroes.forEach(function(p){
+        h += '<div class="pat"><div class="pat-h"><h3>' + esc(p.afirmacao) + '</h3>' +
+             '<span class="ev">' + esc(p.pecas) + ' peças' + (p.hipotese ? ' · hipótese' : '') + '</span></div>' +
+             '<p>' + esc(p.evidencia) + '</p></div>';
+      });
+    }
+  }
+
+  if(S.curadoria){
+    var c = S.curadoria;
+    h += '<h2 class="sec"><span class="n">' + num() + '</span>Conteúdo para recorte</h2>';
+    if(c.leitura) h += '<div class="read">' + esc(c.leitura) + '</div>';
+    var cands = c.candidatos || [];
+    if(!cands.length){
+      h += '<div class="read" style="border-left-color:var(--txt-3)">Nenhum material atingiu a pontuação mínima. As fichas saem como produção nova.</div>';
+    }
+    cands.forEach(function(i){
+      var cls = i.score >= 75 ? 'hi' : 'mid';
+      h += '<div class="cur"><div class="cur-h"><h3>' + esc(i.titulo) + '</h3>' +
+           '<span class="t">' + esc(i.funil) + '</span>' +
+           '<span class="score ' + cls + '">' + esc(i.score) + '</span></div>';
+      if(i.origem) h += '<p style="color:var(--txt-3);font-size:12.5px">' + esc(i.origem) + '</p>';
+      if(i.corte) h += '<div class="tc">' + esc(i.corte) + '</div>';
+      if(i.aproveitar) h += '<p><strong>Aproveitar:</strong> ' + esc(i.aproveitar) + '</p>';
+      if(i.complemento) h += '<p><strong>Gravar a mais:</strong> ' + esc(i.complemento) + '</p>';
+      if(i.bloqueios) h += '<div class="blk"><strong>Atenção:</strong> ' + esc(i.bloqueios) + '</div>';
+      h += '</div>';
+    });
+  }
+
+  if(S.fichas){
+    h += '<h2 class="sec"><span class="n">' + num() + '</span>Demanda de produção</h2>';
+    S.fichas.forEach(function(f, idx){
+      h += '<details class="ficha"' + (idx === 0 ? ' open' : '') + '><summary>' +
+           '<span class="fc">' + esc(f.codigo) + '</span>' +
+           '<span class="fn">' + esc(f.titulo) + '</span>' +
+           '<span class="tags"><span class="t a">' + esc(f.prioridade) + '</span>' +
+           (f.rota === 'recorte' ? '<span class="t a">Recorte</span>' : '') +
+           '<span class="t">' + esc(f.funil) + '</span>' +
+           '<span class="t">' + esc(f.canal) + '</span>' +
+           '<span class="t">' + esc(f.formato) + '</span></span></summary><div class="fb">';
+
+      h += row('Objetivo', esc(f.objetivo));
+      h += row('Público', esc(f.publico));
+      h += row('Ângulo', esc(f.angulo));
+      h += row('Promessa', esc(f.promessa));
+      if(f.referencia) h += row('Referência', esc(f.referencia));
+
+      var r = f.roteiro || {};
+      var rec = f.rota === 'recorte';
+      h += row(rec ? 'Direção de corte' : 'Roteiro',
+        beat(rec ? 'Entrada' : '0–3s', r.hook) +
+        beat(rec ? 'Corte' : 'Corpo', r.desenvolvimento) +
+        beat(rec ? 'Enquadr.' : 'Prova', r.prova) +
+        beat('CTA', r.cta));
+
+      var c = f.copy || {};
+      h += row('Copy', '<strong>Headline:</strong> ' + esc(c.headline) +
+        '<br><strong>Texto:</strong> ' + esc(c.texto) +
+        '<br><strong>Botão:</strong> ' + esc(c.cta));
+
+      h += row('Especificações', esc(f.especificacoes));
+      if((f.obrigatorio || []).length) h += row('Obrigatório', chips(f.obrigatorio, ''));
+      if((f.proibido || []).length) h += row('Proibido', chips(f.proibido, 'no'));
+      h += row('Prazo', esc(f.prazo));
+
+      h += '</div></details>';
+    });
+
+    h += '<div class="chat"><h3>Ajustes</h3><div class="msgs" id="msgs"></div>' +
+         '<div class="chat-in"><input id="chatin" placeholder="Ex: deixa os roteiros mais curtos, ou troca o ângulo da AD03">' +
+         '<button id="chatgo">Enviar</button></div></div>';
+  }
+
+  o.innerHTML = h;
+
+  var ci = document.getElementById('chatin');
+  if(ci){
+    document.getElementById('chatgo').addEventListener('click', ajustar);
+    ci.addEventListener('keydown', function(e){ if(e.key === 'Enter') ajustar(); });
+    renderMsgs();
+  }
+}
+
+function itens(arr){
+  if(!(arr || []).length) return '<div class="w" style="color:var(--txt-3);font-size:12.5px">Sem peça com volume suficiente.</div>';
+  return arr.map(function(i){
+    var s = '<div class="item"><span class="c">' + esc(i.codigo) + '</span>' +
+            '<div class="m">' + esc(i.metricas) + '</div>';
+    if((i.positivos || []).length){
+      s += '<div class="pn p">' + i.positivos.map(function(x){ return '<div>' + esc(x) + '</div>'; }).join('') + '</div>';
+    }
+    if((i.negativos || []).length){
+      s += '<div class="pn n">' + i.negativos.map(function(x){ return '<div>' + esc(x) + '</div>'; }).join('') + '</div>';
+    }
+    return s + '</div>';
+  }).join('');
+}
+
+function row(k, v){ return '<div class="r"><div class="k">' + k + '</div><div class="v">' + v + '</div></div>'; }
+function beat(t, v){ return '<div class="beat"><span class="bt">' + t + '</span><span>' + esc(v) + '</span></div>'; }
+function chips(arr, cls){
+  return '<div class="chips">' + arr.map(function(x){
+    return '<span class="chip ' + cls + '">' + esc(x) + '</span>';
+  }).join('') + '</div>';
+}
+
+function renderMsgs(){
+  var m = document.getElementById('msgs'); if(!m) return;
+  m.innerHTML = S.historico.map(function(x){
+    return '<div class="msg ' + (x.role === 'user' ? 'u' : 'a') + '">' + esc(x.texto) + '</div>';
+  }).join('');
+}
+
+function loading(txt){
+  document.getElementById('out').innerHTML =
+    '<div class="loading"><div class="spin"></div>' + esc(txt) + '</div>';
+}
+function erro(msg){
+  document.getElementById('out').innerHTML =
+    '<div class="err">' + esc(msg) + '</div>' +
+    '<div class="empty"><p>Ajuste os campos e tente novamente.</p></div>';
+}
+
+// ---------- fluxo ----------
+document.getElementById('gerar').addEventListener('click', async function(){
+  var f = coletar();
+  if(!f.objetivo || !f.angulo){
+    erro('Objetivo e Ângulo são obrigatórios.');
+    return;
+  }
+  if(!f.dados){
+    erro('Os criativos do período são obrigatórios. A análise de performance faz parte do briefing — o time precisa ver o que rodou antes de produzir.');
+    return;
+  }
+  S.form = f; S.historico = []; S.analise = null; S.fichas = null; S.curadoria = null;
+  this.disabled = true;
+
+  try{
+    loading('Analisando os criativos do período…');
+    S.analise = await chamar(promptAnalise(f));
+    if(f.curadoria && f.conteudos){
+      loading('Procurando conteúdo aproveitável para recorte…');
+      S.curadoria = await chamar(promptCuradoria(f));
+    }
+    loading('Montando as fichas de produção…');
+    var b = await chamar(promptBriefing(f, S.analise, S.curadoria));
+    S.fichas = b.fichas || [];
+    render();
+  }catch(e){
+    erro('Não foi possível gerar: ' + e.message);
+  }finally{
+    this.disabled = false;
+  }
+});
+
+async function ajustar(){
+  var inp = document.getElementById('chatin');
+  var txt = inp.value.trim(); if(!txt) return;
+  var btn = document.getElementById('chatgo');
+  inp.value = ''; btn.disabled = true;
+
+  S.historico.push({ role:'user', texto: txt });
+  renderMsgs();
+
+  try{
+    var p = "Voce e o agente de briefing criativo. Este e o briefing atual:\n" +
+      JSON.stringify({ fichas: S.fichas }) + "\n\n" +
+      "Campos originais: " + JSON.stringify(S.form) + "\n\n" +
+      (S.analise ? "Analise: " + JSON.stringify(S.analise) + "\n\n" : "") +
+      (S.curadoria ? "Conteudo disponivel para recorte: " + JSON.stringify(S.curadoria.candidatos || []) + "\n\n" : "") +
+      "Ajuste solicitado pelo gestor: " + txt + "\n\n" + REGRAS + "\n\n" +
+      "Aplique o ajuste e devolva o briefing completo atualizado. Mantenha o que nao foi pedido para mudar. " +
+      "Seja conciso: cada campo de texto no maximo 2 frases.\n" +
+      "Responda APENAS com JSON valido no mesmo formato, sem markdown:\n" +
+      '{"fichas":[...],"resposta":"<uma frase sobre o que voce mudou>"}';
+
+    var r = await chamar(p);
+    S.fichas = r.fichas || S.fichas;
+    S.historico.push({ role:'assistant', texto: r.resposta || 'Briefing atualizado.' });
+    render();
+  }catch(e){
+    S.historico.push({ role:'assistant', texto: 'Não consegui aplicar o ajuste: ' + e.message });
+    renderMsgs();
+  }finally{
+    var b2 = document.getElementById('chatgo');
+    if(b2) b2.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
