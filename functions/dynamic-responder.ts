@@ -2114,13 +2114,19 @@ async function _contratoPdf(text: string): Promise<Uint8Array> {
   });
   return await doc.save();
 }
-// sobe o PDF pro Storage (bucket público docs; cria na primeira vez) e devolve a URL pública
+// sobe o PDF pro Storage (bucket PRIVADO docs; cria na primeira vez) e devolve um link assinado e
+// temporario (1h) - so pra dar tempo da uazapi buscar o arquivo e anexar na mensagem do WhatsApp;
+// nunca fica um link publico permanente igual a URL fixa (nome do cliente + timestamp e previsivel,
+// virou vazamento real em 2026-08-06 quando o bucket estava marcado publico - ver rls-policy memo).
 async function _uploadDoc(bytes: Uint8Array, path: string): Promise<string> {
   const H = { Authorization: `Bearer ${_SB_KEY}`, apikey: _SB_KEY };
-  await fetch(`${_SB_URL}/storage/v1/bucket`, { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ id: "docs", name: "docs", public: true }) }).catch(() => null); // já existe → 400, ok
+  await fetch(`${_SB_URL}/storage/v1/bucket`, { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ id: "docs", name: "docs", public: false }) }).catch(() => null); // já existe → 400, ok
   const up = await fetch(`${_SB_URL}/storage/v1/object/docs/${path}`, { method: "POST", headers: { ...H, "Content-Type": "application/pdf", "x-upsert": "true" }, body: bytes });
   if (!up.ok) throw new Error("upload do PDF falhou: " + (await up.text()).slice(0, 200));
-  return `${_SB_URL}/storage/v1/object/public/docs/${path}`;
+  const signRes = await fetch(`${_SB_URL}/storage/v1/object/sign/docs/${path}`, { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ expiresIn: 3600 }) });
+  const signJson = await signRes.json().catch(() => ({}));
+  if (!signRes.ok || !signJson.signedURL) throw new Error("gerar link assinado do PDF falhou: " + JSON.stringify(signJson).slice(0, 200));
+  return `${_SB_URL}/storage/v1${signJson.signedURL}`;
 }
 // manda um DOCUMENTO no WhatsApp via uazapi (tenta /send/media type=document; fallback /send/document)
 async function _waSendDoc(host: string, token: string, number: string, url: string, docName: string, caption = ""): Promise<boolean> {

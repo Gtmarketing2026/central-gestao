@@ -51,7 +51,18 @@ as $$
   join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public'
     and p.prosecdef
-    and has_function_privilege('anon', p.oid, 'EXECUTE');
+    and has_function_privilege('anon', p.oid, 'EXECUTE')
+
+  union all
+
+  -- bucket de storage publico serve qualquer arquivo pra quem tiver a URL, sem checar RLS nenhuma -
+  -- foi o caso real do bucket 'docs' (contratos de cliente, nome de arquivo previsivel) em 2026-08-06.
+  select
+    'storage_bucket_public:' || b.id,
+    'critical',
+    'Bucket de storage "' || b.id || '" esta marcado como publico (qualquer um com a URL acessa os arquivos sem login).'
+  from storage.buckets b
+  where b.public = true;
 $$;
 
 revoke all on function public.security_audit() from public;
