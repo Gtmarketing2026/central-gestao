@@ -3929,12 +3929,28 @@ function bdSetObjetivo(v){
 }
 // ---- Filtros por texto (igual GA4): campo + "contém"/"não contém" + valor. Combina quantas regras quiser, tudo em E.
 const BD_RULE_FIELDS={source_medium:'Origem/Mídia',campaign:'Campanha',adset:'Grupo de Anúncios',ad_content:'Anúncio/Conteúdo'};
+async function bdRuleFieldValues(field){
+  let q=sb.from('channel_metrics_daily').select(field).gte('date',_bdSince).lte('date',_bdUntil).neq(field,'');
+  if(_bdClient)q=q.eq('client_id',_bdClient);
+  if(_bdChannel)q=q.eq('channel',_bdChannel);
+  const {data,error}=await q.limit(8000);
+  if(error||!data)return[];
+  const set=new Set();
+  data.forEach(r=>{if(r[field])set.add(r[field]);});
+  return [...set].sort((a,b)=>a.localeCompare(b,'pt'));
+}
+async function bdRuleFieldChanged(){
+  const field=(document.getElementById('bdRuleField')||{}).value||'source_medium';
+  const sel=document.getElementById('bdRuleInput');if(!sel)return;
+  sel.innerHTML='<option value="">Carregando…</option>';
+  const vals=await bdRuleFieldValues(field);
+  sel.innerHTML=vals.length?vals.map(v=>{const esc=String(v).replace(/</g,'&lt;');return `<option value="${esc}">${esc}</option>`;}).join(''):'<option value="">— nenhum valor nesse período —</option>';
+}
 function bdAddRule(type){
   const field=(document.getElementById('bdRuleField')||{}).value||'source_medium';
   const inp=document.getElementById('bdRuleInput');
   const value=(inp&&inp.value||'').trim();if(!value)return;
   _bdRules.push({field,type,value});
-  if(inp)inp.value='';
   renderBdRules();bdRefresh();
 }
 function bdRemoveRule(i){_bdRules.splice(i,1);renderBdRules();bdRefresh();}
@@ -3979,7 +3995,7 @@ async function bdApplyView(id){
   const obj=BD_OBJETIVOS[_bdObjetivo];
   _bdCols=(obj&&obj.cols)?obj.cols.slice():((v.cols&&v.cols.length)?v.cols.slice():BD_DEFAULT_COLS.slice());
   localStorage.setItem('bdCols',JSON.stringify(_bdCols));
-  renderBdRules();
+  renderBdRules();bdRuleFieldChanged();
   bdRefresh();
 }
 async function bdDeleteView(id,ev){ev&&ev.stopPropagation();if(!confirm('Remover essa visão salva?'))return;const views=bdViews().filter(v=>v.id!==id);await saveAccountConfig({bd_views:views});renderBdViews();}
@@ -4012,8 +4028,8 @@ async function loadBancoDados(){
         <button class="btn sm ghost" onclick="bdDownloadCSV(this)">⬇️ Baixar CSV</button>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;margin-bottom:8px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px">
-        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CAMPO</label><select id="bdRuleField" style="width:auto;font-size:12px">${Object.entries(BD_RULE_FIELDS).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div>
-        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">TEXTO</label><input id="bdRuleInput" placeholder="ex: RD Station" style="width:170px;font-size:12px" onkeydown="if(event.key==='Enter'){event.preventDefault();bdAddRule('contains')}"></div>
+        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CAMPO</label><select id="bdRuleField" onchange="bdRuleFieldChanged()" style="width:auto;font-size:12px">${Object.entries(BD_RULE_FIELDS).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div>
+        <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">VALOR</label><select id="bdRuleInput" style="width:220px;font-size:12px"><option value="">Carregando…</option></select></div>
         <button type="button" class="btn sm ghost" onclick="bdAddRule('contains')">✅ Contém</button>
         <button type="button" class="btn sm ghost" onclick="bdAddRule('not_contains')">🚫 Não contém</button>
       </div>
@@ -4044,7 +4060,7 @@ async function loadBancoDados(){
       </div>
     </div>
     <div id="bdTabDash" style="display:${_bdTab==='dash'?'block':'none'}"></div>`;
-  renderBdViews();renderBdRules();
+  renderBdViews();renderBdRules();bdRuleFieldChanged();
   if(_bdTab==='dash')await bdRenderDash();else await bdApplyFilters();
 }
 function bdTab(id){
@@ -4063,6 +4079,7 @@ function bdApplyFilters(){
   _bdClient=document.getElementById('bdClient').value||'';
   _bdChannel=document.getElementById('bdChannel').value||'';
   _bdSelCamps=[];
+  bdRuleFieldChanged();
   return bdRefresh();
 }
 const BD_ALL_FIELDS='date,channel,client_id,source_medium,campaign,adset,ad_content,spend,impressions,clicks,ctr,cpm,reach,purchases,revenue,leads,conversas,video_views,engajamentos';
