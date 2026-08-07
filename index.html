@@ -5112,6 +5112,7 @@ async function loadBriefing(clientId){
   if(!(c.metaAccountIds&&c.metaAccountIds.length)&&!(c.googleAccountIds&&c.googleAccountIds.length)){body.innerHTML='<div class="empty">Esse cliente não tem conta Meta nem Google conectada — sem isso não dá pra ler os criativos que rodaram.</div>';return;}
   body.innerHTML=`
     <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:4px"><button type="button" class="btn sm ghost" onclick="brVerHistorico()">📚 Ver briefings aprovados</button></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">PERÍODO ANALISADO — DE</label><input type="date" id="brSince" value="${daysAgoISO(30)}" style="width:auto;font-size:12px"></div>
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ATÉ</label><input type="date" id="brUntil" value="${today()}" style="width:auto;font-size:12px"></div>
@@ -5156,7 +5157,7 @@ async function brRunAnalise(){
   btn.disabled=true;btn.textContent='Lendo os criativos e analisando… pode levar um minuto';
   out.innerHTML='<div class="empty" style="padding:30px"><div style="margin-bottom:8px">🔎 Buscando os anúncios que rodaram, separando por funil e escrevendo a leitura…</div></div>';
   try{
-    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingAnalise:{clientId:_brClientId,since,until,objetivo,criadoPor:currentTeamId||null}}});
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingAnalise:{clientId:_brClientId,since,until,objetivo,criadoPor:currentTeamId||null,funilDesejado}}});
     if(error)throw error;
     const r=(data&&data.data)||{};
     if(r.erro){out.innerHTML=`<div class="empty">${_brEsc(r.erro)}</div>`;return;}
@@ -5204,12 +5205,15 @@ function brRenderAnalise(r,curadoria,curadoriaErro){
   const out=document.getElementById('brOut');
   const aviso=r.avisoConfiabilidade?`<div class="card" style="margin-bottom:14px;border:1px solid rgba(240,192,64,.4);background:rgba(240,192,64,.08)"><b>⚠ Confiabilidade reduzida:</b> ${r.funil_inferido_pct}% dos criativos não tinham o funil explícito no nome — a IA inferiu pela campanha/anúncio. Vale revisar a nomenclatura das campanhas.</div>`:'';
   const emLeitura=r.criativos_em_leitura?`<div style="font-size:11.5px;color:var(--faint);margin-bottom:14px">${r.criativos_em_leitura} anúncio(s) ficaram "em leitura" (volume abaixo do piso) e não entraram na análise.</div>`:'';
+  const thumbs=r.thumbsByCodigo||{};
   const itens=(arr)=>(arr&&arr.length)?arr.map(i=>`
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px">
-      <div style="font-family:monospace;font-weight:700;font-size:12.5px">${_brEsc(i.codigo)}</div>
-      <div style="font-family:monospace;font-size:11px;color:var(--faint);margin-bottom:5px">${_brEsc(i.metricas)}</div>
-      ${(i.positivos||[]).map(p=>`<div style="font-size:12.5px;color:#34d399;padding-left:14px;position:relative"><span style="position:absolute;left:0">+</span>${_brEsc(p)}</div>`).join('')}
-      ${(i.negativos||[]).map(n=>`<div style="font-size:12.5px;color:#f87171;padding-left:14px;position:relative"><span style="position:absolute;left:0">−</span>${_brEsc(n)}</div>`).join('')}
+    <div style="display:flex;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px">
+      ${thumbs[i.codigo]?`<img src="${thumbs[i.codigo]}" style="width:56px;height:56px;border-radius:8px;object-fit:cover;flex:none" referrerpolicy="no-referrer">`:`<div style="width:56px;height:56px;border-radius:8px;background:var(--surface);flex:none;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:9px;text-align:center">sem prévia</div>`}
+      <div style="flex:1;min-width:0">
+        <div style="font-family:monospace;font-weight:700;font-size:12.5px">${_brEsc(i.codigo)}</div>
+        ${(i.positivos||[]).map(p=>`<div style="font-size:12.5px;color:#34d399;padding-left:14px;position:relative"><span style="position:absolute;left:0">+</span>${_brEsc(p)}</div>`).join('')}
+        ${(i.negativos||[]).map(n=>`<div style="font-size:12.5px;color:#f87171;padding-left:14px;position:relative"><span style="position:absolute;left:0">−</span>${_brEsc(n)}</div>`).join('')}
+      </div>
     </div>`).join(''):'<div style="font-size:12px;color:var(--faint)">Sem peça com volume suficiente.</div>';
   const funis=(r.funis||[]).map(fn=>`
     <div style="display:flex;align-items:center;gap:10px;margin:20px 0 10px">
@@ -5264,7 +5268,52 @@ async function brGerarFichas(){
 }
 function brRenderFichas(fichas){
   const el=document.getElementById('brFichas');if(!el)return;const li=v=>(v||[]).map(x=>`<li>${_brEsc(x)}</li>`).join('');
-  el.innerHTML=`<div style="display:flex;align-items:center;gap:10px;margin:24px 0 12px"><h3 style="margin:0;font-size:15px">Fichas para produção</h3><span class="badge">${fichas.length}</span></div>`+fichas.map(f=>{const r=f.roteiro_json||{},c=f.copy_json||{};return `<div class="card" style="margin-bottom:14px;border-left:4px solid ${brFunilBadgeColor(f.funil)}"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><b style="font-family:monospace">${_brEsc(f.codigo)}</b><h3 style="margin:0;flex:1;font-size:14px">${_brEsc(f.titulo)}</h3><span class="badge">${_brEsc(f.prioridade)}</span><span class="badge">${_brEsc(f.funil)}</span><span class="badge">${_brEsc(f.canal)} · ${_brEsc(f.formato)}</span>${f.rota==='recorte'?'<span class="badge" style="color:#34d399">Recorte</span>':''}</div><div class="grid" style="grid-template-columns:1fr 1fr;gap:10px;font-size:12.5px"><div><b>Objetivo</b><br>${_brEsc(f.objetivo)||'—'}</div><div><b>Público</b><br>${_brEsc(f.publico)||'—'}</div><div><b>Ângulo</b><br>${_brEsc(f.angulo)||'—'}</div><div><b>Promessa</b><br>${_brEsc(f.promessa)||'—'}</div></div><div style="margin-top:12px;background:var(--surface2);padding:12px;border-radius:9px;font-size:12.5px"><b>Roteiro</b><div><b>Gancho:</b> ${_brEsc(r.gancho)||'—'}</div>${(r.desenvolvimento||[]).map((x,i)=>`<div>${i+1}. ${_brEsc(x)}</div>`).join('')}<div><b>CTA:</b> ${_brEsc(r.cta)||'—'}</div></div><div style="margin-top:10px;font-size:12.5px"><b>Copy principal</b><div style="white-space:pre-wrap">${_brEsc(c.texto_principal)||'—'}</div>${c.titulo?`<div><b>Título:</b> ${_brEsc(c.titulo)}</div>`:''}</div>${f.especificacoes?`<div style="margin-top:10px;font-size:12.5px"><b>Especificações:</b> ${_brEsc(f.especificacoes)}</div>`:''}<div class="grid" style="grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;font-size:12px"><div><b style="color:#34d399">Obrigatório</b><ul style="margin:4px 0;padding-left:18px">${li(f.obrigatorio_json)||'<li>—</li>'}</ul></div><div><b style="color:#f87171">Não usar</b><ul style="margin:4px 0;padding-left:18px">${li(f.proibido_json)||'<li>—</li>'}</ul></div></div></div>`;}).join('');
+  const aprovado=_brResult&&_brResult._aprovado;
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:10px;margin:24px 0 12px"><h3 style="margin:0;font-size:15px">Fichas para produção</h3><span class="badge">${fichas.length}</span><div style="flex:1"></div>${aprovado?'<span class="badge" style="color:#34d399">✓ Aprovado</span>':'<button class="btn sm primary" id="brAprovarBtn" onclick="brAprovar()">✅ Aprovar briefing</button>'}</div>`+fichas.map(f=>{const r=f.roteiro_json||{},c=f.copy_json||{};return `<div class="card" style="margin-bottom:14px;border-left:4px solid ${brFunilBadgeColor(f.funil)}"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><b style="font-family:monospace">${_brEsc(f.codigo)}</b><h3 style="margin:0;flex:1;font-size:14px">${_brEsc(f.titulo)}</h3><span class="badge">${_brEsc(f.prioridade)}</span><span class="badge">${_brEsc(f.funil)}</span><span class="badge">${_brEsc(f.canal)} · ${_brEsc(f.formato)}</span>${f.rota==='recorte'?'<span class="badge" style="color:#34d399">Recorte</span>':''}</div><div class="grid" style="grid-template-columns:1fr 1fr;gap:10px;font-size:12.5px"><div><b>Objetivo</b><br>${_brEsc(f.objetivo)||'—'}</div><div><b>Público</b><br>${_brEsc(f.publico)||'—'}</div><div><b>Ângulo</b><br>${_brEsc(f.angulo)||'—'}</div><div><b>Promessa</b><br>${_brEsc(f.promessa)||'—'}</div></div><div style="margin-top:12px;background:var(--surface2);padding:12px;border-radius:9px;font-size:12.5px"><b>Roteiro</b><div><b>Gancho:</b> ${_brEsc(r.gancho)||'—'}</div>${(r.desenvolvimento||[]).map((x,i)=>`<div>${i+1}. ${_brEsc(x)}</div>`).join('')}<div><b>CTA:</b> ${_brEsc(r.cta)||'—'}</div></div><div style="margin-top:10px;font-size:12.5px"><b>Copy principal</b><div style="white-space:pre-wrap">${_brEsc(c.texto_principal)||'—'}</div>${c.titulo?`<div><b>Título:</b> ${_brEsc(c.titulo)}</div>`:''}</div>${f.especificacoes?`<div style="margin-top:10px;font-size:12.5px"><b>Especificações:</b> ${_brEsc(f.especificacoes)}</div>`:''}<div class="grid" style="grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;font-size:12px"><div><b style="color:#34d399">Obrigatório</b><ul style="margin:4px 0;padding-left:18px">${li(f.obrigatorio_json)||'<li>—</li>'}</ul></div><div><b style="color:#f87171">Não usar</b><ul style="margin:4px 0;padding-left:18px">${li(f.proibido_json)||'<li>—</li>'}</ul></div></div></div>`;}).join('');
+}
+async function brAprovar(){
+  if(!_brResult||!_brResult.briefingId){alert('Gere a análise primeiro.');return;}
+  const btn=document.getElementById('brAprovarBtn');if(btn){btn.disabled=true;btn.textContent='Aprovando…';}
+  try{
+    const {error}=await sb.functions.invoke('dynamic-responder',{body:{briefingAprovar:{briefingId:_brResult.briefingId}}});
+    if(error)throw error;
+    _brResult._aprovado=true;
+    if(btn){const wrap=btn.parentElement;btn.remove();wrap.insertAdjacentHTML('beforeend','<span class="badge" style="color:#34d399">✓ Aprovado</span>');}
+  }catch(e){alert('Erro ao aprovar: '+(e.message||e));if(btn){btn.disabled=false;btn.textContent='✅ Aprovar briefing';}}
+}
+/* ---- Histórico de briefings aprovados ---- */
+async function brVerHistorico(){
+  const out=document.getElementById('brOut');if(!out)return;
+  out.innerHTML='<div class="empty" style="padding:20px">Carregando histórico…</div>';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingHistorico:{clientId:_brClientId}}});
+    if(error)throw error;
+    const list=((data&&data.data)||{}).briefings||[];
+    if(!list.length){out.innerHTML='<div class="empty">Nenhum briefing aprovado ainda pra esse cliente.<div style="margin-top:10px"><button class="btn sm ghost" onclick="loadBriefing(_brClientId)">← Voltar</button></div></div>';return;}
+    out.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="margin:0;font-size:15px">📚 Briefings aprovados</h3><button class="btn sm ghost" onclick="loadBriefing(_brClientId)">← Voltar</button></div>`+
+      list.map(b=>`<div class="card" style="margin-bottom:8px;cursor:pointer" onclick="brAbrirHistorico('${b.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <b style="font-size:13.5px">${_brEsc(b.objetivo)||'(sem objetivo definido)'}</b>
+          ${b.funil?`<span class="badge" style="color:${brFunilBadgeColor(b.funil)}">${_brEsc(b.funil)}</span>`:''}
+        </div>
+        <div style="font-size:11.5px;color:var(--faint);margin-top:3px">${_brEsc(b.periodo_inicio)} a ${_brEsc(b.periodo_fim)} · aprovado em ${new Date(b.criado_em).toLocaleDateString('pt-BR')}</div>
+      </div>`).join('');
+  }catch(e){out.innerHTML='<div class="empty">Erro ao carregar histórico: '+_brEsc(e.message||e)+'</div>';}
+}
+async function brAbrirHistorico(briefingId){
+  const out=document.getElementById('brOut');if(!out)return;
+  out.innerHTML='<div class="empty" style="padding:20px">Carregando briefing…</div>';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingCompleto:{briefingId}}});
+    if(error)throw error;
+    const r=(data&&data.data)||{};
+    if(!r.briefing){out.innerHTML='<div class="empty">Briefing não encontrado.</div>';return;}
+    const a=r.analise||{};
+    _brResult={briefingId:r.briefing.id,leitura:a.leitura||'',funis:a.funis_json||[],padroes:a.padroes_json||[],criativos_em_leitura:a.criativos_em_leitura||0,funil_inferido_pct:a.funil_inferido_pct||0,avisoConfiabilidade:(a.funil_inferido_pct||0)>30,thumbsByCodigo:{},_aprovado:true};
+    brRenderAnalise(_brResult,r.curadoria,null);
+    document.getElementById('brOut').insertAdjacentHTML('afterbegin','<button class="btn sm ghost" style="margin-bottom:12px" onclick="brVerHistorico()">← Voltar ao histórico</button>');
+    if((r.fichas||[]).length)brRenderFichas(r.fichas);
+  }catch(e){out.innerHTML='<div class="empty">Erro ao carregar: '+_brEsc(e.message||e)+'</div>';}
 }
 /* ================= RASTREAMENTO (pixel + links + jornada do lead) ================= */
 const TRACK_BASE=SUPA_URL+'/functions/v1/tracking';

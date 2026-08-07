@@ -1546,7 +1546,7 @@ async function _briefingCriativos(clientId: string, since: string, until: string
     const r = _briefingResultado(a);
     return {
       codigo, adId: a.adId, canal: a._google ? "Google" : "Meta", campanha: a.campaign || "", conjunto: a.adset || "",
-      funil: funilResolvido, elegivel,
+      funil: funilResolvido, elegivel, thumbnail: a.thumbnail || null,
       spend: Math.round((a.spend || 0) * 100) / 100, impressions: a.impressions || 0, clicks: a.clicks || 0,
       reach: a.reach || 0, frequency: +(a.frequency || 0).toFixed(2), ctr: +(a.ctr || 0).toFixed(2), cpm: +(a.cpm || 0).toFixed(2),
       resultadoLabel: r.label, resultadoValor: Math.round(r.valor), custoPorResultado: r.custo != null ? Math.round(r.custo * 100) / 100 : null,
@@ -1598,33 +1598,38 @@ Responda APENAS com JSON valido, sem markdown: {"objetivo":"<1 frase curta, o qu
   return await _callOpenAIJson([{ role: "user", content: prompt }]);
 }
 async function briefingAnalise(input: any) {
-  const { clientId, since, until, objetivo, criadoPor } = input;
+  const { clientId, since, until, objetivo, criadoPor, funilDesejado } = input;
   if (!clientId || !since || !until) throw new Error("clientId, since e until são obrigatórios.");
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name`))[0];
   if (!c) throw new Error("Cliente não encontrado.");
-  const { criativos, total, pctInferido, erros } = await _briefingCriativos(clientId, since, until);
+  const { criativos: todosCriativos, total, pctInferido, erros } = await _briefingCriativos(clientId, since, until);
+  // se um funil especifico foi pedido, a analise (e o gasto com IA) fica so nele - nao processa os outros a toa
+  const criativos = funilDesejado ? todosCriativos.filter((x) => x.funil === funilDesejado) : todosCriativos;
   const elegiveis = criativos.filter((x) => x.elegivel);
-  if (!elegiveis.length) return { erro: "Nenhum criativo elegível no período. Amplie o período ou confira se o cliente tem conta Meta/Google conectada.", erros };
+  if (!elegiveis.length) return { erro: funilDesejado ? `Nenhum criativo elegível do funil ${funilDesejado} no período. Amplie o período ou tente outro funil.` : "Nenhum criativo elegível no período. Amplie o período ou confira se o cliente tem conta Meta/Google conectada.", erros };
+  const thumbsByCodigo: Record<string, string> = {};
+  for (const x of criativos) if (x.thumbnail) thumbsByCodigo[x.codigo] = x.thumbnail;
   const dadosTxt = _briefingDadosTxt(criativos);
-  const prompt = `Voce e analista de criativos de trafego pago. Analise os criativos que rodaram e devolva a leitura para o time de producao, que precisa entender o que funcionou antes de criar peca nova.
+  const prompt = `Voce e analista de criativos de trafego pago. Analise os criativos que rodaram e devolva a leitura para o time de producao, que precisa entender o que funcionou antes de criar peca nova (direcao de DESIGN E VIDEO - a leitura de investimento/orcamento e feita em outro lugar, nao repita numero de gasto na resposta).
 
 Cliente: ${c.name}
 Periodo: ${since} a ${until}
 Objetivo da campanha: ${objetivo || "não informado"}
+${funilDesejado ? `Funil pedido: SOMENTE ${funilDesejado} - os dados abaixo ja vem filtrados so desse funil.` : ""}
 
 Criativos que rodaram:
 ${dadosTxt}
 
-Organize a analise POR FUNIL: topo, meio e fundo. Inclua apenas os funis presentes nos dados.
+${funilDesejado ? `Toda a analise e desse UNICO funil (${funilDesejado}).` : `Organize a analise POR FUNIL: topo, meio e fundo. Inclua apenas os funis presentes nos dados.`}
 Se o funil nao estiver explicito (aparece como "não identificado"), infira pela campanha ou pelo nome do anuncio e acrescente (inferido) ao lado do codigo.
 
 Compare cada criativo apenas dentro do proprio funil. Custo por resultado de topo e de fundo nao sao grandezas equivalentes.
 
-Para cada criativo, traga pontos positivos e pontos negativos, mesmo nos melhores e nos piores: o melhor criativo tem algo a corrigir e o pior quase sempre tem algo aproveitavel. Escreva os pontos como instrucao util para quem vai produzir, nao como descricao de metrica.
+Para cada criativo, traga pontos positivos e pontos negativos, mesmo nos melhores e nos piores: o melhor criativo tem algo a corrigir e o pior quase sempre tem algo aproveitavel. Escreva os pontos como instrucao util para quem vai PRODUZIR a peca (design/roteiro/edicao), nao como descricao de metrica de trafego.
 
 ${REGRAS_DE_LINGUAGEM}
 
-Limites: no maximo 2 melhores e 2 piores por funil, no maximo 2 pontos positivos e 2 negativos por criativo, frases curtas de uma linha. No maximo 3 padroes no total. Padrao apoiado em menos de 3 pecas deve ter hipotese true.
+Limites: no maximo 2 melhores e 2 piores por funil, no maximo 2 pontos positivos e 2 negativos por criativo, frases curtas de uma linha. No maximo 3 padroes no total. Padrao apoiado em menos de 3 pecas deve ter hipotese true. O campo "metricas" deve ser so uma pista curta e nao-financeira de qual sinal destacou essa peca (ex: "maior CTR do funil", "menor custo por resultado do grupo") - sem valores de investimento/gasto.
 
 Responda APENAS com JSON valido, sem markdown, sem preambulo:
 {"leitura":"<um paragrafo curto sobre o periodo inteiro>",
@@ -1637,7 +1642,7 @@ Responda APENAS com JSON valido, sem markdown, sem preambulo:
   const briefingId = _wuid();
   await sbPost("briefing", {
     id: briefingId, client_id: clientId, criado_por: criadoPor || null,
-    periodo_inicio: since, periodo_fim: until, objetivo: objetivo || "",
+    periodo_inicio: since, periodo_fim: until, objetivo: objetivo || "", funil: funilDesejado || "",
     status: "pronto", criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString(),
   });
   const analiseId = _wuid();
@@ -1647,7 +1652,38 @@ Responda APENAS com JSON valido, sem markdown, sem preambulo:
     criativos_analisados: elegiveis.length, criativos_em_leitura: total - elegiveis.length,
     funil_inferido_pct: pctInferido, gerado_em: new Date().toISOString(),
   });
-  return { briefingId, analiseId, ...parsed, criativos_analisados: elegiveis.length, criativos_em_leitura: total - elegiveis.length, funil_inferido_pct: pctInferido, avisoConfiabilidade: pctInferido > 30, erros };
+  return { briefingId, analiseId, ...parsed, thumbsByCodigo, criativos_analisados: elegiveis.length, criativos_em_leitura: total - elegiveis.length, funil_inferido_pct: pctInferido, avisoConfiabilidade: pctInferido > 30, erros };
+}
+// Aprova o briefing (congela e "envia pra fila de producao"). So muda status - fichas ja foram geradas antes.
+async function briefingAprovar(input: any) {
+  const { briefingId } = input;
+  if (!briefingId) throw new Error("briefingId obrigatório.");
+  await sbPatchD("briefing", `id=eq.${encodeURIComponent(briefingId)}`, { status: "aprovado", atualizado_em: new Date().toISOString() });
+  return { ok: true };
+}
+// Historico de briefings (aprovados por padrao) pra reconsulta - lista + o pacote completo de 1 briefing.
+async function briefingHistorico(input: any) {
+  const { clientId, status } = input;
+  let q = `select=id,client_id,periodo_inicio,periodo_fim,objetivo,funil,status,criado_em&order=criado_em.desc&limit=100`;
+  if (clientId) q += `&client_id=eq.${encodeURIComponent(clientId)}`;
+  q += `&status=eq.${encodeURIComponent(status || "aprovado")}`;
+  const rows = await sbGet("briefing", q);
+  const clientIds = [...new Set(rows.map((r: any) => r.client_id))];
+  const clientes = clientIds.length ? await _sbAll("clients", `id=in.(${clientIds.map((id: any) => encodeURIComponent(id)).join(",")})&select=id,name`) : [];
+  const nomeById: Record<string, string> = {}; for (const c of clientes) nomeById[c.id] = c.name;
+  return { briefings: rows.map((r: any) => ({ ...r, clientName: nomeById[r.client_id] || r.client_id })) };
+}
+async function briefingCompleto(input: any) {
+  const { briefingId } = input;
+  if (!briefingId) throw new Error("briefingId obrigatório.");
+  const [briefing, analise, curadoria, fichas] = await Promise.all([
+    sbGet("briefing", `id=eq.${encodeURIComponent(briefingId)}&select=*`),
+    sbGet("briefing_analise", `briefing_id=eq.${encodeURIComponent(briefingId)}&select=*&order=gerado_em.desc&limit=1`),
+    sbGet("briefing_curadoria", `briefing_id=eq.${encodeURIComponent(briefingId)}&select=*&order=gerado_em.desc&limit=1`),
+    sbGet("briefing_ficha", `briefing_id=eq.${encodeURIComponent(briefingId)}&select=*&order=ordem.asc`),
+  ]);
+  if (!briefing[0]) throw new Error("Briefing não encontrado.");
+  return { briefing: briefing[0], analise: analise[0] || null, curadoria: curadoria[0] || null, fichas: fichas || [] };
 }
 
 async function briefingGerarFichas(input: any) {
@@ -4346,6 +4382,18 @@ Deno.serve(async (req) => {
     }
     if (body.briefingGerarFichas) {
       const r = await briefingGerarFichas(body.briefingGerarFichas);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.briefingAprovar) {
+      const r = await briefingAprovar(body.briefingAprovar);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.briefingHistorico) {
+      const r = await briefingHistorico(body.briefingHistorico);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.briefingCompleto) {
+      const r = await briefingCompleto(body.briefingCompleto);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.instagramDiag) {
