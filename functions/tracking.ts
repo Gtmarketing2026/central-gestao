@@ -780,6 +780,25 @@ Deno.serve(async (req) => {
     } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
   }
 
+  // GET /instagram/diag -> diagnostico temporario: o META_USER_TOKEN ja enxerga Paginas/Instagram vinculado?
+  if (p === "/instagram/diag") {
+    try {
+      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ instagramDiag: true }) });
+      const t = await r.text();
+      return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
+    } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
+  }
+
+  // GET /instagram/organico?clientId=... -> teste manual dos posts organicos + metricas reais desse cliente
+  if (p === "/instagram/organico") {
+    try {
+      const clientId = url.searchParams.get("clientId") || "";
+      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ instagramOrganicContent: { clientId, days: 90 } }) });
+      const t = await r.text();
+      return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
+    } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
+  }
+
   // /security/audit -> roda public.security_audit() (RLS aberta pro anon, tabela sem RLS, view sem
   // security_invoker) e avisa a equipe (sino + grupo) so quando aparece achado novo. Chamado pelo cron diario.
   if (p === "/security/audit") {

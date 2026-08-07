@@ -993,6 +993,13 @@
           <div id="cPinterestConnectRow"></div>
         </div>
       </div>
+      <div class="cad-collapse">
+        <div class="cad-collapse-hd" onclick="this.parentElement.classList.toggle('open')"><span class="t">📸 Instagram (conteúdo orgânico)</span><span class="cad-caret">▾</span></div>
+        <div class="cad-collapse-bd">
+          <div class="cad-sub">Liga o Instagram <b>deste cliente</b> pra ler posts e métricas reais (curtidas, alcance, salvamentos) — alimenta a Curadoria do Briefing Criativo e a aba Social. Não precisa autorizar nada, é a mesma conexão de anúncios da agência.</div>
+          <div id="cInstagramConnectRow"></div>
+        </div>
+      </div>
     </div>
 
     <div class="cpanel" data-panel="relatorios" style="display:none">
@@ -1882,7 +1889,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||''});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||'',instagramBusinessId:r.instagram_business_id||'',instagramUsername:r.instagram_username||''});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],budget_campaigns:o.budgetCampaigns||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,ga4_property_id:o.ga4PropertyId||null,gsc_site_url:o.gscSiteUrl||null,whatsapp:o.whatsapp||null,pixel_id:o.pixelId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -4753,6 +4760,41 @@ async function savePinterestAccount(clientId,adAccountId){
   if(c)c.pinterestConfig=cfg;
   renderPinterestConnect(clientId,cfg);
 }
+/* ---- Instagram (conteudo organico) — sem OAuth, so escolher entre as Paginas que a agencia ja enxerga ---- */
+function renderInstagramConnect(clientId){
+  const el=document.getElementById('cInstagramConnectRow');if(!el)return;
+  if(!clientId){el.innerHTML='<div style="font-size:11px;color:var(--faint)">Salve o cliente primeiro pra poder conectar o Instagram.</div>';return;}
+  const c=DB.clients.find(x=>x.id===clientId);
+  const connected=c&&c.instagramBusinessId;
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="font-size:12px;font-weight:700;color:${connected?'#34d399':'var(--faint)'}">${connected?'✓ @'+String(c.instagramUsername||c.instagramBusinessId).replace(/</g,'&lt;'):'○ Instagram não conectado'}</span>
+    <button type="button" class="btn sm ${connected?'ghost':'primary'}" onclick="loadInstagramAccounts('${clientId}')">🔄 ${connected?'Trocar conta':'Buscar contas conectadas'}</button>
+  </div>
+  <div id="cInstagramAccSel" style="margin-top:8px"></div>`;
+}
+async function loadInstagramAccounts(clientId){
+  const box=document.getElementById('cInstagramAccSel');if(box)box.innerHTML='Buscando Páginas com Instagram vinculado…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{instagramListAccounts:true}});
+    if(error)throw error;const r=(data&&data.data)||{};
+    if(!r.ok){if(box)box.innerHTML='<span style="color:#f87171;font-size:11px">'+(r.erro||'erro ao buscar')+'</span>';return;}
+    const comIg=(r.paginas||[]).filter(p=>p.instagram);
+    if(!comIg.length){if(box)box.innerHTML='<span style="font-size:11px;color:var(--faint)">Nenhuma Página com Instagram vinculado encontrada na conta da agência.</span>';return;}
+    const c=DB.clients.find(x=>x.id===clientId);const sel=(c&&c.instagramBusinessId)||'';
+    if(box)box.innerHTML=`<label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CONTA DO INSTAGRAM</label>
+      <select style="width:100%;font-size:12px" onchange="saveInstagramAccount('${clientId}',this)">
+        <option value="">— escolha —</option>
+        ${comIg.map(p=>`<option value="${p.instagram.id}" data-username="${String(p.instagram.username||'').replace(/"/g,'&quot;')}" ${sel===p.instagram.id?'selected':''}>@${String(p.instagram.username||p.instagram.id).replace(/</g,'&lt;')} — ${String(p.pagina||'').replace(/</g,'&lt;')} (${(p.instagram.seguidores||0).toLocaleString('pt-BR')} seguidores)</option>`).join('')}
+      </select>`;
+  }catch(e){if(box)box.innerHTML='<span style="color:#f87171;font-size:11px">Erro: '+(e.message||e)+'</span>';}
+}
+async function saveInstagramAccount(clientId,sel){
+  const id=sel.value;const username=sel.options[sel.selectedIndex]?sel.options[sel.selectedIndex].dataset.username||'':'';
+  const {error}=await sb.from('clients').update({instagram_business_id:id,instagram_username:username}).eq('id',clientId);
+  if(error){alert('Erro ao salvar: '+error.message);return;}
+  const c=DB.clients.find(x=>x.id===clientId);if(c){c.instagramBusinessId=id;c.instagramUsername=username;}
+  renderInstagramConnect(clientId);
+}
 // Testa a conexão puxando os últimos 7 dias — valida ponta a ponta (fase 1, antes de integrar no Dashboard/funil de verdade).
 async function testarCanalAds(clientId,canal,btn){
   const box=document.getElementById(canal==='tiktok'?'cTiktokTest':'cPinterestTest');
@@ -5043,6 +5085,13 @@ async function loadBriefing(clientId){
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ATÉ</label><input type="date" id="brUntil" value="${today()}" style="width:auto;font-size:12px"></div>
       </div>
       <div class="fg"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">OBJETIVO DA CAMPANHA</label><input id="brObjetivo" placeholder="O que a campanha precisa entregar" style="width:100%;font-size:12.5px"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div class="fg" style="flex:1;min-width:160px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ÂNGULO (pra curadoria)</label><input id="brAngulo" placeholder="Dor ou desejo a trabalhar" style="width:100%;font-size:12.5px"></div>
+        <div class="fg" style="min-width:140px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">FUNIL DESEJADO</label><select id="brFunilDesejado" style="width:100%;font-size:12.5px"><option value="">Qualquer</option><option>Topo</option><option>Meio</option><option>Fundo</option></select></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:6px 0 2px;font-size:12.5px" title="Procura posts do Instagram do cliente que podem virar recorte em vez de peça nova">
+        <input type="checkbox" id="brCuradoria" style="width:auto">🖼 Também curar conteúdo orgânico do Instagram pra recorte
+      </label>
       <button class="btn primary" style="width:100%;margin-top:6px" onclick="brRunAnalise()" id="brBtn">Analisar criativos do período</button>
       <div class="hint" style="font-size:11.5px;color:var(--faint);margin-top:8px">Lê sozinho os anúncios que rodaram no período (Meta e Google), separa por topo/meio/fundo de funil e traz o que funcionou e o que não funcionou — sem precisar colar dado nenhum.</div>
     </div>
@@ -5054,6 +5103,9 @@ async function brRunAnalise(){
   const since=document.getElementById('brSince').value,until=document.getElementById('brUntil').value;
   if(!since||!until){alert('Preencha o período.');return;}
   const objetivo=document.getElementById('brObjetivo').value.trim();
+  const angulo=document.getElementById('brAngulo').value.trim();
+  const funilDesejado=document.getElementById('brFunilDesejado').value;
+  const curadoriaOn=document.getElementById('brCuradoria').checked;
   btn.disabled=true;btn.textContent='Lendo os criativos e analisando… pode levar um minuto';
   out.innerHTML='<div class="empty" style="padding:30px"><div style="margin-bottom:8px">🔎 Buscando os anúncios que rodaram, separando por funil e escrevendo a leitura…</div></div>';
   try{
@@ -5062,14 +5114,46 @@ async function brRunAnalise(){
     const r=(data&&data.data)||{};
     if(r.erro){out.innerHTML=`<div class="empty">${_brEsc(r.erro)}</div>`;return;}
     _brResult=r;
-    brRenderAnalise(r);
+    let curadoria=null,curadoriaErro='';
+    if(curadoriaOn){
+      const c=DB.clients.find(x=>x.id===_brClientId);
+      if(!(c&&c.instagramBusinessId))curadoriaErro='Esse cliente não tem Instagram conectado (Configurações do cliente → Instagram).';
+      else{
+        btn.textContent='Procurando conteúdo do Instagram pra recorte…';
+        try{
+          const {data:cd,error:ce}=await sb.functions.invoke('dynamic-responder',{body:{briefingCuradoria:{briefingId:r.briefingId,clientId:_brClientId,angulo,funil:funilDesejado}}});
+          if(ce)throw ce;
+          curadoria=(cd&&cd.data)||{};
+        }catch(e){curadoriaErro='Erro na curadoria: '+(e.message||e);}
+      }
+    }
+    brRenderAnalise(r,curadoria,curadoriaErro);
   }catch(e){
     out.innerHTML=`<div class="empty">Erro ao analisar: ${_brEsc(e.message||e)}</div>`;
   }finally{
     btn.disabled=false;btn.textContent='Analisar criativos do período';
   }
 }
-function brRenderAnalise(r){
+function brCuradoriaHTML(curadoria,erro){
+  if(erro)return `<div class="card" style="margin:20px 0;border:1px solid rgba(248,113,113,.35);background:rgba(248,113,113,.06);color:#fca5a5;font-size:12.5px">${_brEsc(erro)}</div>`;
+  if(!curadoria)return '';
+  const cands=curadoria.candidatos||[];
+  const lista=cands.length?cands.map(cd=>`
+    <div class="card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px">
+        <b style="font-size:13.5px">${_brEsc(cd.titulo)}</b>
+        <span style="font-family:monospace;font-size:10.5px;font-weight:700;background:rgba(52,211,153,.14);color:#34d399;padding:2px 8px;border-radius:5px">score ${_brEsc(cd.score)}${cd.funil?' · '+_brEsc(cd.funil):''}</span>
+      </div>
+      ${cd.corte?`<div style="font-size:12.5px;margin-bottom:4px"><b>Corte:</b> ${_brEsc(cd.corte)}</div>`:''}
+      ${cd.aproveitar?`<div style="font-size:12.5px;margin-bottom:4px"><b>Aproveitar:</b> ${_brEsc(cd.aproveitar)}</div>`:''}
+      ${cd.complemento?`<div style="font-size:12.5px;margin-bottom:4px"><b>Gravar a mais:</b> ${_brEsc(cd.complemento)}</div>`:''}
+      ${cd.bloqueios?`<div style="font-size:12px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:7px 10px;margin-top:6px;color:#fca5a5"><b>⚠ Atenção:</b> ${_brEsc(cd.bloqueios)}</div>`:''}
+    </div>`).join(''):'<div class="empty" style="padding:16px">Nenhum post atingiu a pontuação mínima — as fichas sairiam como produção nova.</div>';
+  return `<h3 style="margin:24px 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.04em">🖼 Conteúdo orgânico pra recorte</h3>
+    ${curadoria.leitura?`<div class="card" style="margin-bottom:14px;border-left:3px solid #34d399">${_brEsc(curadoria.leitura)}</div>`:''}
+    ${lista}`;
+}
+function brRenderAnalise(r,curadoria,curadoriaErro){
   const out=document.getElementById('brOut');
   const aviso=r.avisoConfiabilidade?`<div class="card" style="margin-bottom:14px;border:1px solid rgba(240,192,64,.4);background:rgba(240,192,64,.08)"><b>⚠ Confiabilidade reduzida:</b> ${r.funil_inferido_pct}% dos criativos não tinham o funil explícito no nome — a IA inferiu pela campanha/anúncio. Vale revisar a nomenclatura das campanhas.</div>`:'';
   const emLeitura=r.criativos_em_leitura?`<div style="font-size:11.5px;color:var(--faint);margin-bottom:14px">${r.criativos_em_leitura} anúncio(s) ficaram "em leitura" (volume abaixo do piso) e não entraram na análise.</div>`:'';
@@ -5101,8 +5185,9 @@ function brRenderAnalise(r){
     ${emLeitura}
     ${funis}
     ${padroes}
+    ${brCuradoriaHTML(curadoria,curadoriaErro)}
     <div class="card" style="margin-top:20px;text-align:center;padding:20px;border:1px dashed var(--border)">
-      <div style="font-size:12.5px;color:var(--muted)">Próxima fase: gerar as fichas de produção a partir dessa leitura. Ainda não disponível.</div>
+      <div style="font-size:12.5px;color:var(--muted)">Próxima fase: gerar as fichas de produção a partir dessa leitura${curadoria?' + o que foi curado acima':''}. Ainda não disponível.</div>
     </div>`;
 }
 /* ================= RASTREAMENTO (pixel + links + jornada do lead) ================= */
@@ -7444,6 +7529,7 @@ function openClientModal(id){
   renderNuvemConnect(id,c.nuvemshopConfig);
   renderTiktokConnect(id,c.tiktokConfig);
   renderPinterestConnect(id,c.pinterestConfig);
+  renderInstagramConnect(id);
   // templates do cliente (novo multi); migra na hora quem só tem o legado
   let tplIds=Array.isArray(c.reportTemplateIds)?c.reportTemplateIds.slice():null;
   if(!tplIds){tplIds=[];if(c.reportTemplateId)tplIds.push(c.reportTemplateId);(c.reportFocos||[]).forEach(f=>{const id='base_'+f;if(!tplIds.includes(id))tplIds.push(id)});}

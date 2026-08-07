@@ -311,6 +311,115 @@ function metaObjetivo(obj: string) {
   return { codigo: o || null, ...(map[o] || { tipo: "outro", rotulo: obj || "Não informado", metrica: "métrica do objetivo" }) };
 }
 
+// Lista as Paginas do Facebook (com Instagram Business vinculado, quando tiver) que o META_USER_TOKEN enxerga.
+// Usado pro seletor de conexao no cadastro do cliente e como diagnostico geral.
+async function instagramListAccounts() {
+  const token = Deno.env.get("META_USER_TOKEN");
+  if (!token) return { ok: false, erro: "META_USER_TOKEN nao configurada" };
+  const r = await fetch(`https://graph.facebook.com/v21.0/me/accounts?fields=name,instagram_business_account{id,username,followers_count}&limit=100&access_token=${token}`);
+  const j = await r.json();
+  if (j.error) return { ok: false, erro: j.error.message, code: j.error.code, type: j.error.type };
+  const paginas = (j.data || []).map((p: any) => ({ pagina: p.name, pageId: p.id, instagram: p.instagram_business_account ? { id: p.instagram_business_account.id, username: p.instagram_business_account.username, seguidores: p.instagram_business_account.followers_count } : null }));
+  return { ok: true, totalPaginas: paginas.length, comInstagram: paginas.filter((p: any) => p.instagram).length, paginas };
+}
+async function _instagramDiag() { return await instagramListAccounts(); }
+// Posts organicos + metricas reais do Instagram Business do cliente (ultimos N dias). Alimenta a
+// Curadoria de Conteudo do Briefing Criativo e, depois, a aba Social. "Percentual de alcance de
+// nao-seguidores" e "retencao por trecho" (25/50/75/100%) NAO estao disponiveis nessa API pra posts
+// organicos - nunca estimados, so ficam de fora dos criterios (ver briefingCuradoria).
+async function instagramOrganicContent(input: any) {
+  const { clientId, days } = input;
+  if (!clientId) throw new Error("clientId obrigatório.");
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=instagram_business_id,instagram_username,name`))[0];
+  if (!c) throw new Error("Cliente não encontrado.");
+  if (!c.instagram_business_id) throw new Error("Esse cliente não tem Instagram conectado. Conecte em Configurações do cliente.");
+  const token = Deno.env.get("META_USER_TOKEN");
+  if (!token) throw new Error("META_USER_TOKEN não configurada.");
+  const since = Math.floor(Date.now() / 1000) - (Number(days) || 90) * 86400;
+  const fields = "id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count";
+  let url: string | null = `https://graph.facebook.com/v21.0/${c.instagram_business_id}/media?fields=${fields}&limit=50&access_token=${token}`;
+  const posts: any[] = [];
+  for (let i = 0; i < 6 && url; i++) {
+    const r: any = await fetch(url);
+    const j: any = await r.json();
+    if (j.error) throw new Error("Instagram: " + j.error.message);
+    let hitOld = false;
+    for (const m of (j.data || [])) {
+      const ts = Math.floor(new Date(m.timestamp).getTime() / 1000);
+      if (ts < since) { hitOld = true; break; }
+      posts.push(m);
+    }
+    url = hitOld ? null : (j.paging?.next || null);
+  }
+  const withInsights = await Promise.all(posts.map(async (m: any) => {
+    const isVideo = m.media_type === "VIDEO" || m.media_product_type === "REELS";
+    const metrics = isVideo ? "reach,saved,shares,total_interactions,plays" : "reach,saved,shares,total_interactions";
+    const ins: Record<string, number> = {};
+    try {
+      const r = await fetch(`https://graph.facebook.com/v21.0/${m.id}/insights?metric=${metrics}&access_token=${token}`);
+      const j = await r.json();
+      if (!j.error) for (const d of (j.data || [])) ins[d.name] = d.values?.[0]?.value ?? d.total_value?.value ?? 0;
+    } catch (_e) { /* segue sem insights desse post */ }
+    const likes = m.like_count || 0, comments = m.comments_count || 0;
+    const reach = ins.reach || 0, saved = ins.saved || 0, shares = ins.shares || 0;
+    const eng = reach ? +(((likes + comments + saved + shares) / reach) * 100).toFixed(2) : null;
+    return {
+      id: m.id, caption: m.caption || "", tipo: m.media_type, permalink: m.permalink, midia: m.media_url || m.thumbnail_url,
+      data: m.timestamp, likes, comments, reach: reach || null, saved: saved || null, shares: shares || null,
+      views: ins.plays || null, eng,
+    };
+  }));
+  withInsights.sort((a, b) => (b.eng ?? -1) - (a.eng ?? -1));
+  return { clientId, cliente: c.name, username: c.instagram_username, total: withInsights.length, posts: withInsights };
+}
+// Etapa 2 do Briefing Criativo: cura o conteudo organico buscado acima, aponta o que pode virar
+// recorte em vez de producao nova. Bloqueios de licenca/qualidade (audio de biblioteca, marca dagua,
+// rosto de terceiro, resolucao) exigem OLHAR o video/imagem - a API nao devolve isso, entao o prompt
+// pede pra IA avaliar pela legenda/contexto disponivel e sinalizar "precisa conferencia humana" quando
+// nao da pra saber, em vez de arriscar (nunca afirma um bloqueio que nao consegue checar).
+async function briefingCuradoria(input: any) {
+  const { briefingId, clientId, angulo, funil, canais } = input;
+  const { cliente, posts } = await instagramOrganicContent({ clientId, days: 90 });
+  if (!posts.length) return { leitura: "Sem posts orgânicos no período, ou o Instagram desse cliente ainda não está conectado.", candidatos: [] };
+  const conteudosTxt = posts.slice(0, 30).map((p: any) =>
+    `${p.id} | ${p.tipo} | ${String(p.data).slice(0, 10)} | alcance: ${p.reach ?? "—"} | salvamentos: ${p.saved ?? "—"} | compartilhamentos: ${p.shares ?? "—"} | curtidas: ${p.likes} | comentários: ${p.comments} | engajamento: ${p.eng ?? "—"}% | legenda: ${String(p.caption || "").slice(0, 220).replace(/\n/g, " ")}`
+  ).join("\n");
+  const prompt = `Voce e curador de conteudo para trafego pago. Avalie o material organico abaixo e diga o que pode virar criativo pago por recorte, em vez de producao nova.
+
+Cliente: ${cliente}
+Angulo desejado: ${angulo || "não informado"}
+Funil desejado: ${funil || "não informado"}
+Canais: ${(canais && canais.length ? canais.join(", ") : "Meta")}
+
+Conteudos disponiveis (Instagram, ultimos 90 dias, metricas reais):
+${conteudosTxt}
+
+Criterios de pontuacao de 0 a 100, nesta ordem de peso (so com o que estiver disponivel nos dados - NAO temos percentual de alcance de nao-seguidores nem retencao por trecho de video, nao invente esses numeros):
+1. Compartilhamentos sobre alcance. Indica ressonancia.
+2. Salvamentos sobre alcance. Indica utilidade percebida, bom sinal de meio.
+3. Engajamento geral (curtidas+comentarios+salvamentos+compartilhamentos sobre alcance).
+4. Coerencia da legenda com o angulo/funil desejado.
+
+Bloqueios que impedem o uso, quando der pra perceber pela legenda/contexto (senao, marque "precisa conferência humana" em vez de arriscar):
+- Audio de biblioteca do Instagram. A licenca organica nao cobre uso comercial.
+- Marca dagua de outra plataforma.
+- Rosto de terceiro sem cessao de imagem, que exige conferencia humana.
+- Oferta ou preco desatualizado na peca.
+
+${REGRAS_DE_LINGUAGEM}
+
+Traga no maximo 5 candidatos, do maior para o menor score. Item com score abaixo de 60 nao entra. Descreva o trecho/direcao de corte com base na legenda e no tipo de midia.
+
+Responda APENAS com JSON valido, sem markdown, sem preambulo:
+{"leitura":"<uma frase sobre o inventario disponivel>",
+ "candidatos":[{"id":"","titulo":"","score":0,"funil":"","corte":"","aproveitar":"","complemento":"","bloqueios":""}]}`;
+  const parsed = await _callOpenAIJson([{ role: "user", content: prompt }]);
+  if (briefingId) {
+    await sbPost("briefing_curadoria", { id: _wuid(), briefing_id: briefingId, leitura: parsed.leitura || "", candidatos_json: parsed.candidatos || [], gerado_em: new Date().toISOString() });
+  }
+  return parsed;
+}
+
 async function metaAdsInsights(m: any) {
   const token = Deno.env.get("META_USER_TOKEN");
   if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
@@ -1481,6 +1590,70 @@ Responda APENAS com JSON valido, sem markdown, sem preambulo:
     funil_inferido_pct: pctInferido, gerado_em: new Date().toISOString(),
   });
   return { briefingId, analiseId, ...parsed, criativos_analisados: elegiveis.length, criativos_em_leitura: total - elegiveis.length, funil_inferido_pct: pctInferido, avisoConfiabilidade: pctInferido > 30, erros };
+}
+
+async function briefingGerarFichas(input: any) {
+  const briefingId = String(input.briefingId || "");
+  if (!briefingId) throw new Error("briefingId obrigatório.");
+  const b = (await sbGet("briefing", `id=eq.${encodeURIComponent(briefingId)}&select=*`))[0];
+  if (!b) throw new Error("Briefing não encontrado.");
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(b.client_id)}&select=name,dna,seg`))[0] || {};
+  const a = (await sbGet("briefing_analise", `briefing_id=eq.${encodeURIComponent(briefingId)}&select=*&order=gerado_em.desc&limit=1`))[0];
+  if (!a) throw new Error("A análise de desempenho precisa ser gerada antes das fichas.");
+
+  const funis = (Array.isArray(input.funis) ? input.funis : []).filter((x: any) => ["Topo", "Meio", "Fundo"].includes(x));
+  const canais = (Array.isArray(input.canais) ? input.canais : []).filter(Boolean);
+  const formatos = (Array.isArray(input.formatos) ? input.formatos : []).filter(Boolean);
+  const variacoes = Math.min(12, Math.max(1, Number(input.variacoes) || 4));
+  if (!funis.length) throw new Error("Selecione pelo menos uma etapa do funil.");
+  if (!canais.length) throw new Error("Selecione pelo menos um canal.");
+  if (!formatos.length) throw new Error("Selecione pelo menos um formato.");
+
+  const dna = c.dna || {};
+  const contexto = {
+    cliente: c.name || "", segmento: c.seg || "", objetivo: input.objetivo || b.objetivo || "",
+    publico: input.publico || "", angulo: input.angulo || "", promessa: input.promessa || "",
+    referencia: input.referencia || "", funis, canais, formatos, variacoes, prazo: input.prazo || null,
+    marca: dna?.identidade || {}, produtos: (dna?.produtos || []).slice(0, 12), personas: (dna?.personas || []).slice(0, 8),
+    diretrizes: dna?.diretrizes || {},
+  };
+  const prompt = `Você é diretor de criação para mídia paga. Transforme a análise de performance em fichas objetivas de solicitação de criativos para o time de produção.
+
+CONTEXTO DO PEDIDO:
+${JSON.stringify(contexto)}
+
+ANÁLISE DE PERFORMANCE:
+${JSON.stringify({ leitura: a.leitura, funis: a.funis_json, padroes: a.padroes_json })}
+
+Crie exatamente ${variacoes} fichas no total, distribuídas entre os funis selecionados. Cada ficha deve ter uma hipótese criativa diferente e aproveitar evidências da análise, sem inventar resultados. Adapte formato, linguagem, CTA e métrica esperada à etapa do funil e ao canal. Em Topo priorize atenção e consumo; em Meio, consideração e prova; em Fundo, ação e conversão. Se uma informação não foi fornecida, escreva uma orientação segura e marcável para validação, sem inventar oferta, preço ou garantia.
+
+${REGRAS_DE_LINGUAGEM}
+
+Responda APENAS com JSON válido:
+{"fichas":[{"titulo":"","prioridade":"P1|P2|P3","rota":"nova","funil":"Topo|Meio|Fundo","canal":"","formato":"","objetivo":"","referencia":"","publico":"","angulo":"","promessa":"","roteiro":{"gancho":"","desenvolvimento":[""],"cta":""},"copy":{"texto_principal":"","titulo":"","descricao":""},"especificacoes":"","obrigatorio":[""],"proibido":[""]}]}`;
+  const parsed = await _callOpenAIJson([{ role: "user", content: prompt }]);
+  const fichas = (Array.isArray(parsed.fichas) ? parsed.fichas : []).slice(0, variacoes);
+  if (!fichas.length) throw new Error("A IA não devolveu fichas válidas. Tente novamente.");
+
+  const now = new Date().toISOString();
+  await sbPatchD("briefing", `id=eq.${encodeURIComponent(briefingId)}`, {
+    objetivo: contexto.objetivo, publico: contexto.publico, angulo: contexto.angulo, promessa: contexto.promessa,
+    funil: funis.join(", "), formatos_json: formatos, canais_json: canais, variacoes,
+    referencia: contexto.referencia, prazo: contexto.prazo, status: "pronto", atualizado_em: now,
+  });
+  const rows = fichas.map((f: any, i: number) => ({
+    id: _wuid(), briefing_id: briefingId, codigo: `CR-${String(i + 1).padStart(2, "0")}`,
+    titulo: f.titulo || `Criativo ${i + 1}`, prioridade: ["P1", "P2", "P3"].includes(f.prioridade) ? f.prioridade : "P2",
+    rota: f.rota === "recorte" ? "recorte" : "nova", funil: f.funil || funis[i % funis.length],
+    canal: f.canal || canais[i % canais.length], formato: f.formato || formatos[i % formatos.length],
+    objetivo: f.objetivo || contexto.objetivo, referencia: f.referencia || contexto.referencia,
+    publico: f.publico || contexto.publico, angulo: f.angulo || contexto.angulo, promessa: f.promessa || contexto.promessa,
+    roteiro_json: f.roteiro || {}, copy_json: f.copy || {}, especificacoes: f.especificacoes || "",
+    obrigatorio_json: Array.isArray(f.obrigatorio) ? f.obrigatorio : [], proibido_json: Array.isArray(f.proibido) ? f.proibido : [],
+    prazo: contexto.prazo, ordem: i + 1, status: "fila",
+  }));
+  await sbPost("briefing_ficha", rows as any);
+  return { briefingId, fichas: rows };
 }
 
 // Pausa/reativa palavra(s)-chave no Google (mutate status de ad_group_criterion). Pode vir 1 ou várias instâncias do mesmo texto.
@@ -4103,6 +4276,26 @@ Deno.serve(async (req) => {
     }
     if (body.briefingAnalise) {
       const r = await briefingAnalise(body.briefingAnalise);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.briefingGerarFichas) {
+      const r = await briefingGerarFichas(body.briefingGerarFichas);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.instagramDiag) {
+      const r = await _instagramDiag();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.instagramListAccounts) {
+      const r = await instagramListAccounts();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.instagramOrganicContent) {
+      const r = await instagramOrganicContent(body.instagramOrganicContent);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.briefingCuradoria) {
+      const r = await briefingCuradoria(body.briefingCuradoria);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.resolveAllOrigins) {
