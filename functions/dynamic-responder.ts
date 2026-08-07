@@ -323,54 +323,90 @@ async function instagramListAccounts() {
   return { ok: true, totalPaginas: paginas.length, comInstagram: paginas.filter((p: any) => p.instagram).length, paginas };
 }
 async function _instagramDiag() { return await instagramListAccounts(); }
-// Posts organicos + metricas reais do Instagram Business do cliente (ultimos N dias). Alimenta a
-// Curadoria de Conteudo do Briefing Criativo e, depois, a aba Social. "Percentual de alcance de
-// nao-seguidores" e "retencao por trecho" (25/50/75/100%) NAO estao disponiveis nessa API pra posts
-// organicos - nunca estimados, so ficam de fora dos criterios (ver briefingCuradoria).
-async function instagramOrganicContent(input: any) {
-  const { clientId, days } = input;
+function _igNormName(s: string) { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+// Tenta casar sozinho o(s) Instagram do cliente pelo nome, entre as Paginas que a agencia ja enxerga
+// (sem pedir autorizacao nenhuma) - chamado automaticamente quando o cadastro tem Meta Ads mas ainda
+// nao tem Instagram. Um cliente pode ter mais de um perfil (achado real: "Curso Fernanda Pessoa" tem 2
+// Paginas diferentes) - conecta TODAS as correspondencias com confianca, nao so uma. So nao auto-conecta
+// quando o nome bate mas ja tinha decisao manual anterior removendo aquele perfil especifico.
+async function instagramAutoMatch(input: any) {
+  const { clientId } = input;
   if (!clientId) throw new Error("clientId obrigatório.");
-  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=instagram_business_id,instagram_username,name`))[0];
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=id,name,instagram_accounts`))[0];
   if (!c) throw new Error("Cliente não encontrado.");
-  if (!c.instagram_business_id) throw new Error("Esse cliente não tem Instagram conectado. Conecte em Configurações do cliente.");
+  const atual: any[] = Array.isArray(c.instagram_accounts) ? c.instagram_accounts : [];
+  const list = await instagramListAccounts();
+  if (!list.ok) return { erro: list.erro };
+  const comIg = (list.paginas || []).filter((p: any) => p.instagram);
+  const alvo = _igNormName(c.name);
+  const jaTemIds = new Set(atual.map((a: any) => a.id));
+  const candidatos = comIg.filter((p: any) => {
+    if (jaTemIds.has(p.instagram.id)) return false;
+    const nome = _igNormName(p.pagina);
+    const uname = _igNormName(p.instagram.username || "").replace(/ /g, "");
+    return nome === alvo || (alvo.length > 3 && (nome.includes(alvo) || alvo.includes(nome))) || uname === alvo.replace(/ /g, "");
+  });
+  if (!candidatos.length) return { conectado: false, novos: 0, total: atual.length };
+  const novos = candidatos.map((m: any) => ({ id: m.instagram.id, username: m.instagram.username || "", pagina: m.pagina }));
+  const merged = [...atual, ...novos];
+  await sbPatchD("clients", `id=eq.${encodeURIComponent(clientId)}`, { instagram_accounts: merged });
+  return { conectado: true, automatico: true, novos: novos.length, total: merged.length, adicionados: novos };
+}
+// Posts organicos + metricas reais do(s) Instagram Business do cliente (ultimos N dias) - agrega todos
+// os perfis conectados, marcando de qual username cada post veio. Alimenta a Curadoria de Conteudo do
+// Briefing Criativo e, depois, a aba Social. "Percentual de alcance de nao-seguidores" e "retencao por
+// trecho" (25/50/75/100%) NAO estao disponiveis nessa API pra posts organicos - nunca estimados, so
+// ficam de fora dos criterios (ver briefingCuradoria).
+async function instagramOrganicContent(input: any) {
+  const { clientId, days, instagramId } = input;
+  if (!clientId) throw new Error("clientId obrigatório.");
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=instagram_accounts,name`))[0];
+  if (!c) throw new Error("Cliente não encontrado.");
+  const contas: any[] = (Array.isArray(c.instagram_accounts) ? c.instagram_accounts : []).filter((a: any) => !instagramId || a.id === instagramId);
+  if (!contas.length) throw new Error("Esse cliente não tem Instagram conectado. Conecte em Configurações do cliente.");
   const token = Deno.env.get("META_USER_TOKEN");
   if (!token) throw new Error("META_USER_TOKEN não configurada.");
   const since = Math.floor(Date.now() / 1000) - (Number(days) || 90) * 86400;
   const fields = "id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count";
-  let url: string | null = `https://graph.facebook.com/v21.0/${c.instagram_business_id}/media?fields=${fields}&limit=50&access_token=${token}`;
-  const posts: any[] = [];
-  for (let i = 0; i < 6 && url; i++) {
-    const r: any = await fetch(url);
-    const j: any = await r.json();
-    if (j.error) throw new Error("Instagram: " + j.error.message);
-    let hitOld = false;
-    for (const m of (j.data || [])) {
-      const ts = Math.floor(new Date(m.timestamp).getTime() / 1000);
-      if (ts < since) { hitOld = true; break; }
-      posts.push(m);
+  const porConta = await Promise.all(contas.map(async (conta: any) => {
+    let url: string | null = `https://graph.facebook.com/v21.0/${conta.id}/media?fields=${fields}&limit=50&access_token=${token}`;
+    const posts: any[] = [];
+    for (let i = 0; i < 6 && url; i++) {
+      const r: any = await fetch(url);
+      const j: any = await r.json();
+      if (j.error) return { conta, erro: j.error.message, posts: [] as any[] };
+      let hitOld = false;
+      for (const m of (j.data || [])) {
+        const ts = Math.floor(new Date(m.timestamp).getTime() / 1000);
+        if (ts < since) { hitOld = true; break; }
+        posts.push(m);
+      }
+      url = hitOld ? null : (j.paging?.next || null);
     }
-    url = hitOld ? null : (j.paging?.next || null);
-  }
-  const withInsights = await Promise.all(posts.map(async (m: any) => {
-    const isVideo = m.media_type === "VIDEO" || m.media_product_type === "REELS";
-    const metrics = isVideo ? "reach,saved,shares,total_interactions,plays" : "reach,saved,shares,total_interactions";
-    const ins: Record<string, number> = {};
-    try {
-      const r = await fetch(`https://graph.facebook.com/v21.0/${m.id}/insights?metric=${metrics}&access_token=${token}`);
-      const j = await r.json();
-      if (!j.error) for (const d of (j.data || [])) ins[d.name] = d.values?.[0]?.value ?? d.total_value?.value ?? 0;
-    } catch (_e) { /* segue sem insights desse post */ }
-    const likes = m.like_count || 0, comments = m.comments_count || 0;
-    const reach = ins.reach || 0, saved = ins.saved || 0, shares = ins.shares || 0;
-    const eng = reach ? +(((likes + comments + saved + shares) / reach) * 100).toFixed(2) : null;
-    return {
-      id: m.id, caption: m.caption || "", tipo: m.media_type, permalink: m.permalink, midia: m.media_url || m.thumbnail_url,
-      data: m.timestamp, likes, comments, reach: reach || null, saved: saved || null, shares: shares || null,
-      views: ins.plays || null, eng,
-    };
+    const withInsights = await Promise.all(posts.map(async (m: any) => {
+      const isVideo = m.media_type === "VIDEO" || m.media_product_type === "REELS";
+      const metrics = isVideo ? "reach,saved,shares,total_interactions,plays" : "reach,saved,shares,total_interactions";
+      const ins: Record<string, number> = {};
+      try {
+        const r = await fetch(`https://graph.facebook.com/v21.0/${m.id}/insights?metric=${metrics}&access_token=${token}`);
+        const j = await r.json();
+        if (!j.error) for (const d of (j.data || [])) ins[d.name] = d.values?.[0]?.value ?? d.total_value?.value ?? 0;
+      } catch (_e) { /* segue sem insights desse post */ }
+      const likes = m.like_count || 0, comments = m.comments_count || 0;
+      const reach = ins.reach || 0, saved = ins.saved || 0, shares = ins.shares || 0;
+      const eng = reach ? +(((likes + comments + saved + shares) / reach) * 100).toFixed(2) : null;
+      return {
+        id: m.id, username: conta.username, caption: m.caption || "", tipo: m.media_type, permalink: m.permalink, midia: m.media_url || m.thumbnail_url,
+        data: m.timestamp, likes, comments, reach: reach || null, saved: saved || null, shares: shares || null,
+        views: ins.plays || null, eng,
+      };
+    }));
+    return { conta, erro: null as string | null, posts: withInsights };
   }));
-  withInsights.sort((a, b) => (b.eng ?? -1) - (a.eng ?? -1));
-  return { clientId, cliente: c.name, username: c.instagram_username, total: withInsights.length, posts: withInsights };
+  const erros = porConta.filter((p) => p.erro).map((p) => `@${p.conta.username || p.conta.id}: ${p.erro}`);
+  const todos = porConta.flatMap((p) => p.posts);
+  todos.sort((a, b) => (b.eng ?? -1) - (a.eng ?? -1));
+  return { clientId, cliente: c.name, perfis: contas.map((a: any) => a.username || a.id), total: todos.length, posts: todos, erros };
 }
 // Etapa 2 do Briefing Criativo: cura o conteudo organico buscado acima, aponta o que pode virar
 // recorte em vez de producao nova. Bloqueios de licenca/qualidade (audio de biblioteca, marca dagua,
@@ -1539,6 +1575,28 @@ async function _callOpenAIJson(messages: any[]): Promise<any> {
     return JSON.parse(raw2); // se falhar de novo, sobe o erro — falha explicita, nunca renderiza parcial
   }
 }
+// Sugere Objetivo + Angulo pro briefing a partir do funil escolhido (e do DNA do cliente, quando tiver).
+async function briefingSugerirCampos(input: any) {
+  const { clientId, funil } = input;
+  if (!clientId) throw new Error("clientId obrigatório.");
+  if (!funil) throw new Error("Escolha o funil desejado primeiro.");
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,seg,dna`))[0];
+  if (!c) throw new Error("Cliente não encontrado.");
+  const dnaTxt = c.dna ? JSON.stringify(c.dna).slice(0, 4000) : "";
+  const prompt = `Voce e estrategista de trafego pago. Sugira o OBJETIVO e o ANGULO de uma campanha/peca publicitaria pro cliente abaixo, pro funil indicado.
+
+Cliente: ${c.name}
+Segmento: ${c.seg || "não informado"}
+Funil: ${funil}
+${dnaTxt ? `DNA do cliente (identidade, produtos, personas, diretrizes):\n${dnaTxt}` : "Sem DNA cadastrado - baseie-se so no nome/segmento, sem inventar produto ou oferta especifica."}
+
+Regra por funil: Topo = atrair quem ainda nao conhece (dor ou desejo amplo, sem pedir decisao); Meio = considerar/comparar (prova, diferencial); Fundo = decisao/urgencia (oferta, condicao, prova social forte).
+
+${REGRAS_DE_LINGUAGEM}
+
+Responda APENAS com JSON valido, sem markdown: {"objetivo":"<1 frase curta, o que a campanha precisa entregar>","angulo":"<1 frase curta, a dor ou desejo a trabalhar>"}`;
+  return await _callOpenAIJson([{ role: "user", content: prompt }]);
+}
 async function briefingAnalise(input: any) {
   const { clientId, since, until, objetivo, criadoPor } = input;
   if (!clientId || !since || !until) throw new Error("clientId, since e until são obrigatórios.");
@@ -1600,6 +1658,7 @@ async function briefingGerarFichas(input: any) {
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(b.client_id)}&select=name,dna,seg`))[0] || {};
   const a = (await sbGet("briefing_analise", `briefing_id=eq.${encodeURIComponent(briefingId)}&select=*&order=gerado_em.desc&limit=1`))[0];
   if (!a) throw new Error("A análise de desempenho precisa ser gerada antes das fichas.");
+  const curadoria = (await sbGet("briefing_curadoria", `briefing_id=eq.${encodeURIComponent(briefingId)}&select=leitura,candidatos_json&order=gerado_em.desc&limit=1`))[0] || null;
 
   const funis = (Array.isArray(input.funis) ? input.funis : []).filter((x: any) => ["Topo", "Meio", "Fundo"].includes(x));
   const canais = (Array.isArray(input.canais) ? input.canais : []).filter(Boolean);
@@ -1624,6 +1683,9 @@ ${JSON.stringify(contexto)}
 
 ANÁLISE DE PERFORMANCE:
 ${JSON.stringify({ leitura: a.leitura, funis: a.funis_json, padroes: a.padroes_json })}
+
+CURADORIA ORGÂNICA DISPONÍVEL (quando existir, pode gerar ficha com rota "recorte"):
+${JSON.stringify(curadoria)}
 
 Crie exatamente ${variacoes} fichas no total, distribuídas entre os funis selecionados. Cada ficha deve ter uma hipótese criativa diferente e aproveitar evidências da análise, sem inventar resultados. Adapte formato, linguagem, CTA e métrica esperada à etapa do funil e ao canal. Em Topo priorize atenção e consumo; em Meio, consideração e prova; em Fundo, ação e conversão. Se uma informação não foi fornecida, escreva uma orientação segura e marcável para validação, sem inventar oferta, preço ou garantia.
 
@@ -4274,6 +4336,10 @@ Deno.serve(async (req) => {
       const r = await securityAuditTick();
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    if (body.briefingSugerirCampos) {
+      const r = await briefingSugerirCampos(body.briefingSugerirCampos);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (body.briefingAnalise) {
       const r = await briefingAnalise(body.briefingAnalise);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -4284,6 +4350,10 @@ Deno.serve(async (req) => {
     }
     if (body.instagramDiag) {
       const r = await _instagramDiag();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.instagramAutoMatch) {
+      const r = await instagramAutoMatch(body.instagramAutoMatch);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.instagramListAccounts) {

@@ -5186,9 +5186,38 @@ function brRenderAnalise(r,curadoria,curadoriaErro){
     ${funis}
     ${padroes}
     ${brCuradoriaHTML(curadoria,curadoriaErro)}
-    <div class="card" style="margin-top:20px;text-align:center;padding:20px;border:1px dashed var(--border)">
-      <div style="font-size:12.5px;color:var(--muted)">Próxima fase: gerar as fichas de produção a partir dessa leitura${curadoria?' + o que foi curado acima':''}. Ainda não disponível.</div>
-    </div>`;
+    <div class="card" style="margin-top:20px;padding:18px">
+      <h3 style="margin:0 0 4px;font-size:15px">Gerar solicitação de criativos</h3>
+      <div style="font-size:12px;color:var(--faint);margin-bottom:14px">A AndréIA transforma a análise${curadoria?' e a curadoria':''} em fichas prontas para produção.</div>
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
+        <div class="fg"><label>PÚBLICO</label><input id="brPublico" placeholder="Para quem vamos falar"></div>
+        <div class="fg"><label>ÂNGULO PRINCIPAL</label><input id="brFichaAngulo" value="${_brEsc((document.getElementById('brAngulo')||{}).value||'').replace(/&quot;/g,'&amp;quot;').replace(/\"/g,'&quot;')}" placeholder="Ex.: prova, oportunidade, dor"></div>
+        <div class="fg"><label>PROMESSA / MENSAGEM CENTRAL</label><input id="brPromessa" placeholder="Sem inventar oferta ou garantia"></div>
+        <div class="fg"><label>REFERÊNCIA</label><input id="brReferencia" placeholder="Link, campanha ou peça de referência"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;align-items:end;margin-top:8px">
+        <div class="fg"><label>ETAPAS</label><div style="display:flex;gap:8px;padding:9px 0"><label><input type="checkbox" name="brFunil" value="Topo" checked> Topo</label><label><input type="checkbox" name="brFunil" value="Meio" checked> Meio</label><label><input type="checkbox" name="brFunil" value="Fundo" checked> Fundo</label></div></div>
+        <div class="fg"><label>CANAIS</label><div style="display:flex;gap:8px;padding:9px 0"><label><input type="checkbox" name="brCanal" value="Meta" checked> Meta</label><label><input type="checkbox" name="brCanal" value="Google" checked> Google</label></div></div>
+        <div class="fg"><label>FORMATOS</label><div style="display:flex;gap:8px;padding:9px 0;flex-wrap:wrap"><label><input type="checkbox" name="brFormato" value="Vídeo" checked> Vídeo</label><label><input type="checkbox" name="brFormato" value="Estático" checked> Estático</label><label><input type="checkbox" name="brFormato" value="Carrossel"> Carrossel</label></div></div>
+        <div class="fg"><label>FICHAS</label><select id="brVariacoes"><option>3</option><option selected>4</option><option>6</option><option>8</option></select></div>
+        <div class="fg"><label>PRAZO</label><input type="date" id="brPrazo"></div>
+      </div>
+      <button class="btn primary" id="brFichaBtn" style="width:100%;margin-top:12px" onclick="brGerarFichas()">✨ Gerar fichas de produção</button>
+    </div><div id="brFichas"></div>`;
+}
+function _brChecked(name){return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(x=>x.value);}
+async function brGerarFichas(){
+  if(!_brResult||!_brResult.briefingId){alert('Gere a análise primeiro.');return;}
+  const btn=document.getElementById('brFichaBtn'),el=document.getElementById('brFichas');
+  const val=id=>((document.getElementById(id)||{}).value||'').trim();
+  const payload={briefingId:_brResult.briefingId,objetivo:val('brObjetivo'),publico:val('brPublico'),angulo:val('brFichaAngulo'),promessa:val('brPromessa'),referencia:val('brReferencia'),prazo:val('brPrazo')||null,variacoes:+val('brVariacoes')||4,funis:_brChecked('brFunil'),canais:_brChecked('brCanal'),formatos:_brChecked('brFormato')};
+  if(!payload.funis.length||!payload.canais.length||!payload.formatos.length){alert('Selecione pelo menos uma etapa, um canal e um formato.');return;}
+  btn.disabled=true;btn.textContent='Criando fichas…';el.innerHTML='<div class="empty" style="padding:26px">Transformando os dados em solicitações para produção…</div>';
+  try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingGerarFichas:payload}});if(error)throw error;const r=(data&&data.data)||{};if(r.erro)throw new Error(r.erro);brRenderFichas(r.fichas||[]);}catch(e){el.innerHTML=`<div class="empty">Erro ao gerar fichas: ${_brEsc(e.message||e)}</div>`;}finally{btn.disabled=false;btn.textContent='✨ Gerar fichas de produção';}
+}
+function brRenderFichas(fichas){
+  const el=document.getElementById('brFichas');if(!el)return;const li=v=>(v||[]).map(x=>`<li>${_brEsc(x)}</li>`).join('');
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:10px;margin:24px 0 12px"><h3 style="margin:0;font-size:15px">Fichas para produção</h3><span class="badge">${fichas.length}</span></div>`+fichas.map(f=>{const r=f.roteiro_json||{},c=f.copy_json||{};return `<div class="card" style="margin-bottom:14px;border-left:4px solid ${brFunilBadgeColor(f.funil)}"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><b style="font-family:monospace">${_brEsc(f.codigo)}</b><h3 style="margin:0;flex:1;font-size:14px">${_brEsc(f.titulo)}</h3><span class="badge">${_brEsc(f.prioridade)}</span><span class="badge">${_brEsc(f.funil)}</span><span class="badge">${_brEsc(f.canal)} · ${_brEsc(f.formato)}</span>${f.rota==='recorte'?'<span class="badge" style="color:#34d399">Recorte</span>':''}</div><div class="grid" style="grid-template-columns:1fr 1fr;gap:10px;font-size:12.5px"><div><b>Objetivo</b><br>${_brEsc(f.objetivo)||'—'}</div><div><b>Público</b><br>${_brEsc(f.publico)||'—'}</div><div><b>Ângulo</b><br>${_brEsc(f.angulo)||'—'}</div><div><b>Promessa</b><br>${_brEsc(f.promessa)||'—'}</div></div><div style="margin-top:12px;background:var(--surface2);padding:12px;border-radius:9px;font-size:12.5px"><b>Roteiro</b><div><b>Gancho:</b> ${_brEsc(r.gancho)||'—'}</div>${(r.desenvolvimento||[]).map((x,i)=>`<div>${i+1}. ${_brEsc(x)}</div>`).join('')}<div><b>CTA:</b> ${_brEsc(r.cta)||'—'}</div></div><div style="margin-top:10px;font-size:12.5px"><b>Copy principal</b><div style="white-space:pre-wrap">${_brEsc(c.texto_principal)||'—'}</div>${c.titulo?`<div><b>Título:</b> ${_brEsc(c.titulo)}</div>`:''}</div>${f.especificacoes?`<div style="margin-top:10px;font-size:12.5px"><b>Especificações:</b> ${_brEsc(f.especificacoes)}</div>`:''}<div class="grid" style="grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;font-size:12px"><div><b style="color:#34d399">Obrigatório</b><ul style="margin:4px 0;padding-left:18px">${li(f.obrigatorio_json)||'<li>—</li>'}</ul></div><div><b style="color:#f87171">Não usar</b><ul style="margin:4px 0;padding-left:18px">${li(f.proibido_json)||'<li>—</li>'}</ul></div></div></div>`;}).join('');
 }
 /* ================= RASTREAMENTO (pixel + links + jornada do lead) ================= */
 const TRACK_BASE=SUPA_URL+'/functions/v1/tracking';
