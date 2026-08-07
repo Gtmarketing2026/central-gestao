@@ -414,7 +414,7 @@ async function instagramOrganicContent(input: any) {
 // pede pra IA avaliar pela legenda/contexto disponivel e sinalizar "precisa conferencia humana" quando
 // nao da pra saber, em vez de arriscar (nunca afirma um bloqueio que nao consegue checar).
 async function briefingCuradoria(input: any) {
-  const { briefingId, clientId, angulo, funil, canais } = input;
+  const { briefingId, clientId, angulo, funil, canais, produto } = input;
   const { cliente, posts } = await instagramOrganicContent({ clientId, days: 90 });
   if (!posts.length) return { leitura: "Sem posts orgânicos no período, ou o Instagram desse cliente ainda não está conectado.", candidatos: [] };
   const conteudosTxt = posts.slice(0, 30).map((p: any) =>
@@ -425,6 +425,7 @@ async function briefingCuradoria(input: any) {
 Cliente: ${cliente}
 Angulo desejado: ${angulo || "não informado"}
 Funil desejado: ${funil || "não informado"}
+${produto ? `Produto/programa especifico: ${produto} - priorize posts cuja legenda fale claramente disso.` : ""}
 Canais: ${(canais && canais.length ? canais.join(", ") : "Meta")}
 
 Conteudos disponiveis (Instagram, ultimos 90 dias, metricas reais):
@@ -1577,7 +1578,7 @@ async function _callOpenAIJson(messages: any[]): Promise<any> {
 }
 // Sugere Objetivo + Angulo pro briefing a partir do funil escolhido (e do DNA do cliente, quando tiver).
 async function briefingSugerirCampos(input: any) {
-  const { clientId, funil } = input;
+  const { clientId, funil, produto } = input;
   if (!clientId) throw new Error("clientId obrigatório.");
   if (!funil) throw new Error("Escolha o funil desejado primeiro.");
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,seg,dna`))[0];
@@ -1588,6 +1589,7 @@ async function briefingSugerirCampos(input: any) {
 Cliente: ${c.name}
 Segmento: ${c.seg || "não informado"}
 Funil: ${funil}
+${produto ? `Produto/programa especifico: ${produto}` : ""}
 ${dnaTxt ? `DNA do cliente (identidade, produtos, personas, diretrizes):\n${dnaTxt}` : "Sem DNA cadastrado - baseie-se so no nome/segmento, sem inventar produto ou oferta especifica."}
 
 Regra por funil: Topo = atrair quem ainda nao conhece (dor ou desejo amplo, sem pedir decisao); Meio = considerar/comparar (prova, diferencial); Fundo = decisao/urgencia (oferta, condicao, prova social forte).
@@ -1598,15 +1600,20 @@ Responda APENAS com JSON valido, sem markdown: {"objetivo":"<1 frase curta, o qu
   return await _callOpenAIJson([{ role: "user", content: prompt }]);
 }
 async function briefingAnalise(input: any) {
-  const { clientId, since, until, objetivo, criadoPor, funilDesejado } = input;
+  const { clientId, since, until, objetivo, criadoPor, funilDesejado, produto } = input;
   if (!clientId || !since || !until) throw new Error("clientId, since e until são obrigatórios.");
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name`))[0];
   if (!c) throw new Error("Cliente não encontrado.");
   const { criativos: todosCriativos, total, pctInferido, erros } = await _briefingCriativos(clientId, since, until);
   // se um funil especifico foi pedido, a analise (e o gasto com IA) fica so nele - nao processa os outros a toa
-  const criativos = funilDesejado ? todosCriativos.filter((x) => x.funil === funilDesejado) : todosCriativos;
+  let criativos = funilDesejado ? todosCriativos.filter((x) => x.funil === funilDesejado) : todosCriativos;
+  // produto/segmento e texto livre (nao catalogo fixo) - filtra pelo nome de campanha/conjunto conter o termo.
+  if (produto) {
+    const alvo = String(produto).toLowerCase();
+    criativos = criativos.filter((x) => x.campanha.toLowerCase().includes(alvo) || x.conjunto.toLowerCase().includes(alvo));
+  }
   const elegiveis = criativos.filter((x) => x.elegivel);
-  if (!elegiveis.length) return { erro: funilDesejado ? `Nenhum criativo elegível do funil ${funilDesejado} no período. Amplie o período ou tente outro funil.` : "Nenhum criativo elegível no período. Amplie o período ou confira se o cliente tem conta Meta/Google conectada.", erros };
+  if (!elegiveis.length) return { erro: `Nenhum criativo elegível${funilDesejado ? ` do funil ${funilDesejado}` : ""}${produto ? ` com "${produto}" no nome da campanha/conjunto` : ""} no período. Amplie o período ou ajuste os filtros.`, erros };
   const thumbsByCodigo: Record<string, string> = {};
   for (const x of criativos) if (x.thumbnail) thumbsByCodigo[x.codigo] = x.thumbnail;
   const dadosTxt = _briefingDadosTxt(criativos);
@@ -1615,6 +1622,7 @@ async function briefingAnalise(input: any) {
 Cliente: ${c.name}
 Periodo: ${since} a ${until}
 Objetivo da campanha: ${objetivo || "não informado"}
+${produto ? `Produto/segmento: SOMENTE "${produto}" - os dados abaixo ja vem filtrados por esse termo no nome da campanha/conjunto.` : ""}
 ${funilDesejado ? `Funil pedido: SOMENTE ${funilDesejado} - os dados abaixo ja vem filtrados so desse funil.` : ""}
 
 Criativos que rodaram:
@@ -1642,7 +1650,7 @@ Responda APENAS com JSON valido, sem markdown, sem preambulo:
   const briefingId = _wuid();
   await sbPost("briefing", {
     id: briefingId, client_id: clientId, criado_por: criadoPor || null,
-    periodo_inicio: since, periodo_fim: until, objetivo: objetivo || "", funil: funilDesejado || "",
+    periodo_inicio: since, periodo_fim: until, objetivo: objetivo || "", funil: funilDesejado || "", produto: produto || "",
     status: "pronto", criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString(),
   });
   const analiseId = _wuid();
@@ -1664,7 +1672,7 @@ async function briefingAprovar(input: any) {
 // Historico de briefings (aprovados por padrao) pra reconsulta - lista + o pacote completo de 1 briefing.
 async function briefingHistorico(input: any) {
   const { clientId, status } = input;
-  let q = `select=id,client_id,periodo_inicio,periodo_fim,objetivo,funil,status,criado_em&order=criado_em.desc&limit=100`;
+  let q = `select=id,client_id,periodo_inicio,periodo_fim,objetivo,funil,produto,status,criado_em&order=criado_em.desc&limit=100`;
   if (clientId) q += `&client_id=eq.${encodeURIComponent(clientId)}`;
   q += `&status=eq.${encodeURIComponent(status || "aprovado")}`;
   const rows = await sbGet("briefing", q);

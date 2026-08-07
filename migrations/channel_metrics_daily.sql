@@ -1,9 +1,9 @@
--- Historico diario de metricas por canal (Meta/Google/TikTok/Pinterest/GA4), pra alimentar a aba "Banco de Dados",
+-- Historico diario de metricas por canal (Meta/Google/ChatGPT/TikTok/Pinterest/GA4), pra alimentar a aba "Banco de Dados",
 -- exportacao CSV e conexao direta do Power BI. Preenchida por rotina automatica (cron), nao editada manualmente.
 create table if not exists public.channel_metrics_daily (
   id text primary key,
   client_id text not null references public.clients(id) on delete cascade,
-  channel text not null, -- 'meta' | 'google' | 'tiktok' | 'pinterest' | 'ga4'
+  channel text not null, -- 'meta' | 'google' | 'chatgpt' | 'tiktok' | 'pinterest' | 'ga4'
   date date not null,
   source_medium text not null default '', -- so preenchido pro GA4 (origem/midia); meta/google/tiktok/pinterest ficam ''
   campaign text not null default '', -- nome da campanha (meta/google = granularidade real; ga4 = sessionCampaignName)

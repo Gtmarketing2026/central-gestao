@@ -3908,7 +3908,7 @@ const BD_OBJETIVOS={
   engajamento:{label:'❤️ Engajamento',cols:['campaign','source_medium','spend','engajamentos','ctr'],resultKey:'engajamentos',resultLabel:'Engajamentos'},
   video:{label:'🎬 Vídeo',cols:['campaign','source_medium','spend','video_views'],resultKey:'video_views',resultLabel:'Views de Vídeo'},
 };
-const BD_CHANNEL_LABEL={meta:'Meta',google:'Google',ga4:'Google Analytics',tiktok:'TikTok',pinterest:'Pinterest'};
+const BD_CHANNEL_LABEL={meta:'Meta',google:'Google',ga4:'Google Analytics',tiktok:'TikTok',pinterest:'Pinterest',chatgpt:'ChatGPT Ads'};
 const BD_METRIC_CATALOG={
   campaign:{label:'Campanha',fmt:'text'},
   adset:{label:'Grupo de Anúncios',fmt:'text'},
@@ -3918,6 +3918,7 @@ const BD_METRIC_CATALOG={
   impressions:{label:'Impressões',fmt:'int'},
   clicks:{label:'Cliques no Link',fmt:'int'},
   ctr:{label:'CTR',fmt:'pct'},
+  cpc:{label:'CPC',fmt:'money'},
   cpm:{label:'CPM',fmt:'money'},
   reach:{label:'Alcance',fmt:'int'},
   purchases:{label:'Resultados',fmt:'int'},
@@ -3928,7 +3929,7 @@ const BD_METRIC_CATALOG={
   engajamentos:{label:'Engajamentos',fmt:'int'},
 };
 const BD_TEXT_COLS=['campaign','adset','source_medium','ad_content'];
-const BD_DEFAULT_COLS=['campaign','source_medium','spend','impressions','clicks','ctr','cpm','purchases','revenue'];
+const BD_DEFAULT_COLS=['campaign','source_medium','spend','impressions','clicks','ctr','cpc','cpm','purchases','revenue'];
 let _bdCols=null;
 function bdCols(){
   if(_bdCols)return _bdCols;
@@ -4105,6 +4106,8 @@ async function loadBancoDados(){
         <button class="btn sm primary" onclick="bdApplyFilters()">Aplicar</button>
         <button class="btn sm ghost" onclick="toggleBdColsEditor()">✎ Editar colunas</button>
         <button class="btn sm ghost" onclick="bdDownloadCSV(this)">⬇️ Baixar CSV</button>
+        <button class="btn sm ghost" onclick="bdChatgptImportOpen()" title="Importa o relatório diário baixado no OpenAI Ads Manager">🤖 Importar ChatGPT Ads</button>
+        <input type="file" id="bdChatgptCsv" accept=".csv,text/csv" style="display:none" onchange="bdChatgptImportFile(this)">
       </div>
       <div style="margin-bottom:8px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:8px">
@@ -4182,6 +4185,7 @@ async function bdFetchRows(limit){
   const {data,error}=await q;
   if(error)throw error;
   let rows=data||[];
+  rows.forEach(r=>{r.cpc=(+r.clicks||0)?(+r.spend||0)/(+r.clicks||0):0;});
   _bdRules.forEach(r=>{
     if(!r.values)return;
     rows=r.type==='not_in'?rows.filter(row=>!r.values.includes(row[r.field])):rows.filter(row=>r.values.includes(row[r.field]));
@@ -4220,6 +4224,7 @@ async function bdRenderTable(){
     const totalCell=k=>{
       if(BD_TEXT_COLS.includes(k))return `<td style="padding:6px 10px;font-size:12px;border-bottom:2px solid var(--border)"></td>`;
       if(k==='ctr')return `<td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:2px solid var(--border)">${fmtMetric(impTot?clkTot/impTot*100:0,'pct')}</td>`;
+      if(k==='cpc')return `<td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:2px solid var(--border)">${fmtMetric(clkTot?spTot/clkTot:0,'money')}</td>`;
       if(k==='cpm')return `<td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:2px solid var(--border)">${fmtMetric(impTot?spTot/impTot*1000:0,'money')}</td>`;
       const sum=rows.reduce((s,r)=>s+(+r[k]||0),0);
       return `<td style="padding:6px 10px;font-size:12px;text-align:right;border-bottom:2px solid var(--border)">${fmtMetric(sum,BD_METRIC_CATALOG[k].fmt)}</td>`;
@@ -4366,7 +4371,7 @@ async function bdDownloadCSV(btn){
     const csvVal=(k,r)=>{
       if(BD_TEXT_COLS.includes(k))return r[k]||'';
       if(k==='ctr')return (+r.ctr||0).toFixed(2).replace('.',',');
-      if(k==='spend'||k==='cpm'||k==='revenue')return money(r[k]);
+      if(k==='spend'||k==='cpc'||k==='cpm'||k==='revenue')return money(r[k]);
       return r[k]||0;
     };
     const head=['Data','Cliente','Canal',...cols.map(k=>BD_METRIC_CATALOG[k].label)];
@@ -4381,6 +4386,36 @@ async function bdDownloadCSV(btn){
     setTimeout(()=>URL.revokeObjectURL(url),4000);
   }catch(e){alert('Erro ao gerar CSV: '+(e.message||e));}
   if(btn){btn.disabled=false;btn.textContent=o;}
+}
+
+function bdChatgptImportOpen(){
+  const client=(document.getElementById('bdClient')||{}).value||_bdClient;
+  if(!client){alert('Selecione primeiro o cliente que é dono da conta do ChatGPT Ads.');return;}
+  const inp=document.getElementById('bdChatgptCsv');if(inp){inp.value='';inp.click();}
+}
+function _bdCsvRows(txt){
+  txt=String(txt||'').replace(/^\uFEFF/,'');const first=(txt.split(/\r?\n/,1)[0]||'');const sep=(first.match(/;/g)||[]).length>(first.match(/,/g)||[]).length?';':',';
+  const rows=[];let row=[],cur='',q=false;
+  for(let i=0;i<txt.length;i++){const ch=txt[i];if(ch==='"'){if(q&&txt[i+1]==='"'){cur+='"';i++;}else q=!q;}else if(ch===sep&&!q){row.push(cur);cur='';}else if((ch==='\n'||ch==='\r')&&!q){if(ch==='\r'&&txt[i+1]==='\n')i++;row.push(cur);if(row.some(x=>String(x).trim()))rows.push(row);row=[];cur='';}else cur+=ch;}
+  row.push(cur);if(row.some(x=>String(x).trim()))rows.push(row);return rows;
+}
+function _bdCsvKey(s){return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();}
+function _bdCsvNum(v){let s=String(v==null?'':v).replace(/[^0-9,.-]/g,'');if(!s)return 0;if(s.includes(',')&&s.includes('.'))s=s.lastIndexOf(',')>s.lastIndexOf('.')?s.replace(/\./g,'').replace(',','.'):s.replace(/,/g,'');else if(s.includes(','))s=s.replace(',','.');return Number(s)||0;}
+function _bdCsvDate(v){const s=String(v||'').trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);const p=s.split(/[\/.-]/).map(Number);if(p.length<3)return'';let y,m,d;if(p[0]>1900)[y,m,d]=p;else if(p[2]>1900){y=p[2];if(p[0]>12){d=p[0];m=p[1];}else{m=p[0];d=p[1];}}return y&&m&&d?`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`:'';}
+function _bdCsvHash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return(h>>>0).toString(36);}
+async function bdChatgptImportFile(inp){
+  const file=inp.files&&inp.files[0];if(!file)return;const client=(document.getElementById('bdClient')||{}).value||_bdClient;if(!client)return;
+  try{
+    const matrix=_bdCsvRows(await file.text());if(matrix.length<2)throw new Error('O CSV está vazio. No Ads Manager, baixe “Daily Values”.');
+    const headers=matrix[0].map(_bdCsvKey);const aliases={date:['date','day','data'],campaign:['campaign','campaign name','campanha'],adset:['ad group','ad group name','grupo de anuncios','grupo de anuncio'],ad_content:['ad','ad name','creative','anuncio','nome do anuncio'],spend:['spend','amount spent','gasto','investimento'],impressions:['impressions','impressoes'],clicks:['clicks','link clicks','cliques'],ctr:['ctr','click through rate'],cpm:['avg cpm','average cpm','cpm'],conversions:['conversions','conversion','conversoes','resultados'],revenue:['conversion value','value','revenue','valor de conversao','receita']};
+    const ix={};Object.entries(aliases).forEach(([k,names])=>{ix[k]=headers.findIndex(h=>names.includes(h));});
+    if(ix.date<0||ix.campaign<0||ix.spend<0)throw new Error('Não reconheci as colunas Data, Campanha e Investimento. Use o CSV diário original do ChatGPT Ads Manager.');
+    const now=new Date().toISOString();const rows=[];
+    matrix.slice(1).forEach(cols=>{const date=_bdCsvDate(cols[ix.date]);if(!date)return;const campaign=String(cols[ix.campaign]||'ChatGPT Ads').trim(),adset=ix.adset>=0?String(cols[ix.adset]||'').trim():'',ad=ix.ad_content>=0?String(cols[ix.ad_content]||'').trim():'';const spend=_bdCsvNum(cols[ix.spend]),impressions=ix.impressions>=0?_bdCsvNum(cols[ix.impressions]):0,clicks=ix.clicks>=0?_bdCsvNum(cols[ix.clicks]):0;const key=[client,date,campaign,adset,ad].join('|');rows.push({id:`${client}_chatgpt_${date}_${_bdCsvHash(key)}`.slice(0,300),client_id:client,channel:'chatgpt',date,source_medium:'chatgpt / paid',campaign,adset,ad_content:ad,spend,impressions:Math.round(impressions),clicks:Math.round(clicks),ctr:impressions?clicks/impressions*100:(ix.ctr>=0?_bdCsvNum(cols[ix.ctr]):0),cpm:impressions?spend/impressions*1000:(ix.cpm>=0?_bdCsvNum(cols[ix.cpm]):0),reach:0,purchases:ix.conversions>=0?_bdCsvNum(cols[ix.conversions]):0,revenue:ix.revenue>=0?_bdCsvNum(cols[ix.revenue]):0,leads:0,conversas:0,video_views:0,engajamentos:0,updated_at:now});});
+    if(!rows.length)throw new Error('Nenhuma linha diária válida foi encontrada.');
+    for(let i=0;i<rows.length;i+=300){const {error}=await sb.from('channel_metrics_daily').upsert(rows.slice(i,i+300),{onConflict:'client_id,channel,date,source_medium,campaign,adset,ad_content'});if(error)throw error;}
+    _bdChannel='chatgpt';const ch=document.getElementById('bdChannel');if(ch)ch.value='chatgpt';await bdApplyFilters();alert(`ChatGPT Ads vinculado: ${rows.length} linha(s) diária(s) importada(s).`);
+  }catch(e){alert('Não foi possível importar: '+(e.message||e));}
 }
 document.addEventListener('click',e=>{const p=document.getElementById('bdSmPicker');if(p&&p.style.display!=='none'&&!e.target.closest('#bdSmPicker')&&e.target.id!=='bdSmBtn')p.style.display='none';});
 /* ===== AndréIA no WhatsApp (grupo) ===== */
@@ -5121,6 +5156,7 @@ async function loadBriefing(clientId){
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
         <div class="fg" style="flex:1;min-width:160px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ÂNGULO (pra curadoria)</label><input id="brAngulo" placeholder="Dor ou desejo a trabalhar" style="width:100%;font-size:12.5px"></div>
         <div class="fg" style="min-width:140px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">FUNIL DESEJADO</label><select id="brFunilDesejado" style="width:100%;font-size:12.5px"><option value="">Qualquer</option><option>Topo</option><option>Meio</option><option>Fundo</option></select></div>
+        <div class="fg" style="min-width:160px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">PRODUTO/SEGMENTO (opcional)</label><input id="brProduto" placeholder="Ex.: ENEM, Concurso…" title="Filtra pelo nome da campanha/conjunto que contenha esse termo" style="width:100%;font-size:12.5px"></div>
         <button type="button" class="btn sm ghost" id="brSugerirBtn" onclick="brSugerirCampos()" title="Preenche Objetivo e Ângulo com base no funil escolhido e no DNA do cliente" style="margin-bottom:1px">✨ Sugerir com IA</button>
       </div>
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:6px 0 2px;font-size:12.5px" title="Procura posts do Instagram do cliente que podem virar recorte em vez de peça nova">
@@ -5135,10 +5171,11 @@ function brFunilBadgeColor(f){return f==='Topo'?'#38bdf8':f==='Meio'?'#f0c040':f
 async function brSugerirCampos(){
   const btn=document.getElementById('brSugerirBtn');
   const funil=document.getElementById('brFunilDesejado').value;
+  const produto=document.getElementById('brProduto').value.trim();
   if(!funil){alert('Escolha o Funil desejado primeiro — a sugestão depende dele.');return;}
   btn.disabled=true;const o=btn.textContent;btn.textContent='✨ Pensando…';
   try{
-    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingSugerirCampos:{clientId:_brClientId,funil}}});
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingSugerirCampos:{clientId:_brClientId,funil,produto}}});
     if(error)throw error;
     const r=(data&&data.data)||{};
     if(r.objetivo)document.getElementById('brObjetivo').value=r.objetivo;
@@ -5153,11 +5190,12 @@ async function brRunAnalise(){
   const objetivo=document.getElementById('brObjetivo').value.trim();
   const angulo=document.getElementById('brAngulo').value.trim();
   const funilDesejado=document.getElementById('brFunilDesejado').value;
+  const produto=document.getElementById('brProduto').value.trim();
   const curadoriaOn=document.getElementById('brCuradoria').checked;
   btn.disabled=true;btn.textContent='Lendo os criativos e analisando… pode levar um minuto';
   out.innerHTML='<div class="empty" style="padding:30px"><div style="margin-bottom:8px">🔎 Buscando os anúncios que rodaram, separando por funil e escrevendo a leitura…</div></div>';
   try{
-    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingAnalise:{clientId:_brClientId,since,until,objetivo,criadoPor:currentTeamId||null,funilDesejado}}});
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingAnalise:{clientId:_brClientId,since,until,objetivo,criadoPor:currentTeamId||null,funilDesejado,produto}}});
     if(error)throw error;
     const r=(data&&data.data)||{};
     if(r.erro){out.innerHTML=`<div class="empty">${_brEsc(r.erro)}</div>`;return;}
@@ -5169,7 +5207,7 @@ async function brRunAnalise(){
       else{
         btn.textContent='Procurando conteúdo do Instagram pra recorte…';
         try{
-          const {data:cd,error:ce}=await sb.functions.invoke('dynamic-responder',{body:{briefingCuradoria:{briefingId:r.briefingId,clientId:_brClientId,angulo,funil:funilDesejado}}});
+          const {data:cd,error:ce}=await sb.functions.invoke('dynamic-responder',{body:{briefingCuradoria:{briefingId:r.briefingId,clientId:_brClientId,angulo,funil:funilDesejado,produto}}});
           if(ce)throw ce;
           curadoria=(cd&&cd.data)||{};
         }catch(e){curadoriaErro='Erro na curadoria: '+(e.message||e);}
@@ -5294,7 +5332,7 @@ async function brVerHistorico(){
       list.map(b=>`<div class="card" style="margin-bottom:8px;cursor:pointer" onclick="brAbrirHistorico('${b.id}')">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
           <b style="font-size:13.5px">${_brEsc(b.objetivo)||'(sem objetivo definido)'}</b>
-          ${b.funil?`<span class="badge" style="color:${brFunilBadgeColor(b.funil)}">${_brEsc(b.funil)}</span>`:''}
+          <span>${b.funil?`<span class="badge" style="color:${brFunilBadgeColor(b.funil)}">${_brEsc(b.funil)}</span>`:''}${b.produto?` <span class="badge">${_brEsc(b.produto)}</span>`:''}</span>
         </div>
         <div style="font-size:11.5px;color:var(--faint);margin-top:3px">${_brEsc(b.periodo_inicio)} a ${_brEsc(b.periodo_fim)} · aprovado em ${new Date(b.criado_em).toLocaleDateString('pt-BR')}</div>
       </div>`).join('');
@@ -7341,7 +7379,7 @@ async function cPixelPull(btn){
 }
 /* ---- BUDGET CHANNELS ---- */
 let budgetRows=[];
-const BUDGET_CHANNELS=['Meta Ads','Google Ads','TikTok Ads','LinkedIn Ads','Pinterest Ads','Kwai Ads','Taboola','Bing Ads','YouTube Ads','Outro'];
+const BUDGET_CHANNELS=['Meta Ads','Google Ads','ChatGPT Ads','TikTok Ads','LinkedIn Ads','Pinterest Ads','Kwai Ads','Taboola','Bing Ads','YouTube Ads','Outro'];
 function renderBudgetChannels(){
   document.getElementById('cBudgetChannels').innerHTML=budgetRows.map((r,i)=>{
     const known=BUDGET_CHANNELS.includes(r.name);
