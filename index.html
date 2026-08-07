@@ -5019,7 +5019,7 @@ async function loadBriefing(clientId){
   document.getElementById('brClientName').textContent=c?('· '+c.name):'';
   if(!c){body.innerHTML='<div class="empty">Selecione um cliente na sidebar.</div>';return;}
   _brClientId=c.id;_brResult=null;
-  if(!c.meta_account_id&&!c.google_account_id){body.innerHTML='<div class="empty">Esse cliente não tem conta Meta nem Google conectada — sem isso não dá pra ler os criativos que rodaram.</div>';return;}
+  if(!(c.metaAccountIds&&c.metaAccountIds.length)&&!(c.googleAccountIds&&c.googleAccountIds.length)){body.innerHTML='<div class="empty">Esse cliente não tem conta Meta nem Google conectada — sem isso não dá pra ler os criativos que rodaram.</div>';return;}
   body.innerHTML=`
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
