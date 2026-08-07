@@ -1889,7 +1889,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||'',instagramBusinessId:r.instagram_business_id||'',instagramUsername:r.instagram_username||''});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||'',instagramAccounts:Array.isArray(r.instagram_accounts)?r.instagram_accounts:[]});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],budget_campaigns:o.budgetCampaigns||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,ga4_property_id:o.ga4PropertyId||null,gsc_site_url:o.gscSiteUrl||null,whatsapp:o.whatsapp||null,pixel_id:o.pixelId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -4760,17 +4760,36 @@ async function savePinterestAccount(clientId,adAccountId){
   if(c)c.pinterestConfig=cfg;
   renderPinterestConnect(clientId,cfg);
 }
-/* ---- Instagram (conteudo organico) — sem OAuth, so escolher entre as Paginas que a agencia ja enxerga ---- */
+/* ---- Instagram (conteudo organico) — sem OAuth; um cliente pode ter mais de um perfil (ex: 2 Paginas
+   diferentes) - auto-conecta por nome ao abrir o cadastro, sem precisar clicar em nada. ---- */
 function renderInstagramConnect(clientId){
   const el=document.getElementById('cInstagramConnectRow');if(!el)return;
   if(!clientId){el.innerHTML='<div style="font-size:11px;color:var(--faint)">Salve o cliente primeiro pra poder conectar o Instagram.</div>';return;}
   const c=DB.clients.find(x=>x.id===clientId);
-  const connected=c&&c.instagramBusinessId;
-  el.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    <span style="font-size:12px;font-weight:700;color:${connected?'#34d399':'var(--faint)'}">${connected?'✓ @'+String(c.instagramUsername||c.instagramBusinessId).replace(/</g,'&lt;'):'○ Instagram não conectado'}</span>
-    <button type="button" class="btn sm ${connected?'ghost':'primary'}" onclick="loadInstagramAccounts('${clientId}')">🔄 ${connected?'Trocar conta':'Buscar contas conectadas'}</button>
-  </div>
+  const contas=(c&&c.instagramAccounts)||[];
+  const chips=contas.map(a=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:12px">✓ @${String(a.username||a.id).replace(/</g,'&lt;')}<a onclick="removeInstagramAccount('${clientId}','${a.id}')" title="remover" style="color:#f87171;font-weight:700;cursor:pointer">×</a></span>`).join('');
+  el.innerHTML=`<div id="cInstagramStatus" style="font-size:11px;color:var(--faint);margin-bottom:6px">🔄 Procurando perfis conectados por nome…</div>
+  <div id="cInstagramChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${chips}</div>
+  <button type="button" class="btn sm ghost" onclick="loadInstagramAccounts('${clientId}')">🔎 Adicionar/trocar manualmente</button>
   <div id="cInstagramAccSel" style="margin-top:8px"></div>`;
+  brInstagramAutoConnect(clientId);
+}
+// Roda sozinho ao abrir o cadastro: tenta achar o(s) perfil(is) pelo nome, sem pedir clique nenhum.
+async function brInstagramAutoConnect(clientId){
+  const st=document.getElementById('cInstagramStatus');
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{instagramAutoMatch:{clientId}}});
+    if(error)throw error;const r=(data&&data.data)||{};
+    if(r.novos>0){
+      const c=DB.clients.find(x=>x.id===clientId);
+      if(c){const {data:cd}=await sb.from('clients').select('instagram_accounts').eq('id',clientId).maybeSingle();c.instagramAccounts=(cd&&cd.instagram_accounts)||[];}
+      renderInstagramConnect(clientId);
+      return;
+    }
+    if(st)st.textContent=r.total?'':'Nenhum perfil com nome parecido encontrado — use "Adicionar/trocar manualmente" se souber qual é.';
+    if(st&&!r.total)st.style.color='var(--faint)';
+    if(st&&r.total)st.remove();
+  }catch(e){if(st)st.textContent='Não consegui checar automaticamente: '+(e.message||e);}
 }
 async function loadInstagramAccounts(clientId){
   const box=document.getElementById('cInstagramAccSel');if(box)box.innerHTML='Buscando Páginas com Instagram vinculado…';
@@ -4780,19 +4799,32 @@ async function loadInstagramAccounts(clientId){
     if(!r.ok){if(box)box.innerHTML='<span style="color:#f87171;font-size:11px">'+(r.erro||'erro ao buscar')+'</span>';return;}
     const comIg=(r.paginas||[]).filter(p=>p.instagram);
     if(!comIg.length){if(box)box.innerHTML='<span style="font-size:11px;color:var(--faint)">Nenhuma Página com Instagram vinculado encontrada na conta da agência.</span>';return;}
-    const c=DB.clients.find(x=>x.id===clientId);const sel=(c&&c.instagramBusinessId)||'';
-    if(box)box.innerHTML=`<label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">CONTA DO INSTAGRAM</label>
+    const c=DB.clients.find(x=>x.id===clientId);const jaTem=new Set(((c&&c.instagramAccounts)||[]).map(a=>a.id));
+    if(box)box.innerHTML=`<label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ADICIONAR PERFIL</label>
       <select style="width:100%;font-size:12px" onchange="saveInstagramAccount('${clientId}',this)">
         <option value="">— escolha —</option>
-        ${comIg.map(p=>`<option value="${p.instagram.id}" data-username="${String(p.instagram.username||'').replace(/"/g,'&quot;')}" ${sel===p.instagram.id?'selected':''}>@${String(p.instagram.username||p.instagram.id).replace(/</g,'&lt;')} — ${String(p.pagina||'').replace(/</g,'&lt;')} (${(p.instagram.seguidores||0).toLocaleString('pt-BR')} seguidores)</option>`).join('')}
+        ${comIg.map(p=>`<option value="${p.instagram.id}" data-username="${String(p.instagram.username||'').replace(/"/g,'&quot;')}" data-pagina="${String(p.pagina||'').replace(/"/g,'&quot;')}" ${jaTem.has(p.instagram.id)?'disabled':''}>@${String(p.instagram.username||p.instagram.id).replace(/</g,'&lt;')} — ${String(p.pagina||'').replace(/</g,'&lt;')} (${(p.instagram.seguidores||0).toLocaleString('pt-BR')} seguidores)${jaTem.has(p.instagram.id)?' · já conectado':''}</option>`).join('')}
       </select>`;
   }catch(e){if(box)box.innerHTML='<span style="color:#f87171;font-size:11px">Erro: '+(e.message||e)+'</span>';}
 }
 async function saveInstagramAccount(clientId,sel){
-  const id=sel.value;const username=sel.options[sel.selectedIndex]?sel.options[sel.selectedIndex].dataset.username||'':'';
-  const {error}=await sb.from('clients').update({instagram_business_id:id,instagram_username:username}).eq('id',clientId);
+  const id=sel.value;if(!id)return;
+  const opt=sel.options[sel.selectedIndex];
+  const nova={id,username:opt.dataset.username||'',pagina:opt.dataset.pagina||''};
+  const c=DB.clients.find(x=>x.id===clientId);
+  const contas=[...((c&&c.instagramAccounts)||[]).filter(a=>a.id!==id),nova];
+  const {error}=await sb.from('clients').update({instagram_accounts:contas}).eq('id',clientId);
   if(error){alert('Erro ao salvar: '+error.message);return;}
-  const c=DB.clients.find(x=>x.id===clientId);if(c){c.instagramBusinessId=id;c.instagramUsername=username;}
+  if(c)c.instagramAccounts=contas;
+  renderInstagramConnect(clientId);
+}
+async function removeInstagramAccount(clientId,instagramId){
+  if(!confirm('Remover esse perfil do Instagram?'))return;
+  const c=DB.clients.find(x=>x.id===clientId);
+  const contas=((c&&c.instagramAccounts)||[]).filter(a=>a.id!==instagramId);
+  const {error}=await sb.from('clients').update({instagram_accounts:contas}).eq('id',clientId);
+  if(error){alert('Erro ao remover: '+error.message);return;}
+  if(c)c.instagramAccounts=contas;
   renderInstagramConnect(clientId);
 }
 // Testa a conexão puxando os últimos 7 dias — valida ponta a ponta (fase 1, antes de integrar no Dashboard/funil de verdade).
@@ -5085,9 +5117,10 @@ async function loadBriefing(clientId){
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ATÉ</label><input type="date" id="brUntil" value="${today()}" style="width:auto;font-size:12px"></div>
       </div>
       <div class="fg"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">OBJETIVO DA CAMPANHA</label><input id="brObjetivo" placeholder="O que a campanha precisa entregar" style="width:100%;font-size:12.5px"></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
         <div class="fg" style="flex:1;min-width:160px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ÂNGULO (pra curadoria)</label><input id="brAngulo" placeholder="Dor ou desejo a trabalhar" style="width:100%;font-size:12.5px"></div>
         <div class="fg" style="min-width:140px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">FUNIL DESEJADO</label><select id="brFunilDesejado" style="width:100%;font-size:12.5px"><option value="">Qualquer</option><option>Topo</option><option>Meio</option><option>Fundo</option></select></div>
+        <button type="button" class="btn sm ghost" id="brSugerirBtn" onclick="brSugerirCampos()" title="Preenche Objetivo e Ângulo com base no funil escolhido e no DNA do cliente" style="margin-bottom:1px">✨ Sugerir com IA</button>
       </div>
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:6px 0 2px;font-size:12.5px" title="Procura posts do Instagram do cliente que podem virar recorte em vez de peça nova">
         <input type="checkbox" id="brCuradoria" style="width:auto">🖼 Também curar conteúdo orgânico do Instagram pra recorte
@@ -5098,6 +5131,20 @@ async function loadBriefing(clientId){
     <div id="brOut"></div>`;
 }
 function brFunilBadgeColor(f){return f==='Topo'?'#38bdf8':f==='Meio'?'#f0c040':f==='Fundo'?'#34d399':'#9aa1b4';}
+async function brSugerirCampos(){
+  const btn=document.getElementById('brSugerirBtn');
+  const funil=document.getElementById('brFunilDesejado').value;
+  if(!funil){alert('Escolha o Funil desejado primeiro — a sugestão depende dele.');return;}
+  btn.disabled=true;const o=btn.textContent;btn.textContent='✨ Pensando…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingSugerirCampos:{clientId:_brClientId,funil}}});
+    if(error)throw error;
+    const r=(data&&data.data)||{};
+    if(r.objetivo)document.getElementById('brObjetivo').value=r.objetivo;
+    if(r.angulo)document.getElementById('brAngulo').value=r.angulo;
+  }catch(e){alert('Erro ao sugerir: '+(e.message||e));}
+  finally{btn.disabled=false;btn.textContent=o;}
+}
 async function brRunAnalise(){
   const btn=document.getElementById('brBtn');const out=document.getElementById('brOut');
   const since=document.getElementById('brSince').value,until=document.getElementById('brUntil').value;
@@ -5117,7 +5164,7 @@ async function brRunAnalise(){
     let curadoria=null,curadoriaErro='';
     if(curadoriaOn){
       const c=DB.clients.find(x=>x.id===_brClientId);
-      if(!(c&&c.instagramBusinessId))curadoriaErro='Esse cliente não tem Instagram conectado (Configurações do cliente → Instagram).';
+      if(!(c&&c.instagramAccounts&&c.instagramAccounts.length))curadoriaErro='Esse cliente não tem Instagram conectado (Configurações do cliente → Instagram).';
       else{
         btn.textContent='Procurando conteúdo do Instagram pra recorte…';
         try{
