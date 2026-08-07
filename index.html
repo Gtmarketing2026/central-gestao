@@ -2690,7 +2690,7 @@ const CRM_STAGES=[
 ];
 let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
 let _crmSel=new Set();
-let _crmSearch='',_crmFOrigin='',_crmFCampaign='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFFlag='',_crmFCampo='';
+let _crmSearch='',_crmFOrigin='',_crmFCampaign='',_crmFAdset='',_crmFAnuncio='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFFlag='',_crmFCampo='';
 let _crmGuideOpen=(localStorage.getItem('crmGuide')!=='0');
 function toggleCrmGuide(){_crmGuideOpen=!_crmGuideOpen;localStorage.setItem('crmGuide',_crmGuideOpen?'1':'0');renderCrmGuide();}
 async function renderCrmGuide(){
@@ -2814,13 +2814,26 @@ function renderCrmFilters(){
     ${sel('_crmFEntrada',_crmFEntrada,[['','Entrou: qualquer'],['hoje','Entrou hoje'],['7','Entrou 7 dias'],['30','Entrou 30 dias']])}
     ${sel('_crmFAtend',_crmFAtend,[['','Atendimento: todos'],['aguardando','⏳ Aguardando resposta'],['respondida','✓ Respondidas'],['sr1','Sem resposta +1d'],['sr3','Sem resposta +3d'],['sr7','Sem resposta +7d']])}
     ${sel('_crmFFlag',_crmFFlag,[['','Relevância: todas'],['valido','✅ Válidos'],['num','⚠ Número errado'],['irrel','⚑ Irrelevante']])}
-    ${flds.length?sel('_crmFCampo',_crmFCampo,[['','Campo extraído: qualquer'],...flds.map(f=>['has:'+f.key,'Com '+(f.label||f.key).toLowerCase()])]):''}`;
+    ${flds.length?sel('_crmFCampo',_crmFCampo,[['','Campo extraído: qualquer'],...flds.map(f=>['has:'+f.key,'Com '+(f.label||f.key).toLowerCase()])]):''}
+    ${_crmFAdset?`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft,rgba(240,192,64,.14));border:1px solid var(--accent);color:var(--accent);border-radius:20px;padding:4px 10px;font-size:12px">🎯 ${_crmFAdset.replace(/</g,'&lt;')}<a onclick="_crmFAdset='';renderCrm()" style="cursor:pointer;font-weight:700">×</a></span>`:''}
+    ${_crmFAnuncio?`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft,rgba(240,192,64,.14));border:1px solid var(--accent);color:var(--accent);border-radius:20px;padding:4px 10px;font-size:12px">🖼 ${_crmFAnuncio.replace(/</g,'&lt;')}<a onclick="_crmFAnuncio='';renderCrm()" style="cursor:pointer;font-weight:700">×</a></span>`:''}`;
+}
+// Clique num numero da tabela "Conversao por Conjunto/Campanha/Anuncio" do Analytics -> volta pro board
+// ja filtrado por aquela origem, pra ver os leads que compoem aquele numero.
+function crmAnaGoToLeads(level,nome){
+  _crmFCampaign='';_crmFAdset='';_crmFAnuncio='';
+  if(level==='campanha')_crmFCampaign=nome;
+  else if(level==='conjunto')_crmFAdset=nome;
+  else if(level==='anuncio')_crmFAnuncio=nome;
+  loadCrm();
 }
 function _crmFiltered(){
   const s=_crmSearch.trim().toLowerCase();
   return _crmConvs.filter(cv=>{
     if(_crmFOrigin&&_crmOriginKey(cv)!==_crmFOrigin)return false;
     if(_crmFCampaign&&(cv.origin||{}).campaign!==_crmFCampaign)return false;
+    if(_crmFAdset&&(cv.origin||{}).adset!==_crmFAdset)return false;
+    if(_crmFAnuncio&&(cv.origin||{}).ad!==_crmFAnuncio)return false;
     if(s&&!((cv.name||'').toLowerCase().includes(s)||(cv.chat_id||'').includes(s)))return false;
     if(_crmFEntrada){const dd=_crmDaysSince(cv._first||cv.last_at);if(_crmFEntrada==='hoje'&&dd>0)return false;if(_crmFEntrada==='7'&&dd>7)return false;if(_crmFEntrada==='30'&&dd>30)return false;}
     if(_crmFAtend){const dd=_crmDaysSince(cv.last_at);if(_crmFAtend==='aguardando'&&cv._lastdir!=='in')return false;if(_crmFAtend==='respondida'&&cv._lastdir!=='out')return false;if(_crmFAtend==='sr1'&&!(cv._lastdir==='in'&&dd>=1))return false;if(_crmFAtend==='sr3'&&!(cv._lastdir==='in'&&dd>=3))return false;if(_crmFAtend==='sr7'&&!(cv._lastdir==='in'&&dd>=7))return false;}
@@ -3573,7 +3586,10 @@ function crmAnaRender(C,meta,capi){
   const campRows=_grp.rows.map(r=>{
     const cpc=r.n?r.spend/r.n:0;
     const sub=(_lvl!=='campanha'&&r.campanha)?`<div style="font-size:10px;color:var(--faint);margin-top:1px">${String(r.campanha).replace(/</g,'&lt;')}</div>`:'';
-    return `<tr><td style="padding:8px 10px;font-size:12px;border-bottom:1px solid var(--border);max-width:280px">${String(r.nome).replace(/</g,'&lt;')}${sub}</td><td style="padding:8px 10px;text-align:right;font-weight:700;border-bottom:1px solid var(--border)">${r.n}</td>${_progCols.map((s,i)=>{const v=r.reach[i]||0;const pct=r.n?(v/r.n*100):0;return `<td style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);color:${v?s.color:'var(--faint)'}">${v||'–'}${v&&i>0?`<div style="font-size:9.5px;color:var(--faint)">${pct.toFixed(0)}%</div>`:''}</td>`;}).join('')}<td style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);color:${r.lost?'#f87171':'var(--faint)'}">${r.lost||'–'}</td><td style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">${r.spend?fmtR(r.spend):'–'}</td><td style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">${cpc?fmtR(cpc):'–'}</td></tr>`;
+    const nomeAttr=String(r.nome).replace(/'/g,"\\'");
+    const go=`crmAnaGoToLeads('${_lvl}','${nomeAttr}')`;
+    const numTd=(v,extra)=>v?`<td style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);cursor:pointer" title="Ver esses leads no funil" onclick="${go}">${extra||v}</td>`:`<td style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);color:var(--faint)">–</td>`;
+    return `<tr><td style="padding:8px 10px;font-size:12px;border-bottom:1px solid var(--border);max-width:280px">${String(r.nome).replace(/</g,'&lt;')}${sub}</td><td style="padding:8px 10px;text-align:right;font-weight:700;border-bottom:1px solid var(--border);cursor:pointer" title="Ver esses leads no funil" onclick="${go}">${r.n}</td>${_progCols.map((s,i)=>{const v=r.reach[i]||0;const pct=r.n?(v/r.n*100):0;const inner=`<span style="color:${s.color}">${v}</span>${i>0?`<div style="font-size:9.5px;color:var(--faint)">${pct.toFixed(0)}%</div>`:''}`;return numTd(v,inner);}).join('')}${numTd(r.lost,r.lost?`<span style="color:#f87171">${r.lost}</span>`:'')}<td style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">${r.spend?fmtR(r.spend):'–'}</td><td style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)">${cpc?fmtR(cpc):'–'}</td></tr>`;
   }).join('')||`<tr><td colspan="${_progCols.length+5}" style="padding:16px;text-align:center;color:var(--faint)">Sem conversas de anúncio com ${_lvlLbl[_lvl].toLowerCase()} identificado no período.</td></tr>`;
   const _raw=(_crmAnaRaw&&_crmAnaRaw.convs)||[];
   const _origs=[...new Set(_raw.map(cv=>_crmOriginKey(cv)))];
