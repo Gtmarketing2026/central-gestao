@@ -1735,9 +1735,14 @@ function clientTemplates(c,ads){
   }
   let tpls=ids.map(id=>templateById(id)).filter(Boolean);
   if(!tpls.length){
+    // Sem config manual: um template por objetivo com presenca REAL no gasto (>=5% do total), nao so o
+    // dominante - cliente que roda Mensagem E Venda ao mesmo tempo precisa ver os dois, senao o "Geral"
+    // (e qualquer resumo/relatorio) mistura tudo com a cara de um objetivo so (ex: some ROAS de venda
+    // aparecendo pra cliente que so pediu Mensagem).
     const bySpend={};(ads||[]).forEach(a=>{const tp=(a.objetivo&&a.objetivo.tipo)||'conversao';bySpend[tp]=(bySpend[tp]||0)+(a.spend||0)});
-    const dom=Object.entries(bySpend).sort((a,b)=>b[1]-a[1])[0];
-    tpls=[baseTemplateForObjective(dom?dom[0]:'conversao')];
+    const total=Object.values(bySpend).reduce((s,v)=>s+v,0);
+    const ativos=Object.entries(bySpend).filter(([,v])=>v>0&&(!total||v/total>=0.05)).sort((a,b)=>b[1]-a[1]);
+    tpls=ativos.length?ativos.map(([tp])=>baseTemplateForObjective(tp)):[baseTemplateForObjective('conversao')];
   }
   return tpls;
 }
