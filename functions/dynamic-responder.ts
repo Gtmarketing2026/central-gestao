@@ -3401,7 +3401,7 @@ FORMATO OBRIGATÓRIO DA RESPOSTA:
 - Quando a pergunta envolver funil, use "## Funil no período" e uma lista: Entrada; Não qualificaram como MQL; MQL que ainda não chegaram a SQL; SQL que ainda não viraram venda. Mostre volume e percentual quando houver base.
 - Depois use somente as seções relevantes entre: "## Gargalos prioritários", "## Diagnóstico consultivo", "## Motivos recorrentes", "## Projeção" e "## Plano de melhoria".
 - Em "## Diagnóstico consultivo", organize cada gargalo como **Dado**, **Hipótese** e **Como validar**.
-- Em "## Plano de melhoria", entregue ações em ordem de prioridade e identifique no começo de cada bullet: **Tráfego**, **Comercial** ou **Processo/CRM**. Inclua ação, responsável sugerido, prazo (48 horas, 7 dias ou 30 dias) e indicador de sucesso.
+- Em "## Plano de melhoria", entregue ações em ordem de prioridade e identifique no começo de cada bullet: **Tráfego**, **Comercial** ou **Processo/CRM**. Inclua ação, responsável sugerido e indicador de sucesso. Não inclua prazo.
 - Cada bullet deve conter uma ideia e ter no máximo 2 frases. No máximo 5 bullets por seção. Não repita números.
 - Destaque apenas números ou termos curtos com **negrito**; nunca deixe um parágrafo inteiro em negrito.
 - Se o volume for pequeno, mostre um aviso curto em vez de conclusões extensas. Máximo 450 palavras.`;
