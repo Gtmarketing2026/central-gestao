@@ -21,6 +21,10 @@
   body{font-family:'Inter',-apple-system,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
   .app{display:flex;min-height:100vh}
   .sidebar{width:214px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);padding:20px 14px;display:flex;flex-direction:column;gap:18px;position:sticky;top:0;height:100vh;overflow-y:auto}
+  .app.sidebar-hidden .sidebar{display:none}
+  .app.sidebar-hidden .main{max-width:none}
+  #sidebarShowBtn{display:none;position:fixed;left:12px;top:12px;z-index:700;box-shadow:0 6px 20px rgba(0,0,0,.45)}
+  .app.sidebar-hidden #sidebarShowBtn{display:inline-flex}
   .main{flex:1;min-width:0;padding:22px 28px 80px;max-width:1220px;margin:0 auto;width:100%}
   .main.wide{max-width:none}
   .topbar{display:flex;align-items:center;justify-content:flex-end;padding-bottom:16px;border-bottom:1px solid var(--border);margin-bottom:22px;gap:12px;flex-wrap:wrap}
@@ -223,10 +227,11 @@
   <aside class="sidebar">
     <div class="brand">
       <div class="dot" style="background:none;padding:0"><img src="logo.ico" alt="logo" style="width:38px;height:38px;border-radius:10px;object-fit:cover"></div>
-      <div>
+      <div style="flex:1;min-width:0">
         <h1 style="font-size:1.15rem">Central de Gestão</h1>
         <p>Tráfego · multi-cliente</p>
       </div>
+      <button class="btn sm ghost" onclick="toggleSidebar()" title="Esconder menu lateral" style="padding:5px 7px;flex:none">◀</button>
     </div>
     <div style="margin-bottom:6px">
       <label style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);display:block;margin-bottom:4px">Cliente</label>
@@ -287,6 +292,7 @@
       </div>
     </nav>
   </aside>
+  <button id="sidebarShowBtn" class="btn sm primary" onclick="toggleSidebar()" title="Mostrar menu lateral">☰ Menu</button>
   <main class="main">
     <header class="topbar">
     <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
@@ -846,6 +852,7 @@
       <button data-cpanel="relatorios" onclick="setClientTab('relatorios')">Relatórios</button>
       <button data-cpanel="dna" onclick="setClientTab('dna')">DNA &amp; Conhecimento</button>
     </div>
+    <div id="cNewClientHint" style="display:none;font-size:12px;color:var(--faint);background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin:6px 0 16px">💡 Cadastro rápido — só o essencial pra criar o cliente. Mídia &amp; Verba, Relatórios e DNA ficam disponíveis em <b>Configuração do Cliente</b>, logo depois de salvar.</div>
 
     <div class="cpanel" data-panel="dados">
       <div class="form-grid">
@@ -1001,6 +1008,14 @@
           <div id="cInstagramConnectRow"></div>
         </div>
       </div>
+      <div class="cad-collapse">
+        <div class="cad-collapse-hd" onclick="this.parentElement.classList.toggle('open')"><span class="t">📈 Google Analytics 4 &amp; Search Console</span><span class="cad-caret">▾</span></div>
+        <div class="cad-collapse-bd">
+          <div class="cad-sub">Camada de validação da <b>Jornada do Lead</b>: canais, páginas e consultas de busca. Dê acesso de <b>Leitor</b> a <code id="cGsaEmail" style="background:var(--surface2);padding:1px 5px;border-radius:5px;font-size:11px">carregando…</code> <button type="button" class="btn sm ghost" style="font-size:10px;padding:2px 6px" onclick="cCopyGsa(this)">copiar</button> na propriedade GA4 e no Search Console do cliente.</div>
+          <div class="form-row"><label>ID da propriedade GA4 <span style="font-size:11px;color:var(--faint);font-weight:400">— só os números (Admin → Detalhes da propriedade)</span></label><input id="cGa4Prop" placeholder="Ex: 123456789" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
+          <div class="form-row"><label>Site no Search Console <span style="font-size:11px;color:var(--faint);font-weight:400">— exatamente como aparece lá</span></label><input id="cGscSite" placeholder="Ex: sc-domain:site.com.br  ou  https://site.com.br/"></div>
+        </div>
+      </div>
     </div>
 
     <div class="cpanel" data-panel="relatorios" style="display:none">
@@ -1011,15 +1026,7 @@
         <div style="display:flex;gap:8px;align-items:center"><input id="cSiteUrl" placeholder="https://site-do-cliente.com.br" style="flex:1"><button type="button" class="btn sm ghost" onclick="cPullMetaInfo(this)" title="Puxar site e WhatsApp dos anúncios do Meta">🔄 Puxar do Meta</button></div>
         <div id="cMetaInfoMsg" style="font-size:11px;color:var(--faint);margin-top:4px"></div>
       </div>
-      <div class="cad-collapse">
-        <div class="cad-collapse-hd" onclick="this.parentElement.classList.toggle('open')"><span class="t">📈 Google Analytics 4 &amp; Search Console</span><span class="cad-caret">▾</span></div>
-        <div class="cad-collapse-bd">
-          <div class="cad-sub">Camada de validação da <b>Jornada do Lead</b>: canais, páginas e consultas de busca. Dê acesso de <b>Leitor</b> a <code id="cGsaEmail" style="background:var(--surface2);padding:1px 5px;border-radius:5px;font-size:11px">carregando…</code> <button type="button" class="btn sm ghost" style="font-size:10px;padding:2px 6px" onclick="cCopyGsa(this)">copiar</button> na propriedade GA4 e no Search Console do cliente.</div>
-          <div class="form-row"><label>ID da propriedade GA4 <span style="font-size:11px;color:var(--faint);font-weight:400">— só os números (Admin → Detalhes da propriedade)</span></label><input id="cGa4Prop" placeholder="Ex: 123456789" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
-          <div class="form-row"><label>Site no Search Console <span style="font-size:11px;color:var(--faint);font-weight:400">— exatamente como aparece lá</span></label><input id="cGscSite" placeholder="Ex: sc-domain:site.com.br  ou  https://site.com.br/"></div>
-        </div>
-      </div>
-      <div class="form-row"><label>💬 WhatsApp do cliente <span style="font-size:11px;color:var(--faint);font-weight:400">— destino padrão dos links de tracking (bio/WhatsApp) quando você não informar um destino</span></label>
+      <div class="form-row"><label>💬 Número padrão de WhatsApp <span style="font-size:11px;color:var(--faint);font-weight:400">— só o destino dos links de tracking (bio/WhatsApp) quando você não informar outro. NÃO é a conexão real do WhatsApp (isso fica na aba "WhatsApp")</span></label>
         <input id="cWhatsapp" placeholder="Ex: 5521999998888 (DDI+DDD+número, só dígitos)">
       </div>
       <div class="form-row"><label>🎯 Pixel do Meta (opcional) <span style="font-size:11px;color:var(--faint);font-weight:400">— ID do pixel pra enviar eventos do CRM (CAPI). Deixe vazio pra usar o 1º da conta, ou puxe do Meta</span></label>
@@ -2090,6 +2097,12 @@ async function sendBroadcast(){
 }
 
 /* ---- TABS ---- */
+function setSidebarHidden(hidden,save=true){
+  const app=document.querySelector('.app');if(!app)return;app.classList.toggle('sidebar-hidden',!!hidden);
+  if(save)try{localStorage.setItem('sidebarHidden',hidden?'1':'0')}catch(e){}
+}
+function toggleSidebar(){const app=document.querySelector('.app');setSidebarHidden(!(app&&app.classList.contains('sidebar-hidden')));}
+function restoreSidebarState(){let hidden=false;try{hidden=localStorage.getItem('sidebarHidden')==='1'}catch(e){}setSidebarHidden(hidden,false);}
 // Retrair/expandir um segmento do menu (padrão: todos abertos; estado salvo por navegador)
 function toggleNavGroup(el){
   const sec=el.nextElementSibling;if(!sec||!sec.classList.contains('nav-sec'))return;
@@ -6514,7 +6527,7 @@ function renderClientConfig(){
   document.getElementById('ccCards').innerHTML=
     grp('Perfil',
       ccCard({icon:'👤',label:'Informações',badge:c.status,title:c.name,desc:'Dados básicos, plataforma e cobrança.',rows:ccRow('Segmento',c.seg||'—')+ccRow('Plataforma',c.plat||'—')+ccRow('Cobrança',c.billing||'—'),btn:'Editar',onclick:"ccOpen('dados')"})
-     +ccCard({icon:'📡',label:'Mídia & Verba',badge:metaCount?metaCount+' conta(s) Meta':'sem Meta',title:metaCount?metaNames:'Nenhuma conta vinculada',desc:'Contas de anúncio e verba por canal.',rows:ccRow('Contas Meta',metaCount||'—')+ccRow('Verba',c.budget?fmt(c.budget):'—'),btn:'Editar',onclick:"ccOpen('midia')"})
+     +ccCard({icon:'📡',label:'Mídia & Verba',badge:metaCount?metaCount+' conta(s) Meta':'sem Meta',title:metaCount?metaNames:'Nenhuma conta vinculada',desc:'Contas de anúncio, verba por canal e GA4/Search Console.',rows:ccRow('Contas Meta',metaCount||'—')+ccRow('Verba',c.budget?fmt(c.budget):'—')+ccRow('GA4',c.ga4PropertyId?'✓ conectado':'—'),btn:'Editar',onclick:"ccOpen('midia')"})
      +(()=>{const min=+c.minBalance||0;const teto=clientMetaTeto(c);const temMeta=(c.metaAccountIds||[]).length>0;
         return `<div class="card" style="display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;justify-content:space-between;align-items:start">
@@ -7791,6 +7804,10 @@ function setClientTab(name){
 function openClientModal(id){
   fillClientSelects();const c=id?DB.clients.find(x=>x.id===id):{};
   document.getElementById('clientModalTitle').textContent=id?'Editar cliente':'Novo cliente';
+  // cadastro (sem id) = só Dados; as outras abas (integrações) só aparecem editando um cliente que já existe,
+  // via Configuração do Cliente — evita misturar "criar" com "configurar integração".
+  document.getElementById('cModalTabs').style.display=id?'flex':'none';
+  document.getElementById('cNewClientHint').style.display=id?'none':'block';
   setClientTab('dados');
   cId.value=id||'';cName.value=c.name||'';cSeg.value=c.seg||'';cStatus.value=c.status||'Ativo';cPlat.value=c.plat||'';cFee.value=c.fee||'';cDay.value=c.day||'';cReport.value=c.report||'';cNotes.value=c.notes||'';cBilling.value=c.billing||'mensal';
   const stdCat=['mensal','funil','show','parceria','permuta','agencia'];const cat=c.category||c.billing||'mensal';
@@ -7987,6 +8004,9 @@ async function saveClient(){
   if(isNew&&activeClientChannels.length)await createClientTasks(o);
   if(isNew&&activeClientChannels.length)renderAll();
   if(_configClientId===o.id&&document.getElementById('clientConfig').classList.contains('active'))renderClientConfig();
+  // cadastro só tem Dados agora — depois de criar, manda pra Configuração do Cliente pra continuar
+  // (Mídia & Verba, Relatórios, DNA/canais de onboarding) em vez de deixar o gestor sem próximo passo.
+  if(isNew)openClientConfig(o.id);
 }
 async function _maybeDeleteClientTasks(clientId,clientName){
   const tarefas=DB.tasks.filter(t=>t.client===clientId);
@@ -11980,7 +12000,7 @@ function renderCharts(){
   if(cFinEl){const pm={};DB.finance.filter(f=>f.type==='receita'&&f.status!=='pago').forEach(f=>{const m=(f.due||'').slice(0,7);if(m)pm[m]=(pm[m]||0)+(+f.val||0)});DB.shows.forEach(s=>showPays(s).forEach(p=>{if(p.status!=='pago'){const m=(p.date||'').slice(0,7);if(m)pm[m]=(pm[m]||0)+(+p.val||0)}}));const meses=Object.keys(pm).sort();const nM={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};const cores=[CHART_C.blue,CHART_C.v2,CHART_C.accent,CHART_C.gold,CHART_C.pink,CHART_C.red];destroyChart('fin');_charts.fin=new Chart(cFinEl,{type:'bar',data:{labels:meses.map(m=>{const[y,mm]=m.split('-');return nM[mm]+'/'+y.slice(2)}),datasets:[{data:meses.map(m=>pm[m]),backgroundColor:meses.map((_,i)=>cores[i%cores.length]),borderRadius:8,barThickness:64}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gc,ticks:{callback:v=>'R$ '+v}},x:gc}}})}
 }
 
-restoreNavGroups();
+restoreNavGroups();restoreSidebarState();
 checkAuth();
 </script>
 <!-- ALERTS POPUP -->
