@@ -2703,7 +2703,7 @@ const CRM_STAGES=[
 ];
 let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
 let _crmSel=new Set();
-let _crmSearch='',_crmFOrigin='',_crmFChannels=[],_crmFCampaigns=[],_crmFAdset='',_crmFAnuncio='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFFlag='',_crmFCampo='';
+let _crmSearch='',_crmFOrigin='',_crmFChannels=[],_crmFCampaigns=[],_crmFAdset='',_crmFAnuncio='',_crmFKeyword='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFFlag='',_crmFCampo='';
 let _crmAiHistory=[],_crmAiBusy=false,_crmAiClient='';
 function _crmAiEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function crmAndreiaContext(){
@@ -2882,10 +2882,11 @@ function renderCrmFilters(){
 // Clique num numero da tabela "Conversao por Conjunto/Campanha/Anuncio" do Analytics -> volta pro board
 // ja filtrado por aquela origem, pra ver os leads que compoem aquele numero.
 function crmAnaGoToLeads(level,nome){
-  _crmFCampaigns=[];_crmFAdset='';_crmFAnuncio='';
+  _crmFCampaigns=[];_crmFAdset='';_crmFAnuncio='';_crmFKeyword='';
   if(level==='campanha')_crmFCampaigns=[nome];
   else if(level==='conjunto')_crmFAdset=nome;
   else if(level==='anuncio')_crmFAnuncio=nome;
+  else if(level==='keyword')_crmFKeyword=nome;
   loadCrm();
 }
 function _crmFiltered(){
@@ -2896,6 +2897,7 @@ function _crmFiltered(){
     if(_crmFCampaigns.length&&!_crmFCampaigns.includes((cv.origin||{}).campaign))return false;
     if(_crmFAdset&&(cv.origin||{}).adset!==_crmFAdset)return false;
     if(_crmFAnuncio&&(cv.origin||{}).ad!==_crmFAnuncio)return false;
+    if(_crmFKeyword&&![(cv.origin||{}).keyword,(cv.origin||{}).term,(cv.origin||{}).utm_term].includes(_crmFKeyword))return false;
     if(s&&!((cv.name||'').toLowerCase().includes(s)||(cv.chat_id||'').includes(s)))return false;
     if(_crmFEntrada){const dd=_crmDaysSince(cv._first||cv.last_at);if(_crmFEntrada==='hoje'&&dd>0)return false;if(_crmFEntrada==='7'&&dd>7)return false;if(_crmFEntrada==='30'&&dd>30)return false;}
     if(_crmFAtend){const dd=_crmDaysSince(cv.last_at);if(_crmFAtend==='aguardando'&&cv._lastdir!=='in')return false;if(_crmFAtend==='respondida'&&cv._lastdir!=='out')return false;if(_crmFAtend==='sr1'&&!(cv._lastdir==='in'&&dd>=1))return false;if(_crmFAtend==='sr3'&&!(cv._lastdir==='in'&&dd>=3))return false;if(_crmFAtend==='sr7'&&!(cv._lastdir==='in'&&dd>=7))return false;}
@@ -3015,10 +3017,12 @@ function crmCardHTML(cv){
   if(cv.num_errado)flags.push('<span style="font-size:8.5px;font-weight:800;color:#f87171;background:rgba(248,113,113,.13);border:1px solid rgba(248,113,113,.4);border-radius:5px;padding:1px 5px">⚠ NÚM. ERRADO</span>');
   if(cv.irrelevante)flags.push(`<span title="${String(cv.irrelevante_motivo||'').replace(/"/g,'&quot;')}" style="font-size:8.5px;font-weight:800;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.4);border-radius:5px;padding:1px 5px">⚑ IRRELEVANTE</span>`);
   const flagsRow=flags.length?`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${flags.join('')}</div>`:'';
-  // origem detalhada (campanha › conjunto › anúncio, ou título, ou link)
-  const adPath=[o.campaign,o.adset,o.ad].filter(Boolean);
+  // origem detalhada: Google = campanha › grupo › palavra-chave; Meta = campanha › conjunto › anúncio.
+  const isGoogle=_crmChannelKey(cv)==='google';
+  const adParts=isGoogle?[['Campanha',o.campaign],['Grupo',o.adset||o.adgroup],['Palavra-chave',o.keyword||o.term||o.utm_term]]:[['Campanha',o.campaign],['Conjunto',o.adset],['Anúncio',o.ad]];
+  const adPath=adParts.filter(x=>x[1]);
   let origem='';
-  if(cv.origin_type==='anuncio'){let lines=adPath.length?adPath:(o.title?[o.title]:[]);if(!lines.length)lines=[_crmAdMetaLabel(o)];origem=`<div style="margin-top:6px;font-size:10px;color:#93c5fd;line-height:1.5">${lines.map(l=>`<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${String(l).replace(/"/g,'&quot;')}">📣 ${String(l).replace(/</g,'&lt;')}</div>`).join('')}</div>`;}
+  if(cv.origin_type==='anuncio'){let lines=adPath.length?adPath.map(x=>`<span style="color:var(--faint)">${x[0]}:</span> ${String(x[1]).replace(/</g,'&lt;')}`):(o.title?[[isGoogle?'Origem':'Anúncio',o.title]]:[]).map(x=>`<span style="color:var(--faint)">${x[0]}:</span> ${String(x[1]).replace(/</g,'&lt;')}`);if(!lines.length)lines=[_crmAdMetaLabel(o)];origem=`<div style="margin-top:6px;font-size:10px;color:#93c5fd;line-height:1.5">${lines.map(l=>`<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${String(l).replace(/<[^>]+>/g,'').replace(/"/g,'&quot;')}">📣 ${l}</div>`).join('')}</div>`;}
   // métricas: nº msgs · tempo de conversa · direção última + espera
   const dur=(cv._first&&cv.last_at)?_crmDur(new Date(cv.last_at)-new Date(cv._first)):'';
   const arrow=cv._lastdir==='in'?'<span style="color:#34d399" title="última recebida">↙</span>':(cv._lastdir==='out'?'<span style="color:#93c5fd" title="última enviada">↗</span>':'');
@@ -3071,8 +3075,9 @@ function renderCrmDrawer(){
   const cv=_crmActive;if(!cv){document.getElementById('crmDrawer').innerHTML='';return;}
   const o=cv.origin||{};let orig='';
   if(cv.origin_type==='anuncio'){
-    const path=[o.campaign,o.adset,o.ad].filter(Boolean).map(s=>String(s).replace(/</g,'&lt;')).join(' <span style="color:var(--faint)">›</span> ');
-    orig=`<div style="font-size:11.5px;color:#93c5fd;margin-top:4px">📣 ${path?'<b>'+path+'</b>':(o.title?'Anúncio: <b>'+String(o.title).replace(/</g,'&lt;')+'</b>'+(o.source_id?' · ad '+o.source_id:''):_crmAdMetaLabel(o))}</div>`;
+    const isGoogle=_crmChannelKey(cv)==='google';const parts=isGoogle?[['Campanha',o.campaign],['Grupo de anúncios',o.adset||o.adgroup],['Palavra-chave',o.keyword||o.term||o.utm_term]]:[['Campanha',o.campaign],['Conjunto',o.adset],['Anúncio',o.ad]];
+    const path=parts.filter(x=>x[1]).map(x=>`<div><span style="color:var(--faint)">${x[0]}:</span> <b>${String(x[1]).replace(/</g,'&lt;')}</b></div>`).join('');
+    orig=`<div style="font-size:11.5px;color:#93c5fd;margin-top:4px;line-height:1.55">📣 ${path|| (o.title?'Anúncio: <b>'+String(o.title).replace(/</g,'&lt;')+'</b>'+(o.source_id?' · ad '+o.source_id:''):_crmAdMetaLabel(o))}</div>`;
   }else if(cv.origin_type==='utm')orig=`<div style="font-size:11.5px;color:#c4b5fd;margin-top:4px">🔗 ${o.track_source||'UTM'}${o.track_id?' · '+o.track_id:''}</div>`;
   const _st=crmStages();const _fk=_st[0]?_st[0].key:'sem';
   const stageBtns=_st.map(s=>`<button class="btn sm ${(cv.stage||_fk)===s.key?'primary':'ghost'}" style="font-size:10.5px;padding:2px 8px" onclick="crmSetStage('${cv.id}','${s.key}')">${(s.label||'').replace(/</g,'&lt;')}</button>`).join('');
@@ -3599,10 +3604,11 @@ function crmJourneyFunnel(C,jrn){
 // agrupa as conversas por campanha / conjunto / anúncio e conta quantas JÁ PASSARAM por cada etapa
 function crmGroupByLevel(C,jrn,level,spendMaps){
   const ix=crmJourneyIndexer(jrn);
-  const key=level==='anuncio'?'ad':level==='conjunto'?'adset':'campaign';
+  const key=level==='keyword'?'keyword':level==='anuncio'?'ad':level==='conjunto'?'adset':'campaign';
   const g={};
-  C.filter(c=>c.origin_type==='anuncio'&&(c.origin||{})[key]).forEach(c=>{
-    const nm=String(c.origin[key]);
+  C.filter(c=>c.origin_type==='anuncio').forEach(c=>{
+    const oo=c.origin||{};const val=level==='keyword'?(oo.keyword||oo.term||oo.utm_term):level==='conjunto'?(oo.adset||oo.adgroup):oo[key];if(!val)return;
+    const nm=String(val);
     const o=g[nm]||(g[nm]={nome:nm,campanha:(c.origin||{}).campaign||'',n:0,reach:ix.prog.map(()=>0),lost:0});
     o.n++;const mx=ix.maxIdx(c);for(let i=0;i<=mx;i++)o.reach[i]++;if(ix.isLost(c))o.lost++;
   });
@@ -3638,16 +3644,19 @@ function crmAnaRender(C,meta,capi){
     +(iMql>0?jrnKpi('Taxa de qualificação',_tx(_jc[iMql]||0,_chegou),`${_jc[iMql]||0} viraram ${(_jp[iMql].label||'').toLowerCase()}`,'#f0c040'):'')
     +(iCompra>0?jrnKpi('Taxa de fechamento',_tx(_jc[iCompra]||0,_chegou),`${_jc[iCompra]||0} chegaram em ${(_jp[iCompra].label||'').toLowerCase()}`,'#34d399'):'')
     +(_jrn.lost?jrnKpi('Perdidos',_jrn.lost,_tx(_jrn.lost,_chegou)+' do que chegou','#f87171'):'');
-  // conversão por campanha / conjunto / anúncio (níveis) — contagem ACUMULADA (já passaram pela etapa)
-  const _spendMaps={campanha:{},conjunto:{},anuncio:{}};
+  // conversão por campanha / conjunto / anúncio ou palavra-chave — contagem ACUMULADA.
+  const _spendMaps={campanha:{},conjunto:{},anuncio:{},keyword:{}};
   ((meta&&meta.campaigns)||[]).forEach(c=>{_spendMaps.campanha[c.campaign]=(_spendMaps.campanha[c.campaign]||0)+(c.spend||0);});
   const _allowAds=k=>!_crmAnaFChannels.length||_crmAnaFChannels.includes(k);
   const _allAds=[...(_allowAds('meta')?(((_crmAnaRaw&&_crmAnaRaw.metaR)||{}).ads||[]):[]),...(_allowAds('google')?(((_crmAnaRaw&&_crmAnaRaw.googR)||{}).ads||[]):[])].filter(a=>!_crmAnaFCampaigns.length||_crmAnaFCampaigns.includes(a.campaign));
   _allAds.forEach(a=>{if(a.adset)_spendMaps.conjunto[a.adset]=(_spendMaps.conjunto[a.adset]||0)+(a.spend||0);if(a.adName)_spendMaps.anuncio[a.adName]=(_spendMaps.anuncio[a.adName]||0)+(a.spend||0);});
-  const _lvl=_crmAnaLevel||'campanha';
+  const _adConvs=C.filter(c=>c.origin_type==='anuncio');
+  const _googleOnly=(_crmAnaFChannels.length===1&&_crmAnaFChannels[0]==='google')||(!_crmAnaFChannels.length&&_adConvs.length&&_adConvs.every(c=>_crmChannelKey(c)==='google'));
+  const _levels=_googleOnly?['campanha','conjunto','keyword']:['campanha','conjunto','anuncio'];
+  const _lvl=_levels.includes(_crmAnaLevel)?_crmAnaLevel:'campanha';
   const _grp=crmGroupByLevel(C,(_crmAnaRaw&&_crmAnaRaw.journey)||[],_lvl,_spendMaps);
-  const _lvlLbl={campanha:'Campanha',conjunto:'Conjunto',anuncio:'Anúncio'};
-  const lvlBtns=['campanha','conjunto','anuncio'].map(k=>`<button class="btn sm ${_lvl===k?'primary':'ghost'}" style="font-size:11px" onclick="crmAnaSetLevel('${k}')">${k==='campanha'?'📣':k==='conjunto'?'🎯':'🖼'} ${_lvlLbl[k]}</button>`).join('');
+  const _lvlLbl={campanha:'Campanha',conjunto:_googleOnly?'Grupo de anúncios':'Conjunto',anuncio:'Anúncio',keyword:'Palavra-chave'};
+  const lvlBtns=_levels.map(k=>`<button class="btn sm ${_lvl===k?'primary':'ghost'}" style="font-size:11px" onclick="crmAnaSetLevel('${k}')">${k==='campanha'?'📣':k==='conjunto'?'🎯':k==='keyword'?'🔑':'🖼'} ${_lvlLbl[k]}</button>`).join('');
   const _progCols=_grp.prog;
   const campRows=_grp.rows.map(r=>{
     const cpc=r.n?r.spend/r.n:0;
