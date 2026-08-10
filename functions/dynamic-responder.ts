@@ -2444,6 +2444,8 @@ async function waExtract(convId: string, autoApply = false) {
   const cv = (await sbGet("wa_conversations", `id=eq.${encodeURIComponent(convId)}&select=id,name,fields,stage,client_id,origin_type,origin&limit=1`))[0];
   if (!cv) throw new Error("Conversa não encontrada.");
   const msgs = await sbGet("wa_messages", `conversation_id=eq.${encodeURIComponent(convId)}&order=ts.asc&select=direction,text&limit=200`);
+  const hasInbound = (msgs || []).some((m: any) => m.direction === "in" && String(m.text || "").trim());
+  if (!hasInbound) return { fields: cv.fields || {}, stage: cv.stage || "", confidence: 0, stageWhy: "Sem mensagem recebida do contato para classificar.", applied: false, skipped: true, skipReason: "sem_mensagem_recebida" };
   const transcript = (msgs || []).filter((m: any) => m.text).map((m: any) => `${m.direction === "in" ? "LEAD" : "ATENDENTE"}: ${m.text}`).join("\n").slice(0, 6000);
   if (!transcript) return { fields: cv.fields || {}, stage: "", confidence: 0, stageWhy: "", applied: false };
   const data = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};

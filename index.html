@@ -1895,7 +1895,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||'',instagramAccounts:Array.isArray(r.instagram_accounts)?r.instagram_accounts:[]});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||'',instagramAccounts:Array.isArray(r.instagram_accounts)?r.instagram_accounts:[],pixelBannerProprio:!!r.pixel_banner_proprio});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],budget_campaigns:o.budgetCampaigns||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,ga4_property_id:o.ga4PropertyId||null,gsc_site_url:o.gscSiteUrl||null,whatsapp:o.whatsapp||null,pixel_id:o.pixelId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -2975,6 +2975,7 @@ function crmSelToolbarHTML(){
       </div></div>
     <div class="crmDD" style="position:relative"><button class="btn sm ghost" onclick="crmToggleDD(this)">➡️ Mover ▾</button>
       <div class="crmDDMenu" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:170px;max-height:260px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)">${moveOpts}</div></div>
+    <button id="crmBulkAiBtn" class="btn sm ghost" onclick="crmBulkReprocessAI()">✨ Reprocessar com IA</button>
     <button class="btn sm ghost" onclick="crmBulkCSV()">⬇️ CSV</button>
     <button class="btn sm ghost" style="color:#f87171" onclick="crmSelClear()">✕ Limpar</button>
   </div>`;
@@ -2997,6 +2998,17 @@ function crmBulkCSV(){
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download='crm_'+today()+'.csv';document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),4000);
+}
+async function crmBulkReprocessAI(){
+  document.querySelectorAll('.crmDDMenu').forEach(m=>m.style.display='none');
+  const ids=[..._crmSel];if(!ids.length)return;
+  if(!confirm(`Reprocessar ${ids.length} conversa(s) selecionada(s) com a AndréIA? As etapas serão atualizadas automaticamente quando houver informação suficiente.`))return;
+  const btn=document.getElementById('crmBulkAiBtn');let done=0,applied=0,skipped=0,errors=0;
+  if(btn)btn.disabled=true;
+  const run=async id=>{try{const r=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'extract',convId:id,autoApply:true}}});if(r.error)throw r.error;const d=(r.data&&r.data.data)||{};if(d.skipped)skipped++;else{if(d.applied)applied++;const cv=_crmConvs.find(x=>x.id===id);if(cv){if(d.fields)cv.fields=d.fields;cv.ai_stage=d.stage;cv.ai_conf=d.confidence;cv.ai_why=d.stageWhy;if(d.applied)cv.stage=d.stage;}}}catch(e){errors++;}finally{done++;if(btn)btn.textContent=`✨ IA ${done}/${ids.length}`;}};
+  for(let i=0;i<ids.length;i+=3)await Promise.all(ids.slice(i,i+3).map(run));
+  await loadCrmConvs();_crmSel.clear();renderCrm();
+  alert(`Reprocessamento concluído.\n\n${applied} etapa(s) atualizada(s)\n${skipped} ignorada(s) por não terem mensagem recebida\n${errors} erro(s)`);
 }
 async function crmBulkFlag(kind){
   document.querySelectorAll('.crmDDMenu').forEach(m=>m.style.display='none');
@@ -5524,6 +5536,13 @@ async function loadRastreamento(clientId){
         <button class="btn sm ghost" style="flex:none" onclick="rastCopy(document.getElementById('rastSnippet').textContent,this)">Copiar</button>
       </div>
       <div style="font-size:11px;color:var(--faint);margin-top:8px">Depois de instalar, o pixel captura origem (UTM, fbclid, gclid), páginas visitadas e cliques de WhatsApp. Recarregue esta aba pra ver os números subirem.</div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);cursor:pointer">
+          <input type="checkbox" id="rastBannerProprio" ${c.pixelBannerProprio?'checked':''} onchange="rastToggleBanner(this)">
+          Este site já tem aviso/banner de cookies próprio (LGPD)
+        </label>
+        <div style="font-size:11px;color:var(--faint);margin-top:4px;margin-left:24px">${c.pixelBannerProprio?'Nosso pixel roda direto, sem mostrar banner próprio — confia no aviso que o site já tem.':'Sem marcar, nosso pixel mostra um banner leve de cookies antes de rastrear (Aceitar/Recusar).'}</div>
+      </div>
     </div>`;
 
     // ---- Card 2: Links de Tracking ----
@@ -5604,6 +5623,15 @@ async function rastSaveHandle(btn){
   const {error}=await sb.from('tracking_config').update({handle:h}).eq('client_id',c.id);
   if(error){alert(/duplicate|unique/i.test(error.message)?'Esse nome já está em uso por outro cliente. Escolha outro.':'Erro: '+error.message);return}
   const o=btn.textContent;btn.textContent='Salvo ✓';setTimeout(()=>btn.textContent=o,1400);
+  loadRastreamento(c.id);
+}
+// LGPD: se marcado, o pixel desse cliente NÃO mostra banner de cookies próprio (o site já tem um).
+async function rastToggleBanner(chk){
+  const c=DB.clients.find(x=>x.id===_rastClientId);if(!c)return;
+  const val=chk.checked;
+  const {error}=await sb.from('clients').update({pixel_banner_proprio:val}).eq('id',c.id);
+  if(error){alert('Erro: '+error.message);chk.checked=!val;return}
+  c.pixelBannerProprio=val;
   loadRastreamento(c.id);
 }
 // Cria rápido o link de Bio ou de WhatsApp já preenchido (1 clique)
