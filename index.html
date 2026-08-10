@@ -2717,7 +2717,7 @@ const CRM_STAGES=[
 let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
 let _crmSel=new Set();
 let _crmSearch='',_crmFOrigin='',_crmFChannels=[],_crmFCampaigns=[],_crmFAdset='',_crmFAnuncio='',_crmFKeyword='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFDateFrom='',_crmFDateTo='',_crmFFlag='',_crmFCampo='';
-let _crmAiHistory=[],_crmAiBusy=false,_crmAiClient='';
+let _crmAiHistory=[],_crmAiBusy=false,_crmAiClient='',_crmAiComplementIdx=-1;
 function _crmAiEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function crmAndreiaContext(){
   const inst=(_crmInsts||[]).find(i=>i.id===_crmInstId);const clientId=(inst&&inst.client_id)||activeClientId||'';
@@ -2733,7 +2733,7 @@ function _crmAiScopeText(ctx,scope){
 }
 function crmAndreiaOpen(prefill){
   const ctx=crmAndreiaContext();if(!ctx.clientId){alert('Selecione um cliente no CRM.');return;}
-  if(_crmAiClient!==ctx.clientId){_crmAiClient=ctx.clientId;_crmAiHistory=[];}
+  if(_crmAiClient!==ctx.clientId){_crmAiClient=ctx.clientId;_crmAiHistory=[];_crmAiComplementIdx=-1;}
   let ov=document.getElementById('crmAndreiaOverlay');if(!ov){ov=document.createElement('div');ov.id='crmAndreiaOverlay';ov.style.cssText='position:fixed;inset:0;z-index:9999;background:#0009;display:flex;justify-content:flex-end';ov.onclick=e=>{if(e.target===ov)crmAndreiaClose()};document.body.appendChild(ov);}
   ov.innerHTML=`<style>
     #crmAiMessages .crm-ai-answer{font-size:13px;line-height:1.6;color:var(--text)}
@@ -2751,20 +2751,22 @@ function crmAndreiaOpen(prefill){
     <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:7px;flex-wrap:wrap">
       ${['Resumo geral do CRM','Resumo geral da procura de produtos e serviços','Resumo da qualificação dos leads','Quais anúncios ou palavras-chave trouxeram conversões e em qual etapa estão?','Resumo qualificatório e plano de melhoria','Onde os leads deixam de avançar entre MQL, SQL e venda?','Diagnostique os gargalos e monte um plano para Tráfego e Comercial','Faça uma projeção prudente para os próximos 30 dias.'].map(q=>`<button class="btn sm ghost" onclick="crmAndreiaAsk('${q.replace(/'/g,"\\'")}')">${_crmAiEsc(q)}</button>`).join('')}
     </div><div id="crmAiMessages" style="flex:1;overflow:auto;padding:18px"></div>
-    <div style="padding:12px;border-top:1px solid var(--border);display:flex;gap:8px"><textarea id="crmAiInput" rows="2" placeholder="Pergunte qualquer coisa sobre este CRM…" style="flex:1;resize:none" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();crmAndreiaAsk()}">${_crmAiEsc(prefill||'')}</textarea><button id="crmAiSend" class="btn primary" onclick="crmAndreiaAsk()">Enviar</button></div>
+    <div style="padding:12px;border-top:1px solid var(--border)"><div id="crmAiComplementBar" style="display:none;margin-bottom:8px;padding:8px 10px;border:1px solid var(--accent);border-radius:9px;background:rgba(212,165,32,.09);font-size:11.5px;color:var(--muted);align-items:center;justify-content:space-between;gap:8px"><span>➕ Complementando o relatório atual — diga o que deseja acrescentar.</span><button class="btn sm ghost" onclick="crmAndreiaCancelComplement()">Cancelar</button></div><div style="display:flex;gap:8px"><textarea id="crmAiInput" rows="2" placeholder="Pergunte qualquer coisa sobre este CRM…" style="flex:1;resize:none" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();crmAndreiaAsk()}">${_crmAiEsc(prefill||'')}</textarea><button id="crmAiSend" class="btn primary" onclick="crmAndreiaAsk()">Enviar</button></div></div>
   </aside>`;crmAndreiaRender();setTimeout(()=>document.getElementById('crmAiInput')?.focus(),30);
 }
 function crmAndreiaClose(){const ov=document.getElementById('crmAndreiaOverlay');if(ov)ov.remove();}
 function crmAndreiaMessageHTML(m,idx){
   if(m.role==='user')return `<div style="display:flex;justify-content:flex-end;margin:12px 0"><div style="width:auto;max-width:88%;padding:10px 13px;border:1px solid transparent;border-radius:14px;line-height:1.5;background:var(--accent);color:#111">${_crmAiEsc(m.text)}</div></div>`;
-  return `<div style="display:flex;justify-content:flex-start;margin:12px 0"><div style="width:100%;max-width:100%"><div class="crm-ai-answer" style="width:100%;padding:16px 18px;border:1px solid var(--border);border-radius:14px;line-height:1.5;background:var(--surface2);color:var(--text)">${typeof _mdToDocHtml==='function'?_mdToDocHtml(m.text):_crmAiEsc(m.text)}</div><div style="display:flex;justify-content:flex-end;margin-top:6px"><button class="btn sm ghost" style="font-size:11px" onclick="crmAndreiaExportPDF(${idx})">📄 Baixar PDF</button></div></div></div>`;
+  return `<div style="display:flex;justify-content:flex-start;margin:12px 0"><div style="width:100%;max-width:100%"><div class="crm-ai-answer" style="width:100%;padding:16px 18px;border:1px solid var(--border);border-radius:14px;line-height:1.5;background:var(--surface2);color:var(--text)">${typeof _mdToDocHtml==='function'?_mdToDocHtml(m.text):_crmAiEsc(m.text)}</div><div style="display:flex;justify-content:flex-end;gap:6px;margin-top:6px"><button class="btn sm ghost" style="font-size:11px" onclick="crmAndreiaComplement(${idx})">➕ Complementar relatório</button><button class="btn sm ghost" style="font-size:11px" onclick="crmAndreiaExportPDF(${idx})">📄 Baixar relatório atual</button></div></div></div>`;
 }
+function crmAndreiaComplement(idx){const m=_crmAiHistory[idx];if(!m||m.role!=='assistant')return;_crmAiComplementIdx=m.reportRoot!=null?m.reportRoot:idx;const bar=document.getElementById('crmAiComplementBar'),inp=document.getElementById('crmAiInput'),btn=document.getElementById('crmAiSend');if(bar)bar.style.display='flex';if(inp){inp.value='';inp.placeholder='O que você quer acrescentar a este relatório?';inp.focus();}if(btn)btn.textContent='Acrescentar';}
+function crmAndreiaCancelComplement(){_crmAiComplementIdx=-1;const bar=document.getElementById('crmAiComplementBar'),inp=document.getElementById('crmAiInput'),btn=document.getElementById('crmAiSend');if(bar)bar.style.display='none';if(inp)inp.placeholder='Pergunte qualquer coisa sobre este CRM…';if(btn)btn.textContent='Enviar';}
 function crmAndreiaExportPDF(idx){
-  const m=_crmAiHistory[idx];if(!m||m.role!=='assistant'||!m.text)return;
-  const c=DB.clients.find(x=>x.id===_crmAiClient);const heading=(m.text.match(/^#{1,3}\s+(.+)$/m)||[])[1]||'Diagnóstico do CRM';
+  const clicked=_crmAiHistory[idx];if(!clicked||clicked.role!=='assistant')return;const root=clicked.reportRoot!=null?clicked.reportRoot:idx,m=_crmAiHistory[root]||clicked,text=m.reportText||m.text;if(!text)return;
+  const c=DB.clients.find(x=>x.id===_crmAiClient);const heading=(text.match(/^#{1,3}\s+(.+)$/m)||[])[1]||'Diagnóstico do CRM';
   const h={title:String(heading).replace(/</g,'&lt;'),client:c?String(c.name).replace(/</g,'&lt;'):'',date:new Date().toLocaleDateString('pt-BR')};
   const scope=m.scopeText?`<div style="margin:0 0 18px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;color:#64748b;font-size:11px"><b>Escopo analisado:</b> ${_crmAiEsc(m.scopeText)}</div>`:'';
-  const html=_docWrap('executivo',h,scope+_mdToDocHtml(m.text));const w=window.open('','_blank');if(!w){alert('Permita pop-ups para gerar o PDF.');return;}
+  const html=_docWrap('executivo',h,scope+_mdToDocHtml(text));const w=window.open('','_blank');if(!w){alert('Permita pop-ups para gerar o PDF.');return;}
   w.document.write(html+'<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print()},350)}</scr'+'ipt>');w.document.close();
 }
 function crmAndreiaRender(){
@@ -2774,10 +2776,10 @@ function crmAndreiaRender(){
 }
 async function crmAndreiaAsk(q){
   if(_crmAiBusy)return;const inp=document.getElementById('crmAiInput');q=String(q||(inp&&inp.value)||'').trim();if(!q)return;
-  const ctx=crmAndreiaContext();if(!ctx.clientId)return;if(inp)inp.value='';_crmAiHistory.push({role:'user',text:q});_crmAiBusy=true;crmAndreiaRender();const btn=document.getElementById('crmAiSend');if(btn)btn.disabled=true;
-  try{const hist=_crmAiHistory.slice(0,-1).slice(-8);const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{crmAndreia:{...ctx,question:q,history:hist}}});if(error)throw error;const r=(data&&data.data)||data||{};const scopeText=_crmAiScopeText(ctx,r.scope);_crmAiHistory.push({role:'assistant',text:r.answer||'Não consegui gerar a análise agora.',scopeText});const sc=document.getElementById('crmAiScope');if(sc)sc.textContent=scopeText;}
+  const ctx=crmAndreiaContext();if(!ctx.clientId)return;const complementIdx=_crmAiComplementIdx;if(inp)inp.value='';_crmAiHistory.push({role:'user',text:q});_crmAiBusy=true;crmAndreiaRender();const btn=document.getElementById('crmAiSend');if(btn)btn.disabled=true;
+  try{const hist=_crmAiHistory.slice(0,-1).slice(-8);const question=complementIdx>=0?`Complemente o relatório anterior com esta análise adicional: ${q}. Entregue somente a nova seção complementar, sem repetir o relatório anterior.`:q;const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{crmAndreia:{...ctx,question,history:hist}}});if(error)throw error;const r=(data&&data.data)||data||{},answer=r.answer||'Não consegui gerar a análise agora.',scopeText=_crmAiScopeText(ctx,r.scope);const msg={role:'assistant',text:answer,scopeText};if(complementIdx>=0){const rootM=_crmAiHistory[complementIdx];if(rootM){rootM.reportText=(rootM.reportText||rootM.text)+'\n\n'+answer;msg.reportRoot=complementIdx;msg.reportText=rootM.reportText;}}_crmAiHistory.push(msg);const sc=document.getElementById('crmAiScope');if(sc)sc.textContent=scopeText;}
   catch(e){_crmAiHistory.push({role:'assistant',text:'Não consegui concluir esta análise agora. '+(e.message||e)});}
-  _crmAiBusy=false;if(btn)btn.disabled=false;crmAndreiaRender();
+  _crmAiBusy=false;crmAndreiaCancelComplement();if(btn)btn.disabled=false;crmAndreiaRender();
 }
 let _crmGuideOpen=(localStorage.getItem('crmGuide')!=='0');
 function toggleCrmGuide(){_crmGuideOpen=!_crmGuideOpen;localStorage.setItem('crmGuide',_crmGuideOpen?'1':'0');renderCrmGuide();}
