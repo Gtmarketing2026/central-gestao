@@ -2866,6 +2866,9 @@ async function loadCrmConvs(){
   const {data}=await q;_crmConvs=data||[];
   // estatísticas por conversa (nº de msgs, primeiro contato, direção da última) via RPC
   try{const {data:st}=await sb.rpc('crm_stats');const m={};(st||[]).forEach(s=>{m[s.conversation_id]=s;});_crmConvs.forEach(cv=>{const s=m[cv.id];if(s){cv._cnt=s.cnt;cv._first=s.first_ts;cv._lastdir=s.last_dir;}});}catch(e){}
+  // Venda é uma conquista histórica: mantém a etiqueta mesmo que o card saia de Comprou/Pós-Venda.
+  _crmConvs.forEach(cv=>{cv._soldEver=_crmIsSaleStage(cv.stage);});
+  if(inst.client_id){try{const saleKeys=crmStages().filter(s=>_crmIsSaleStage(s.key)).map(s=>s.key);if(saleKeys.length){const {data:sold}=await sb.from('wa_journey').select('conversation_id').eq('client_id',inst.client_id).in('to_stage',saleKeys).limit(5000);const ids=new Set((sold||[]).map(x=>x.conversation_id));_crmConvs.forEach(cv=>{if(ids.has(cv.id))cv._soldEver=true;});}}catch(e){}}
   if(_crmAnaMode)return; // Analytics aberto: não sobrescreve com o funil
   renderCrmFilters();renderCrm();renderCrmGuide();
 }
@@ -2880,6 +2883,7 @@ function _crmAdMetaLabel(o){o=o||{};const p=String(o.platform||'').toLowerCase()
 function _crmOriginKey(cv){const t=cv.origin_type||'organico';if(t==='utm')return 'utm:'+(((cv.origin||{}).track_source||'link').toLowerCase());return t;}
 function _crmChannelKey(cv){const o=cv.origin||{};if(o.channel==='google'||/google|gads|adwords/i.test(String(o.track_source||'')))return'google';if(cv.origin_type==='anuncio')return'meta';if(cv.origin_type==='organico'||!cv.origin_type)return'organico';return String(o.channel||o.track_source||'outro').toLowerCase();}
 function _crmChannelLabel(k){return k==='google'?'🔍 Google Ads':k==='meta'?'📣 Meta Ads':k==='organico'?'💬 Orgânico':'🔗 '+_crmSrcLabel(k);}
+function _crmIsSaleStage(k){const s=crmStages().find(x=>x.key===k),txt=String(k||'')+' '+String((s&&s.label)||'');return !!((s&&String(s.event||'').toLowerCase()==='purchase')||/compr|vend|fech|cliente|p[oó]s.?venda/i.test(txt));}
 function crmOriginBadge(cv){
   const t=(typeof cv==='string')?cv:(cv&&cv.origin_type)||'organico';const o=(typeof cv==='object'&&cv&&cv.origin)||{};
   if(t==='anuncio'&&o.channel==='google')return '<span style="font-size:9px;font-weight:800;color:#6ee7b7;background:rgba(52,211,153,.14);border:1px solid rgba(52,211,153,.4);border-radius:6px;padding:1px 5px">🔍 GOOGLE ADS</span>';
@@ -3055,7 +3059,7 @@ async function crmBulkMove(stage){
   const rows=[],toUpdate=[];
   ids.forEach(id=>{const cv=_crmConvs.find(x=>x.id===id);if(!cv||cv.stage===stage)return;
     rows.push({id:uid(),conversation_id:id,client_id:cv.client_id||null,from_stage:cv.stage||null,to_stage:stage,source:'manual',why:'Movido em lote pela equipe',actor:teamName(currentTeamId)||'equipe'});
-    toUpdate.push(id);cv.stage=stage;
+    toUpdate.push(id);cv.stage=stage;if(_crmIsSaleStage(stage))cv._soldEver=true;
   });
   if(!toUpdate.length){_crmSel.clear();renderCrm();return;}
   await sb.from('wa_conversations').update({stage}).in('id',toUpdate);
@@ -3072,6 +3076,7 @@ function crmCardHTML(cv){
   const fone=`<div style="font-size:11px;color:var(--muted);margin-top:2px">📞 ${cv.chat_id}</div>`;
   // flags: número errado / irrelevante
   const flags=[];
+  if(cv._soldEver)flags.push('<span title="Este contato já alcançou uma etapa de venda" style="font-size:8.5px;font-weight:800;color:#34d399;background:rgba(52,211,153,.13);border:1px solid rgba(52,211,153,.42);border-radius:5px;padding:1px 5px">💰 VENDA</span>');
   if(cv.num_errado)flags.push('<span style="font-size:8.5px;font-weight:800;color:#f87171;background:rgba(248,113,113,.13);border:1px solid rgba(248,113,113,.4);border-radius:5px;padding:1px 5px">⚠ NÚM. ERRADO</span>');
   if(cv.irrelevante)flags.push(`<span title="${String(cv.irrelevante_motivo||'').replace(/"/g,'&quot;')}" style="font-size:8.5px;font-weight:800;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.4);border-radius:5px;padding:1px 5px">⚑ IRRELEVANTE</span>`);
   const flagsRow=flags.length?`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${flags.join('')}</div>`:'';
@@ -3106,9 +3111,11 @@ function crmDragStart(e,id){e.dataTransfer.setData('text/plain',id);e.dataTransf
 async function crmDrop(e,stage){
   e.preventDefault();const col=e.currentTarget;if(col)col.style.background='';
   const id=e.dataTransfer.getData('text/plain');if(!id)return;
-  const cv=_crmConvs.find(x=>x.id===id);if(!cv||cv.stage===stage)return;
-  cv.stage=stage;renderCrm();
-  await sb.from('wa_conversations').update({stage}).eq('id',id);crmFireCapi(id,stage);
+  const cv=_crmConvs.find(x=>x.id===id);if(!cv||cv.stage===stage)return;const from=cv.stage||null;
+  cv.stage=stage;if(_crmIsSaleStage(stage))cv._soldEver=true;renderCrm();
+  await sb.from('wa_conversations').update({stage}).eq('id',id);
+  await sb.from('wa_journey').insert({id:uid(),conversation_id:id,client_id:cv.client_id||null,from_stage:from,to_stage:stage,source:'manual',why:'Movido por arrastar pela equipe',actor:teamName(currentTeamId)||'equipe'});
+  crmFireCapi(id,stage);
   if(_crmActive&&_crmActive.id===id){_crmActive.stage=stage;renderCrmDrawer();}
 }
 async function openCrmConv(id){
@@ -3864,7 +3871,7 @@ async function crmSetStage(id,stage,motivo){
   if(why===undefined&&cv.ai_stage&&cv.ai_stage===from&&from){
     why=prompt(`Você está mudando de "${_jrnStLabel(from)}" para "${_jrnStLabel(stage)}".\n\nPor que a IA errou? (opcional — fica registrado na Jornada)`,'')||'';
   }
-  cv.stage=stage;if(_crmActive&&_crmActive.id===id)_crmActive.stage=stage;
+  cv.stage=stage;if(_crmIsSaleStage(stage))cv._soldEver=true;if(_crmActive&&_crmActive.id===id){_crmActive.stage=stage;if(_crmIsSaleStage(stage))_crmActive._soldEver=true;}
   renderCrmDrawer();renderCrm();
   await sb.from('wa_conversations').update({stage}).eq('id',id);
   const corrigiuIA=!!(cv.ai_stage&&cv.ai_stage===from&&from);
