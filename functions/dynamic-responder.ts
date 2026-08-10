@@ -3344,26 +3344,48 @@ async function crmAndreia(input: any) {
   const stageCounts: Record<string, number> = {}, channelCounts: Record<string, number> = {}, campaignCounts: Record<string, number> = {};
   convs.forEach((cv: any) => { const st = cv.stage || "sem_etapa", ch = _crmAiChannel(cv), cp = cv.origin?.campaign || "sem campanha"; stageCounts[st] = (stageCounts[st] || 0) + 1; channelCounts[ch] = (channelCounts[ch] || 0) + 1; campaignCounts[cp] = (campaignCounts[cp] || 0) + 1; });
   const total = convs.length, qual = convs.filter((x: any) => /mql|sql|compr|pos/i.test(String(x.stage || ""))).length, sales = convs.filter((x: any) => /compr|pos/i.test(String(x.stage || ""))).length;
+  // Funil por passagem, não apenas por status "perdido": quem está numa etapa avançada necessariamente passou pelas anteriores.
+  const reached: Record<string, Set<string>> = { mql: new Set(), sql: new Set(), venda: new Set() };
+  const markReached = (cid: string, stage: any) => { const s = String(stage || "").toLowerCase(); if (/mql|qualificad/.test(s)) reached.mql.add(cid); if (/sql|oportun|propost/.test(s)) { reached.mql.add(cid); reached.sql.add(cid); } if (/compr|vend|fech|client|pos/.test(s)) { reached.mql.add(cid); reached.sql.add(cid); reached.venda.add(cid); } };
+  convs.forEach((cv: any) => markReached(cv.id, cv.stage));
+  journeys.forEach((j: any) => { markReached(j.conversation_id, j.from_stage); markReached(j.conversation_id, j.to_stage); });
+  const pct = (n: number, d: number) => d ? +(n / d * 100).toFixed(1) : 0;
+  const progression = {
+    entrada: total,
+    chegaram_mql: reached.mql.size,
+    nao_qualificaram_como_mql: Math.max(0, total - reached.mql.size),
+    taxa_entrada_para_mql_pct: pct(reached.mql.size, total),
+    chegaram_sql: reached.sql.size,
+    mql_que_ainda_nao_passaram_para_sql: Math.max(0, reached.mql.size - reached.sql.size),
+    taxa_mql_para_sql_pct: pct(reached.sql.size, reached.mql.size),
+    chegaram_venda: reached.venda.size,
+    sql_que_ainda_nao_passaram_para_venda: Math.max(0, reached.sql.size - reached.venda.size),
+    taxa_sql_para_venda_pct: pct(reached.venda.size, reached.sql.size),
+  };
+  const stalledByStage: Record<string, { total: number; acima_3_dias: number; acima_7_dias: number }> = {};
+  convs.forEach((cv: any) => { const st = String(cv.stage || "sem_etapa"), age = Math.max(0, (Date.now() - new Date(cv.last_at).getTime()) / 864e5), a = stalledByStage[st] ||= { total: 0, acima_3_dias: 0, acima_7_dias: 0 }; a.total++; if (age >= 3) a.acima_3_dias++; if (age >= 7) a.acima_7_dias++; });
   const half = Date.now() - Math.floor(days / 2) * 864e5, recent = convs.filter((x: any) => new Date(x.last_at).getTime() >= half).length, prior = total - recent;
   const commercial = convs.slice(0, 700).map((cv: any) => ({ id: cv.id, etapa: cv.stage || "sem_etapa", canal: _crmAiChannel(cv), campanha: cv.origin?.campaign || "", conjunto: cv.origin?.adset || "", campos: _crmAiSafeFields(cv.fields), ultima_mensagem: _crmAiMaskText(cv.last_text).slice(0, 220), numero_errado: !!cv.num_errado, irrelevante: !!cv.irrelevante }));
   const msgBy: Record<string, string[]> = {}; messages.forEach((m: any) => { const t = _crmAiMaskText(m.text).trim(); if (t && t.length > 2) (msgBy[m.conversation_id] ||= []).push(t.slice(0, 320)); });
   const transcripts = commercial.filter((x: any) => msgBy[x.id]?.length).slice(0, 350).map((x: any) => ({ etapa: x.etapa, canal: x.canal, campanha: x.campanha, campos: x.campos, mensagens_lead: msgBy[x.id].slice(0, 10) }));
   const lossMoves = journeys.filter((j: any) => /perd|desqual|lost/i.test(String(j.to_stage || "")) || /perd|desist|sem retorno|preco|valor|data|lot|vaga|concorr/i.test(String(j.why || ""))).slice(-600).map((j: any) => ({ de: j.from_stage || "", para: j.to_stage || "", motivo: _crmAiMaskText(j.why).slice(0, 260), data: j.created_at }));
-  const base = { cliente: client.name, segmento: client.seg || "", periodo_dias: days, filtros: f, total, etapas: stageCounts, canais: channelCounts, campanhas: campaignCounts, qualificados: qual, vendas: sales, taxa_qualificacao_pct: total ? +(qual / total * 100).toFixed(1) : 0, taxa_fechamento_pct: total ? +(sales / total * 100).toFixed(1) : 0, atividade_metade_recente: recent, atividade_metade_anterior: prior, movimentos_perda: lossMoves, leads_comerciais: commercial.map(({ id: _id, ...x }: any) => x), conversas_amostra: transcripts };
+  const base = { cliente: client.name, segmento: client.seg || "", periodo_dias: days, filtros: f, total, etapas_atuais: stageCounts, progressao_entre_etapas: progression, parados_por_etapa_e_tempo: stalledByStage, canais: channelCounts, campanhas: campaignCounts, qualificados: qual, vendas: sales, taxa_qualificacao_pct: total ? +(qual / total * 100).toFixed(1) : 0, taxa_fechamento_pct: total ? +(sales / total * 100).toFixed(1) : 0, atividade_metade_recente: recent, atividade_metade_anterior: prior, movimentos_com_motivo_registrado: lossMoves, leads_comerciais: commercial.map(({ id: _id, ...x }: any) => x), conversas_amostra: transcripts };
   const history = (Array.isArray(input.history) ? input.history : []).slice(-8).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.text || "").slice(0, 1800) }));
   const sys = `Você é a AndréIA, analista de CRM da GT Marketing. Responda perguntas sobre o CRM usando SOMENTE o pacote de dados fornecido, respeitando o cliente, período e filtros ativos. Você pode analisar procura por produtos/serviços, perfil e qualidade dos contatos, motivos de perda e passagem entre etapas, canais/campanhas, atendimento, gargalos, conversão e projeções.
 
 REGRAS:
 - Nunca invente número, produto, motivo ou tendência. Diferencie claramente DADO, INFERÊNCIA e PROJEÇÃO.
 - Para produtos mais procurados, agrupe sinônimos usando campos comerciais e mensagens dos leads e mostre quantidade apenas quando conseguir contar evidências; se for amostra, diga que é amostra.
-- Para perdas, use movimentos_perda e mensagens. Não trate ausência de motivo como um motivo inventado; informe a falta de registro.
+- Analise gargalos por PASSAGEM ENTRE ETAPAS usando progressao_entre_etapas: não qualificou como MQL; chegou a MQL mas ainda não passou para SQL; chegou a SQL mas ainda não virou venda. Não exija status "perdido". Diga "ainda não avançou" quando não houver encerramento confirmado.
+- Para motivos, use movimentos_com_motivo_registrado e a amostra de mensagens, agrupando assuntos semelhantes. Não trate ausência de motivo como motivo inventado.
+- Responda em VISÃO CONSOLIDADA: volumes, percentuais, temas recorrentes e prioridade. Não conte a história de um lead, não cite produto específico de uma única conversa e não faça análise um a um. Tema com uma única ocorrência deve ser tratado como evidência insuficiente, salvo se a pessoa pedir exemplos.
 - Projeções devem mostrar período, base usada, cálculo/premissa e faixa prudente; não prometa resultado.
 - Considere etapa MQL/SQL/comprou conforme configurada no CRM. Não chame todo contato de qualificado.
 - Se a pergunta não puder ser respondida com estes dados, diga exatamente qual dado está faltando e como a equipe deve registrá-lo.
 - Não mencione IDs internos. Não exponha dados pessoais. Responda em português, de modo executivo, claro e acionável, com títulos curtos e bullets. Máximo 700 palavras.`;
   const messagesAi: any[] = [{ role: "system", content: sys }, ...history, { role: "user", content: `PERGUNTA: ${question}\n\nPACOTE CRM:\n${JSON.stringify(base).slice(0, 110000)}` }];
   const ai = await callOpenAI({ model: "gpt-4o", messages: messagesAi, max_tokens: 2200, temperature: 0.25 });
-  return { answer: String(ai.choices?.[0]?.message?.content || "Não consegui gerar a análise."), scope: { cliente: client.name, dias: days, conversas: total, filtros: f }, suggestions: ["Quais produtos ou serviços são mais procurados?", "Quais são os principais motivos de perda entre etapas?", "Onde está o maior gargalo do funil?", "Faça uma projeção prudente para os próximos 30 dias."] };
+  return { answer: String(ai.choices?.[0]?.message?.content || "Não consegui gerar a análise."), scope: { cliente: client.name, dias: days, conversas: total, filtros: f }, suggestions: ["Quais produtos ou serviços são mais procurados?", "Onde os leads deixam de avançar entre MQL, SQL e venda?", "Onde está o maior gargalo do funil?", "Faça uma projeção prudente para os próximos 30 dias."] };
 }
 // Reuniões da agenda (Google Agenda) — tarefas sincronizadas (id 'cal*', nota "Reunião (Google Agenda)"). Diferente de tarefa operacional.
 async function waReunioes(args: any) {
