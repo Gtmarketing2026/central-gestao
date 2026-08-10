@@ -2722,7 +2722,18 @@ function crmAndreiaOpen(prefill){
   const ctx=crmAndreiaContext();if(!ctx.clientId){alert('Selecione um cliente no CRM.');return;}
   if(_crmAiClient!==ctx.clientId){_crmAiClient=ctx.clientId;_crmAiHistory=[];}
   let ov=document.getElementById('crmAndreiaOverlay');if(!ov){ov=document.createElement('div');ov.id='crmAndreiaOverlay';ov.style.cssText='position:fixed;inset:0;z-index:9999;background:#0009;display:flex;justify-content:flex-end';ov.onclick=e=>{if(e.target===ov)crmAndreiaClose()};document.body.appendChild(ov);}
-  ov.innerHTML=`<aside style="width:min(560px,96vw);height:100%;background:var(--surface);border-left:1px solid var(--border);box-shadow:-18px 0 50px #0008;display:flex;flex-direction:column">
+  ov.innerHTML=`<style>
+    #crmAiMessages .crm-ai-answer{font-size:13px;line-height:1.6;color:var(--text)}
+    #crmAiMessages .crm-ai-answer h1,#crmAiMessages .crm-ai-answer h2,#crmAiMessages .crm-ai-answer h3{font-size:12px;letter-spacing:.055em;text-transform:uppercase;color:var(--accent);margin:18px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+    #crmAiMessages .crm-ai-answer h1:first-child,#crmAiMessages .crm-ai-answer h2:first-child,#crmAiMessages .crm-ai-answer h3:first-child{margin-top:0}
+    #crmAiMessages .crm-ai-answer p{margin:6px 0 10px;color:var(--text)}
+    #crmAiMessages .crm-ai-answer ul,#crmAiMessages .crm-ai-answer ol{margin:5px 0 12px;padding-left:20px}
+    #crmAiMessages .crm-ai-answer li{margin:7px 0;padding-left:2px}
+    #crmAiMessages .crm-ai-answer strong{color:#fff;font-weight:750}
+    #crmAiMessages .crm-ai-answer table{width:100%;border-collapse:collapse;margin:8px 0 14px;font-size:11.5px}
+    #crmAiMessages .crm-ai-answer th,#crmAiMessages .crm-ai-answer td{padding:7px 8px;border-bottom:1px solid var(--border);text-align:left}
+    #crmAiMessages .crm-ai-answer th{color:var(--muted);font-size:9.5px;text-transform:uppercase}
+  </style><aside style="width:min(600px,96vw);height:100%;background:var(--surface);border-left:1px solid var(--border);box-shadow:-18px 0 50px #0008;display:flex;flex-direction:column">
     <div style="padding:18px;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:flex-start"><div style="font-size:25px">✨</div><div style="flex:1"><h3 style="margin:0">AndréIA do CRM</h3><div id="crmAiScope" style="font-size:11px;color:var(--muted);margin-top:4px">${_crmAiEsc(_crmAiScopeText(ctx))}</div></div><button class="btn sm ghost" onclick="crmAndreiaClose()">✕</button></div>
     <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:7px;flex-wrap:wrap">
       ${['Resumo qualificatório do CRM','Quais produtos ou serviços são mais procurados?','Onde os leads deixam de avançar entre MQL, SQL e venda?','Onde está o maior gargalo do funil?','Faça uma projeção prudente para os próximos 30 dias.'].map(q=>`<button class="btn sm ghost" onclick="crmAndreiaAsk('${q.replace(/'/g,"\\'")}')">${_crmAiEsc(q)}</button>`).join('')}
@@ -2734,7 +2745,7 @@ function crmAndreiaClose(){const ov=document.getElementById('crmAndreiaOverlay')
 function crmAndreiaRender(){
   const el=document.getElementById('crmAiMessages');if(!el)return;
   const welcome=!_crmAiHistory.length?`<div style="padding:14px;border:1px solid var(--border);border-radius:12px;color:var(--muted);line-height:1.55">Posso analisar procura por produtos, qualidade dos contatos, perdas entre etapas, gargalos, canais, campanhas e projeções. A resposta sempre respeita o cliente e os filtros atuais.</div>`:'';
-  el.innerHTML=welcome+_crmAiHistory.map(m=>`<div style="display:flex;justify-content:${m.role==='user'?'flex-end':'flex-start'};margin:10px 0"><div style="max-width:92%;padding:11px 13px;border-radius:13px;line-height:1.5;background:${m.role==='user'?'var(--accent)':'var(--surface2)'};color:${m.role==='user'?'#111':'var(--text)'}">${m.role==='assistant'?(typeof mdLite==='function'?mdLite(m.text):_crmAiEsc(m.text)):_crmAiEsc(m.text)}</div></div>`).join('')+(_crmAiBusy?'<div style="color:var(--muted);padding:10px">AndréIA está analisando os dados…</div>':'');el.scrollTop=el.scrollHeight;
+  el.innerHTML=welcome+_crmAiHistory.map(m=>`<div style="display:flex;justify-content:${m.role==='user'?'flex-end':'flex-start'};margin:12px 0"><div class="${m.role==='assistant'?'crm-ai-answer':''}" style="width:${m.role==='assistant'?'100%':'auto'};max-width:${m.role==='assistant'?'100%':'88%'};padding:${m.role==='assistant'?'16px 18px':'10px 13px'};border:1px solid ${m.role==='assistant'?'var(--border)':'transparent'};border-radius:14px;line-height:1.5;background:${m.role==='user'?'var(--accent)':'var(--surface2)'};color:${m.role==='user'?'#111':'var(--text)'}">${m.role==='assistant'?(typeof _mdToDocHtml==='function'?_mdToDocHtml(m.text):_crmAiEsc(m.text)):_crmAiEsc(m.text)}</div></div>`).join('')+(_crmAiBusy?'<div style="color:var(--muted);padding:10px">AndréIA está analisando os dados…</div>':'');el.scrollTop=el.scrollHeight;
 }
 async function crmAndreiaAsk(q){
   if(_crmAiBusy)return;const inp=document.getElementById('crmAiInput');q=String(q||(inp&&inp.value)||'').trim();if(!q)return;

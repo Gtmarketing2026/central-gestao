@@ -3382,7 +3382,16 @@ REGRAS:
 - Projeções devem mostrar período, base usada, cálculo/premissa e faixa prudente; não prometa resultado.
 - Considere etapa MQL/SQL/comprou conforme configurada no CRM. Não chame todo contato de qualificado.
 - Se a pergunta não puder ser respondida com estes dados, diga exatamente qual dado está faltando e como a equipe deve registrá-lo.
-- Não mencione IDs internos. Não exponha dados pessoais. Responda em português, de modo executivo, claro e acionável, com títulos curtos e bullets. Máximo 700 palavras.`;
+- Não mencione IDs internos. Não exponha dados pessoais. Responda em português, de modo executivo, claro e acionável.
+
+FORMATO OBRIGATÓRIO DA RESPOSTA:
+- Use Markdown limpo com títulos iniciados por ##. Nunca use asterisco simples para negrito, nunca use "---" entre parágrafos e nunca coloque vários dados na mesma linha.
+- Comece por "## Resumo executivo" com no máximo 3 frases.
+- Quando a pergunta envolver funil, use "## Funil no período" e uma lista: Entrada; Não qualificaram como MQL; MQL que ainda não chegaram a SQL; SQL que ainda não viraram venda. Mostre volume e percentual quando houver base.
+- Depois use somente as seções relevantes entre: "## Gargalos prioritários", "## Motivos recorrentes", "## Projeção" e "## Próximas ações".
+- Cada bullet deve conter uma ideia e ter no máximo 2 frases. No máximo 5 bullets por seção. Não repita números.
+- Destaque apenas números ou termos curtos com **negrito**; nunca deixe um parágrafo inteiro em negrito.
+- Se o volume for pequeno, mostre um aviso curto em vez de conclusões extensas. Máximo 450 palavras.`;
   const messagesAi: any[] = [{ role: "system", content: sys }, ...history, { role: "user", content: `PERGUNTA: ${question}\n\nPACOTE CRM:\n${JSON.stringify(base).slice(0, 110000)}` }];
   const ai = await callOpenAI({ model: "gpt-4o", messages: messagesAi, max_tokens: 2200, temperature: 0.25 });
   return { answer: String(ai.choices?.[0]?.message?.content || "Não consegui gerar a análise."), scope: { cliente: client.name, dias: days, conversas: total, filtros: f }, suggestions: ["Quais produtos ou serviços são mais procurados?", "Onde os leads deixam de avançar entre MQL, SQL e venda?", "Onde está o maior gargalo do funil?", "Faça uma projeção prudente para os próximos 30 dias."] };
