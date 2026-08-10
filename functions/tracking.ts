@@ -329,6 +329,33 @@ async function refOrigin(text: string): Promise<{ type: string; data: Record<str
   const paid = o.channel === "google" || o.channel === "meta" || /cpc|paid|ad/i.test(String(o.medium || ""));
   return { type: paid ? "anuncio" : "utm", data: { channel: o.channel || "", track_source: o.track_source || o.channel || "", campaign: o.campaign || "", adset: o.adgroup || "", ad: o.keyword || "", keyword: o.keyword || "", adgroup: o.adgroup || "", gclid: o.gclid || "", fbclid: o.fbclid || "", medium: o.medium || "" } };
 }
+function _waMatchText(s: string) {
+  return String(s || "").replace(/\[#(?:[a-z0-9]{6,10})\]/gi, "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+// Alguns fluxos do WhatsApp removem o [#ref] do texto pre-preenchido antes de entregar a mensagem.
+// Fallback conservador: casa o texto recebido com o texto do botao clicado, dentro de 15 minutos.
+// So atribui quando todos os cliques candidatos com o mesmo texto sao do mesmo canal pago e nenhum ja foi usado.
+async function recentClickOrigin(clientId: string | null, text: string, ts: string): Promise<{ type: string; data: Record<string, unknown> } | null> {
+  if (!clientId) return null;
+  const norm = _waMatchText(text); if (norm.length < 12) return null;
+  const end = new Date(ts); if (isNaN(end.getTime())) return null;
+  const start = new Date(end.getTime() - 15 * 60_000).toISOString();
+  const evs = await sbSelect("track_events", `client_id=eq.${encodeURIComponent(clientId)}&type=eq.wpp_click&created_at=gte.${encodeURIComponent(start)}&created_at=lte.${encodeURIComponent(end.toISOString())}&select=id,created_at,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,fbclid,meta&order=created_at.desc&limit=30`);
+  const matches = evs.filter((e: any) => {
+    let preset = ""; try { preset = new URL(String(e.meta?.dest || "")).searchParams.get("text") || ""; } catch (_e) { /* */ }
+    return _waMatchText(preset) === norm;
+  }).filter((e: any) => _channelOf(e.utm_source || "", e.gclid || "", e.fbclid || "") !== "link");
+  if (!matches.length) return null;
+  const channels = [...new Set(matches.map((e: any) => _channelOf(e.utm_source || "", e.gclid || "", e.fbclid || "")))];
+  if (channels.length !== 1) return null;
+  for (const e of matches) {
+    const used = await sbSelect("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&origin-%3E%3Etrack_event_id=eq.${encodeURIComponent(e.id)}&select=id&limit=1`);
+    if (used.length) continue;
+    const m = e.meta || {}, channel = channels[0];
+    return { type: "anuncio", data: { channel, track_source: e.utm_source || channel, medium: e.utm_medium || "", campaign: e.utm_campaign || m.campaignid || "", adset: e.utm_content || m.adgroupid || "", ad: m.adid || e.utm_term || "", keyword: e.utm_term || m.keyword || "", adgroup: m.adgroupid || "", gclid: e.gclid || "", fbclid: e.fbclid || "", track_event_id: e.id, attribution_method: "click_text_time", confidence: "inferida" } };
+  }
+  return null;
+}
 function waMsgText(m: any): string {
   const c = m.content || {};
   return m.text || c.text || c.conversation || c.extendedTextMessage?.text || c.imageMessage?.caption || c.videoMessage?.caption || "";
@@ -479,6 +506,7 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
     let convId = existing?.id;
     let origin = fromMe ? null : waExtractOrigin(m);
     if (!fromMe) { const rf = await refOrigin(text); if (rf) origin = rf; }
+    if (!fromMe && !origin && (!existing || !existing.origin_type || existing.origin_type === "organico")) origin = await recentClickOrigin(clientId, text, ts);
     if (!convId) {
       convId = uid();
       // nome vem SÓ de mensagem do LEAD (inbound) — em msg enviada, senderName é o dono da instância (ficava tudo com o mesmo nome)
@@ -775,6 +803,24 @@ Deno.serve(async (req) => {
     const clientIds = clientIdsParam ? clientIdsParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
     try {
       const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ channelMetricsCollect: { since, until, clientIds } }) });
+      const t = await r.text();
+      return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
+    } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
+  }
+
+  // /instagram/followers-tick -> snapshot diario de seguidores no schema `midia` (Fase 3, chamado pelo cron diario).
+  if (p === "/instagram/followers-tick") {
+    try {
+      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ instagramFollowersSnapshot: true }) });
+      const t = await r.text();
+      return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
+    } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
+  }
+
+  // /instagram/organic-tick -> historiza conteudo organico no schema `midia` (Fase 4, chamado pelo cron diario).
+  if (p === "/instagram/organic-tick") {
+    try {
+      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ instagramOrganicSnapshot: { days: 30 } }) });
       const t = await r.text();
       return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
     } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
