@@ -2868,7 +2868,7 @@ async function loadCrmConvs(){
   try{const {data:st}=await sb.rpc('crm_stats');const m={};(st||[]).forEach(s=>{m[s.conversation_id]=s;});_crmConvs.forEach(cv=>{const s=m[cv.id];if(s){cv._cnt=s.cnt;cv._first=s.first_ts;cv._lastdir=s.last_dir;}});}catch(e){}
   // Venda é uma conquista histórica: mantém a etiqueta mesmo que o card saia de Comprou/Pós-Venda.
   _crmConvs.forEach(cv=>{cv._soldEver=_crmIsSaleStage(cv.stage);});
-  if(inst.client_id){try{const saleKeys=crmStages().filter(s=>_crmIsSaleStage(s.key)).map(s=>s.key);if(saleKeys.length){const {data:sold}=await sb.from('wa_journey').select('conversation_id').eq('client_id',inst.client_id).in('to_stage',saleKeys).limit(5000);const ids=new Set((sold||[]).map(x=>x.conversation_id));_crmConvs.forEach(cv=>{if(ids.has(cv.id))cv._soldEver=true;});}}catch(e){}}
+  if(inst.client_id){try{const {data:hist}=await sb.from('wa_journey').select('conversation_id,to_stage,source,created_at').eq('client_id',inst.client_id).order('created_at',{ascending:true}).limit(5000),bad=new Set(),last={};(hist||[]).forEach((j,i)=>{const at=new Date(j.created_at).getTime();if(j.source==='ia'&&_crmIsSaleStage(j.to_stage))last[j.conversation_id]={i,at};else if(j.source==='ia'&&!_crmIsSaleStage(j.to_stage)&&last[j.conversation_id]&&at-last[j.conversation_id].at<=10*60000){bad.add(last[j.conversation_id].i);delete last[j.conversation_id];}});const sold=new Set();(hist||[]).forEach((j,i)=>{if(_crmIsSaleStage(j.to_stage)&&!bad.has(i))sold.add(j.conversation_id);});_crmConvs.forEach(cv=>{if(sold.has(cv.id))cv._soldEver=true;});}catch(e){}}
   if(_crmAnaMode)return; // Analytics aberto: não sobrescreve com o funil
   renderCrmFilters();renderCrm();renderCrmGuide();
 }
@@ -3554,7 +3554,7 @@ async function crmAnalyticsOpen(days){
   q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
   const capiQ=sb.from('capi_events').select('status,event_name,error,created_at').eq('client_id',inst.client_id||'__none__').gte('created_at',since).order('created_at',{ascending:false}).limit(200);
   // jornada: histórico de etapas (pro funil acumulado — quem JÁ PASSOU por cada etapa)
-  let jq=sb.from('wa_journey').select('conversation_id,from_stage,to_stage').limit(8000);
+  let jq=sb.from('wa_journey').select('conversation_id,from_stage,to_stage,source,created_at').order('created_at',{ascending:true}).limit(8000);
   jq=inst.client_id?jq.eq('client_id',inst.client_id):jq.is('client_id',null);
   const [{data:convs},{data:capi},jr]=await Promise.all([q,capiQ,jq.then(r=>r).catch(()=>({data:[]}))]);
   const _cvs=convs||[];
@@ -3652,8 +3652,17 @@ function crmJourneyIndexer(jrn){
   const stages=crmStages().filter(s=>s.key!=='sem');
   const prog=stages.filter(s=>!_isLostStage(s));
   const idxOf={};prog.forEach((s,i)=>idxOf[s.key]=i);
+  // Se a própria IA desfizer "Comprou" em até 10 min, a marcação anterior foi
+  // uma correção automática — não uma venda histórica. Ex.: "passei a venda
+  // para o vendedor" continua sendo SQL até existir confirmação de fechamento.
+  const invalidSaleAt=new Set(),lastAiSale={};
+  (jrn||[]).forEach((r,i)=>{
+    const cid=r.conversation_id,at=new Date(r.created_at||0).getTime(),sale=_crmIsSaleStage(r.to_stage);
+    if(r.source==='ia'&&sale)lastAiSale[cid]={i,at};
+    else if(r.source==='ia'&&!sale&&lastAiSale[cid]&&at-lastAiSale[cid].at<=10*60000){invalidSaleAt.add(lastAiSale[cid].i);invalidSaleAt.add(i);delete lastAiSale[cid];}
+  });
   const byConv={};
-  (jrn||[]).forEach(r=>{const a=byConv[r.conversation_id]||(byConv[r.conversation_id]=[]);if(r.to_stage)a.push(r.to_stage);if(r.from_stage)a.push(r.from_stage);});
+  (jrn||[]).forEach((r,i)=>{const a=byConv[r.conversation_id]||(byConv[r.conversation_id]=[]);if(r.to_stage&&!(invalidSaleAt.has(i)&&_crmIsSaleStage(r.to_stage)))a.push(r.to_stage);if(r.from_stage&&!(invalidSaleAt.has(i)&&_crmIsSaleStage(r.from_stage)))a.push(r.from_stage);});
   // etapa MÁXIMA que o lead já alcançou: etapa atual (piso) + tudo que o histórico registrar
   const maxIdx=cv=>{let mx=0;if(idxOf[cv.stage]!=null)mx=Math.max(mx,idxOf[cv.stage]);(byConv[cv.id]||[]).forEach(k=>{if(idxOf[k]!=null)mx=Math.max(mx,idxOf[k]);});return mx;};
   const isLost=cv=>{const st=stages.find(s=>s.key===cv.stage);return !!(st&&_isLostStage(st));};
