@@ -3369,14 +3369,51 @@ async function crmAndreia(input: any) {
     sql_que_ainda_nao_passaram_para_venda: Math.max(0, reached.sql.size - reached.venda.size),
     taxa_sql_para_venda_pct: pct(reached.venda.size, reached.sql.size),
   };
+  // Funil separado por canal: evita que o resumo geral misture Meta, Google e orgânico
+  // e permite comparar volume, etapa atual e qualificação de cada origem.
+  const channelFunnel: Record<string, any> = {};
+  convs.forEach((cv: any) => {
+    const ch = _crmAiChannel(cv), st = String(cv.stage || "sem_etapa");
+    const a = channelFunnel[ch] ||= { entrada: 0, etapas: {}, qualificados_atuais: 0, vendas_atuais: 0, chegaram_mql: 0, chegaram_sql: 0, chegaram_venda: 0 };
+    a.entrada++; a.etapas[st] = (a.etapas[st] || 0) + 1;
+    if (/mql|sql|compr|pos/i.test(st)) a.qualificados_atuais++;
+    if (/compr|pos/i.test(st)) a.vendas_atuais++;
+    if (reached.mql.has(cv.id)) a.chegaram_mql++;
+    if (reached.sql.has(cv.id)) a.chegaram_sql++;
+    if (reached.venda.has(cv.id)) a.chegaram_venda++;
+  });
+  Object.values(channelFunnel).forEach((a: any) => {
+    a.nao_qualificaram_como_mql = Math.max(0, a.entrada - a.chegaram_mql);
+    a.mql_que_ainda_nao_passaram_para_sql = Math.max(0, a.chegaram_mql - a.chegaram_sql);
+    a.sql_que_ainda_nao_passaram_para_venda = Math.max(0, a.chegaram_sql - a.chegaram_venda);
+    a.taxa_qualificacao_pct = pct(a.chegaram_mql, a.entrada);
+    a.taxa_mql_para_sql_pct = pct(a.chegaram_sql, a.chegaram_mql);
+    a.taxa_sql_para_venda_pct = pct(a.chegaram_venda, a.chegaram_sql);
+  });
+  // Origem que efetivamente levou contatos adiante no CRM: anúncio no Meta e palavra-chave no Google.
+  const driverMap: Record<string, any> = {};
+  convs.forEach((cv: any) => {
+    const ch = _crmAiChannel(cv), o = cv.origin || {};
+    if (ch !== "meta" && ch !== "google") return;
+    const type = ch === "google" ? "palavra_chave" : "anuncio";
+    const name = String(ch === "google" ? (o.keyword || o.term || o.utm_term || "(palavra-chave não identificada)") : (o.ad || o.title || "(anúncio não identificado)"));
+    const key = `${ch}|${name}|${o.campaign || ""}|${o.adset || o.adgroup || ""}`;
+    const a = driverMap[key] ||= { canal: ch, tipo: type, nome: name, campanha: o.campaign || "", conjunto_ou_grupo: o.adset || o.adgroup || "", entrada: 0, etapas_atuais: {}, chegaram_mql: 0, chegaram_sql: 0, chegaram_venda: 0 };
+    const st = String(cv.stage || "sem_etapa"); a.entrada++; a.etapas_atuais[st] = (a.etapas_atuais[st] || 0) + 1;
+    if (reached.mql.has(cv.id)) a.chegaram_mql++;
+    if (reached.sql.has(cv.id)) a.chegaram_sql++;
+    if (reached.venda.has(cv.id)) a.chegaram_venda++;
+  });
+  const conversionDrivers = Object.values(driverMap).sort((a: any, b: any) => (b.chegaram_venda - a.chegaram_venda) || (b.chegaram_sql - a.chegaram_sql) || (b.chegaram_mql - a.chegaram_mql) || (b.entrada - a.entrada)).slice(0, 100);
   const stalledByStage: Record<string, { total: number; acima_3_dias: number; acima_7_dias: number }> = {};
   convs.forEach((cv: any) => { const st = String(cv.stage || "sem_etapa"), age = Math.max(0, (Date.now() - new Date(cv.last_at).getTime()) / 864e5), a = stalledByStage[st] ||= { total: 0, acima_3_dias: 0, acima_7_dias: 0 }; a.total++; if (age >= 3) a.acima_3_dias++; if (age >= 7) a.acima_7_dias++; });
   const half = Date.now() - Math.floor(days / 2) * 864e5, recent = convs.filter((x: any) => new Date(x.last_at).getTime() >= half).length, prior = total - recent;
-  const commercial = convs.slice(0, 700).map((cv: any) => ({ id: cv.id, etapa: cv.stage || "sem_etapa", canal: _crmAiChannel(cv), campanha: cv.origin?.campaign || "", conjunto: cv.origin?.adset || "", campos: _crmAiSafeFields(cv.fields), ultima_mensagem: _crmAiMaskText(cv.last_text).slice(0, 220), numero_errado: !!cv.num_errado, irrelevante: !!cv.irrelevante }));
+  const commercial = convs.slice(0, 700).map((cv: any) => ({ id: cv.id, etapa: cv.stage || "sem_etapa", canal: _crmAiChannel(cv), campanha: cv.origin?.campaign || "", conjunto: cv.origin?.adset || cv.origin?.adgroup || "", anuncio: cv.origin?.ad || "", palavra_chave: cv.origin?.keyword || cv.origin?.term || cv.origin?.utm_term || "", campos: _crmAiSafeFields(cv.fields), ultima_mensagem: _crmAiMaskText(cv.last_text).slice(0, 220), numero_errado: !!cv.num_errado, irrelevante: !!cv.irrelevante }));
   const msgBy: Record<string, string[]> = {}; messages.forEach((m: any) => { const t = _crmAiMaskText(m.text).trim(); if (t && t.length > 2) (msgBy[m.conversation_id] ||= []).push(t.slice(0, 320)); });
   const transcripts = commercial.filter((x: any) => msgBy[x.id]?.length).slice(0, 350).map((x: any) => ({ etapa: x.etapa, canal: x.canal, campanha: x.campanha, campos: x.campos, mensagens_lead: msgBy[x.id].slice(0, 10) }));
-  const lossMoves = journeys.filter((j: any) => /perd|desqual|lost/i.test(String(j.to_stage || "")) || /perd|desist|sem retorno|preco|valor|data|lot|vaga|concorr/i.test(String(j.why || ""))).slice(-600).map((j: any) => ({ de: j.from_stage || "", para: j.to_stage || "", motivo: _crmAiMaskText(j.why).slice(0, 260), data: j.created_at }));
-  const base = { cliente: client.name, segmento: client.seg || "", periodo_dias: days, filtros: f, total, etapas_atuais: stageCounts, progressao_entre_etapas: progression, parados_por_etapa_e_tempo: stalledByStage, canais: channelCounts, campanhas: campaignCounts, qualificados: qual, vendas: sales, taxa_qualificacao_pct: total ? +(qual / total * 100).toFixed(1) : 0, taxa_fechamento_pct: total ? +(sales / total * 100).toFixed(1) : 0, atividade_metade_recente: recent, atividade_metade_anterior: prior, movimentos_com_motivo_registrado: lossMoves, leads_comerciais: commercial.map(({ id: _id, ...x }: any) => x), conversas_amostra: transcripts };
+  const convById: Record<string, any> = {}; convs.forEach((cv: any) => { convById[cv.id] = cv; });
+  const lossMoves = journeys.filter((j: any) => /perd|desqual|lost/i.test(String(j.to_stage || "")) || /perd|desist|sem retorno|preco|valor|data|lot|vaga|concorr/i.test(String(j.why || ""))).slice(-600).map((j: any) => { const cv = convById[j.conversation_id] || {}, o = cv.origin || {}; return { de: j.from_stage || "", para: j.to_stage || "", motivo: _crmAiMaskText(j.why).slice(0, 260), data: j.created_at, canal: _crmAiChannel(cv), campanha: o.campaign || "", anuncio: o.ad || "", palavra_chave: o.keyword || o.term || o.utm_term || "" }; });
+  const base = { cliente: client.name, segmento: client.seg || "", periodo_dias: days, filtros: f, total, etapas_atuais: stageCounts, progressao_entre_etapas: progression, funil_e_qualificacao_por_canal: channelFunnel, conversoes_por_anuncio_ou_palavra_chave: conversionDrivers, parados_por_etapa_e_tempo: stalledByStage, canais: channelCounts, campanhas: campaignCounts, qualificados: qual, vendas: sales, taxa_qualificacao_pct: total ? +(qual / total * 100).toFixed(1) : 0, taxa_fechamento_pct: total ? +(sales / total * 100).toFixed(1) : 0, atividade_metade_recente: recent, atividade_metade_anterior: prior, movimentos_com_motivo_registrado: lossMoves, leads_comerciais: commercial.map(({ id: _id, ...x }: any) => x), conversas_amostra: transcripts };
   const history = (Array.isArray(input.history) ? input.history : []).slice(-8).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.text || "").slice(0, 1800) }));
   const sys = `Você é a AndréIA, consultora de crescimento, CRM e funil da GT Marketing. Responda usando SOMENTE o pacote de dados fornecido, respeitando o cliente, período e filtros ativos. Além de analisar procura por produtos/serviços, perfil e qualidade dos contatos, motivos, passagem entre etapas, canais/campanhas, atendimento, gargalos, conversão e projeções, transforme o diagnóstico em orientação prática para melhorar o funil.
 
@@ -3392,6 +3429,9 @@ REGRAS:
 - Recomendações devem ser específicas ao gargalo encontrado. Evite conselhos genéricos como "melhorar atendimento"; diga qual mudança testar, em qual etapa e qual indicador acompanhar.
 - Projeções devem mostrar período, base usada, cálculo/premissa e faixa prudente; não prometa resultado.
 - Considere etapa MQL/SQL/comprou conforme configurada no CRM. Não chame todo contato de qualificado.
+- Quando a pergunta for "Resumo geral do CRM" ou pedir visão geral, use obrigatoriamente funil_e_qualificacao_por_canal. Separe TODOS os canais presentes (Meta, Google, orgânico e outros) e informe, para cada canal: entrada, quantidade em cada etapa atual, chegaram a MQL, chegaram a SQL, chegaram a venda e taxas de qualificação/passagem. Não misture os canais em um único total sem mostrar essa abertura.
+- Quando pedirem quais anúncios ou palavras-chave trouxeram conversões, use conversoes_por_anuncio_ou_palavra_chave: Meta deve ser detalhado por anúncio e Google por palavra-chave. Mostre entrada e avanço para MQL, SQL e venda, além da distribuição das etapas atuais. Não chame MQL ou SQL de venda e não atribua conversão a um item sem identificação.
+- A abertura por canal também deve ser usada nos demais relatórios quando for pertinente: procura de produtos/serviços deve relacionar procura e canal; qualificação e gargalos devem comparar etapas e taxas por canal; perdas devem agrupar motivos por canal quando houver volume; projeções devem considerar a base de cada canal. Para Meta, detalhe anúncio quando a análise for de origem/desempenho; para Google, detalhe palavra-chave. Se o dado não estiver identificado, diga isso claramente em vez de omitir ou inventar.
 - Se a pergunta não puder ser respondida com estes dados, diga exatamente qual dado está faltando e como a equipe deve registrá-lo.
 - Não mencione IDs internos. Não exponha dados pessoais. Responda em português, de modo executivo, claro e acionável.
 
@@ -3399,6 +3439,7 @@ FORMATO OBRIGATÓRIO DA RESPOSTA:
 - Use Markdown limpo com títulos iniciados por ##. Nunca use asterisco simples para negrito, nunca use "---" entre parágrafos e nunca coloque vários dados na mesma linha.
 - Comece por "## Resumo executivo" com no máximo 3 frases.
 - Quando a pergunta envolver funil, use "## Funil no período" e uma lista: Entrada; Não qualificaram como MQL; MQL que ainda não chegaram a SQL; SQL que ainda não viraram venda. Mostre volume e percentual quando houver base.
+- No resumo geral, inclua "## Canais e qualificação" em tabela compacta, com uma linha por canal e colunas suficientes para mostrar as etapas e a taxa de qualificação. Depois destaque diferenças relevantes entre os canais sem declarar causalidade sem evidência.
 - Depois use somente as seções relevantes entre: "## Gargalos prioritários", "## Diagnóstico consultivo", "## Motivos recorrentes", "## Projeção" e "## Plano de melhoria".
 - Em "## Diagnóstico consultivo", organize cada gargalo como **Dado**, **Hipótese** e **Como validar**.
 - Em "## Plano de melhoria", entregue ações em ordem de prioridade e identifique no começo de cada bullet: **Tráfego**, **Comercial** ou **Processo/CRM**. Inclua ação, responsável sugerido e indicador de sucesso. Não inclua prazo.
