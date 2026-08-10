@@ -2861,9 +2861,14 @@ async function crmPoll(manual){
 async function loadCrmConvs(){
   const inst=_crmInsts.find(i=>i.id===_crmInstId);if(!inst)return;
   _crmSel.clear();
-  let q=sb.from('wa_conversations').select('*').order('last_at',{ascending:false}).limit(500);
-  q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
-  const {data}=await q;_crmConvs=data||[];
+  // Carrega em páginas: o antigo limite fixo de 500 escondia vendas mais antigas
+  // no Kanban, enquanto o Analytics (limite 4.000) ainda as contabilizava.
+  _crmConvs=[];const pageSize=1000,maxRows=5000;
+  for(let from=0;from<maxRows;from+=pageSize){
+    let q=sb.from('wa_conversations').select('*').order('last_at',{ascending:false}).range(from,from+pageSize-1);
+    q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
+    const {data,error}=await q;if(error)break;const page=data||[];_crmConvs.push(...page);if(page.length<pageSize)break;
+  }
   // estatísticas por conversa (nº de msgs, primeiro contato, direção da última) via RPC
   try{const {data:st}=await sb.rpc('crm_stats');const m={};(st||[]).forEach(s=>{m[s.conversation_id]=s;});_crmConvs.forEach(cv=>{const s=m[cv.id];if(s){cv._cnt=s.cnt;cv._first=s.first_ts;cv._lastdir=s.last_dir;}});}catch(e){}
   // Venda é uma conquista histórica: mantém a etiqueta mesmo que o card saia de Comprou/Pós-Venda.
