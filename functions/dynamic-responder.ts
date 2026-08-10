@@ -396,7 +396,7 @@ async function instagramOrganicContent(input: any) {
       const reach = ins.reach || 0, saved = ins.saved || 0, shares = ins.shares || 0;
       const eng = reach ? +(((likes + comments + saved + shares) / reach) * 100).toFixed(2) : null;
       return {
-        id: m.id, username: conta.username, caption: m.caption || "", tipo: m.media_type, permalink: m.permalink, midia: m.media_url || m.thumbnail_url,
+        id: m.id, contaId: conta.id, username: conta.username, caption: m.caption || "", tipo: m.media_type, permalink: m.permalink, midia: m.media_url || m.thumbnail_url,
         data: m.timestamp, likes, comments, reach: reach || null, saved: saved || null, shares: shares || null,
         views: ins.plays || null, eng,
       };
@@ -572,6 +572,7 @@ async function metaAdsInsights(m: any) {
   const totAgg: any = { spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0 };
   const byCamp: Record<string, any> = {};
   const byAdset: Record<string, any> = {};
+  const byAdDaily: Record<string, any> = {}; // anuncio x dia (banco de dados de midia — schema `midia`) - so populado quando byAd+daily juntos
   const ads: any[] = [];
   const wantObj = m.byAd || m.byCampaign;
   // Contas em PARALELO, e dentro de cada conta as chamadas (conta/objetivos/anuncios/campanhas/thumbs) tambem em paralelo.
@@ -596,7 +597,7 @@ async function metaAdsInsights(m: any) {
   const perAccount = await Promise.all(accounts.map(async (acc) => {
     const statusIssue = await fetchAccountStatus(acc.id);
     try {
-      const [accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, adsetRows] = await Promise.all([
+      const [accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, adsetRows, adDailyRows] = await Promise.all([
         fetchInsights(acc.id, "account"),
         m.daily ? fetchInsights(acc.id, "account", "&time_increment=1") : Promise.resolve([] as any[]),
         wantObj ? fetchObjectives(acc.id) : Promise.resolve({} as Record<string, any>),
@@ -606,16 +607,18 @@ async function metaAdsInsights(m: any) {
         // Buscamos tambem SEM quebra diaria pra ter o reach/frequencia DEDUPLICADO por campanha no periodo.
         (m.byCampaign && m.daily) ? fetchInsights(acc.id, "campaign", "") : Promise.resolve([] as any[]),
         m.byAdset ? fetchInsights(acc.id, "adset", m.daily ? "&time_increment=1" : "") : Promise.resolve([] as any[]),
+        // anuncio x dia — so quando pedido explicitamente (banco de dados de midia); nenhum outro caller usa byAd+daily juntos hoje
+        (m.byAd && m.daily) ? fetchInsights(acc.id, "ad", "&time_increment=1") : Promise.resolve([] as any[]),
       ]);
-      return { acc, accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, adsetRows, error: statusIssue as string | null };
+      return { acc, accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, adsetRows, adDailyRows, error: statusIssue as string | null };
     } catch (e) {
       // conta com erro NAO derruba as outras: devolve vazia + motivo (front mostra o disclaimer)
-      return { acc, accountRows: [] as any[], acctDaily: [] as any[], objByCampId: {} as Record<string, any>, adRows: [] as any[], campRows: [] as any[], campDedup: [] as any[], adsetRows: [] as any[], error: statusIssue || (e as any)?.message || String(e) };
+      return { acc, accountRows: [] as any[], acctDaily: [] as any[], objByCampId: {} as Record<string, any>, adRows: [] as any[], campRows: [] as any[], campDedup: [] as any[], adsetRows: [] as any[], adDailyRows: [] as any[], error: statusIssue || (e as any)?.message || String(e) };
     }
   }));
   const accountErrors = perAccount.filter((p) => p.error).map((p) => ({ id: p.acc.id, name: p.acc.name || p.acc.id, error: p.error }));
   const totRecByDate: Record<string, any> = {};
-  for (const { acc, accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, adsetRows } of perAccount) {
+  for (const { acc, accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, adsetRows, adDailyRows } of perAccount) {
     for (const row of acctDaily) {
       const s = shape(row); const k = row.date_start;
       if (!totRecByDate[k]) totRecByDate[k] = { date: k, sales: 0, spend: 0, revenue: 0, clicks: 0, impressions: 0, reach: 0, leads: 0, conversas: 0, videoViews: 0, engajamentos: 0, addToCart: 0, checkout: 0 };
@@ -631,13 +634,28 @@ async function metaAdsInsights(m: any) {
       const s = shape(row);
       ads.push({
         adId: row.ad_id, adName: row.ad_name || "(sem nome)", campaign: row.campaign_name || "", campaignId: row.campaign_id || null, adset: row.adset_name || "", adsetId: row.adset_id || null,
-        account: acc.name || acc.id, thumbnail: null,
+        account: acc.name || acc.id, accountId: acc.id, thumbnail: null,
         objetivo: objByCampId[row.campaign_id] || metaObjetivo(""),
         spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: s.reach, frequency: s.frequency,
         ctr: s.ctr, cpc: s.cpc, cpm: s.cpm, purchases: s.purchases, revenue: s.revenue, roas: s.roas,
         leads: s.leads, addToCart: s.addToCart, initiateCheckout: s.initiateCheckout,
         conversas: s.conversas, videoViews: s.videoViews, engajamentos: s.engajamentos,
         cpa: s.purchases ? s.spend / s.purchases : 0,
+      });
+    }
+    // anuncio x dia (banco de dados de midia) — mesma logica do adRows, so que 1 linha por dia em vez de total do periodo
+    for (const row of adDailyRows) {
+      const s = shape(row);
+      const adId = row.ad_id;
+      if (!adId || !row.date_start) continue;
+      if (!byAdDaily[adId]) byAdDaily[adId] = {
+        adId, adName: row.ad_name || "(sem nome)", campaign: row.campaign_name || "", campaignId: row.campaign_id || null,
+        adset: row.adset_name || "", adsetId: row.adset_id || null, account: acc.name || acc.id, accountId: acc.id,
+        objetivo: objByCampId[row.campaign_id] || metaObjetivo(""), records: [],
+      };
+      byAdDaily[adId].records.push({
+        date: row.date_start, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions,
+        reach: s.reach, frequency: s.frequency, leads: s.leads, conversas: s.conversas, videoViews: s.videoViews, engajamentos: s.engajamentos,
       });
     }
     for (const row of campRows) {
@@ -689,7 +707,7 @@ async function metaAdsInsights(m: any) {
     const thumbs = await fetchThumbsByIds(topIds);
     for (const a of ads) if (thumbs[a.adId]) a.thumbnail = thumbs[a.adId];
   }
-  return { total, campaigns, adsets: Object.values(byAdset), ads, accounts, accountErrors, period: m.since && m.until ? { since: m.since, until: m.until } : { datePreset: m.datePreset || "last_30d" } };
+  return { total, campaigns, adsets: Object.values(byAdset), adsDaily: Object.values(byAdDaily), ads, accounts, accountErrors, period: m.since && m.until ? { since: m.since, until: m.until } : { datePreset: m.datePreset || "last_30d" } };
 }
 
 // Saldo pré-pago da conta (pix/boleto): funding_source_details traz o saldo disponível
@@ -1199,11 +1217,12 @@ async function googleAdsInsights(g: any) {
   const totRecByDate: Record<string, any> = {};
   const byCamp: Record<string, any> = {};
   const byAdset: Record<string, any> = {};
+  const byAdDaily: Record<string, any> = {}; // anuncio x dia (banco de dados de midia — schema `midia`) - so populado quando byAd+daily juntos
   const ads: any[] = [];
 
   const perAccount = await Promise.all(accounts.map(async (acc) => {
     try {
-      const [accountRows, acctDaily, campRows, adRows, campConvRows, adConvRows, adsetRows] = await Promise.all([
+      const [accountRows, acctDaily, campRows, adRows, campConvRows, adConvRows, adsetRows, adDailyRows] = await Promise.all([
         gadsSearch(acc.id, `SELECT ${GADS_METRICS} FROM customer WHERE ${range}`, token),
         g.daily ? gadsSearch(acc.id, `SELECT segments.date, ${GADS_METRICS} FROM customer WHERE ${range}`, token) : Promise.resolve([] as any[]),
         g.byCampaign ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, campaign.advertising_channel_type, campaign_budget.amount_micros, campaign_budget.resource_name${g.daily ? ", segments.date" : ""}, ${GADS_METRICS_FULL} FROM campaign WHERE ${range}`, token) : Promise.resolve([] as any[]),
@@ -1212,10 +1231,12 @@ async function googleAdsInsights(g: any) {
         (g.byCampaign || g.byAd) ? gadsSearch(acc.id, `SELECT campaign.id, segments.conversion_action_name, segments.conversion_action_category, metrics.conversions FROM campaign WHERE ${range} AND metrics.conversions > 0`, token).catch(() => [] as any[]) : Promise.resolve([] as any[]),
         g.byAd ? gadsSearch(acc.id, `SELECT ad_group_ad.ad.id, segments.conversion_action_name, segments.conversion_action_category, metrics.conversions FROM ad_group_ad WHERE ${range} AND metrics.conversions > 0`, token).catch(() => [] as any[]) : Promise.resolve([] as any[]),
         g.byAdset ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, ad_group.id, ad_group.name${g.daily ? ", segments.date" : ""}, ${GADS_METRICS_FULL} FROM ad_group WHERE ${range}`, token) : Promise.resolve([] as any[]),
+        // anuncio x dia — so quando pedido explicitamente (banco de dados de midia); nenhum outro caller usa byAd+daily juntos hoje
+        (g.byAd && g.daily) ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, ad_group.id, ad_group.name, ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.ad.type, segments.date, ${GADS_METRICS_FULL} FROM ad_group_ad WHERE ${range} AND metrics.cost_micros > 0`, token) : Promise.resolve([] as any[]),
       ]);
-      return { acc, accountRows, acctDaily, campRows, adRows, campConvRows, adConvRows, adsetRows, error: null as string | null };
+      return { acc, accountRows, acctDaily, campRows, adRows, campConvRows, adConvRows, adsetRows, adDailyRows, error: null as string | null };
     } catch (e) {
-      return { acc, accountRows: [] as any[], acctDaily: [] as any[], campRows: [] as any[], adRows: [] as any[], campConvRows: [] as any[], adConvRows: [] as any[], adsetRows: [] as any[], error: (e as any)?.message || String(e) };
+      return { acc, accountRows: [] as any[], acctDaily: [] as any[], campRows: [] as any[], adRows: [] as any[], campConvRows: [] as any[], adConvRows: [] as any[], adsetRows: [] as any[], adDailyRows: [] as any[], error: (e as any)?.message || String(e) };
     }
   }));
   const accountErrors = perAccount.filter((p) => p.error).map((p) => ({ id: p.acc.id, name: p.acc.name || p.acc.id, error: p.error }));
@@ -1234,7 +1255,7 @@ async function googleAdsInsights(g: any) {
   }
   const _actList = (acts: Record<string, number>) => Object.entries(acts).map(([name, count]) => ({ name, count: Math.round(count), bucket: _gConvBucket(name, "") })).sort((a, b) => b.count - a.count);
 
-  for (const { acc, accountRows, acctDaily, campRows, adRows, adsetRows } of perAccount) {
+  for (const { acc, accountRows, acctDaily, campRows, adRows, adsetRows, adDailyRows } of perAccount) {
     for (const row of accountRows) {
       const s = gadsShape(row.metrics);
       totAgg.spend += s.spend; totAgg.impressions += s.impressions; totAgg.clicks += s.clicks;
@@ -1282,6 +1303,24 @@ async function googleAdsInsights(g: any) {
       c.spend += s.spend;
       if (g.daily && row.segments?.date) c.records.push({ date: row.segments.date, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: 0, leads: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos });
     }
+    // anuncio x dia (banco de dados de midia) — mesma logica do adRows, so que 1 linha por dia em vez de total do periodo
+    for (const row of (adDailyRows || [])) {
+      const s = gadsShape(row.metrics);
+      const ad = row.adGroupAd?.ad || {};
+      const adId = ad.id ? String(ad.id) : "";
+      if (!adId || !row.segments?.date) continue;
+      const adName = ad.name || (ad.type ? String(ad.type).replace(/_/g, " ").toLowerCase() : "anúncio") + " #" + adId;
+      const campId = row.campaign?.id ? String(row.campaign.id) : "";
+      if (!byAdDaily[adId]) byAdDaily[adId] = {
+        adId: "g" + adId, adName, campaign: row.campaign?.name || "", campaignId: campId || null,
+        adset: row.adGroup?.name || "", adsetId: row.adGroup?.id ? String(row.adGroup.id) : null,
+        account: acc.name || acc.id, accountId: acc.id,
+        objetivo: googleObjetivoConv(row.campaign?.advertisingChannelType, null), records: [],
+      };
+      // leads/conversas ficam 0 aqui (mesma decisao ja tomada pro adsetRows/campRows diario): a quebra por acao de conversao
+      // (convByAd) so vem em total-de-periodo, nao por dia — atribuir por dia exigiria uma chamada GAQL nova, fora do escopo desta fase.
+      byAdDaily[adId].records.push({ date: row.segments.date, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: 0, frequency: 0, leads: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos });
+    }
   }
   const total = {
     ...totAgg,
@@ -1327,7 +1366,7 @@ async function googleAdsInsights(g: any) {
     }
   }
   ads.sort((a: any, b: any) => b.spend - a.spend);
-  return { total, campaigns, adsets: Object.values(byAdset), ads, accounts, accountErrors, period: { since, until } };
+  return { total, campaigns, adsets: Object.values(byAdset), adsDaily: Object.values(byAdDaily), ads, accounts, accountErrors, period: { since, until } };
 }
 
 // ===== TikTok Ads =====
@@ -1432,6 +1471,179 @@ async function pinterestAdsInsights(m: any) {
   return { total, campaigns, _pinterest: true, period: { since, until } };
 }
 
+// ===== Banco de dados de midia (Fase 2, schema `midia`) — grava nivel-ANUNCIO x dia, em paralelo ao channel_metrics_daily.
+// Reaproveita a MESMA chamada metaAdsInsights/googleAdsInsights (com byAd+daily) feita pelo channelMetricsCollect logo
+// abaixo — nao dobra chamada de API. Ver docs/spec-banco-dados-midia.md e migrations/banco_dados_midia.sql.
+// Falha aqui NUNCA derruba a gravacao do channel_metrics_daily (Power BI atual) — so acumula em errors.
+async function _midiaWriteAdsDaily(clientId: string, platform: "meta" | "google", contaExternaId: string, contaNome: string, adsDaily: any[]): Promise<number> {
+  if (!adsDaily || !adsDaily.length) return 0;
+  const origemDeteccao = platform === "meta" ? "meta_actions" : "google_conversion_action";
+  // Google nao fornece reach/frequencia na API (ver Etapa 4 da spec) — fica NULL sempre, nunca 0. Meta fornece de verdade,
+  // entao usa ?? (so vira NULL se o campo realmente nao vier), preservando um alcance=0 legitimo do Meta quando acontecer.
+  const semReachFreq = platform === "google";
+
+  const contaRet = await _midiaUpsert("dim_conta", [{ client_id: clientId, plataforma_id: platform, conta_externa_id: contaExternaId, nome: contaNome || contaExternaId }], "client_id,plataforma_id,conta_externa_id");
+  const contaId = contaRet[0]?.id;
+  if (!contaId) return 0;
+
+  const campsByExt: Record<string, any> = {};
+  for (const a of adsDaily) {
+    if (!a.campaignId) continue;
+    const k = String(a.campaignId);
+    if (!campsByExt[k]) campsByExt[k] = {
+      conta_id: contaId, campanha_externa_id: k, nome: a.campaign || "",
+      objetivo_bruto: (a.objetivo && (a.objetivo.codigo || a.objetivo.tipo)) || null,
+      objetivo_tipo: (a.objetivo && a.objetivo.tipo) || null, objetivo_rotulo: (a.objetivo && a.objetivo.rotulo) || null,
+    };
+  }
+  const campRet = await _midiaUpsert("dim_campanha", Object.values(campsByExt), "conta_id,campanha_externa_id");
+  const campIdByExt: Record<string, string> = {};
+  for (const c of campRet) campIdByExt[c.campanha_externa_id] = c.id;
+
+  const gruposByExt: Record<string, any> = {};
+  for (const a of adsDaily) {
+    if (!a.adsetId || !a.campaignId) continue;
+    const campanhaId = campIdByExt[String(a.campaignId)];
+    if (!campanhaId) continue;
+    const key = campanhaId + "|" + a.adsetId;
+    if (!gruposByExt[key]) gruposByExt[key] = { campanha_id: campanhaId, grupo_externo_id: String(a.adsetId), nome: a.adset || "" };
+  }
+  const grupoRet = await _midiaUpsert("dim_grupo", Object.values(gruposByExt), "campanha_id,grupo_externo_id");
+  const grupoIdByKey: Record<string, string> = {};
+  for (const g of grupoRet) grupoIdByKey[g.campanha_id + "|" + g.grupo_externo_id] = g.id;
+
+  const anunciosByExt: Record<string, any> = {};
+  const anuncioIdKeyOf = (a: any) => {
+    if (!a.adId || !a.adsetId || !a.campaignId) return null;
+    const campanhaId = campIdByExt[String(a.campaignId)];
+    if (!campanhaId) return null;
+    const grupoId = grupoIdByKey[campanhaId + "|" + a.adsetId];
+    if (!grupoId) return null;
+    return { grupoId, key: grupoId + "|" + a.adId };
+  };
+  for (const a of adsDaily) {
+    const r = anuncioIdKeyOf(a);
+    if (!r) continue;
+    if (!anunciosByExt[r.key]) anunciosByExt[r.key] = { grupo_id: r.grupoId, anuncio_externo_id: String(a.adId), nome: a.adName || "" };
+  }
+  const anuncioRet = await _midiaUpsert("dim_anuncio", Object.values(anunciosByExt), "grupo_id,anuncio_externo_id");
+  const anuncioIdByKey: Record<string, string> = {};
+  for (const ad of anuncioRet) anuncioIdByKey[ad.grupo_id + "|" + ad.anuncio_externo_id] = ad.id;
+
+  const perfRows: any[] = [], resRows: any[] = [], videoRows: any[] = [], engRows: any[] = [];
+  for (const a of adsDaily) {
+    const r = anuncioIdKeyOf(a);
+    if (!r) continue;
+    const anuncioId = anuncioIdByKey[r.key];
+    if (!anuncioId) continue;
+    for (const rec of (a.records || [])) {
+      if (!rec.date) continue;
+      perfRows.push({
+        anuncio_id: anuncioId, data: rec.date, moeda: "BRL",
+        investimento: rec.spend || 0,
+        impressoes: rec.impressions ?? null,
+        cliques: rec.clicks ?? null,
+        alcance: semReachFreq ? null : (rec.reach ?? null),
+        frequencia: semReachFreq ? null : (rec.frequency ?? null),
+        atualizado_em: new Date().toISOString(),
+      });
+      const pushResultado = (tipo: string, qtd: number) => { if (qtd > 0) resRows.push({ anuncio_id: anuncioId, data: rec.date, tipo_resultado: tipo, quantidade: qtd, valor: tipo === "compra" ? (rec.revenue ?? null) : null, origem_deteccao: origemDeteccao, moeda: "BRL" }); };
+      pushResultado("compra", rec.sales || 0);
+      pushResultado("lead", rec.leads || 0);
+      pushResultado("conversa", rec.conversas || 0);
+      if ((rec.videoViews || 0) > 0) videoRows.push({ anuncio_id: anuncioId, data: rec.date, visualizacoes: rec.videoViews });
+      if ((rec.engajamentos || 0) > 0) engRows.push({ anuncio_id: anuncioId, data: rec.date, engajamentos_total: rec.engajamentos });
+    }
+  }
+  await Promise.all([
+    _midiaUpsert("fact_performance", perfRows, "anuncio_id,data"),
+    _midiaUpsert("fact_resultado", resRows, "anuncio_id,data,tipo_resultado"),
+    _midiaUpsert("fact_video", videoRows, "anuncio_id,data"),
+    _midiaUpsert("fact_engajamento", engRows, "anuncio_id,data"),
+  ]);
+  return perfRows.length;
+}
+
+// ===== Banco de dados de midia (Fase 3, schema `midia`) — snapshot DIARIO de seguidores do Instagram.
+// Gap real: instagramListAccounts() so busca ao vivo, nunca guardou historico (por isso "seguidores ganhos
+// no periodo" nao existia). 1 chamada de API pra TODOS os perfis da agencia de uma vez (me/accounts ja
+// retorna todo mundo) - nao faz 1 chamada por cliente. Ver docs/spec-banco-dados-midia.md.
+async function instagramFollowersSnapshot() {
+  const list = await instagramListAccounts();
+  if (!(list as any).ok) throw new Error((list as any).erro || "Falha ao listar contas do Instagram");
+  const seguidoresPorId: Record<string, number> = {};
+  for (const p of ((list as any).paginas || [])) if (p.instagram && p.instagram.id) seguidoresPorId[p.instagram.id] = Number(p.instagram.seguidores || 0);
+
+  const clientes = await _sbAll("clients", "status=neq.Encerrado&select=id,name,instagram_accounts");
+  const hoje = new Date().toISOString().slice(0, 10);
+  let gravados = 0; const semDado: string[] = [];
+  for (const c of clientes) {
+    const contas: any[] = Array.isArray(c.instagram_accounts) ? c.instagram_accounts : [];
+    for (const ig of contas) {
+      if (!ig.id) continue;
+      const seguidores = seguidoresPorId[ig.id];
+      if (seguidores == null) { semDado.push(`${c.name} (${ig.username || ig.id})`); continue; }
+      try {
+        const contaRet = await _midiaUpsert("dim_conta", [{ client_id: c.id, plataforma_id: "instagram_organico", conta_externa_id: String(ig.id), nome: ig.username || c.name }], "client_id,plataforma_id,conta_externa_id");
+        const contaId = contaRet[0]?.id;
+        if (!contaId) continue;
+        await _midiaUpsert("fact_seguidores_snapshot", [{ conta_id: contaId, data: hoje, total_seguidores: seguidores }], "conta_id,data");
+        gravados++;
+      } catch (e) { semDado.push(`${c.name} (${ig.username || ig.id}): ${String((e as any)?.message || e)}`); }
+    }
+  }
+  return { gravados, semDado, totalPerfisAgencia: Object.keys(seguidoresPorId).length };
+}
+
+// ===== Banco de dados de midia (Fase 4, schema `midia`) — historiza conteudo organico do Instagram.
+// Reaproveita instagramOrganicContent() (mesma chamada de API que a Curadoria de Conteudo ja usa) - so
+// grava tambem em dim_conteudo_organico + fact_conteudo_organico_metricas (1 snapshot por dia de coleta;
+// nao reescreve o post, so acumula historico de metricas ao longo do tempo). Ver docs/spec-banco-dados-midia.md.
+async function instagramOrganicSnapshot(m: any) {
+  const dias = Number(m && m.days) || 90;
+  const clientesAll = await _sbAll("clients", "status=neq.Encerrado&select=id,name,instagram_accounts");
+  const alvos = (Array.isArray(m?.clientIds) && m.clientIds.length)
+    ? clientesAll.filter((c: any) => m.clientIds.includes(c.id))
+    : clientesAll.filter((c: any) => Array.isArray(c.instagram_accounts) && c.instagram_accounts.length);
+  const hoje = new Date().toISOString().slice(0, 10);
+  let gravados = 0; const errors: any[] = [];
+  for (const c of alvos) {
+    try {
+      const r = await instagramOrganicContent({ clientId: c.id, days: dias });
+      const posts = ((r as any).posts || []) as any[];
+      if (!posts.length) continue;
+
+      const contasByExt: Record<string, any> = {};
+      for (const ig of (c.instagram_accounts || [])) contasByExt[String(ig.id)] = ig;
+      const contaIdsUsados = [...new Set(posts.map((p: any) => p.contaId).filter(Boolean))] as string[];
+      const contaIdMap: Record<string, string> = {};
+      for (const igId of contaIdsUsados) {
+        const ig = contasByExt[String(igId)];
+        const ret = await _midiaUpsert("dim_conta", [{ client_id: c.id, plataforma_id: "instagram_organico", conta_externa_id: String(igId), nome: (ig && ig.username) || String(igId) }], "client_id,plataforma_id,conta_externa_id");
+        if (ret[0]?.id) contaIdMap[String(igId)] = ret[0].id;
+      }
+
+      const conteudoByExt: Record<string, any> = {};
+      for (const p of posts) {
+        if (!p.contaId || !contaIdMap[String(p.contaId)]) continue;
+        conteudoByExt[p.id] = { conta_id: contaIdMap[String(p.contaId)], post_externo_id: String(p.id), tipo_midia: p.tipo || null, permalink: p.permalink || null, legenda: p.caption || null, publicado_em: p.data || null, thumbnail_url: p.midia || null };
+      }
+      const conteudoRet = Object.values(conteudoByExt).length ? await _midiaUpsert("dim_conteudo_organico", Object.values(conteudoByExt), "conta_id,post_externo_id") : [];
+      const conteudoIdByExt: Record<string, string> = {};
+      for (const cc of conteudoRet) conteudoIdByExt[cc.post_externo_id] = cc.id;
+
+      const metricRows = posts.filter((p: any) => conteudoIdByExt[p.id]).map((p: any) => ({
+        conteudo_id: conteudoIdByExt[p.id], data_coleta: hoje,
+        curtidas: p.likes ?? null, comentarios: p.comments ?? null, compartilhamentos: p.shares ?? null, salvamentos: p.saved ?? null,
+        alcance: p.reach ?? null, visualizacoes: p.views ?? null,
+      }));
+      if (metricRows.length) await _midiaUpsert("fact_conteudo_organico_metricas", metricRows, "conteudo_id,data_coleta");
+      gravados += metricRows.length;
+    } catch (e) { errors.push({ client: c.name, error: String((e as any)?.message || e) }); }
+  }
+  return { gravados, clientesProcessados: alvos.length, errors };
+}
+
 // ===== Banco de Dados (histórico diário por canal) — alimenta a aba "Banco de Dados", export CSV e a conexão do Power BI =====
 // Roda pra todos os clientes ativos com pelo menos um canal conectado (ou só os clientIds informados, pra permitir
 // reconstrução do histórico em lotes menores sem estourar o tempo/CPU da function). Usa daily:true nas mesmas funções
@@ -1461,16 +1673,26 @@ async function channelMetricsCollect(m: any) {
     const gIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
     if (mIds.length) {
       try {
-        const r = await metaAdsInsights({ accounts: mIds.map((id: string) => ({ id, name: id })), since, until, daily: true, byCampaign: true, byAdset: true });
+        const r = await metaAdsInsights({ accounts: mIds.map((id: string) => ({ id, name: id })), since, until, daily: true, byCampaign: true, byAdset: true, byAd: true });
         const rows = ((r as any).adsets || []).flatMap((as: any) => toRows(c.id, "meta", as.campaign || "Meta Ads", as.adset || "", as.records || []));
         if (rows.length) { await _sbUpsert("channel_metrics_daily", rows, ON_CONFLICT); saved += rows.length; }
+        try {
+          const byAcct: Record<string, any[]> = {};
+          for (const a of ((r as any).adsDaily || [])) (byAcct[a.accountId] || (byAcct[a.accountId] = [])).push(a);
+          for (const [acctId, list] of Object.entries(byAcct)) await _midiaWriteAdsDaily(c.id, "meta", acctId, c.name, list);
+        } catch (e2) { errors.push({ client: c.name, channel: "meta-midia", error: String((e2 as any)?.message || e2) }); }
       } catch (e) { errors.push({ client: c.name, channel: "meta", error: String((e as any)?.message || e) }); }
     }
     if (gIds.length) {
       try {
-        const r = await googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until, daily: true, byCampaign: true, byAdset: true });
+        const r = await googleAdsInsights({ accounts: gIds.map((id: string) => ({ id, name: id })), since, until, daily: true, byCampaign: true, byAdset: true, byAd: true });
         const rows = ((r as any).adsets || []).flatMap((as: any) => toRows(c.id, "google", as.campaign || "Google Ads", as.adset || "", as.records || []));
         if (rows.length) { await _sbUpsert("channel_metrics_daily", rows, ON_CONFLICT); saved += rows.length; }
+        try {
+          const byAcct: Record<string, any[]> = {};
+          for (const a of ((r as any).adsDaily || [])) (byAcct[a.accountId] || (byAcct[a.accountId] = [])).push(a);
+          for (const [acctId, list] of Object.entries(byAcct)) await _midiaWriteAdsDaily(c.id, "google", acctId, c.name, list);
+        } catch (e2) { errors.push({ client: c.name, channel: "google-midia", error: String((e2 as any)?.message || e2) }); }
       } catch (e) { errors.push({ client: c.name, channel: "google", error: String((e as any)?.message || e) }); }
     }
     if (c.ga4_property_id) {
@@ -1483,6 +1705,19 @@ async function channelMetricsCollect(m: any) {
           leads: 0, conversas: 0, video_views: 0, engajamentos: 0, updated_at: new Date().toISOString(),
         }));
         if (rows.length) { await _sbUpsert("channel_metrics_daily", rows, ON_CONFLICT); saved += rows.length; }
+        // banco de dados de midia (Fase 5): mesma chamada ga4DailyBySource, so grava tambem em midia.fact_analytics_ga4.
+        // sessionSourceMedium vem combinado ("google / cpc") - separa em origem/midia_texto pra poder filtrar cada um.
+        try {
+          const ga4Rows = recs.map((rec: any) => {
+            const [origem, midiaTexto] = String(rec.sourceMedium || "").split(" / ");
+            return {
+              client_id: c.id, propriedade_id: String(c.ga4_property_id), data: rec.date,
+              origem: origem || "", midia_texto: midiaTexto || "", campanha_texto: rec.campaign || "", conteudo_texto: rec.adContent || "",
+              compras: rec.purchases || 0, receita: rec.revenue || 0, moeda: "BRL",
+            };
+          });
+          if (ga4Rows.length) await _midiaUpsert("fact_analytics_ga4", ga4Rows, "client_id,propriedade_id,data,origem,midia_texto,campanha_texto,conteudo_texto");
+        } catch (e2) { errors.push({ client: c.name, channel: "ga4-midia", error: String((e2 as any)?.message || e2) }); }
       } catch (e) { errors.push({ client: c.name, channel: "ga4", error: String((e as any)?.message || e) }); }
     }
   }
@@ -3059,6 +3294,77 @@ async function waCrmStats(clientId: string, dias = 30) {
   const vendas = c.comprou + c.posvenda;
   return { dias, total: c.total, etapas: { novo: c.novo, mql: c.mql, sql: c.sql, comprou: c.comprou, posvenda: c.posvenda, perdido: c.perdido, semEtapa: c.sem }, qualificados, vendas, taxaQualificacao: c.total ? +(qualificados / c.total * 100).toFixed(1) : 0, taxaConversao: c.total ? +(vendas / c.total * 100).toFixed(1) : 0, deAnuncio: c.anuncio, organico: c.organico, numeroErrado: c.numErrado, irrelevantes: c.irrelevante };
 }
+
+function _crmAiChannel(cv: any) {
+  const o = cv.origin || {}, src = String(o.track_source || "").toLowerCase();
+  if (o.channel === "google" || /google|gads|adwords/.test(src)) return "google";
+  if (cv.origin_type === "anuncio") return "meta";
+  if (!cv.origin_type || cv.origin_type === "organico") return "organico";
+  return String(o.channel || src || "outro").toLowerCase();
+}
+function _crmAiSafeFields(fields: any) {
+  const out: Record<string, string> = {};
+  Object.entries(fields || {}).forEach(([k, v]) => {
+    if (/nome|name|telefone|phone|whats|email|e-mail|cpf|cnpj|document|endereco|address/i.test(k)) return;
+    const s = _crmAiMaskText(v).trim(); if (s) out[k] = s.slice(0, 240);
+  });
+  return out;
+}
+function _crmAiMaskText(v: any) {
+  return String(v || "").replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[email oculto]").replace(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?9?\d{4}[-\s]?\d{4}/g, "[telefone oculto]").replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, "[documento oculto]").replace(/\b\d{2}\.?\d{3}\.?\d{3}\/\d{4}-?\d{2}\b/g, "[documento oculto]");
+}
+async function crmAndreia(input: any) {
+  const clientId = String(input.clientId || ""), question = String(input.question || "").trim();
+  if (!clientId || !question) throw new Error("Cliente e pergunta são obrigatórios.");
+  const days = Math.min(180, Math.max(7, Number(input.days) || 30));
+  const since = new Date(Date.now() - days * 864e5).toISOString();
+  const client = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=id,name,seg,dna`))[0];
+  if (!client) throw new Error("Cliente não encontrado.");
+  let convs = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&last_at=gte.${encodeURIComponent(since)}&select=id,stage,origin_type,origin,fields,last_at,last_text,num_errado,irrelevante&order=last_at.desc&limit=2000`);
+  const f = input.filters || {}, channels = Array.isArray(f.channels) ? f.channels : [], campaigns = Array.isArray(f.campaigns) ? f.campaigns : [];
+  convs = convs.filter((cv: any) => {
+    if (channels.length && !channels.includes(_crmAiChannel(cv))) return false;
+    if (campaigns.length && !campaigns.includes(cv.origin?.campaign || "")) return false;
+    if (f.origin && (cv.origin_type || "organico") !== f.origin && !(String(f.origin).startsWith("utm:") && cv.origin_type === "utm" && String(cv.origin?.track_source || "").toLowerCase() === String(f.origin).slice(4))) return false;
+    if (f.adset && cv.origin?.adset !== f.adset) return false;
+    return true;
+  });
+  const ids = convs.map((x: any) => x.id);
+  const journeys: any[] = [], messages: any[] = [];
+  // Prioriza perdas e oportunidades avançadas; limita volume para manter a análise rápida e sem exposição desnecessária.
+  const sampleIds = convs.filter((x: any) => /perd|compr|sql|mql|pos/i.test(String(x.stage || ""))).concat(convs).map((x: any) => x.id).filter((x: string, i: number, a: string[]) => a.indexOf(x) === i).slice(0, 450);
+  for (let i = 0; i < ids.length; i += 150) {
+    const part = ids.slice(i, i + 150); if (!part.length) continue;
+    journeys.push(...await sbGet("wa_journey", `conversation_id=in.(${part.map((x: string) => encodeURIComponent(x)).join(",")})&select=conversation_id,from_stage,to_stage,why,source,created_at&order=created_at.asc&limit=3000`));
+  }
+  for (let i = 0; i < sampleIds.length; i += 100) {
+    const part = sampleIds.slice(i, i + 100); if (!part.length) continue;
+    messages.push(...await sbGet("wa_messages", `conversation_id=in.(${part.map((x: string) => encodeURIComponent(x)).join(",")})&direction=eq.in&select=conversation_id,text,ts&order=ts.asc&limit=2500`));
+  }
+  const stageCounts: Record<string, number> = {}, channelCounts: Record<string, number> = {}, campaignCounts: Record<string, number> = {};
+  convs.forEach((cv: any) => { const st = cv.stage || "sem_etapa", ch = _crmAiChannel(cv), cp = cv.origin?.campaign || "sem campanha"; stageCounts[st] = (stageCounts[st] || 0) + 1; channelCounts[ch] = (channelCounts[ch] || 0) + 1; campaignCounts[cp] = (campaignCounts[cp] || 0) + 1; });
+  const total = convs.length, qual = convs.filter((x: any) => /mql|sql|compr|pos/i.test(String(x.stage || ""))).length, sales = convs.filter((x: any) => /compr|pos/i.test(String(x.stage || ""))).length;
+  const half = Date.now() - Math.floor(days / 2) * 864e5, recent = convs.filter((x: any) => new Date(x.last_at).getTime() >= half).length, prior = total - recent;
+  const commercial = convs.slice(0, 700).map((cv: any) => ({ id: cv.id, etapa: cv.stage || "sem_etapa", canal: _crmAiChannel(cv), campanha: cv.origin?.campaign || "", conjunto: cv.origin?.adset || "", campos: _crmAiSafeFields(cv.fields), ultima_mensagem: _crmAiMaskText(cv.last_text).slice(0, 220), numero_errado: !!cv.num_errado, irrelevante: !!cv.irrelevante }));
+  const msgBy: Record<string, string[]> = {}; messages.forEach((m: any) => { const t = _crmAiMaskText(m.text).trim(); if (t && t.length > 2) (msgBy[m.conversation_id] ||= []).push(t.slice(0, 320)); });
+  const transcripts = commercial.filter((x: any) => msgBy[x.id]?.length).slice(0, 350).map((x: any) => ({ etapa: x.etapa, canal: x.canal, campanha: x.campanha, campos: x.campos, mensagens_lead: msgBy[x.id].slice(0, 10) }));
+  const lossMoves = journeys.filter((j: any) => /perd|desqual|lost/i.test(String(j.to_stage || "")) || /perd|desist|sem retorno|preco|valor|data|lot|vaga|concorr/i.test(String(j.why || ""))).slice(-600).map((j: any) => ({ de: j.from_stage || "", para: j.to_stage || "", motivo: _crmAiMaskText(j.why).slice(0, 260), data: j.created_at }));
+  const base = { cliente: client.name, segmento: client.seg || "", periodo_dias: days, filtros: f, total, etapas: stageCounts, canais: channelCounts, campanhas: campaignCounts, qualificados: qual, vendas: sales, taxa_qualificacao_pct: total ? +(qual / total * 100).toFixed(1) : 0, taxa_fechamento_pct: total ? +(sales / total * 100).toFixed(1) : 0, atividade_metade_recente: recent, atividade_metade_anterior: prior, movimentos_perda: lossMoves, leads_comerciais: commercial.map(({ id: _id, ...x }: any) => x), conversas_amostra: transcripts };
+  const history = (Array.isArray(input.history) ? input.history : []).slice(-8).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.text || "").slice(0, 1800) }));
+  const sys = `Você é a AndréIA, analista de CRM da GT Marketing. Responda perguntas sobre o CRM usando SOMENTE o pacote de dados fornecido, respeitando o cliente, período e filtros ativos. Você pode analisar procura por produtos/serviços, perfil e qualidade dos contatos, motivos de perda e passagem entre etapas, canais/campanhas, atendimento, gargalos, conversão e projeções.
+
+REGRAS:
+- Nunca invente número, produto, motivo ou tendência. Diferencie claramente DADO, INFERÊNCIA e PROJEÇÃO.
+- Para produtos mais procurados, agrupe sinônimos usando campos comerciais e mensagens dos leads e mostre quantidade apenas quando conseguir contar evidências; se for amostra, diga que é amostra.
+- Para perdas, use movimentos_perda e mensagens. Não trate ausência de motivo como um motivo inventado; informe a falta de registro.
+- Projeções devem mostrar período, base usada, cálculo/premissa e faixa prudente; não prometa resultado.
+- Considere etapa MQL/SQL/comprou conforme configurada no CRM. Não chame todo contato de qualificado.
+- Se a pergunta não puder ser respondida com estes dados, diga exatamente qual dado está faltando e como a equipe deve registrá-lo.
+- Não mencione IDs internos. Não exponha dados pessoais. Responda em português, de modo executivo, claro e acionável, com títulos curtos e bullets. Máximo 700 palavras.`;
+  const messagesAi: any[] = [{ role: "system", content: sys }, ...history, { role: "user", content: `PERGUNTA: ${question}\n\nPACOTE CRM:\n${JSON.stringify(base).slice(0, 110000)}` }];
+  const ai = await callOpenAI({ model: "gpt-4o", messages: messagesAi, max_tokens: 2200, temperature: 0.25 });
+  return { answer: String(ai.choices?.[0]?.message?.content || "Não consegui gerar a análise."), scope: { cliente: client.name, dias: days, conversas: total, filtros: f }, suggestions: ["Quais produtos ou serviços são mais procurados?", "Quais são os principais motivos de perda entre etapas?", "Onde está o maior gargalo do funil?", "Faça uma projeção prudente para os próximos 30 dias."] };
+}
 // Reuniões da agenda (Google Agenda) — tarefas sincronizadas (id 'cal*', nota "Reunião (Google Agenda)"). Diferente de tarefa operacional.
 async function waReunioes(args: any) {
   const now = new Date(Date.now() - 3 * 3600e3); const ymd = (d: Date) => d.toISOString().slice(0, 10);
@@ -4166,6 +4472,24 @@ async function _sbUpsert(table: string, rows: any[], onConflict: string) {
   if (!rows.length) return;
   await fetch(`${_SB_URL}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) });
 }
+// ===== Banco de dados de midia (schema `midia`) — upsert com Content-Profile/Accept-Profile do PostgREST.
+// Precisa do schema "midia" na lista de "Exposed schemas" do Supabase (Settings > API > Data API) — passo manual,
+// nao dá pra fazer por SQL sem mexer no role authenticator (compartilhado com o app inteiro).
+// return=representation pra trazer o id (uuid gerado) de volta e resolver as dimensoes sem round-trip de SELECT.
+async function _midiaUpsert(table: string, rows: any[], onConflict: string): Promise<any[]> {
+  if (!rows.length) return [];
+  const r = await fetch(`${_SB_URL}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`, {
+    method: "POST",
+    headers: {
+      apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json",
+      "Content-Profile": "midia", "Accept-Profile": "midia",
+      Prefer: "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify(rows),
+  });
+  if (!r.ok) throw new Error(`midia.${table}: HTTP ${r.status} ${(await r.text()).slice(0, 300)}`);
+  return await r.json();
+}
 // ===== AndréIA — Automações / Central de notificações =====
 function _brDate(s: any) { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}` : (s || ""); }
 function _spNow() { return new Date(Date.now() - 3 * 3600e3); } // America/Sao_Paulo (UTC-3)
@@ -4380,6 +4704,10 @@ Deno.serve(async (req) => {
       const r = await securityAuditTick();
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    if (body.crmAndreia) {
+      const r = await crmAndreia(body.crmAndreia);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (body.briefingSugerirCampos) {
       const r = await briefingSugerirCampos(body.briefingSugerirCampos);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -4414,6 +4742,14 @@ Deno.serve(async (req) => {
     }
     if (body.instagramListAccounts) {
       const r = await instagramListAccounts();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.instagramFollowersSnapshot) {
+      const r = await instagramFollowersSnapshot();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.instagramOrganicSnapshot) {
+      const r = await instagramOrganicSnapshot(body.instagramOrganicSnapshot);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.instagramOrganicContent) {

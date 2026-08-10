@@ -652,6 +652,7 @@
         <span id="crmWho" style="font-size:12.5px;font-weight:600"></span>
         <button class="btn sm ghost" id="crmAgencyBtn" style="display:none" onclick="crmToggleAgency()"></button>
         <button class="btn sm ghost" onclick="crmAnalyticsOpen()">📊 Analytics</button>
+        <button class="btn sm primary" onclick="crmAndreiaOpen()">✨ AndréIA</button>
         <button class="btn sm ghost" onclick="crmConfigOpen()">⚙️ Configurar</button>
         <button class="btn sm ghost" onclick="toggleCrmGuide()">📖 Guia</button>
         <button class="btn sm ghost" id="crmPollBtn" onclick="crmPoll(true)" title="Busca as mensagens mais recentes">🔄 Atualizar</button>
@@ -2703,6 +2704,45 @@ const CRM_STAGES=[
 let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
 let _crmSel=new Set();
 let _crmSearch='',_crmFOrigin='',_crmFChannels=[],_crmFCampaigns=[],_crmFAdset='',_crmFAnuncio='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFFlag='',_crmFCampo='';
+let _crmAiHistory=[],_crmAiBusy=false,_crmAiClient='';
+function _crmAiEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function crmAndreiaContext(){
+  const inst=(_crmInsts||[]).find(i=>i.id===_crmInstId);const clientId=(inst&&inst.client_id)||activeClientId||'';
+  const ana=!!_crmAnaMode;
+  return {clientId,days:ana?(_crmAnaDays||30):30,filters:ana?{channels:(_crmAnaFChannels||[]).slice(),campaigns:(_crmAnaFCampaigns||[]).slice(),origin:_crmAnaFOrigin||'',adset:_crmAnaFAdset||''}:{channels:(_crmFChannels||[]).slice(),campaigns:(_crmFCampaigns||[]).slice(),origin:_crmFOrigin||'',adset:_crmFAdset||''}};
+}
+function _crmAiScopeText(ctx,scope){
+  const f=ctx.filters||{},parts=[`${ctx.days} dias`];
+  if(f.channels&&f.channels.length)parts.push(f.channels.map(_crmChannelLabel).join(', '));
+  if(f.campaigns&&f.campaigns.length)parts.push(`${f.campaigns.length} campanha(s)`);
+  if(f.origin)parts.push(`origem: ${f.origin}`);if(f.adset)parts.push(`conjunto: ${f.adset}`);
+  if(scope&&scope.conversas!=null)parts.push(`${scope.conversas} conversa(s)`);return parts.join(' · ');
+}
+function crmAndreiaOpen(prefill){
+  const ctx=crmAndreiaContext();if(!ctx.clientId){alert('Selecione um cliente no CRM.');return;}
+  if(_crmAiClient!==ctx.clientId){_crmAiClient=ctx.clientId;_crmAiHistory=[];}
+  let ov=document.getElementById('crmAndreiaOverlay');if(!ov){ov=document.createElement('div');ov.id='crmAndreiaOverlay';ov.style.cssText='position:fixed;inset:0;z-index:9999;background:#0009;display:flex;justify-content:flex-end';ov.onclick=e=>{if(e.target===ov)crmAndreiaClose()};document.body.appendChild(ov);}
+  ov.innerHTML=`<aside style="width:min(560px,96vw);height:100%;background:var(--surface);border-left:1px solid var(--border);box-shadow:-18px 0 50px #0008;display:flex;flex-direction:column">
+    <div style="padding:18px;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:flex-start"><div style="font-size:25px">✨</div><div style="flex:1"><h3 style="margin:0">AndréIA do CRM</h3><div id="crmAiScope" style="font-size:11px;color:var(--muted);margin-top:4px">${_crmAiEsc(_crmAiScopeText(ctx))}</div></div><button class="btn sm ghost" onclick="crmAndreiaClose()">✕</button></div>
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:7px;flex-wrap:wrap">
+      ${['Resumo qualificatório do CRM','Quais produtos ou serviços são mais procurados?','Quais são os motivos de perda entre etapas?','Onde está o maior gargalo do funil?','Faça uma projeção prudente para os próximos 30 dias.'].map(q=>`<button class="btn sm ghost" onclick="crmAndreiaAsk('${q.replace(/'/g,"\\'")}')">${_crmAiEsc(q)}</button>`).join('')}
+    </div><div id="crmAiMessages" style="flex:1;overflow:auto;padding:18px"></div>
+    <div style="padding:12px;border-top:1px solid var(--border);display:flex;gap:8px"><textarea id="crmAiInput" rows="2" placeholder="Pergunte qualquer coisa sobre este CRM…" style="flex:1;resize:none" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();crmAndreiaAsk()}">${_crmAiEsc(prefill||'')}</textarea><button id="crmAiSend" class="btn primary" onclick="crmAndreiaAsk()">Enviar</button></div>
+  </aside>`;crmAndreiaRender();setTimeout(()=>document.getElementById('crmAiInput')?.focus(),30);
+}
+function crmAndreiaClose(){const ov=document.getElementById('crmAndreiaOverlay');if(ov)ov.remove();}
+function crmAndreiaRender(){
+  const el=document.getElementById('crmAiMessages');if(!el)return;
+  const welcome=!_crmAiHistory.length?`<div style="padding:14px;border:1px solid var(--border);border-radius:12px;color:var(--muted);line-height:1.55">Posso analisar procura por produtos, qualidade dos contatos, perdas entre etapas, gargalos, canais, campanhas e projeções. A resposta sempre respeita o cliente e os filtros atuais.</div>`:'';
+  el.innerHTML=welcome+_crmAiHistory.map(m=>`<div style="display:flex;justify-content:${m.role==='user'?'flex-end':'flex-start'};margin:10px 0"><div style="max-width:92%;padding:11px 13px;border-radius:13px;line-height:1.5;background:${m.role==='user'?'var(--accent)':'var(--surface2)'};color:${m.role==='user'?'#111':'var(--text)'}">${m.role==='assistant'?(typeof mdLite==='function'?mdLite(m.text):_crmAiEsc(m.text)):_crmAiEsc(m.text)}</div></div>`).join('')+(_crmAiBusy?'<div style="color:var(--muted);padding:10px">AndréIA está analisando os dados…</div>':'');el.scrollTop=el.scrollHeight;
+}
+async function crmAndreiaAsk(q){
+  if(_crmAiBusy)return;const inp=document.getElementById('crmAiInput');q=String(q||(inp&&inp.value)||'').trim();if(!q)return;
+  const ctx=crmAndreiaContext();if(!ctx.clientId)return;if(inp)inp.value='';_crmAiHistory.push({role:'user',text:q});_crmAiBusy=true;crmAndreiaRender();const btn=document.getElementById('crmAiSend');if(btn)btn.disabled=true;
+  try{const hist=_crmAiHistory.slice(0,-1).slice(-8);const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{crmAndreia:{...ctx,question:q,history:hist}}});if(error)throw error;const r=(data&&data.data)||data||{};_crmAiHistory.push({role:'assistant',text:r.answer||'Não consegui gerar a análise agora.'});const sc=document.getElementById('crmAiScope');if(sc)sc.textContent=_crmAiScopeText(ctx,r.scope);}
+  catch(e){_crmAiHistory.push({role:'assistant',text:'Não consegui concluir esta análise agora. '+(e.message||e)});}
+  _crmAiBusy=false;if(btn)btn.disabled=false;crmAndreiaRender();
+}
 let _crmGuideOpen=(localStorage.getItem('crmGuide')!=='0');
 function toggleCrmGuide(){_crmGuideOpen=!_crmGuideOpen;localStorage.setItem('crmGuide',_crmGuideOpen?'1':'0');renderCrmGuide();}
 async function renderCrmGuide(){
