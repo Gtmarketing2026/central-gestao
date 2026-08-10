@@ -3201,7 +3201,8 @@ async function loadJornada(clientId){
       sb.from('lead_people').select('*').eq('client_id',c.id).order('last_seen',{ascending:false}).limit(4000),
       sb.from('lead_touchpoints').select('*').eq('client_id',c.id).gte('ts',since).order('ts').limit(20000)
     ]);
-    _jrnRaw={people:pe.data||[],touch:tp.data||[]};
+    const linkedChannels=[];if(c.metaAccountIds&&c.metaAccountIds.length)linkedChannels.push('meta');if(c.googleAccountIds&&c.googleAccountIds.length)linkedChannels.push('google');
+    _jrnRaw={people:pe.data||[],touch:tp.data||[],linkedChannels};
     jrnRender();
   }catch(e){body.innerHTML=`<div class="empty">Erro ao carregar: ${_jrnEsc(e.message||e)}</div>`;}
 }
@@ -3361,7 +3362,12 @@ function jrnRender(){
     if(!q)return true;
     return ((x.p.name||'')+' '+(x.p.phone||'')+' '+(x.p.email||'')).toLowerCase().includes(q);
   });
-  const chOpts=[...new Set(L.flatMap(x=>x.canais))].sort();
+  const actualChannels=[...new Set(L.flatMap(x=>x.canais))];
+  const linkedChannels=(_jrnRaw.linkedChannels||[]);
+  const chOpts=[...new Set([...actualChannels,...linkedChannels])].sort();
+  const channelCounts={};L.forEach(x=>x.canais.forEach(ch=>channelCounts[ch]=(channelCounts[ch]||0)+1));
+  const linkedWithoutLeads=linkedChannels.filter(ch=>!channelCounts[ch]);
+  const linkedNotice=linkedWithoutLeads.length?`<div style="background:rgba(240,192,64,.08);border:1px solid rgba(240,192,64,.35);border-radius:10px;padding:9px 12px;margin-bottom:10px;font-size:11.5px;color:var(--muted)">⚠️ <b style="color:#f0c040">${linkedWithoutLeads.map(ch=>_jrnEsc(ch)).join(' e ')} conectado</b>, mas sem lead atribuído no período. A conexão permite consultar a mídia; para aparecer na jornada, o clique precisa chegar com <b>gclid/UTM</b> e ser relacionado à conversa. <button class="btn xs ghost" onclick="jrnRebuild(this)" style="margin-left:6px">🔄 Reprocessar</button></div>`:'';
   const linha=x=>{
     const nm=x.p.name||x.p.phone||x.p.email||'(sem nome)';
     const chips=x.canais.map(ch=>`<span style="font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:5px;color:${_jrnCh(ch)};background:${_jrnCh(ch)}22;text-transform:capitalize">${_jrnEsc(ch)}</span>`).join(' ');
@@ -3388,14 +3394,14 @@ function jrnRender(){
           <option value="pedido" ${_jrnFSt==='pedido'?'selected':''}>🧾 Pedidos não finalizados (${pedidos.length})</option>
           <option value="lead" ${_jrnFSt==='lead'?'selected':''}>Em nutrição (${L.length-baseChk})</option>
         </select>
-        <select onchange="_jrnFCh=this.value;jrnRender()" style="width:auto;font-size:12px"><option value="">Todos os canais</option>${chOpts.map(ch=>`<option value="${_jrnEsc(ch)}" ${_jrnFCh===ch?'selected':''}>${_jrnEsc(ch)}</option>`).join('')}</select>
+        <select onchange="_jrnFCh=this.value;jrnRender()" style="width:auto;font-size:12px"><option value="">Todos os canais</option>${chOpts.map(ch=>`<option value="${_jrnEsc(ch)}" ${_jrnFCh===ch?'selected':''}>${_jrnEsc(ch)} (${channelCounts[ch]||0}${linkedChannels.includes(ch)?' · conectado':''})</option>`).join('')}</select>
       </div>
     </div>
     <table style="width:100%;border-collapse:collapse"><tr>${th('Lead')}${th('1º toque')}${th('Último toque')}${th('Canais')}${th('Toques','center')}${th('Duração','center')}${th('Status','center')}</tr>
     ${filt.slice(0,300).map(linha).join('')}</table>
     ${filt.length>300?`<div style="font-size:11px;color:var(--faint);margin-top:8px">Mostrando os 300 primeiros — use a busca pra afinar.</div>`:''}
   </div>`;
-  body.innerHTML=kpis+atrib+caminhos+`<div id="jrnGaBox" style="margin-bottom:16px"></div>`+lista;
+  body.innerHTML=kpis+atrib+caminhos+`<div id="jrnGaBox" style="margin-bottom:16px"></div>`+linkedNotice+lista;
   jrnLoadAnalytics();
 }
 // GA4 + Search Console: camada agregada (valida o que o pixel não capturou)
