@@ -10649,7 +10649,7 @@ const DOC_LAYOUTS={
 function _docWrap(layout,h,inner){
   const L=DOC_LAYOUTS[layout]||DOC_LAYOUTS.executivo;
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${h.title}</title><style>${L.css}</style></head><body>
-  <div class="doc"><header class="doc-hd"><div class="brand">GT Marketing${h.client?' · '+h.client:''}</div><h1>${h.title}</h1><div class="meta">${h.date}</div></header>
+  <div class="doc"><header class="doc-hd">${h.client?`<div class="brand">${h.client}</div>`:''}<h1>${h.title}</h1><div class="meta">${h.date}</div></header>
   <main class="doc-body">${inner}</main>
   <footer class="doc-ft">Gerado por AndréIA · GT Marketing · ${h.date}</footer></div></body></html>`;
 }
