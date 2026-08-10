@@ -3371,7 +3371,7 @@ async function crmAndreia(input: any) {
   const lossMoves = journeys.filter((j: any) => /perd|desqual|lost/i.test(String(j.to_stage || "")) || /perd|desist|sem retorno|preco|valor|data|lot|vaga|concorr/i.test(String(j.why || ""))).slice(-600).map((j: any) => ({ de: j.from_stage || "", para: j.to_stage || "", motivo: _crmAiMaskText(j.why).slice(0, 260), data: j.created_at }));
   const base = { cliente: client.name, segmento: client.seg || "", periodo_dias: days, filtros: f, total, etapas_atuais: stageCounts, progressao_entre_etapas: progression, parados_por_etapa_e_tempo: stalledByStage, canais: channelCounts, campanhas: campaignCounts, qualificados: qual, vendas: sales, taxa_qualificacao_pct: total ? +(qual / total * 100).toFixed(1) : 0, taxa_fechamento_pct: total ? +(sales / total * 100).toFixed(1) : 0, atividade_metade_recente: recent, atividade_metade_anterior: prior, movimentos_com_motivo_registrado: lossMoves, leads_comerciais: commercial.map(({ id: _id, ...x }: any) => x), conversas_amostra: transcripts };
   const history = (Array.isArray(input.history) ? input.history : []).slice(-8).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.text || "").slice(0, 1800) }));
-  const sys = `Você é a AndréIA, analista de CRM da GT Marketing. Responda perguntas sobre o CRM usando SOMENTE o pacote de dados fornecido, respeitando o cliente, período e filtros ativos. Você pode analisar procura por produtos/serviços, perfil e qualidade dos contatos, motivos de perda e passagem entre etapas, canais/campanhas, atendimento, gargalos, conversão e projeções.
+  const sys = `Você é a AndréIA, consultora de crescimento, CRM e funil da GT Marketing. Responda usando SOMENTE o pacote de dados fornecido, respeitando o cliente, período e filtros ativos. Além de analisar procura por produtos/serviços, perfil e qualidade dos contatos, motivos, passagem entre etapas, canais/campanhas, atendimento, gargalos, conversão e projeções, transforme o diagnóstico em orientação prática para melhorar o funil.
 
 REGRAS:
 - Nunca invente número, produto, motivo ou tendência. Diferencie claramente DADO, INFERÊNCIA e PROJEÇÃO.
@@ -3379,6 +3379,9 @@ REGRAS:
 - Analise gargalos por PASSAGEM ENTRE ETAPAS usando progressao_entre_etapas: não qualificou como MQL; chegou a MQL mas ainda não passou para SQL; chegou a SQL mas ainda não virou venda. Não exija status "perdido". Diga "ainda não avançou" quando não houver encerramento confirmado.
 - Para motivos, use movimentos_com_motivo_registrado e a amostra de mensagens, agrupando assuntos semelhantes. Não trate ausência de motivo como motivo inventado.
 - Responda em VISÃO CONSOLIDADA: volumes, percentuais, temas recorrentes e prioridade. Não conte a história de um lead, não cite produto específico de uma única conversa e não faça análise um a um. Tema com uma única ocorrência deve ser tratado como evidência insuficiente, salvo se a pessoa pedir exemplos.
+- Seja CONSULTIVA: para cada gargalo relevante, explique (1) o que o dado comprova, (2) quais causas são hipóteses plausíveis, (3) como validar essas hipóteses e (4) o que fazer para melhorar.
+- Separe responsabilidades: TRÁFEGO (segmentação, promessa, criativo, palavra-chave, campanha e qualidade do lead), COMERCIAL (tempo de resposta, abordagem, qualificação, follow-up, objeções e fechamento) e PROCESSO/CRM (etapas, campos, automação, registro de motivos e SLA). Não atribua culpa a uma área sem evidência.
+- Recomendações devem ser específicas ao gargalo encontrado. Evite conselhos genéricos como "melhorar atendimento"; diga qual mudança testar, em qual etapa e qual indicador acompanhar.
 - Projeções devem mostrar período, base usada, cálculo/premissa e faixa prudente; não prometa resultado.
 - Considere etapa MQL/SQL/comprou conforme configurada no CRM. Não chame todo contato de qualificado.
 - Se a pergunta não puder ser respondida com estes dados, diga exatamente qual dado está faltando e como a equipe deve registrá-lo.
@@ -3388,7 +3391,9 @@ FORMATO OBRIGATÓRIO DA RESPOSTA:
 - Use Markdown limpo com títulos iniciados por ##. Nunca use asterisco simples para negrito, nunca use "---" entre parágrafos e nunca coloque vários dados na mesma linha.
 - Comece por "## Resumo executivo" com no máximo 3 frases.
 - Quando a pergunta envolver funil, use "## Funil no período" e uma lista: Entrada; Não qualificaram como MQL; MQL que ainda não chegaram a SQL; SQL que ainda não viraram venda. Mostre volume e percentual quando houver base.
-- Depois use somente as seções relevantes entre: "## Gargalos prioritários", "## Motivos recorrentes", "## Projeção" e "## Próximas ações".
+- Depois use somente as seções relevantes entre: "## Gargalos prioritários", "## Diagnóstico consultivo", "## Motivos recorrentes", "## Projeção" e "## Plano de melhoria".
+- Em "## Diagnóstico consultivo", organize cada gargalo como **Dado**, **Hipótese** e **Como validar**.
+- Em "## Plano de melhoria", entregue ações em ordem de prioridade e identifique no começo de cada bullet: **Tráfego**, **Comercial** ou **Processo/CRM**. Inclua ação, responsável sugerido, prazo (48 horas, 7 dias ou 30 dias) e indicador de sucesso.
 - Cada bullet deve conter uma ideia e ter no máximo 2 frases. No máximo 5 bullets por seção. Não repita números.
 - Destaque apenas números ou termos curtos com **negrito**; nunca deixe um parágrafo inteiro em negrito.
 - Se o volume for pequeno, mostre um aviso curto em vez de conclusões extensas. Máximo 450 palavras.`;
@@ -4634,6 +4639,23 @@ async function waConnectivityCheck() {
   }
   return { checked: (insts || []).length, caidos };
 }
+// Poll server-side da(s) instancia(s) da AGENCIA (client_id null) que nao tem webhook proprio (o numero da
+// agencia tem o webhook ocupado por outro sistema externo - ver memoria whatsapp-uazapi). Sem isso, a
+// classificacao por IA dessas conversas so rodava quando alguem tinha a aba CRM aberta no navegador (o poll
+// era so client-side, setInterval 20s). Exclui a instancia da AndreIA (grupo) - essa ja recebe tudo via
+// webhook proprio (forward pro waAgentHandle), nao precisa de poll.
+async function waAgencyPollTick() {
+  const cfg = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
+  const andreiaInstId = (cfg.andreia_wa || {}).instance_id || null;
+  const insts = await sbGet("wa_instances", "client_id=is.null&status=eq.connected&select=id,name");
+  const alvos = (insts || []).filter((i: any) => i.id !== andreiaInstId);
+  const resultados: any[] = [];
+  for (const inst of alvos) {
+    try { const r = await waHandler({ op: "poll", instanceId: inst.id }); resultados.push({ instancia: inst.name, ...r }); }
+    catch (e) { resultados.push({ instancia: inst.name, erro: String((e as any)?.message || e) }); }
+  }
+  return { instanciasChecadas: alvos.length, resultados };
+}
 // Rotina de seguranca: roda public.security_audit() (RLS aberta pro anon, tabela sem RLS, view sem
 // security_invoker) via cron diario. So avisa (sino + grupo da AndréIA) quando aparece um achado NOVO,
 // pra nao repetir aviso todo dia do mesmo problema ja conhecido - compara com o que ficou salvo da ultima rodada.
@@ -4729,6 +4751,10 @@ Deno.serve(async (req) => {
     }
     if (body.waConnCheck) {
       const r = await waConnectivityCheck();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.waAgencyPollTick) {
+      const r = await waAgencyPollTick();
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.securityAuditTick) {
