@@ -4093,15 +4093,19 @@ async function waHandler(w: any) {
     const cache: Record<string, Record<string, string> | null> = {}; const titleCache: Record<string, Record<string, string> | null> = {}; let done = 0;
     for (const cv of (convs || [])) {
       const o = cv.origin || {};
-      // já resolvido = campanha é NOME (não um id numérico do ValueTrack)
-      if (o.campaign && !/^\d+$/.test(String(o.campaign))) continue;
+      // Só considera resolvido quando campanha E grupo já deixaram de ser IDs do ValueTrack.
+      // Antes, uma campanha com nome fazia o fluxo ignorar um adgroup ainda numérico.
+      const rawGroup = String(o.adgroup || o.adset || "");
+      const campaignResolved = !!o.campaign && !/^\d+$/.test(String(o.campaign));
+      const groupResolved = !rawGroup || !/^\d+$/.test(rawGroup);
+      if (campaignResolved && groupResolved) continue;
       let res: Record<string, string> | null = null;
       // (A) Meta: id do anúncio (source_id) → Graph direto
       if (o.source_id) { const key = String(o.source_id); if (cache[key] === undefined) cache[key] = await waResolveAd(key); res = cache[key]; }
       // (C) Meta: casar pelo TÍTULO do criativo nas contas do cliente
       if (!res && (o.title || o.body) && accIds.length) { const tk = String(o.title || "") + "␟" + String(o.body || ""); if (titleCache[tk] === undefined) titleCache[tk] = await waResolveAdByTitle(String(o.title || ""), accIds, String(o.body || "")); res = titleCache[tk]; }
       // Google: ValueTrack {campaignid}/{adgroupid} → nomes
-      if (!res && o.channel === "google" && gAccIds.length) { const gr = await waResolveGoogleCampaign(/^\d+$/.test(String(o.campaign || "")) ? String(o.campaign) : "", /^\d+$/.test(String(o.adgroup || "")) ? String(o.adgroup) : "", gAccIds); if (gr) res = { campaign: gr.campaign || o.campaign || "", adset: gr.adgroup || o.adset || "" }; }
+      if (!res && o.channel === "google" && gAccIds.length) { const gid = /^\d+$/.test(rawGroup) ? rawGroup : ""; const gr = await waResolveGoogleCampaign(/^\d+$/.test(String(o.campaign || "")) ? String(o.campaign) : "", gid, gAccIds); if (gr) res = { campaign: gr.campaign || o.campaign || "", adset: gr.adgroup || o.adset || "", adgroup: gr.adgroup || o.adgroup || "" }; }
       if (res) { await sbPatchD("wa_conversations", `id=eq.${cv.id}`, { origin: { ...o, ...res } }); done++; }
     }
     return { resolved: done };
@@ -4115,7 +4119,7 @@ async function waResolveAllOrigins(): Promise<{ resolved: number; clients: numbe
   // conversas de anúncio ainda não resolvidas (campanha vazia ou ainda em id numérico do ValueTrack)
   const convs = await sbGet("wa_conversations", "origin_type=eq.anuncio&select=id,client_id,origin&limit=2000");
   // ctwa_only (sem sourceId/título) não tem como resolver campanha pela API — não fica re-tentando
-  const pend = (convs || []).filter((cv: any) => { const o = cv.origin || {}; if (o.ctwa_only && !o.source_id && !o.title) return false; return cv.client_id && (!o.campaign || /^\d+$/.test(String(o.campaign))); });
+  const pend = (convs || []).filter((cv: any) => { const o = cv.origin || {}; if (o.ctwa_only && !o.source_id && !o.title) return false; const rawGroup = String(o.adgroup || o.adset || ""); return cv.client_id && (!o.campaign || /^\d+$/.test(String(o.campaign)) || /^\d+$/.test(rawGroup)); });
   if (!pend.length) return { resolved: 0, clients: 0 };
   // agrupa por cliente
   const byClient: Record<string, any[]> = {};
@@ -4133,7 +4137,7 @@ async function waResolveAllOrigins(): Promise<{ resolved: number; clients: numbe
       const o = cv.origin || {}; let res: Record<string, string> | null = null;
       if (o.source_id) { const key = String(o.source_id); if (cache[key] === undefined) cache[key] = await waResolveAd(key); res = cache[key]; }
       if (!res && (o.title || o.body) && accIds.length) { const tk = String(o.title || "") + "␟" + String(o.body || ""); if (titleCache[tk] === undefined) titleCache[tk] = await waResolveAdByTitle(String(o.title || ""), accIds, String(o.body || "")); res = titleCache[tk]; }
-      if (!res && o.channel === "google" && gAccIds.length) { const gr = await waResolveGoogleCampaign(/^\d+$/.test(String(o.campaign || "")) ? String(o.campaign) : "", /^\d+$/.test(String(o.adgroup || "")) ? String(o.adgroup) : "", gAccIds); if (gr) res = { campaign: gr.campaign || o.campaign || "", adset: gr.adgroup || o.adset || "" }; }
+      if (!res && o.channel === "google" && gAccIds.length) { const rawGroup = String(o.adgroup || o.adset || ""); const gr = await waResolveGoogleCampaign(/^\d+$/.test(String(o.campaign || "")) ? String(o.campaign) : "", /^\d+$/.test(rawGroup) ? rawGroup : "", gAccIds); if (gr) res = { campaign: gr.campaign || o.campaign || "", adset: gr.adgroup || o.adset || "", adgroup: gr.adgroup || o.adgroup || "" }; }
       if (res) { await sbPatchD("wa_conversations", `id=eq.${cv.id}`, { origin: { ...o, ...res } }); done++; }
     }
   }
