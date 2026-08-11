@@ -35,11 +35,11 @@
   .brand .eyebrow{font-family:'Space Grotesk';font-size:.7rem;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);font-weight:600}
   .brand h1{font-family:'Space Grotesk';font-size:1.5rem;font-weight:700;letter-spacing:-.02em}
   .brand p{font-size:12px;color:var(--muted)}
-  .sidebar>.brand{gap:9px;align-items:center}
+  .sidebar>.brand{gap:9px;align-items:center;position:relative}
   .sidebar>.brand .dot,.sidebar>.brand .dot img{width:34px!important;height:34px!important;border-radius:9px!important;flex:none}
   .sidebar>.brand h1{font-size:1rem!important;line-height:1.15;white-space:nowrap;letter-spacing:-.025em}
   .sidebar>.brand p{font-size:10.5px;line-height:1.25;white-space:nowrap;margin-top:3px}
-  .sidebar>.brand>.btn{width:28px;height:28px;padding:0!important;justify-content:center;margin-left:auto}
+  .sidebar>.brand>.btn{width:28px;height:28px;padding:0!important;justify-content:center;position:absolute;right:0;top:31px;margin:0}
   .tabs{display:flex;flex-direction:column;gap:3px;background:transparent;padding:0;border:none}
   .tab{padding:10px 12px;border:none;background:transparent;color:var(--muted);font-size:.88rem;font-weight:600;border-radius:10px;cursor:pointer;font-family:inherit;transition:.18s;display:flex;align-items:center;gap:8px;justify-content:flex-start;width:100%;text-align:left}
   .tab:hover{color:var(--text)}
@@ -857,12 +857,9 @@
       <h2>🤖 AndréIA</h2>
       <button class="btn sm ghost" onclick="openKnowledgeGlobal()" title="Alimentar a inteligência da AndréIA com PDFs (frameworks, métodos de gestores)">🧠 Conhecimento</button>
     </div>
-    <div class="hint" style="margin-bottom:14px">Sua gestora de tráfego em linguagem natural. Escolha um cliente (projeto) pra conversar com foco nele — cada cliente guarda o próprio histórico de conversas.</div>
+    <div class="hint" style="margin-bottom:14px">Sua gestora de tráfego em linguagem natural. O cliente analisado é o que estiver selecionado no menu lateral.</div>
     <div class="filterbar" style="margin-bottom:12px">
-      <label style="margin:0">Projeto:</label>
-      <select id="agentClientSelect" style="width:auto;min-width:220px" onchange="loadAgentProject(this.value)">
-        <option value="">🏢 Geral — toda a carteira</option>
-      </select>
+      <span id="agentProjectScope" style="display:inline-flex;align-items:center;gap:7px;border:1px solid var(--border);background:var(--surface2);border-radius:20px;padding:6px 11px;font-size:12px;color:var(--muted)">Escopo: toda a carteira</span>
       <button class="btn sm primary" onclick="newAgentConversation()">+ Nova conversa</button>
       <span style="flex:1"></span>
       <label style="margin:0;color:var(--muted);font-size:12px">Histórico:</label>
@@ -10974,6 +10971,7 @@ async function loadAgentProject(clientId){
   if(clientId)activeClientId=clientId;
   {const s=document.getElementById('sidebarClient');if(s&&clientId)s.value=clientId;}
   agentClientId=clientId;
+  const scope=document.getElementById('agentProjectScope'),scopeClient=DB.clients.find(x=>x.id===clientId);if(scope)scope.innerHTML=scopeClient?`Escopo: <b style="color:var(--text)">${String(scopeClient.name).replace(/</g,'&lt;')}</b>`:'Escopo: <b style="color:var(--text)">toda a carteira</b>';
   agentActiveChat=null;agentClientKpis=null;agentKpisClientId=null;agentKpisPromise=null;
   renderAgentSuggestions();
   if(clientId)ensureClientKpis(); // pré-carrega os KPIs do relatório em background
