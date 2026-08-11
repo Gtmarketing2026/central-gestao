@@ -362,7 +362,7 @@
       <button class="tab" data-tab="jornada" data-nav-icon="compass">Jornada</button>
       <button class="tab" data-tab="raiox" data-nav-icon="search">Diagnóstico</button>
       <button class="tab" data-tab="briefing" data-nav-icon="target">Briefing</button>
-      <button class="tab" data-nav-icon="image" onclick="showComingSoon('Social','Resultados dos canais orgânicos e redes sociais (Instagram, bio, tráfego direto, etc.) num só lugar. Em construção.')">Social</button>
+      <button class="tab" data-tab="social" data-nav-icon="image">Social</button>
       <button class="tab" data-tab="campanhas" data-nav-icon="megaphone" style="position:relative">Campanha<span id="campSubArrow" onclick="event.stopPropagation();toggleCampSubmenu()" title="Canais (Meta / Google)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
       <div id="campSubmenu" style="display:none">
         <button class="tab" id="campSubMeta" style="padding-left:28px;font-size:12.5px" onclick="sbCampSource('meta')"><svg width="15" height="15" viewBox="0 0 24 24" style="flex:none"><path fill="#0866FF" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.25h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07z"/></svg>Meta</button>
@@ -848,7 +848,7 @@
   <!-- AGENTE DE BRIEFING CRIATIVO (analisa criativos por funil, monta briefing de produção) -->
   <section class="panel" id="briefing">
     <div class="section-head" style="margin-top:0"><h2>🎯 Briefing Criativo <span id="brClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
-    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Lê sozinho os criativos que rodaram (Meta/Google), analisa por etapa de funil e mostra o que funcionou antes de pedir peça nova. Fase 1: análise — geração das fichas de produção vem em seguida.</div>
+    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Lê sozinho os criativos que rodaram (Meta/Google) e os posts orgânicos, analisa por etapa de funil, sugere recortes e monta a ficha de produção pronta pra aprovar.</div>
     <div id="brBody"></div>
   </section>
 
@@ -863,6 +863,14 @@
     </div>
     <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Cada lead numa linha do tempo — por onde entrou, onde passou e onde converteu. Junta anúncio, site, WhatsApp, formulários e etapas do funil.</div>
     <div id="jrnBody"></div>
+  </section>
+
+  <!-- SOCIAL (resultados orgânicos: Instagram, seguidores, posts) -->
+  <section class="panel" id="social">
+    <div class="section-head" style="margin-top:0"><h2>📷 Social <span id="socClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
+    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Resultado orgânico do Instagram do cliente — seguidores, alcance e os posts que mais performaram.</div>
+    <div id="socFilterBar" style="margin-bottom:12px"></div>
+    <div id="socBody"></div>
   </section>
 
   <!-- PLACEHOLDER (itens em construção do menu) -->
@@ -1617,7 +1625,8 @@
       </div>
     </div>
     <div class="form-row"><label>Situação</label>
-      <select id="fStatus"><option value="pendente">Pendente</option><option value="pago">Pago/Recebido</option><option value="atrasado">Atrasado</option></select>
+      <select id="fStatus"><option value="pendente">Pendente</option><option value="pago">Pago/Recebido</option></select>
+      <div style="font-size:11px;color:var(--faint);margin-top:4px">"Atrasado" aparece sozinho quando o vencimento passa e ainda não foi marcado como pago.</div>
     </div>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal('finModal')">Cancelar</button>
@@ -2269,12 +2278,125 @@ function goToTab(tabId){
   if(tabId==='raiox')loadRaioX(activeClientId);
   if(tabId==='briefing')loadBriefing(activeClientId);
   if(tabId==='jornada')loadJornada(activeClientId);
+  if(tabId==='social')loadSocial(activeClientId);
   if(tabId==='crm')loadCrm();
   else stopCrmPoll();
   if(tabId==='whatsapp')loadWhatsappTab();
   if(tabId==='tasks')calendarAutoSync();
   if(tabId==='reunioes')loadReunioes();
   if(tabId==='publicos')loadAudiences();
+}
+/* ===== SOCIAL (Instagram orgânico: seguidores + posts, schema midia) ===== */
+let _socClientId='';
+let _socData=null; // {contas,segsRaw,posts,latestByPost} — cru, filtrado na hora de renderizar
+let _socFilterConta='';
+async function loadSocial(clientId){
+  const c=DB.clients.find(x=>x.id===(clientId||activeClientId||_socClientId));
+  const body=document.getElementById('socBody');if(!body)return;
+  const fbar=document.getElementById('socFilterBar');if(fbar)fbar.innerHTML='';
+  const nm=document.getElementById('socClientName');if(nm)nm.textContent=c?('· '+c.name):'';
+  if(!c){body.innerHTML='<div class="empty">Selecione um cliente na sidebar.</div>';return}
+  _socClientId=c.id;_socFilterConta='';_socData=null;
+  body.innerHTML='<div class="empty">Carregando…</div>';
+  try{
+    const {data:contas,error:e1}=await sb.schema('midia').from('dim_conta').select('id,nome').eq('client_id',c.id).eq('plataforma_id','instagram_organico').eq('ativa',true);
+    if(e1)throw e1;
+    if(!contas||!contas.length){body.innerHTML='<div class="empty">Este cliente ainda não tem Instagram conectado.<br><span style="font-size:11.5px;color:var(--faint)">Conecte em Configuração do Cliente para ver seguidores e posts aqui.</span></div>';return}
+    const contaIds=contas.map(x=>x.id);
+    const since=daysAgoISO(90);
+    const [{data:segs,error:e2},{data:posts,error:e3}]=await Promise.all([
+      sb.schema('midia').from('fact_seguidores_snapshot').select('conta_id,data,total_seguidores').in('conta_id',contaIds).gte('data',since).order('data'),
+      sb.schema('midia').from('dim_conteudo_organico').select('id,conta_id,tipo_midia,permalink,legenda,publicado_em,thumbnail_url').in('conta_id',contaIds).order('publicado_em',{ascending:false}).limit(60)
+    ]);
+    if(e2)throw e2;if(e3)throw e3;
+    const postIds=(posts||[]).map(p=>p.id);
+    let metrics=[];
+    if(postIds.length){
+      const {data:m,error:e4}=await sb.schema('midia').from('fact_conteudo_organico_metricas').select('*').in('conteudo_id',postIds).order('data_coleta',{ascending:false});
+      if(e4)throw e4;metrics=m||[];
+    }
+    const latestByPost={};
+    metrics.forEach(m=>{if(!latestByPost[m.conteudo_id])latestByPost[m.conteudo_id]=m;});
+    _socData={contas,segsRaw:segs||[],posts:posts||[],latestByPost};
+    _socRenderFiltered();
+  }catch(e){body.innerHTML=`<div class="empty">Erro ao carregar: ${(e&&e.message)||e}</div>`;}
+}
+function socSetFilter(contaId){_socFilterConta=contaId||'';_socRenderFiltered();}
+function _socRenderFiltered(){
+  if(!_socData)return;
+  const {contas,segsRaw,posts,latestByPost}=_socData;
+  const sel=_socFilterConta;
+  const fbar=document.getElementById('socFilterBar');
+  if(fbar){
+    if(contas.length>1){
+      const esc=s=>String(s||'').replace(/</g,'&lt;');
+      const pill=(id,label)=>`<button class="btn sm ${sel===id?'primary':'ghost'}" onclick="socSetFilter('${id}')">${esc(label)}</button>`;
+      fbar.innerHTML=`<div style="display:flex;gap:6px;flex-wrap:wrap">${pill('','Todas as contas')}${contas.map(c=>pill(c.id,'@'+(c.nome||c.id))).join('')}</div>`;
+    }else fbar.innerHTML='';
+  }
+  // várias contas de Instagram podem estar conectadas no mesmo cliente — soma por data, nunca intercala as séries
+  const segsUse=sel?segsRaw.filter(s=>s.conta_id===sel):segsRaw;
+  const porData={};
+  segsUse.forEach(s=>{porData[s.data]=(porData[s.data]||0)+(s.total_seguidores||0);});
+  const segsAgg=Object.keys(porData).sort().map(data=>({data,total_seguidores:porData[data]}));
+  const postsUse=sel?posts.filter(p=>p.conta_id===sel):posts;
+  _socRender(segsAgg,postsUse,latestByPost,sel?1:contas.length);
+}
+function _socRender(segs,posts,latestByPost,numContas){
+  const body=document.getElementById('socBody');if(!body)return;
+  const esc=s=>String(s||'').replace(/</g,'&lt;');
+  const num=n=>(n||0).toLocaleString('pt-BR');
+  const first=segs[0],last=segs[segs.length-1];
+  const atual=last?last.total_seguidores:null;
+  const variacao=(first&&last)?(last.total_seguidores-first.total_seguidores):null;
+  let somaEng=0,somaAlc=0,comMetrica=0;
+  posts.forEach(p=>{const m=latestByPost[p.id];if(m){somaEng+=(m.curtidas||0)+(m.comentarios||0)+(m.compartilhamentos||0)+(m.salvamentos||0);somaAlc+=(m.alcance||0);comMetrica++;}});
+  const engMedio=somaAlc>0?(somaEng/somaAlc*100):null;
+  const tile=(label,val,sub,color)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;flex:1;min-width:150px">
+    <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">${label}</div>
+    <div style="font-size:22px;font-weight:800;margin-top:4px${color?`;color:${color}`:''}">${val}</div>
+    ${sub?`<div style="font-size:11px;color:var(--faint);margin-top:2px">${sub}</div>`:''}</div>`;
+  const tiles=`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+    ${tile(numContas>1?`Seguidores (${numContas} contas)`:'Seguidores',atual!=null?num(atual):'—',first&&last&&first.data!==last.data?`desde ${first.data.slice(8,10)}/${first.data.slice(5,7)}`:'')}
+    ${tile('Variação (90d)',variacao!=null?(variacao>=0?'+':'')+num(variacao):'—',null,variacao>0?'#34d399':variacao<0?'#f87171':null)}
+    ${tile('Posts (90d)',num(posts.length),comMetrica?`${comMetrica} com métrica`:'')}
+    ${tile('Engajamento médio',engMedio!=null?engMedio.toFixed(1).replace('.',',')+'%':'—','sobre o alcance')}
+  </div>`;
+  const chart=_socSeguidoresSVG(segs);
+  const cards=posts.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">${posts.map(p=>_socPostCard(p,latestByPost[p.id],esc,num)).join('')}</div>`:'<div class="empty">Sem posts no período.</div>';
+  body.innerHTML=`${tiles}
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:18px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px">Evolução de seguidores</div>
+      ${chart}
+    </div>
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px">Posts recentes</div>
+    ${cards}`;
+}
+function _socSeguidoresSVG(segs){
+  if(!segs||segs.length<2)return '<div style="font-size:12px;color:var(--faint);padding:8px 0">Sem histórico suficiente ainda (precisa de pelo menos 2 dias de coleta).</div>';
+  const W=720,H=140,P={l:8,r:8,t:10,b:20},n=segs.length,iw=W-P.l-P.r,ih=H-P.t-P.b;
+  const vals=segs.map(s=>s.total_seguidores||0);const min=Math.min(...vals),max=Math.max(...vals);const range=(max-min)||1;
+  const x=i=>P.l+(n<=1?iw/2:iw*i/(n-1));
+  const y=v=>P.t+ih-((v-min)/range)*ih;
+  const pts=vals.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const lbl=d=>{const m=String(d).match(/(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}`:d;};
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    <polyline points="${pts}" fill="none" stroke="#f0c040" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="${P.l}" y="${H-4}" fill="var(--faint)" font-size="10">${lbl(segs[0].data)}</text>
+    <text x="${W-P.r}" y="${H-4}" fill="var(--faint)" font-size="10" text-anchor="end">${lbl(segs[n-1].data)}</text>
+  </svg>`;
+}
+function _socPostCard(p,m,esc,num){
+  const dt=p.publicado_em?new Date(p.publicado_em).toLocaleDateString('pt-BR'):'—';
+  const thumb=p.thumbnail_url?`<img src="${esc(p.thumbnail_url)}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px 8px 0 0;display:block" loading="lazy">`:`<div style="width:100%;aspect-ratio:1;background:var(--bg2,#1a1a1a);border-radius:8px 8px 0 0;display:flex;align-items:center;justify-content:center;font-size:26px">📷</div>`;
+  const stats=m?`<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--faint);margin-top:6px">
+      <span title="Curtidas">❤ ${num(m.curtidas)}</span><span title="Comentários">💬 ${num(m.comentarios)}</span>
+      <span title="Alcance">👁 ${num(m.alcance)}</span></div>`:'<div style="font-size:11px;color:var(--faint);margin-top:6px">sem métrica coletada</div>';
+  const body=`<div style="padding:8px 10px 10px">
+      <div style="font-size:10.5px;color:var(--muted);display:flex;justify-content:space-between"><span>${esc((p.tipo_midia||'').toUpperCase())}</span><span>${dt}</span></div>
+      ${stats}</div>`;
+  const inner=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">${thumb}${body}</div>`;
+  return p.permalink?`<a href="${esc(p.permalink)}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">${inner}</a>`:inner;
 }
 /* ===== PÚBLICOS (Meta Custom/Saved Audiences) ===== */
 let _pubData=null,_pubFilter='all',_pubClientId='',_pubSources=null,_pubAccFilter='',_pubRetFilter='';
@@ -7914,6 +8036,12 @@ function renderCashflow(){
   }
 }
 
+// situação real do lançamento: 'atrasado' nunca é gravado no banco, é sempre calculado a partir do vencimento
+function finSituacao(f){
+  if(f.status==='pago')return 'pago';
+  if(f.due&&daysUntil(f.due)<0)return 'atrasado';
+  return 'pendente';
+}
 function renderFinance(){
   fillFinTypeFilter();
   const fMonth=document.getElementById('finMonth')?document.getElementById('finMonth').value:'';
@@ -7926,7 +8054,7 @@ function renderFinance(){
   if(fMonth)all=all.filter(f=>(f.due||'').slice(0,7)===fMonth);
   if(fEntryType)all=all.filter(f=>f.type===fEntryType);
   if(fType&&fType!=='all')all=all.filter(f=>clientType(f.client)===fType);
-  if(fSit)all=all.filter(f=>f.status===fSit);
+  if(fSit)all=all.filter(f=>finSituacao(f)===fSit);
   if(fSearch)all=all.filter(f=>clientName(f.client).toLowerCase().includes(fSearch)||( f.desc&&f.desc.toLowerCase().includes(fSearch)));
   const filtroAtivo=fMonth||(fType&&fType!=='all');
   const t=document.getElementById('finTable');
@@ -7934,8 +8062,9 @@ function renderFinance(){
   if(!all.length){t.innerHTML='<tr><td colspan="8"><div class="empty">Nenhum lançamento'+(filtroAtivo?' com esses filtros':'')+'.</div></td></tr>';return}
   try{
     t.innerHTML=`<thead><tr><th style="width:36px"></th><th>Descrição</th><th>Cliente / Credor</th><th>Tipo</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead><tbody>`+all.sort((a,b)=>(a.due||'9')>(b.due||'9')?1:-1).map(f=>{
-      const sp={pago:'green',pendente:'amber',atrasado:'red'}[f.status]||'amber';
-      const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[f.status]||f.status||'';
+      const sit=finSituacao(f);
+      const sp={pago:'green',pendente:'amber',atrasado:'red'}[sit]||'amber';
+      const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[sit]||sit||'';
       const ct=clientTypeLabel(clientType(f.client));
       const isDespesa=f.type==='despesa';
       const partyName=isDespesa&&f.creditor?creditorName(f.creditor):clientName(f.client);
@@ -8949,8 +9078,9 @@ function renderDespesaDetail(){
   if(t){
     const recentes=[...todasDesp].sort((a,b)=>(b.due||'')>(a.due||'')?1:-1).slice(0,15);
     t.innerHTML=recentes.length?`<thead><tr><th>Descrição</th><th>Categoria</th><th>Tipo</th><th>Valor</th><th>Vencimento</th><th>Situação</th></tr></thead><tbody>`+recentes.map(f=>{
-      const sp={pago:'green',pendente:'amber',atrasado:'red'}[f.status]||'amber';
-      const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[f.status]||f.status;
+      const sit=finSituacao(f);
+      const sp={pago:'green',pendente:'amber',atrasado:'red'}[sit]||'amber';
+      const sl={pago:'Pago',pendente:'Pendente',atrasado:'Atrasado'}[sit]||sit;
       return`<tr><td>${f.desc||'—'}</td><td style="color:var(--muted)">${f.category||'—'}</td><td>${f.fixedType==='variavel'?'Variável':'Fixa'}</td><td class="money-neg">-${fmt(f.val)}</td><td>${dateBR(f.due)}</td><td><span class="pill ${sp}">${sl}</span></td></tr>`;
     }).join('')+'</tbody>':'<tr><td><div class="empty">Nenhuma despesa lançada ainda.</div></td></tr>';
   }
