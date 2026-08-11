@@ -2908,6 +2908,8 @@ async function loadWhatsappTab(){
   const el=document.getElementById('whatsappBody');if(!el)return;
   await loadAccountConfig();
   el.innerHTML=`
+    <div class="seg" style="margin-bottom:14px"><button id="waModeQr" class="active" onclick="waSetMode('qr')">📷 Conexão por QR</button><button id="waModeCloud" onclick="waSetMode('cloud')">☁ API Oficial Meta</button></div>
+    <div id="waQrArea">
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
         <div style="display:flex;align-items:center;gap:8px"><span style="font-size:20px">💬</span><b style="font-size:15px">WhatsApp (uazapi)</b></div>
@@ -2922,7 +2924,8 @@ async function loadWhatsappTab(){
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><span style="font-size:20px">🤖</span><b style="font-size:14px">AndréIA no WhatsApp</b></div>
       <div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">Fale com a AndréIA num grupo do WhatsApp: peça análises, consulte dados e crie tarefas. Ela pede confirmação antes de ações de alto impacto.</div>
       <div id="andreiaWaBody" style="font-size:12.5px;color:var(--muted)">Carregando…</div>
-    </div>
+    </div></div>
+    <div id="waCloudArea" style="display:none"></div>
     <div class="card" style="margin-top:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:5px">
         <div style="display:flex;align-items:center;gap:8px"><span style="font-size:20px">🔔</span><b style="font-size:14px">Central de Automações</b></div>
@@ -2932,6 +2935,36 @@ async function loadWhatsappTab(){
       <div id="autoList" style="font-size:12.5px;color:var(--muted)">Carregando…</div>
     </div>`;
   renderWaConfig();renderAndreiaWa();renderAutomations();
+}
+function waSetMode(mode){const cloud=mode==='cloud';document.getElementById('waQrArea').style.display=cloud?'none':'';document.getElementById('waCloudArea').style.display=cloud?'':'none';document.getElementById('waModeQr').classList.toggle('active',!cloud);document.getElementById('waModeCloud').classList.toggle('active',cloud);if(cloud)renderWaCloud();}
+async function renderWaCloud(){
+  const el=document.getElementById('waCloudArea');if(!el)return;
+  const clients=DB.clients.filter(c=>c.status!=='Encerrado').sort((a,b)=>a.name.localeCompare(b.name,'pt'));
+  const cur=(document.getElementById('waCloudClient')||{}).value||'';
+  el.innerHTML=`<div class="card"><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap"><div><b style="font-size:15px">☁ WhatsApp Cloud API</b><div style="font-size:12px;color:var(--muted);margin-top:5px;max-width:720px">Conexão oficial da Meta, sem QR Code. Os segredos são criptografados e nunca voltam a aparecer na tela.</div></div>${integStatusPill('ok','Meta oficial')}</div>
+  <div class="form-row" style="margin-top:16px"><label>Cliente</label><select id="waCloudClient" onchange="waCloudLoad()"><option value="">— selecione —</option>${clients.map(c=>`<option value="${c.id}" ${c.id===cur?'selected':''}>${c.name.replace(/</g,'&lt;')}</option>`).join('')}</select></div>
+  <div id="waCloudForm"><div class="empty" style="padding:24px">Selecione o cliente para configurar ou consultar a API oficial.</div></div></div>`;
+  if(cur)waCloudLoad();
+}
+async function waCloudLoad(){
+  const clientId=(document.getElementById('waCloudClient')||{}).value||'',box=document.getElementById('waCloudForm');if(!box||!clientId)return;
+  box.innerHTML='<div class="empty" style="padding:20px">Consultando conexão…</div>';
+  let d={};try{const r=await sb.functions.invoke('dynamic-responder',{body:{waCloudConfig:{op:'status',clientId}}});if(r.error)throw r.error;d=(r.data&&r.data.data)||{};}catch(e){box.innerHTML=`<div style="color:var(--red);padding:14px 0">${(e.message||e)}</div>`;return;}
+  const i=d.instance||{},ok=!!d.configured;
+  box.innerHTML=`${ok?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">${integStatusPill('ok','Conectado')}<span class="pill">${(i.verified_name||'Nome não informado').replace(/</g,'&lt;')}</span><span class="pill">${i.phone||'Número não retornado'}</span><span class="pill">Qualidade: ${i.quality_rating||'—'}</span></div>`:''}
+  <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px;margin:12px 0;font-size:12px"><b>O sistema puxa automaticamente após validar:</b> nome verificado, telefone exibido, qualidade e estado da conexão.<br><b>Você precisa preencher:</b> Phone Number ID, App ID, token permanente e App Secret. O WABA ID é recomendado para administração da conta.</div>
+  <div class="form-grid"><div class="form-row"><label>WABA ID <span style="color:var(--faint)">(Conta do WhatsApp Business)</span></label><input id="waCloudWaba" value="${i.waba_id||''}" inputmode="numeric" placeholder="Ex.: 1234567890"></div><div class="form-row"><label>Phone Number ID *</label><input id="waCloudPhoneId" value="${i.phone_number_id||''}" inputmode="numeric" placeholder="ID do número, não é o telefone"></div></div>
+  <div class="form-grid"><div class="form-row"><label>App ID *</label><input id="waCloudAppId" value="${i.meta_app_id||''}" inputmode="numeric" placeholder="ID do aplicativo Meta"></div><div class="form-row"><label>Token permanente * ${ok?'<span style="color:#34d399">(já salvo; preencha só para trocar)</span>':''}</label><input id="waCloudToken" type="password" autocomplete="new-password" placeholder="Cole o token do usuário do sistema"></div></div>
+  <div class="form-row"><label>App Secret ${ok?'<span style="color:#34d399">(já salvo; deixe vazio para manter)</span>':'*'}</label><input id="waCloudSecret" type="password" autocomplete="new-password" placeholder="Segredo do aplicativo Meta"></div>
+  <div id="waCloudMsg" style="font-size:11.5px;color:var(--muted);min-height:18px"></div><button id="waCloudSave" class="btn primary" onclick="waCloudSave()">Validar e salvar conexão</button>
+  ${ok?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)"><b style="font-size:12px">Configuração do webhook na Meta</b><label style="font-size:10px;color:var(--muted);display:block;margin-top:8px">URL DE RETORNO</label><div style="display:flex;gap:6px"><input readonly value="${d.webhookUrl||''}" onclick="this.select()"><button class="btn sm ghost" onclick="navigator.clipboard.writeText('${d.webhookUrl||''}')">Copiar</button></div><label style="font-size:10px;color:var(--muted);display:block;margin-top:8px">TOKEN DE VERIFICAÇÃO</label><div style="display:flex;gap:6px"><input readonly value="${d.verifyToken||''}" onclick="this.select()"><button class="btn sm ghost" onclick="navigator.clipboard.writeText('${d.verifyToken||''}')">Copiar</button></div><div style="font-size:11px;color:var(--faint);margin-top:8px">Na Meta, assine o campo <b>messages</b>. Depois envie uma mensagem real ao número para confirmar a entrada no CRM.</div></div>`:''}`;
+}
+async function waCloudSave(){
+  const clientId=document.getElementById('waCloudClient').value,btn=document.getElementById('waCloudSave'),msg=document.getElementById('waCloudMsg');
+  const input={op:'save',clientId,wabaId:document.getElementById('waCloudWaba').value,phoneNumberId:document.getElementById('waCloudPhoneId').value,appId:document.getElementById('waCloudAppId').value,token:document.getElementById('waCloudToken').value,appSecret:document.getElementById('waCloudSecret').value};
+  if(!input.phoneNumberId||!input.appId||!input.token){msg.style.color='var(--red)';msg.textContent='Preencha Phone Number ID, App ID e token permanente.';return;}
+  btn.disabled=true;btn.textContent='Validando na Meta…';msg.style.color='var(--muted)';msg.textContent='Conferindo o número e guardando os segredos no cofre…';
+  try{const r=await sb.functions.invoke('dynamic-responder',{body:{waCloudConfig:input}});if(r.error)throw r.error;const d=(r.data&&r.data.data)||{};if(!d.ok)throw new Error(d.error||'Não foi possível conectar.');msg.style.color='#34d399';msg.textContent='✓ API oficial validada e conectada.';setTimeout(waCloudLoad,700);}catch(e){btn.disabled=false;btn.textContent='Validar e salvar conexão';msg.style.color='var(--red)';msg.textContent=e.message||String(e);}
 }
 /* ===== Central de Automações / Notificações da AndréIA ===== */
 const AUTO_TIPOS=[

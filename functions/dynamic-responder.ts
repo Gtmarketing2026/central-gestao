@@ -3391,6 +3391,45 @@ async function metaTokenUpdate(input: any, authorization: string) {
   _metaTokenCache = token; _metaTokenCacheAt = Date.now();
   return { ok: true, contasTestadas: (tj.data || []).length, atualizadoEm: new Date().toISOString() };
 }
+
+async function _requireCredentialAdmin(authorization: string) {
+  if (!authorization) throw new Error("Sessão administrativa obrigatória.");
+  const ur = await fetch(`${_SB_URL}/auth/v1/user`, { headers: { apikey: _SB_KEY, Authorization: authorization } });
+  const user = ur.ok ? await ur.json() : null; const email = String(user?.email || "").toLowerCase();
+  const ar = email ? await fetch(`${_SB_URL}/rest/v1/secure_credential_admins?email=eq.${encodeURIComponent(email)}&select=email&limit=1`, { headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } }) : null;
+  const admins = ar?.ok ? await ar.json() : [];
+  if (!admins.length) throw new Error("Somente o administrador principal pode alterar credenciais oficiais.");
+  return email;
+}
+async function _saveSecureCredential(id: string, value: string) {
+  const cipher = await _encryptCredential(value);
+  const r = await fetch(`${_SB_URL}/rest/v1/secure_credentials?on_conflict=id`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ id, secret_cipher: cipher, updated_at: new Date().toISOString() }) });
+  if (!r.ok) throw new Error("Não consegui guardar a credencial no cofre privado.");
+}
+async function waCloudConfig(input: any, authorization: string) {
+  await _requireCredentialAdmin(authorization);
+  const op = String(input?.op || "status"), clientId = String(input?.clientId || "").trim();
+  if (!clientId) throw new Error("Selecione o cliente.");
+  if (op === "status") {
+    const rows = await sbGet("wa_instances", `client_id=eq.${encodeURIComponent(clientId)}&provider=eq.cloud&select=id,client_id,name,phone,status,provider,waba_id,phone_number_id,meta_app_id,verified_name,quality_rating,updated_at&limit=1`);
+    const x = rows[0] || null;
+    return { configured: !!x?.phone_number_id, instance: x, webhookUrl: x ? `${_SB_URL}/functions/v1/tracking/wa/webhook/${x.id}` : "", verifyToken: x?.id || "" };
+  }
+  const phoneNumberId = String(input?.phoneNumberId || "").replace(/\D/g, ""), wabaId = String(input?.wabaId || "").replace(/\D/g, ""), appId = String(input?.appId || "").replace(/\D/g, "");
+  const token = String(input?.token || "").trim(), appSecret = String(input?.appSecret || "").trim();
+  if (!phoneNumberId || !appId || !token) throw new Error("Preencha Phone Number ID, App ID e token permanente.");
+  const test = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating,code_verification_status,platform_type&access_token=${encodeURIComponent(token)}`);
+  const tj = await test.json(); if (!test.ok || tj.error) throw new Error(`WhatsApp Meta: ${tj.error?.message || "não consegui validar o número"}`);
+  let rows = await sbGet("wa_instances", `client_id=eq.${encodeURIComponent(clientId)}&provider=eq.cloud&select=id&limit=1`);
+  const id = rows[0]?.id || `cloud_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
+  if (!appSecret && !rows[0]) throw new Error("Preencha o App Secret na primeira conexão.");
+  await _saveSecureCredential(`wa_cloud_token:${id}`, token);
+  if (appSecret) await _saveSecureCredential(`wa_cloud_app_secret:${id}`, appSecret);
+  const phone = String(tj.display_phone_number || "").replace(/\D/g, "");
+  const saveInst = await fetch(`${_SB_URL}/rest/v1/wa_instances?on_conflict=id`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ id, client_id: clientId, name: tj.verified_name || "WhatsApp Oficial", phone: phone || null, status: "connected", provider: "cloud", waba_id: wabaId || null, phone_number_id: phoneNumberId, meta_app_id: appId, verified_name: tj.verified_name || null, quality_rating: tj.quality_rating || null, connected_at: new Date().toISOString(), updated_at: new Date().toISOString() }) });
+  if (!saveInst.ok) throw new Error("Não consegui salvar a conexão oficial.");
+  return { ok: true, configured: true, instance: { id, phone, status: "connected", provider: "cloud", waba_id: wabaId, phone_number_id: phoneNumberId, meta_app_id: appId, verified_name: tj.verified_name || "", quality_rating: tj.quality_rating || "" }, webhookUrl: `${_SB_URL}/functions/v1/tracking/wa/webhook/${id}`, verifyToken: id };
+}
 async function _crmAndreiaPrepareAction(args: any, client: any, clients: any[]) {
   const p: any = { ...args, client_id: client.id };
   if (args.cliente) {
@@ -5214,6 +5253,10 @@ Deno.serve(async (req) => {
     }
     if (body.metaTokenUpdate) {
       const r = await metaTokenUpdate(body.metaTokenUpdate, req.headers.get("Authorization") || "");
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.waCloudConfig) {
+      const r = await waCloudConfig(body.waCloudConfig, req.headers.get("Authorization") || "");
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.metaAccounts) {
