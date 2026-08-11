@@ -2590,7 +2590,7 @@ REGRA DE OURO — responda EXATAMENTE o que foi pedido, nada além:
 AÇÕES (execução real; sempre confirme com SIM antes — resuma no "reply" e preencha "action"). Tipos:
   · criar_tarefa: {"tipo":"criar_tarefa","nome":"<título>","obs":"<detalhe>"}
   · pausar_campanha / reativar_campanha: {"tipo":"pausar_campanha","campanha":"<nome exato da campanha>"}
-  · orcamento: {"tipo":"orcamento","campanha":"<nome>","novoValor":<novo orçamento diário em R$, número>}
+  · orcamento: {"tipo":"orcamento","campanha":"<nome>","novoValor":<novo orçamento diário em R$, número>,"conjunto":"<nome do conjunto, SÓ se a pessoa mencionar um específico - a campanha pode ter orçamento por CAMPANHA (CBO) ou por CONJUNTO, o sistema descobre sozinho qual é>"}
   · duplicar_campanha: {"tipo":"duplicar_campanha","campanha":"<nome>"}
   · criar_lancamento (financeiro): {"tipo":"criar_lancamento","natureza":"receita"|"despesa","descricao":"<ex: Fee mensal>","valor":<número>,"vencimento":"AAAA-MM-DD"}
   · dar_baixa (marcar lançamento como pago): {"tipo":"dar_baixa","descricao":"<parte da descrição do lançamento>"}
@@ -2611,6 +2611,23 @@ async function waResolveCampaign(clientId: string, nome: string) {
   return cs.find((c: any) => c.nome.toLowerCase() === q) || cs.find((c: any) => c.nome.toLowerCase().includes(q)) || cs.find((c: any) => q && q.includes(c.nome.toLowerCase())) || null;
 }
 async function _waClientNome(cid: string | null) { if (!cid) return ""; const c = (await sbGet("clients", `id=eq.${encodeURIComponent(cid)}&select=name`))[0]; return c?.name || ""; }
+// Resolve o CONJUNTO (adset) de uma campanha p/ ajuste de orçamento quando ela nao tem CBO (orcamento no
+// nivel da campanha) — precisa achar o conjunto certo. Devolve: null (sem conjunto nenhum), 1 objeto (achou
+// exato ou so tem 1 conjunto na campanha - auto-seleciona) ou array (ambiguo, varios conjuntos, pergunta).
+async function waResolveAdset(clientId: string, campanhaId: string, nomeConjunto?: string): Promise<any> {
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=meta_account_id`))[0];
+  const ids = String(c?.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+  if (!ids.length) return null;
+  const ent = await metaEntities({ accounts: ids.map((id: string) => ({ id, name: id })) }).catch(() => null);
+  if (!ent) return null;
+  const conjuntos = (ent.adsets || []).filter((a: any) => a.campanhaId === campanhaId);
+  if (!conjuntos.length) return null;
+  if (nomeConjunto) {
+    const q = String(nomeConjunto).toLowerCase().trim();
+    return conjuntos.find((a: any) => a.nome.toLowerCase() === q) || conjuntos.find((a: any) => a.nome.toLowerCase().includes(q)) || conjuntos.find((a: any) => q.includes(a.nome.toLowerCase())) || conjuntos;
+  }
+  return conjuntos.length === 1 ? conjuntos[0] : conjuntos;
+}
 // Lista as campanhas (nome/id/status) das contas Meta do cliente — pra oferecer opções quando a campanha não foi identificada.
 async function waListCampaigns(clientId: string): Promise<any[]> {
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=meta_account_id`))[0];
@@ -2855,9 +2872,20 @@ async function waAgentExec(pending: any, clientId: string | null, waCtx?: { host
     if (pending.tipo === "orcamento") {
       if (!cid) return "De qual cliente é a campanha?";
       const camp = await waResolveCampaign(cid, pending.campanha); if (!camp) return `Não achei a campanha "${pending.campanha || ""}".`;
-      if (!camp.orcamentoDiario) return `A "${camp.nome}" não tem orçamento no nível da campanha (deve estar no conjunto). Quer que eu crie uma tarefa pra ajustar?`;
-      await metaAction({ action: "budget", id: camp.id, nome: camp.nome, novoOrcamentoDiario: pending.novoValor });
-      return `💰 Orçamento de "${camp.nome}" ajustado pra R$${Number(pending.novoValor).toFixed(2)}/dia.`;
+      if (camp.orcamentoDiario) {
+        await metaAction({ action: "budget", id: camp.id, nome: camp.nome, novoOrcamentoDiario: pending.novoValor });
+        return `💰 Orçamento de "${camp.nome}" ajustado pra R$${Number(pending.novoValor).toFixed(2)}/dia.`;
+      }
+      // sem CBO: o orçamento é por CONJUNTO — resolve o conjunto certo em vez de desistir.
+      const conj = await waResolveAdset(cid, camp.id, pending.conjunto);
+      if (!conj) return `A "${camp.nome}" não tem orçamento no nível da campanha, e não achei nenhum conjunto nela. Quer que eu crie uma tarefa pra ajustar?`;
+      if (Array.isArray(conj)) {
+        const nomes = conj.map((a: any) => a.nome).filter(Boolean);
+        return `A "${camp.nome}" tem orçamento por CONJUNTO, não por campanha${pending.conjunto ? ` (não achei "${pending.conjunto}" exato)` : ""}. Qual conjunto?\n${nomes.slice(0, 20).map((n: string) => "• " + n).join("\n")}`;
+      }
+      if (!conj.orcamentoDiario) return `O conjunto "${conj.nome}" também não tem orçamento diário próprio (pode ser vitalício). Quer que eu crie uma tarefa pra ajustar?`;
+      await metaAction({ action: "budget", id: conj.id, nome: conj.nome, novoOrcamentoDiario: pending.novoValor });
+      return `💰 Orçamento do conjunto "${conj.nome}" (campanha "${camp.nome}") ajustado pra R$${Number(pending.novoValor).toFixed(2)}/dia.`;
     }
     if (pending.tipo === "duplicar_campanha") {
       if (!cid) return "De qual cliente é a campanha?";
@@ -3656,7 +3684,7 @@ function _waConfirmText(p: any, clients: any[]) {
   if (p.tipo === "cancelar_reuniao") return `${cli}Cancelar a reunião "${p.nome || ""}"${p._due ? ` de *${p._due.split("-").reverse().join("/")}*` : ""} (apaga também na Google Agenda). Confirma? (responda SIM)`;
   if (p.tipo === "pausar_campanha") return `${cli}Pausar a campanha "${p.campanha || ""}". Confirma?`;
   if (p.tipo === "reativar_campanha") return `${cli}Reativar a campanha "${p.campanha || ""}". Confirma?`;
-  if (p.tipo === "orcamento") return `${cli}Ajustar o orçamento diário da "${p.campanha || ""}" pra R$${p.novoValor}. Confirma?`;
+  if (p.tipo === "orcamento") return `${cli}Ajustar o orçamento diário d${p.conjunto ? `o conjunto "${p.conjunto}" (campanha "${p.campanha || ""}")` : `a campanha "${p.campanha || ""}"`} pra R$${p.novoValor}. Confirma?`;
   if (p.tipo === "duplicar_campanha") return `${cli}Duplicar a campanha "${p.campanha || ""}" (cópia pausada). Confirma?`;
   if (p.tipo === "criar_lancamento") return `${cli}Criar lançamento ${p.natureza || "receita"} de R$${p.valor} — ${p.descricao || ""} (venc. ${p.vencimento || "hoje"}). Confirma?`;
   if (p.tipo === "dar_baixa") return `${cli}Dar baixa (marcar como pago) no lançamento "${p.descricao || ""}". Confirma?`;
@@ -4037,6 +4065,7 @@ async function waHandler(w: any) {
       if (firstInbound) {
         origin = waOrigin(firstInbound);
         if (!origin) { const rf = await _waRefOrigin(waText(firstInbound)); if (rf) origin = rf; }
+        if (!origin) { const ph = await waPhoneHistoryOrigin(clientId, phone); if (ph) origin = ph; }
         if (origin && origin.type === "anuncio" && origin.data.source_id && !origin.data.campaign) {
           const key = String(origin.data.source_id);
           if (adCache[key] === undefined) adCache[key] = await waResolveAd(key);
@@ -4265,6 +4294,19 @@ function _hash36(s: string): string { let h = 5381; for (let i = 0; i < s.length
 const _digits = (v: any) => String(v || "").replace(/[^0-9]/g, "");
 const _phoneKey = (v: any) => { const d = _digits(v); return d.length >= 8 ? d.slice(-8) : ""; }; // ignora DDI/9º dígito
 const _emailKey = (v: any) => String(v || "").trim().toLowerCase();
+// Fallback de origem por TELEFONE JÁ CONHECIDO: quando uma conversa nova chega sem CTWA nativo e sem [#ref] no
+// texto, olha se esse telefone já apareceu em outro toque com canal/campanha real (RD Station, conversa
+// anterior, pedido da planilha) via o grafo de identidade da Jornada (lead_identities/lead_touchpoints) — reusa
+// essa origem em vez de marcar como orgânico. Marca matched_by:'phone_history' pra deixar claro que é INFERIDO,
+// não um sinal direto desta conversa (nunca confundir com CTWA/ref, que são diretos).
+async function waPhoneHistoryOrigin(clientId: string, phone: string): Promise<{ type: string; data: Record<string, unknown> } | null> {
+  const pk = _phoneKey(phone); if (!pk || !clientId) return null;
+  const ident = (await sbGet("lead_identities", `client_id=eq.${encodeURIComponent(clientId)}&kind=eq.phone&value=eq.${encodeURIComponent(pk)}&select=person_id&limit=1`))[0];
+  if (!ident) return null;
+  const toques = await sbGet("lead_touchpoints", `client_id=eq.${encodeURIComponent(clientId)}&person_id=eq.${encodeURIComponent(ident.person_id)}&channel=in.(meta,google)&select=channel,source,campaign,adset,ad,term,ts&order=ts.desc&limit=1`);
+  const t = toques[0]; if (!t) return null;
+  return { type: "anuncio", data: { channel: t.channel, campaign: t.campaign || "", adset: t.adset || "", ad: t.ad || "", keyword: t.term || "", matched_by: "phone_history", matched_at: t.ts } };
+}
 // de onde veio o toque (canal), a partir de utm/click ids/referrer
 function _jChannel(source?: string, medium?: string, gclid?: string, fbclid?: string, referrer?: string, selfDom?: string): string {
   // o RD manda "categoria | detalhe" (ex.: "referência | linktr.ee", "social | link+da+bio+do+rd+station")

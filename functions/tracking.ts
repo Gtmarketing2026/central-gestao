@@ -198,15 +198,21 @@ async function handlePinterestCallback(url: URL) {
   }
 }
 
-// ---- pixel script (embute client_id + base) ----
-function pixelScript(cid: string, base: string) {
+// ---- pixel script (embute client_id + base + LGPD) ----
+// showBanner=true (padrao, cliente sem banner de cookies proprio no site): mostra um banner leve ANTES de
+// gravar cookie/mandar qualquer evento, guarda a decisao em localStorage (_alc_consent) e so rastreia se
+// aceitar. showBanner=false (cliente marcou "ja tenho aviso de cookies proprio" em Configuracoes): roda igual
+// a antes, sem banner nenhum - confia no aviso generico que o site ja tem (padrao normal pra script de terceiro).
+function pixelScript(cid: string, base: string, showBanner: boolean) {
   return `(function(){
 "use strict";
-var CID=${JSON.stringify(cid)},_FB=${JSON.stringify(base)};
+var CID=${JSON.stringify(cid)},_FB=${JSON.stringify(base)},SHOW_BANNER=${showBanner ? "true" : "false"};
 var BASE=(function(){try{var s=document.currentScript;if(!s){var a=document.getElementsByTagName('script');s=a[a.length-1]}var u=(s&&s.src)||'';var m=u.replace(/\\/pixel\\/script\\/[^/]*$/,'');return (m&&m!==u)?m:_FB}catch(e){return _FB}})();
 function q(n){try{return new URLSearchParams(location.search).get(n)||''}catch(e){return ''}}
 function ck(n,v,d){if(v===undefined){var m=document.cookie.match('(^|;)\\\\s*'+n+'\\\\s*=\\\\s*([^;]+)');return m?m.pop():''}var e=new Date();e.setTime(e.getTime()+(d||365)*864e5);document.cookie=n+'='+v+';path=/;expires='+e.toUTCString()+';SameSite=Lax'}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,10)}
+window.ALICIA={send:function(){},origin:{},anon:''};
+function startTracking(){
 var anon=ck('_alc_a');if(!anon){anon=uid();ck('_alc_a',anon,365)}
 var sess=sessionStorage.getItem('_alc_s');if(!sess){sess=uid();try{sessionStorage.setItem('_alc_s',sess)}catch(e){}}
 var o={utm_source:q('utm_source'),utm_medium:q('utm_medium'),utm_campaign:q('utm_campaign'),utm_content:q('utm_content'),utm_term:q('utm_term'),fbclid:q('fbclid'),gclid:q('gclid')||q('gbraid')||q('wbraid'),campaignid:q('campaignid')||q('campaign_id'),adgroupid:q('adgroupid')||q('adset_id'),adid:q('adid')||q('ad_id'),keyword:q('keyword')||q('utm_term'),matchtype:q('matchtype'),placement:q('placement')||q('network')};
@@ -217,6 +223,22 @@ send('pageview');
 document.addEventListener('click',function(e){var a=e.target&&e.target.closest?e.target.closest('a'):null;if(!a||!a.href)return;if(/wa\\.me|api\\.whatsapp\\.com|whatsapp:/i.test(a.href)){send('wpp_click',{dest:a.href.slice(0,300)});var hasO=o.utm_campaign||o.gclid||o.fbclid||o.utm_source;if(hasO&&a.href.indexOf('[#')===-1){var rid=uid().slice(0,8);try{var u=new URL(a.href);var t=u.searchParams.get('text')||'';u.searchParams.set('text',(t?t+' ':'')+'[#'+rid+']');a.href=u.toString()}catch(_e){a.href=a.href+(a.href.indexOf('?')>-1?'&':'?')+'text='+encodeURIComponent('[#'+rid+']')}var pl=JSON.stringify({ref:rid,cid:CID,utm_source:o.utm_source,utm_medium:o.utm_medium,utm_campaign:o.utm_campaign,utm_content:o.utm_content,utm_term:o.utm_term,gclid:o.gclid,fbclid:o.fbclid});try{if(navigator.sendBeacon){navigator.sendBeacon(BASE+'/wa/ref',pl)}else{fetch(BASE+'/wa/ref',{method:'POST',headers:{'Content-Type':'application/json'},body:pl,keepalive:true}).catch(function(){})}}catch(_e2){}}}},true);
 document.addEventListener('submit',function(e){var f=e.target;if(!f||f.tagName!=='FORM')return;var idv=(f.id||'')+' '+(f.getAttribute('name')||'')+' '+(f.className||'')+' '+(f.action||'');if(/search|busca|pesquisa/i.test(idv))return;send('form',{action:(f.action||'').slice(0,300),id:(f.id||'').slice(0,100)})},true);
 window.ALICIA={send:send,origin:o,anon:anon};
+}
+function showConsentBanner(){
+var d=document.createElement('div');
+d.setAttribute('style','position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#1a1a1a;color:#f2f2f2;font:13px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:14px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;box-shadow:0 -2px 12px rgba(0,0,0,.25)');
+var t=document.createElement('span');t.style.flex='1 1 260px';t.textContent='Este site usa cookies para entender de onde vêm os visitantes e melhorar sua experiência.';
+var box=document.createElement('span');box.style.cssText='display:flex;gap:8px;flex-shrink:0';
+function btn(label,primary){var b=document.createElement('button');b.type='button';b.textContent=label;b.setAttribute('style','cursor:pointer;border-radius:6px;padding:8px 14px;font-size:13px;border:1px solid '+(primary?'#4ade80':'#666')+';background:'+(primary?'#4ade80':'transparent')+';color:'+(primary?'#111':'#f2f2f2'));return b}
+var accept=btn('Aceitar',true),decline=btn('Recusar',false);
+accept.onclick=function(){try{localStorage.setItem('_alc_consent','accepted')}catch(e){}d.remove();startTracking()};
+decline.onclick=function(){try{localStorage.setItem('_alc_consent','declined')}catch(e){}d.remove()};
+box.appendChild(decline);box.appendChild(accept);d.appendChild(t);d.appendChild(box);
+function mount(){document.body.appendChild(d)}
+if(document.body)mount();else document.addEventListener('DOMContentLoaded',mount)
+}
+if(!SHOW_BANNER){startTracking()}
+else{var consent=null;try{consent=localStorage.getItem('_alc_consent')}catch(e){}if(consent==='accepted'){startTracking()}else if(consent!=='declined'){showConsentBanner()}}
 })();`;
 }
 
@@ -333,6 +355,23 @@ function _waMatchText(s: string) {
   return String(s || "").replace(/\[#(?:[a-z0-9]{6,10})\]/gi, "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 // Alguns fluxos do WhatsApp removem o [#ref] do texto pre-preenchido antes de entregar a mensagem.
+// Fallback de origem por TELEFONE JA CONHECIDO: quando uma conversa nova chega sem CTWA nativo, sem [#ref] e
+// sem match de texto+tempo, olha se esse telefone ja apareceu em outro toque com canal/campanha real (RD
+// Station, conversa anterior, pedido da planilha) via o grafo de identidade da Jornada (lead_identities/
+// lead_touchpoints) - reusa essa origem em vez de marcar como organico. matched_by:'phone_history' deixa claro
+// que e INFERIDO, nao um sinal direto desta conversa. Espelha waPhoneHistoryOrigin do dynamic-responder.ts.
+async function waPhoneHistoryOrigin(clientId: string | null, phone: string): Promise<{ type: string; data: Record<string, unknown> } | null> {
+  if (!clientId) return null;
+  const digits = String(phone || "").replace(/[^0-9]/g, "");
+  const pk = digits.length >= 8 ? digits.slice(-8) : "";
+  if (!pk) return null;
+  const ident = (await sbSelect("lead_identities", `client_id=eq.${encodeURIComponent(clientId)}&kind=eq.phone&value=eq.${encodeURIComponent(pk)}&select=person_id&limit=1`))[0];
+  if (!ident) return null;
+  const toques = await sbSelect("lead_touchpoints", `client_id=eq.${encodeURIComponent(clientId)}&person_id=eq.${encodeURIComponent(ident.person_id)}&channel=in.(meta,google)&select=channel,campaign,adset,ad,term,ts&order=ts.desc&limit=1`);
+  const t = toques[0]; if (!t) return null;
+  return { type: "anuncio", data: { channel: t.channel, campaign: t.campaign || "", adset: t.adset || "", ad: t.ad || "", keyword: t.term || "", matched_by: "phone_history", matched_at: t.ts } };
+}
+
 // Fallback conservador: casa o texto recebido com o texto do botao clicado, dentro de 15 minutos.
 // So atribui quando todos os cliques candidatos com o mesmo texto sao do mesmo canal pago e nenhum ja foi usado.
 async function recentClickOrigin(clientId: string | null, text: string, ts: string): Promise<{ type: string; data: Record<string, unknown> } | null> {
@@ -507,6 +546,7 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
     let origin = fromMe ? null : waExtractOrigin(m);
     if (!fromMe) { const rf = await refOrigin(text); if (rf) origin = rf; }
     if (!fromMe && !origin && (!existing || !existing.origin_type || existing.origin_type === "organico")) origin = await recentClickOrigin(clientId, text, ts);
+    if (!fromMe && !origin && (!existing || !existing.origin_type || existing.origin_type === "organico")) origin = await waPhoneHistoryOrigin(clientId, phone);
     if (!convId) {
       convId = uid();
       // nome vem SÓ de mensagem do LEAD (inbound) — em msg enviada, senderName é o dono da instância (ficava tudo com o mesmo nome)
@@ -752,7 +792,9 @@ Deno.serve(async (req) => {
     const rows = await sbSelect("tracking_config", `token=eq.${encodeURIComponent(token)}&select=client_id&limit=1`);
     const cid = rows[0]?.client_id;
     const base = `${url.origin}/functions/v1/tracking`;
-    const js = cid ? pixelScript(cid, base) : `console.warn("[Rastreamento] token inválido");`;
+    let showBanner = true;
+    if (cid) { const cr = await sbSelect("clients", `id=eq.${encodeURIComponent(cid)}&select=pixel_banner_proprio&limit=1`); showBanner = !cr[0]?.pixel_banner_proprio; }
+    const js = cid ? pixelScript(cid, base, showBanner) : `console.warn("[Rastreamento] token inválido");`;
     return new Response(js, { headers: { ...cors, "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=300" } });
   }
 
@@ -781,8 +823,8 @@ Deno.serve(async (req) => {
   if (p === "/google/disconnect") { await saveAcctData({ google_cal: null }); return new Response(JSON.stringify({ ok: true }), { headers: { ...cors, "Content-Type": "application/json" } }); }
 
   // /automations/tick -> dispara as automações da AndréIA que estão no horário (chamado pelo cron)
-  if (p === "/automations/tick" || p === "/automations/reminders" || p === "/wa/connectivity" || p === "/wa/resolve-origins" || p === "/journey/orders-tick") {
-    const payload = p === "/automations/reminders" ? { reminderTick: true } : (p === "/wa/connectivity" ? { waConnCheck: true } : (p === "/wa/resolve-origins" ? { resolveAllOrigins: true } : (p === "/journey/orders-tick" ? { journeyOrdersTick: { blocos: 2 } } : { automationsTick: true })));
+  if (p === "/automations/tick" || p === "/automations/reminders" || p === "/wa/connectivity" || p === "/wa/resolve-origins" || p === "/journey/orders-tick" || p === "/wa/agency-poll") {
+    const payload = p === "/automations/reminders" ? { reminderTick: true } : (p === "/wa/connectivity" ? { waConnCheck: true } : (p === "/wa/resolve-origins" ? { resolveAllOrigins: true } : (p === "/journey/orders-tick" ? { journeyOrdersTick: { blocos: 2 } } : (p === "/wa/agency-poll" ? { waAgencyPollTick: true } : { automationsTick: true }))));
     try {
       const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const t = await r.text();

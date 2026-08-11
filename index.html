@@ -1019,8 +1019,10 @@
     </div>
 
     <div class="cpanel" data-panel="relatorios" style="display:none">
-      <div class="form-row" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
-        <div style="font-size:12px;color:var(--muted)">📋 <b>Objetivo por canal</b> agora é escolhido na aba <b>Relatório → Template</b> (detecta automático por canal e você pode editar). <button type="button" class="btn sm ghost" style="font-size:11px;margin-left:6px" onclick="openTemplatesModal()">⚙ Gerenciar modelos</button></div>
+      <div class="form-row">
+        <label>📋 Modelo(s) de relatório <span style="font-size:11px;color:var(--faint);font-weight:400">— sem marcar nenhum, detecta automático pelo objetivo de cada canal no Meta. Pode marcar mais de um.</span></label>
+        <div id="cReportTemplates" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+        <button type="button" class="btn sm ghost" style="margin-top:8px" onclick="openTemplatesModal()">⚙ Gerenciar modelos (criar/editar personalizados)</button>
       </div>
       <div class="form-row"><label>🌐 Site do cliente <span style="font-size:11px;color:var(--faint);font-weight:400">— usado na análise de site do Diagnóstico (carregamento, usabilidade, SEO)</span></label>
         <div style="display:flex;gap:8px;align-items:center"><input id="cSiteUrl" placeholder="https://site-do-cliente.com.br" style="flex:1"><button type="button" class="btn sm ghost" onclick="cPullMetaInfo(this)" title="Puxar site e WhatsApp dos anúncios do Meta">🔄 Puxar do Meta</button></div>
@@ -6563,8 +6565,21 @@ function renderClientConfig(){
       ccCard({icon:'🧬',label:'DNA do Cliente',badge:personas?personas+' personas':'sem DNA',title:personas?'DNA configurado':'Montar DNA com IA',desc:'Identidade, personas e diretrizes de copy que a AndréIA usa.',rows:dna&&dna.diretrizes&&dna.diretrizes.tom?ccRow('Tom',(dna.diretrizes.tom||'').slice(0,26)):'',btn:personas?'Abrir DNA':'Montar DNA',primary:!personas,onclick:"openDnaModal(_configClientId)"})
      +ccCard({icon:'🎯',label:'Benchmark / Metas',badge:metasSet?metasSet+' metas':'sem metas',title:metasSet?'Metas definidas':'Definir metas',desc:'Metas de CTR, CPC, CPA, ROAS... a AndréIA cobra contra elas.',rows:(bm.roas!=null?ccRow('ROAS alvo',bm.roas+'x'):'')+(bm.cpa!=null?ccRow('CPA alvo',fmt(bm.cpa)):'')+(bm.ctr!=null?ccRow('CTR alvo',bm.ctr+'%'):''),btn:'Editar metas',onclick:"ccOpen('relatorios')"}))
    +grp('Relatório',
-      ccCard({icon:'📋',label:'Relatório & Template',title:tplName,desc:'Modelo do relatório e fonte de vendas.',rows:ccRow('Modelo',tplName.slice(0,24))+ccRow('Fonte de vendas',convLbl),btn:'Editar',onclick:"ccOpen('relatorios')"})
+      `<div class="card" style="display:flex;flex-direction:column;gap:6px;grid-column:span 2">
+        <div style="display:flex;justify-content:space-between;align-items:start">
+          <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">📋 Relatório & Template</div>
+        </div>
+        <div style="font-size:12px;color:var(--muted)">Sem marcar nenhum, detecta automático pelo objetivo de cada canal no Meta. Pode marcar mais de um.</div>
+        <div id="ccReportTemplates" style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:2px">
+          <button class="btn sm primary" type="button" onclick="ccSaveTemplates()">Salvar modelos</button>
+          <button class="btn sm ghost" type="button" onclick="openTemplatesModal()">⚙ Gerenciar personalizados</button>
+        </div>
+        ${ccRow('Fonte de vendas',convLbl)}
+        <div style="margin-top:4px"><button class="btn sm ghost" type="button" onclick="ccOpen('relatorios')">Editar site, WhatsApp, fonte de vendas...</button></div>
+      </div>`
      +ccCard({icon:'🧠',label:'Conhecimento',title:'Materiais do cliente',desc:'PDFs específicos (briefing, tom, particularidades) pra AndréIA.',btn:'Gerenciar',onclick:"ccOpen('dna')"}));
+  fillCcTemplatePicker(c);
   fillFundingCard(c); // saldo pré-pago do Meta (async)
 }
 document.querySelectorAll('.tab').forEach(t=>{if(t.dataset.tab)t.onclick=()=>goToTab(t.dataset.tab)});
@@ -6753,6 +6768,24 @@ async function saveMinBalance(){
   const {error}=await sb.from('clients').update({min_balance:val}).eq('id',_configClientId);
   if(error){alert('Erro ao salvar: '+error.message);return;}
   const c=DB.clients.find(x=>x.id===_configClientId);if(c)c.minBalance=val||0;
+  renderClientConfig();
+}
+// Modelo(s) de relatório direto na Configuração do Cliente (sem precisar abrir o popup de cadastro) —
+// mesmos chips do fillTemplatePicker do modal, mas salva sozinho (update parcial, não mexe no resto do cliente).
+function fillCcTemplatePicker(c){
+  const box=document.getElementById('ccReportTemplates');if(!box)return;
+  const sel=new Set(Array.isArray(c.reportTemplateIds)&&c.reportTemplateIds.length?c.reportTemplateIds:(c.reportTemplateId?[c.reportTemplateId]:[]));
+  const chip=t=>`<label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;background:${sel.has(t.id)?'rgba(240,192,64,.14)':'var(--surface2)'};border:1px solid ${sel.has(t.id)?'rgba(240,192,64,.5)':'var(--border)'};border-radius:8px;padding:5px 10px;cursor:pointer"><input type="checkbox" class="ccTpl" value="${t.id}" ${sel.has(t.id)?'checked':''} style="width:auto" onchange="this.closest('label').style.background=this.checked?'rgba(240,192,64,.14)':'var(--surface2)';this.closest('label').style.borderColor=this.checked?'rgba(240,192,64,.5)':'var(--border)'">${t.name.replace(/</g,'&lt;')}</label>`;
+  const base=BASE_TEMPLATES.map(chip).join('');
+  const custom=(DB.reportTemplates||[]).map(chip).join('');
+  box.innerHTML=`<div style="width:100%;font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin:2px 0 4px">Modelos-base</div>${base}${custom?`<div style="width:100%;font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin:8px 0 4px">Personalizados</div>${custom}`:''}`;
+}
+async function ccSaveTemplates(){
+  const ids=[...document.querySelectorAll('#ccReportTemplates .ccTpl:checked')].map(x=>x.value);
+  const reportFocos=[...new Set(ids.map(id=>(templateById(id)||{}).objectiveType).filter(Boolean))];
+  const {error}=await sb.from('clients').update({report_template_ids:ids.length?ids:null,report_template_id:ids[0]||null,report_focos:reportFocos.length?reportFocos:null}).eq('id',_configClientId);
+  if(error){alert('Erro ao salvar: '+error.message);return;}
+  const c=DB.clients.find(x=>x.id===_configClientId);if(c){c.reportTemplateIds=ids.length?ids:null;c.reportTemplateId=ids[0]||'';c.reportFocos=reportFocos;}
   renderClientConfig();
 }
 function showAlertsPopup(){
