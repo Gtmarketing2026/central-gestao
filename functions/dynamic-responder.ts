@@ -4776,31 +4776,46 @@ async function _googleCalToken(): Promise<string | null> {
 // Monitor de conectividade: detecta quando um WhatsApp cai → notificação no sino + aviso da AndréIA no grupo.
 function _fmtFone(p: any) { p = String(p || "").replace(/[^0-9]/g, ""); if (!p) return ""; const m = p.match(/^(\d{2})(\d{2})(\d{4,5})(\d{4})$/); return m ? `+${m[1]} (${m[2]}) ${m[3]}-${m[4]}` : p; }
 async function waConnectivityCheck() {
-  const insts = await sbGet("wa_instances", "select=id,name,uaz_host,uaz_token,status,phone");
+  const insts = await sbGet("wa_instances", "select=id,name,uaz_host,uaz_token,status,phone,health_fail_count,health_last_alert_at,health_last_ok_at,health_last_recovery_at");
   const team = await sbGet("team", "select=id");
   const g: any = await _andreiaGroupInst();
-  const caidos: string[] = [];
+  const caidos: string[] = [], recuperados: string[] = [], oscilando: string[] = [];
   for (const inst of (insts || [])) {
     if (!inst.uaz_host || !inst.uaz_token) continue;
     let cur: string | null = null;
     try { const { j } = await waCall(inst.uaz_host, inst.uaz_token, "/instance/status"); cur = (j && j.instance && j.instance.status) || null; } catch { continue; }
     if (!cur) continue;
     const was = inst.status;
-    if (was === "connected" && cur !== "connected") {
-      await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { status: cur, updated_at: new Date().toISOString() });
+    const now = new Date(), nowIso = now.toISOString();
+    if (cur !== "connected") {
+      const fails = (Number(inst.health_fail_count) || 0) + 1;
+      await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { status: cur, health_fail_count: fails, updated_at: nowIso });
+      // Uma falha isolada costuma ser apenas oscilação de sessão/rede. Confirma queda somente na 2ª leitura consecutiva.
+      if (fails < 2) { oscilando.push(inst.name || inst.phone || inst.id); continue; }
+      const lastAlert = inst.health_last_alert_at ? new Date(inst.health_last_alert_at).getTime() : 0;
+      // Cooldown evita repetir o mesmo alerta a cada execução do cron enquanto a sessão continua instável.
+      if (lastAlert && now.getTime() - lastAlert < 6 * 3600e3) continue;
       const fone = _fmtFone(inst.phone); const quem = inst.name || fone || "instância";
       const title = `🔴 WhatsApp desconectado: ${quem}`;
       const detail = `O número ${fone || "(sem número)"} (${inst.name || "instância"}) caiu (${cur}). Reconecte em Configurações → WhatsApp pra não perder mensagens.`;
       for (const t of (team || [])) { try { await sbPost("notifications", { id: _wuid(), to_team: t.id, from_team: "sistema", task_id: null, task_name: title, comment_text: detail, read: false, type: "wa_disconnect" }); } catch (_e) { /* */ } }
       if (!g.erro) { try { await waCall(g.inst.uaz_host, g.inst.uaz_token, "/send/text", "POST", { number: g.group, text: `🔴 *WhatsApp desconectado*\n${WA_DIV}\n*${quem}*${fone ? ` (${fone})` : ""} caiu.\nReconecte em Configurações → WhatsApp pra não perder mensagens. 📲` }); } catch (_e) { /* */ } }
+      await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { health_last_alert_at: nowIso });
       caidos.push(quem);
-    } else if (was !== "connected" && cur === "connected") {
-      await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { status: "connected", connected_at: new Date().toISOString() });
-    } else if (was !== cur) {
-      await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { status: cur });
+    } else {
+      const hadConfirmedAlert = !!inst.health_last_alert_at && (!inst.health_last_recovery_at || new Date(inst.health_last_recovery_at).getTime() < new Date(inst.health_last_alert_at).getTime());
+      await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { status: "connected", health_fail_count: 0, health_last_ok_at: nowIso, ...(was !== "connected" ? { connected_at: nowIso } : {}) });
+      if (hadConfirmedAlert) {
+        const quem = inst.name || _fmtFone(inst.phone) || "instância";
+        // Recupera o histórico recente que pode ter ficado sem webhook durante a queda.
+        let recovered = 0; try { const sync: any = await waHandler({ op: "poll", instanceId: inst.id, sinceDays: 2, limit: 3000 }); recovered = Number(sync?.added) || 0; } catch (_e) { /* sincronização manual continua disponível */ }
+        if (!g.erro) { try { await waCall(g.inst.uaz_host, g.inst.uaz_token, "/send/text", "POST", { number: g.group, text: `🟢 *WhatsApp restabelecido*\n${WA_DIV}\n*${quem}* voltou a conectar.${recovered ? `\nRecuperei *${recovered} mensagem(ns)* que estavam pendentes.` : "\nO histórico recente foi conferido automaticamente."}` }); } catch (_e) { /* */ } }
+        await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { health_last_recovery_at: nowIso });
+        recuperados.push(quem);
+      }
     }
   }
-  return { checked: (insts || []).length, caidos };
+  return { checked: (insts || []).length, caidos, recuperados, oscilando };
 }
 // Poll server-side da(s) instancia(s) da AGENCIA (client_id null) que nao tem webhook proprio (o numero da
 // agencia tem o webhook ocupado por outro sistema externo - ver memoria whatsapp-uazapi). Sem isso, a
