@@ -315,7 +315,7 @@ function metaObjetivo(obj: string) {
 // Lista as Paginas do Facebook (com Instagram Business vinculado, quando tiver) que o META_USER_TOKEN enxerga.
 // Usado pro seletor de conexao no cadastro do cliente e como diagnostico geral.
 async function instagramListAccounts() {
-  const token = Deno.env.get("META_USER_TOKEN");
+  const token = await _metaUserToken();
   if (!token) return { ok: false, erro: "META_USER_TOKEN nao configurada" };
   const r = await fetch(`https://graph.facebook.com/v21.0/me/accounts?fields=name,instagram_business_account{id,username,followers_count}&limit=100&access_token=${token}`);
   const j = await r.json();
@@ -365,7 +365,7 @@ async function instagramOrganicContent(input: any) {
   if (!c) throw new Error("Cliente não encontrado.");
   const contas: any[] = (Array.isArray(c.instagram_accounts) ? c.instagram_accounts : []).filter((a: any) => !instagramId || a.id === instagramId);
   if (!contas.length) throw new Error("Esse cliente não tem Instagram conectado. Conecte em Configurações do cliente.");
-  const token = Deno.env.get("META_USER_TOKEN");
+  const token = await _metaUserToken();
   if (!token) throw new Error("META_USER_TOKEN não configurada.");
   const since = Math.floor(Date.now() / 1000) - (Number(days) || 90) * 86400;
   const fields = "id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count";
@@ -459,7 +459,7 @@ Responda APENAS com JSON valido, sem markdown, sem preambulo:
 }
 
 async function metaAdsInsights(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN");
+  const token = await _metaUserToken();
   if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
   // aceita: accounts [{id,name}], accountIds [id], ou accountId (compat)
   let accounts: { id: string; name: string }[] = [];
@@ -713,7 +713,7 @@ async function metaAdsInsights(m: any) {
 
 // Saldo pré-pago da conta (pix/boleto): funding_source_details traz o saldo disponível
 async function metaFunding(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN");
+  const token = await _metaUserToken();
   if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
   const accounts = (Array.isArray(m.accounts) ? m.accounts : []).map((a: any) => ({ id: String(a.id).replace(/^act_/, ""), name: a.name || "" }));
   if (!accounts.length) throw new Error("accounts obrigatorio");
@@ -738,7 +738,7 @@ async function metaFunding(m: any) {
 // Varre os criativos das contas do cliente e extrai domínios de site + números de WhatsApp usados nos anúncios.
 function _bumpC(o: Record<string, number>, k: any) { k = String(k || "").trim(); if (!k) return; o[k] = (o[k] || 0) + 1; }
 async function metaClientInfo(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
+  const token = await _metaUserToken(); if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
   const accs = (Array.isArray(m.accountIds) ? m.accountIds : []).map((x: any) => String(x).replace(/[^0-9]/g, "")).filter(Boolean);
   const siteCount: Record<string, number> = {}, waCount: Record<string, number> = {};
   const grabUrl = (u: any) => { const s = String(u || ""); const wa = s.match(/wa\.me\/(\d{8,15})|api\.whatsapp\.com\/send\/?\?phone=(\d{8,15})|whatsapp:.*?(\d{8,15})/i); if (wa) { _bumpC(waCount, wa[1] || wa[2] || wa[3]); return; } try { const h = new URL(s).hostname.replace(/^www\./, ""); if (h && !/facebook|instagram|fb\.me|fb\.com|whatsapp|l\.facebook/i.test(h)) _bumpC(siteCount, h); } catch { /* */ } };
@@ -759,7 +759,7 @@ async function metaClientInfo(m: any) {
 }
 // Lista os pixels das contas de anúncio do cliente (pra puxar automático no cadastro).
 async function metaListPixels(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
+  const token = await _metaUserToken(); if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
   const accs = (Array.isArray(m.accountIds) ? m.accountIds : []).map((x: any) => String(x).replace(/[^0-9]/g, "")).filter(Boolean);
   const out: any[] = []; const seen = new Set<string>();
   for (const acc of accs) {
@@ -768,7 +768,7 @@ async function metaListPixels(m: any) {
   return out;
 }
 async function metaListAccounts() {
-  const token = Deno.env.get("META_USER_TOKEN");
+  const token = await _metaUserToken();
   if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
   const out: any[] = [];
   let url = `https://graph.facebook.com/v21.0/me/adaccounts?fields=name,account_id,account_status,currency&limit=200&access_token=${token}`;
@@ -783,7 +783,7 @@ async function metaListAccounts() {
 
 // Lista entidades acionaveis (campanhas, conjuntos, anuncios) com id/status/orcamento atuais.
 async function metaEntities(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN");
+  const token = await _metaUserToken();
   if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
   let accounts: { id: string; name: string }[] = [];
   if (Array.isArray(m.accounts) && m.accounts.length) accounts = m.accounts.map((a: any) => ({ id: String(a.id).replace(/^act_/, ""), name: a.name || "" }));
@@ -830,7 +830,7 @@ async function metaEntities(m: any) {
 
 // Executa acoes de escrita no Meta (pausar/reativar/orcamento/duplicar). Requer escopo ads_management no token.
 async function metaAction(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN");
+  const token = await _metaUserToken();
   if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
   const base = "https://graph.facebook.com/v21.0";
   const id = String(m.id || "");
@@ -876,7 +876,7 @@ async function metaAction(m: any) {
 // Clona a ESTRUTURA de uma campanha (campanha + conjuntos, PAUSADOS) pra OUTRA conta de anúncio (outro cliente).
 // Não copia criativos/anúncios (são amarrados à conta de origem). Mapeia o pixel pro do destino quando possível.
 async function metaCloneCampaign(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
+  const token = await _metaUserToken(); if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
   const base = "https://graph.facebook.com/v21.0";
   const src = String(m.sourceCampaignId || ""); const tgt = String(m.targetAccountId || "").replace(/^act_/, "");
   if (!src || !tgt) throw new Error("sourceCampaignId e targetAccountId obrigatórios");
@@ -917,7 +917,7 @@ async function metaCloneCampaign(m: any) {
 function _audKind(subtype: string) { const s = String(subtype || "").toUpperCase(); if (s === "LOOKALIKE") return "lookalike"; if (s === "CUSTOM") return "custom"; if (["WEBSITE", "ENGAGEMENT", "VIDEO", "APP", "IG_BUSINESS", "OFFLINE_CONVERSION", "PAGE", "CLAIM", "BAG_OF_ACCOUNTS"].includes(s)) return "engagement"; return "custom"; }
 // Lista os públicos (custom + salvos/interesse) das contas do cliente.
 async function metaAudiences(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const token = await _metaUserToken(); if (!token) throw new Error("META_USER_TOKEN nao configurada");
   const base = "https://graph.facebook.com/v21.0";
   const accounts = (Array.isArray(m.accounts) ? m.accounts : []).map((a: any) => ({ id: String(a.id).replace(/^act_/, ""), name: a.name || "" }));
   if (!accounts.length) throw new Error("accounts obrigatorio");
@@ -937,7 +937,7 @@ async function metaAudiences(m: any) {
 }
 // Fontes pra criar públicos de engajamento: pixels, páginas, contas IG, vídeos, formulários.
 async function metaAudienceSources(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const token = await _metaUserToken(); if (!token) throw new Error("META_USER_TOKEN nao configurada");
   const base = "https://graph.facebook.com/v21.0";
   const accounts = (Array.isArray(m.accounts) ? m.accounts : []).map((a: any) => ({ id: String(a.id).replace(/^act_/, ""), name: a.name || "" }));
   const out: any = { pixels: [], pages: [], igs: [], videos: [], forms: [] };
@@ -953,7 +953,7 @@ async function metaAudienceSources(m: any) {
 }
 // Carrega SOB DEMANDA (lazy) os vídeos (FB+IG) e formulários das páginas/IGs — chamado só quando o gestor abre a fonte Vídeo/Formulários.
 async function metaAudienceMedia(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const token = await _metaUserToken(); if (!token) throw new Error("META_USER_TOKEN nao configurada");
   const base = "https://graph.facebook.com/v21.0";
   const pages = Array.isArray(m.pages) ? m.pages : [];
   const igs = Array.isArray(m.igs) ? m.igs : [];
@@ -970,7 +970,7 @@ async function metaAudienceMedia(m: any) {
 }
 // Cria em massa públicos de ENGAJAMENTO (site/pixel, página FB, IG, vídeo, formulário). Retorna resultado por item.
 async function metaCreateAudiences(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const token = await _metaUserToken(); if (!token) throw new Error("META_USER_TOKEN nao configurada");
   const base = "https://graph.facebook.com/v21.0";
   const items = Array.isArray(m.audiences) ? m.audiences : [];
   if (!items.length) throw new Error("audiences obrigatório");
@@ -1006,7 +1006,7 @@ async function metaCreateAudiences(m: any) {
 }
 // Cria público CUSTOM a partir de lista (e-mails/telefones JÁ hasheados SHA-256 no front — LGPD).
 async function metaCreateCustomList(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const token = await _metaUserToken(); if (!token) throw new Error("META_USER_TOKEN nao configurada");
   const base = "https://graph.facebook.com/v21.0";
   const acct = String(m.accountId || "").replace(/^act_/, "");
   const name = String(m.name || "Lista importada").slice(0, 80);
@@ -1022,7 +1022,7 @@ async function metaCreateCustomList(m: any) {
 }
 // Cria público SALVO (interesse + geo + demografia).
 async function metaCreateSavedAudience(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const token = await _metaUserToken(); if (!token) throw new Error("META_USER_TOKEN nao configurada");
   const base = "https://graph.facebook.com/v21.0";
   const acct = String(m.accountId || "").replace(/^act_/, "");
   const name = String(m.name || "Público de interesse").slice(0, 80);
@@ -1033,7 +1033,7 @@ async function metaCreateSavedAudience(m: any) {
 }
 // Busca de interesses/comportamentos pra segmentação (autocomplete do público de interesse).
 async function metaTargetingSearch(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN"); if (!token) throw new Error("META_USER_TOKEN nao configurada");
+  const token = await _metaUserToken(); if (!token) throw new Error("META_USER_TOKEN nao configurada");
   const base = "https://graph.facebook.com/v21.0";
   const q = String(m.q || "").trim(); if (!q) return { results: [] };
   const cls = m.type === "geo" ? "adgeolocations" : "adinterests";
@@ -1046,7 +1046,7 @@ async function metaTargetingSearch(m: any) {
 
 // Performance por segmentação (sexo / plataforma / posicionamento) — nível de conta, agregada entre contas
 async function metaBreakdowns(m: any) {
-  const token = Deno.env.get("META_USER_TOKEN");
+  const token = await _metaUserToken();
   if (!token) throw new Error("META_USER_TOKEN nao configurada nos secrets");
   const accounts = (Array.isArray(m.accounts) ? m.accounts : []).map((a: any) => String(a.id).replace(/^act_/, ""));
   if (!accounts.length) throw new Error("accounts obrigatorio");
@@ -2265,7 +2265,7 @@ async function _dnaGatherFromAccount(clientId: string): Promise<string> {
   if (!c) return "";
   const parts: string[] = [`Negócio: ${c.name}. Segmento: ${c.seg || "-"}.`];
   if (c.site_url) { const t = await fetchUrlText(c.site_url).catch(() => ""); if (t) parts.push("=== SITE DO CLIENTE ===\n" + t.slice(0, 6000)); }
-  const token = Deno.env.get("META_USER_TOKEN");
+  const token = await _metaUserToken();
   const accs = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
   const copies = new Set<string>();
   if (token) for (const acc of accs.slice(0, 3)) {
@@ -2355,7 +2355,7 @@ async function waCall(host: string, token: string, path: string, method = "GET",
 }
 // Resolve o ad_id do CTWA (source_id da conversa) em nomes: campanha › conjunto › anúncio (Graph API)
 async function waResolveAd(adId: string): Promise<Record<string, string> | null> {
-  const token = Deno.env.get("META_USER_TOKEN"); if (!token || !adId) return null;
+  const token = await _metaUserToken(); if (!token || !adId) return null;
   try {
     const r = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(adId)}?fields=name,adset{name},campaign{name},account_id&access_token=${token}`);
     const j = await r.json(); if (!j || j.error) return null;
@@ -2365,7 +2365,7 @@ async function waResolveAd(adId: string): Promise<Record<string, string> | null>
 // Fallback (via C): resolve o anúncio pelo TÍTULO/corpo do criativo, procurando nos ad accounts do cliente.
 function _adNorm(s: any) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim(); }
 async function waResolveAdByTitle(title: string, accountIds: string[], body?: string): Promise<Record<string, string> | null> {
-  const token = Deno.env.get("META_USER_TOKEN"); const target = _adNorm(title); const bTarget = _adNorm(body); if (!token || (!target && !bTarget) || !accountIds.length) return null;
+  const token = await _metaUserToken(); const target = _adNorm(title); const bTarget = _adNorm(body); if (!token || (!target && !bTarget) || !accountIds.length) return null;
   for (const acc of accountIds) {
     try {
       // inclui object_story_spec e asset_feed_spec: em criativo DINÂMICO o title/body de topo vêm VAZIOS e o texto real fica nesses campos
@@ -2491,7 +2491,7 @@ const _pixelCache: Record<string, string | null> = {};
 async function _sha256hex(s: string) { const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join(""); }
 async function clientPixelId(clientId: string): Promise<string | null> {
   if (_pixelCache[clientId] !== undefined) return _pixelCache[clientId];
-  const token = Deno.env.get("META_USER_TOKEN");
+  const token = await _metaUserToken();
   const cli = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=meta_account_id,pixel_id`))[0];
   let pid: string | null = null;
   // 1) pixel manual do cadastro tem prioridade
@@ -2505,7 +2505,7 @@ async function clientPixelId(clientId: string): Promise<string | null> {
 async function waCapi(convId: string, eventName: string) {
   const cv = (await sbGet("wa_conversations", `id=eq.${encodeURIComponent(convId)}&select=id,client_id,chat_id,origin`))[0];
   if (!cv) throw new Error("Conversa não encontrada.");
-  const token = Deno.env.get("META_USER_TOKEN");
+  const token = await _metaUserToken();
   const pid = cv.client_id ? await clientPixelId(cv.client_id) : null;
   const logId = _wuid();
   // Sem cliente vinculado (ex: número da agência) ou sem pixel → não dá pra atribuir; pula em silêncio (não é erro real, não loga falha).
@@ -3347,6 +3347,49 @@ function _crmAiSafeFields(fields: any) {
 }
 function _crmAiMaskText(v: any) {
   return String(v || "").replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[email oculto]").replace(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?9?\d{4}[-\s]?\d{4}/g, "[telefone oculto]").replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, "[documento oculto]").replace(/\b\d{2}\.?\d{3}\.?\d{3}\/\d{4}-?\d{2}\b/g, "[documento oculto]");
+}
+
+let _metaTokenCache = "", _metaTokenCacheAt = 0;
+function _b64Bytes(a: Uint8Array) { let s = ""; for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode(...a.subarray(i, i + 0x8000)); return btoa(s); }
+function _fromB64(s: string) { const b = atob(s), a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+async function _credentialKey() {
+  const raw = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`central-gestao:${_SB_KEY}`));
+  return await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+async function _encryptCredential(value: string) {
+  const iv = crypto.getRandomValues(new Uint8Array(12)), key = await _credentialKey();
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(value)));
+  return `${_b64Bytes(iv)}.${_b64Bytes(encrypted)}`;
+}
+async function _decryptCredential(value: string) {
+  const [iv64, data64] = String(value || "").split("."); if (!iv64 || !data64) return "";
+  const key = await _credentialKey();
+  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: _fromB64(iv64) }, key, _fromB64(data64)));
+}
+async function _metaUserToken() {
+  if (_metaTokenCache && Date.now() - _metaTokenCacheAt < 300000) return _metaTokenCache;
+  try {
+    const r = await fetch(`${_SB_URL}/rest/v1/secure_credentials?id=eq.meta_user_token&select=secret_cipher&limit=1`, { headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
+    const rows = r.ok ? await r.json() : []; if (rows[0]?.secret_cipher) _metaTokenCache = await _decryptCredential(rows[0].secret_cipher);
+  } catch (_e) { /* usa o secret legado */ }
+  if (!_metaTokenCache) _metaTokenCache = Deno.env.get("META_USER_TOKEN") || "";
+  _metaTokenCacheAt = Date.now(); return _metaTokenCache;
+}
+async function metaTokenUpdate(input: any, authorization: string) {
+  if (!authorization) throw new Error("Sessão administrativa obrigatória.");
+  const ur = await fetch(`${_SB_URL}/auth/v1/user`, { headers: { apikey: _SB_KEY, Authorization: authorization } });
+  const user = ur.ok ? await ur.json() : null; const email = String(user?.email || "").toLowerCase();
+  const ar = email ? await fetch(`${_SB_URL}/rest/v1/secure_credential_admins?email=eq.${encodeURIComponent(email)}&select=email&limit=1`, { headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } }) : null;
+  const admins = ar?.ok ? await ar.json() : [];
+  if (!admins.length) throw new Error("Somente o administrador principal pode trocar credenciais globais.");
+  const token = String(input?.token || "").trim(); if (token.length < 40) throw new Error("Token do Meta inválido ou incompleto.");
+  const test = await fetch(`https://graph.facebook.com/v21.0/me/adaccounts?fields=id,name&limit=5&access_token=${encodeURIComponent(token)}`); const tj = await test.json();
+  if (!test.ok || tj.error) throw new Error(`Meta: ${tj.error?.message || "token não autorizado"}`);
+  const cipher = await _encryptCredential(token);
+  const save = await fetch(`${_SB_URL}/rest/v1/secure_credentials?on_conflict=id`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ id: "meta_user_token", secret_cipher: cipher, updated_at: new Date().toISOString() }) });
+  if (!save.ok) throw new Error("Não consegui guardar o token no cofre privado.");
+  _metaTokenCache = token; _metaTokenCacheAt = Date.now();
+  return { ok: true, contasTestadas: (tj.data || []).length, atualizadoEm: new Date().toISOString() };
 }
 async function _crmAndreiaPrepareAction(args: any, client: any, clients: any[]) {
   const p: any = { ...args, client_id: client.id };
@@ -5167,6 +5210,10 @@ Deno.serve(async (req) => {
     }
     if (body.metaAds) {
       const r = await metaAdsInsights(body.metaAds);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.metaTokenUpdate) {
+      const r = await metaTokenUpdate(body.metaTokenUpdate, req.headers.get("Authorization") || "");
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.metaAccounts) {
