@@ -199,8 +199,8 @@
   .rtTabBtn.on{background:var(--accent);color:#0a0906}
   @media print{
     body *{visibility:hidden}
-    #rtPrintArea,#rtPrintArea *{visibility:visible}
-    #rtPrintArea{position:absolute;top:0;left:0;width:100%;border-radius:0}
+    #rtPrintArea,#rtPrintArea *,#socPrintArea,#socPrintArea *{visibility:visible}
+    #rtPrintArea,#socPrintArea{position:absolute;top:0;left:0;width:100%;border-radius:0}
     .rt-no-print{display:none!important}
     .rtTab.rtoff{display:block!important}
     textarea#rtAnalysisText{border:none;resize:none}
@@ -867,9 +867,11 @@
 
   <!-- SOCIAL (resultados orgânicos: Instagram, seguidores, posts) -->
   <section class="panel" id="social">
-    <div class="section-head" style="margin-top:0"><h2>📷 Social <span id="socClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
-    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Resultado orgânico do Instagram do cliente — seguidores, alcance e os posts que mais performaram.</div>
-    <div id="socFilterBar" style="margin-bottom:12px"></div>
+    <div class="section-head rt-no-print" style="margin-top:0"><h2>📷 Social <span id="socClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2>
+      <button class="btn sm ghost" onclick="socExport()" title="Abre a impressão do navegador — salve como PDF">🖨️ Exportar PDF</button>
+    </div>
+    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px" class="rt-no-print">Resultado orgânico do Instagram do cliente — seguidores, alcance e os posts que mais performaram.</div>
+    <div id="socFilterBar" style="margin-bottom:12px" class="rt-no-print"></div>
     <div id="socBody"></div>
   </section>
 
@@ -2288,25 +2290,32 @@ function goToTab(tabId){
 }
 /* ===== SOCIAL (Instagram orgânico: seguidores + posts, schema midia) ===== */
 let _socClientId='';
-let _socData=null; // {contas,segsRaw,posts,latestByPost} — cru, filtrado na hora de renderizar
+let _socData=null; // {contas,segsRaw,postsRaw,metricsRaw,latestByPost} — cru (janela 2x ampliada p/ comparar), filtrado na hora de renderizar
 let _socFilterConta='';
+let _socDays=90;
+let _socFilterTipo='';
+let _socSort='recentes';
+let _socMetric='seguidores';
+let _socCompare=false;
+const SOC_TIPO_LABEL={VIDEO:'Reels/Vídeo',CAROUSEL_ALBUM:'Carrossel',IMAGE:'Imagem'};
+const SOC_WD_LABEL=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 async function loadSocial(clientId){
   const c=DB.clients.find(x=>x.id===(clientId||activeClientId||_socClientId));
   const body=document.getElementById('socBody');if(!body)return;
   const fbar=document.getElementById('socFilterBar');if(fbar)fbar.innerHTML='';
   const nm=document.getElementById('socClientName');if(nm)nm.textContent=c?('· '+c.name):'';
   if(!c){body.innerHTML='<div class="empty">Selecione um cliente na sidebar.</div>';return}
-  _socClientId=c.id;_socFilterConta='';_socData=null;
+  _socClientId=c.id;_socFilterConta='';_socFilterTipo='';_socData=null;
   body.innerHTML='<div class="empty">Carregando…</div>';
   try{
     const {data:contas,error:e1}=await sb.schema('midia').from('dim_conta').select('id,nome').eq('client_id',c.id).eq('plataforma_id','instagram_organico').eq('ativa',true);
     if(e1)throw e1;
     if(!contas||!contas.length){body.innerHTML='<div class="empty">Este cliente ainda não tem Instagram conectado.<br><span style="font-size:11.5px;color:var(--faint)">Conecte em Configuração do Cliente para ver seguidores e posts aqui.</span></div>';return}
     const contaIds=contas.map(x=>x.id);
-    const since=daysAgoISO(90);
+    const since=daysAgoISO(_socDays*2); // busca o dobro do período pra poder comparar com o anterior sem refazer a consulta
     const [{data:segs,error:e2},{data:posts,error:e3}]=await Promise.all([
       sb.schema('midia').from('fact_seguidores_snapshot').select('conta_id,data,total_seguidores').in('conta_id',contaIds).gte('data',since).order('data'),
-      sb.schema('midia').from('dim_conteudo_organico').select('id,conta_id,tipo_midia,permalink,legenda,publicado_em,thumbnail_url').in('conta_id',contaIds).order('publicado_em',{ascending:false}).limit(60)
+      sb.schema('midia').from('dim_conteudo_organico').select('id,conta_id,tipo_midia,permalink,legenda,publicado_em,thumbnail_url').in('conta_id',contaIds).gte('publicado_em',since).order('publicado_em',{ascending:false})
     ]);
     if(e2)throw e2;if(e3)throw e3;
     const postIds=(posts||[]).map(p=>p.id);
@@ -2317,85 +2326,231 @@ async function loadSocial(clientId){
     }
     const latestByPost={};
     metrics.forEach(m=>{if(!latestByPost[m.conteudo_id])latestByPost[m.conteudo_id]=m;});
-    _socData={contas,segsRaw:segs||[],posts:posts||[],latestByPost};
+    _socData={contas,segsRaw:segs||[],postsRaw:posts||[],metricsRaw:metrics,latestByPost};
     _socRenderFiltered();
   }catch(e){body.innerHTML=`<div class="empty">Erro ao carregar: ${(e&&e.message)||e}</div>`;}
 }
 function socSetFilter(contaId){_socFilterConta=contaId||'';_socRenderFiltered();}
+function socSetDays(d){_socDays=d;loadSocial(_socClientId);}
+function socSetTipo(t){_socFilterTipo=t||'';_socRenderFiltered();}
+function socSetSort(sel){_socSort=sel.value;_socRenderFiltered();}
+function socSetMetric(sel){_socMetric=sel.value;_socRenderFiltered();}
+function socToggleCompare(){_socCompare=!_socCompare;_socRenderFiltered();}
+function socExport(){window.print();}
+function socGoBriefing(){goToTab('briefing');}
+// soma seguidores por data entre contas (várias contas de Instagram podem estar no mesmo cliente — nunca intercalar as séries)
+function _socSumPorData(segs){const p={};segs.forEach(s=>{p[s.data]=(p[s.data]||0)+(s.total_seguidores||0);});return Object.keys(p).sort().map(data=>({data,total_seguidores:p[data]}));}
+function _socEngRate(p,latestByPost){const m=latestByPost[p.id];if(!m||!m.alcance)return null;return ((m.curtidas||0)+(m.comentarios||0)+(m.compartilhamentos||0)+(m.salvamentos||0))/m.alcance;}
 function _socRenderFiltered(){
   if(!_socData)return;
-  const {contas,segsRaw,posts,latestByPost}=_socData;
-  const sel=_socFilterConta;
-  const fbar=document.getElementById('socFilterBar');
-  if(fbar){
-    if(contas.length>1){
-      const esc=s=>String(s||'').replace(/</g,'&lt;');
-      const pill=(id,label)=>`<button class="btn sm ${sel===id?'primary':'ghost'}" onclick="socSetFilter('${id}')">${esc(label)}</button>`;
-      fbar.innerHTML=`<div style="display:flex;gap:6px;flex-wrap:wrap">${pill('','Todas as contas')}${contas.map(c=>pill(c.id,'@'+(c.nome||c.id))).join('')}</div>`;
-    }else fbar.innerHTML='';
-  }
-  // várias contas de Instagram podem estar conectadas no mesmo cliente — soma por data, nunca intercala as séries
-  const segsUse=sel?segsRaw.filter(s=>s.conta_id===sel):segsRaw;
-  const porData={};
-  segsUse.forEach(s=>{porData[s.data]=(porData[s.data]||0)+(s.total_seguidores||0);});
-  const segsAgg=Object.keys(porData).sort().map(data=>({data,total_seguidores:porData[data]}));
-  const postsUse=sel?posts.filter(p=>p.conta_id===sel):posts;
-  _socRender(segsAgg,postsUse,latestByPost,sel?1:contas.length);
+  const {contas,segsRaw,postsRaw,metricsRaw,latestByPost}=_socData;
+  const selConta=_socFilterConta;
+  const cutCur=daysAgoISO(_socDays),cutPrev=daysAgoISO(_socDays*2);
+  const inConta=x=>!selConta||x.conta_id===selConta;
+  const segsCur=segsRaw.filter(s=>inConta(s)&&s.data>=cutCur);
+  const segsPrev=segsRaw.filter(s=>inConta(s)&&s.data>=cutPrev&&s.data<cutCur);
+  const postsWindow=postsRaw.filter(p=>inConta(p)&&p.publicado_em&&p.publicado_em.slice(0,10)>=cutCur); // sem filtro de tipo — usado nas análises de formato/dia/frequência
+  const postsPrevWindow=postsRaw.filter(p=>inConta(p)&&p.publicado_em&&p.publicado_em.slice(0,10)>=cutPrev&&p.publicado_em.slice(0,10)<cutCur);
+  const postsCur=_socFilterTipo?postsWindow.filter(p=>(p.tipo_midia||'')===_socFilterTipo):postsWindow;
+  const engRate=p=>_socEngRate(p,latestByPost);
+  const sortFns={
+    recentes:(a,b)=>(b.publicado_em||'')>(a.publicado_em||'')?1:-1,
+    curtidas:(a,b)=>((latestByPost[b.id]||{}).curtidas||0)-((latestByPost[a.id]||{}).curtidas||0),
+    alcance:(a,b)=>((latestByPost[b.id]||{}).alcance||0)-((latestByPost[a.id]||{}).alcance||0),
+    engajamento:(a,b)=>(engRate(b)==null?-1:engRate(b))-(engRate(a)==null?-1:engRate(a))
+  };
+  const postsSorted=[...postsCur].sort(sortFns[_socSort]||sortFns.recentes);
+  const idsWindow=new Set(postsWindow.map(p=>p.id));
+  const metricsWindow=metricsRaw.filter(m=>idsWindow.has(m.conteudo_id)&&m.data_coleta>=cutCur);
+  _socFilterBarRender(contas,selConta,postsWindow);
+  _socRender({segsCur,segsPrev,postsWindow,postsCur,postsSorted,postsPrevWindow,metricsWindow,latestByPost,numContas:selConta?1:contas.length,engRate});
 }
-function _socRender(segs,posts,latestByPost,numContas){
+function _socFilterBarRender(contas,selConta,postsWindow){
+  const fbar=document.getElementById('socFilterBar');if(!fbar)return;
+  const esc=s=>String(s||'').replace(/</g,'&lt;');
+  const dayBtn=(d,label)=>`<button class="btn sm ${_socDays===d?'primary':'ghost'}" onclick="socSetDays(${d})">${label}</button>`;
+  const rows=[];
+  rows.push(`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${dayBtn(7,'7 dias')}${dayBtn(30,'30 dias')}${dayBtn(90,'90 dias')}${dayBtn(365,'1 ano')}
+    <button class="btn sm ${_socCompare?'primary':'ghost'}" onclick="socToggleCompare()" title="Compara com o período anterior de mesmo tamanho">🔁 Comparar com período anterior</button></div>`);
+  if(contas.length>1){
+    const pill=(id,label)=>`<button class="btn sm ${selConta===id?'primary':'ghost'}" onclick="socSetFilter('${id}')">${esc(label)}</button>`;
+    rows.push(`<div style="display:flex;gap:6px;flex-wrap:wrap">${pill('','Todas as contas')}${contas.map(c=>pill(c.id,'@'+(c.nome||c.id))).join('')}</div>`);
+  }
+  const tiposPresentes=[...new Set(postsWindow.map(p=>p.tipo_midia).filter(Boolean))];
+  if(tiposPresentes.length>1){
+    const tpill=(v,label)=>`<button class="btn sm ${_socFilterTipo===v?'primary':'ghost'}" onclick="socSetTipo('${v}')">${esc(label)}</button>`;
+    rows.push(`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${tpill('','Todos os formatos')}${tiposPresentes.map(t=>tpill(t,SOC_TIPO_LABEL[t]||t)).join('')}
+      <select style="width:auto;font-size:12px;margin-left:auto" onchange="socSetSort(this)">
+        <option value="recentes" ${_socSort==='recentes'?'selected':''}>Ordenar: mais recentes</option>
+        <option value="curtidas" ${_socSort==='curtidas'?'selected':''}>Ordenar: mais curtidas</option>
+        <option value="alcance" ${_socSort==='alcance'?'selected':''}>Ordenar: mais alcance</option>
+        <option value="engajamento" ${_socSort==='engajamento'?'selected':''}>Ordenar: melhor engajamento</option>
+      </select></div>`);
+  }else{
+    rows.push(`<div><select style="width:auto;font-size:12px" onchange="socSetSort(this)">
+        <option value="recentes" ${_socSort==='recentes'?'selected':''}>Ordenar: mais recentes</option>
+        <option value="curtidas" ${_socSort==='curtidas'?'selected':''}>Ordenar: mais curtidas</option>
+        <option value="alcance" ${_socSort==='alcance'?'selected':''}>Ordenar: mais alcance</option>
+        <option value="engajamento" ${_socSort==='engajamento'?'selected':''}>Ordenar: melhor engajamento</option>
+      </select></div>`);
+  }
+  fbar.innerHTML=rows.join('<div style="height:8px"></div>');
+}
+function _socRender(ctx){
   const body=document.getElementById('socBody');if(!body)return;
+  const {segsCur,segsPrev,postsWindow,postsCur,postsSorted,postsPrevWindow,metricsWindow,latestByPost,numContas,engRate}=ctx;
   const esc=s=>String(s||'').replace(/</g,'&lt;');
   const num=n=>(n||0).toLocaleString('pt-BR');
-  const first=segs[0],last=segs[segs.length-1];
+  const segsAgg=_socSumPorData(segsCur),segsAggPrev=_socSumPorData(segsPrev);
+  const first=segsAgg[0],last=segsAgg[segsAgg.length-1];
   const atual=last?last.total_seguidores:null;
   const variacao=(first&&last)?(last.total_seguidores-first.total_seguidores):null;
+  const firstP=segsAggPrev[0],lastP=segsAggPrev[segsAggPrev.length-1];
+  const variacaoPrev=(firstP&&lastP)?(lastP.total_seguidores-firstP.total_seguidores):null;
   let somaEng=0,somaAlc=0,comMetrica=0;
-  posts.forEach(p=>{const m=latestByPost[p.id];if(m){somaEng+=(m.curtidas||0)+(m.comentarios||0)+(m.compartilhamentos||0)+(m.salvamentos||0);somaAlc+=(m.alcance||0);comMetrica++;}});
+  postsCur.forEach(p=>{const m=latestByPost[p.id];if(m){somaEng+=(m.curtidas||0)+(m.comentarios||0)+(m.compartilhamentos||0)+(m.salvamentos||0);somaAlc+=(m.alcance||0);comMetrica++;}});
   const engMedio=somaAlc>0?(somaEng/somaAlc*100):null;
+  let somaEngP=0,somaAlcP=0;
+  postsPrevWindow.forEach(p=>{const m=latestByPost[p.id];if(m){somaEngP+=(m.curtidas||0)+(m.comentarios||0)+(m.compartilhamentos||0)+(m.salvamentos||0);somaAlcP+=(m.alcance||0);}});
+  const engMedioPrev=somaAlcP>0?(somaEngP/somaAlcP*100):null;
+  const delta=(cur,prev,pct)=>{if(cur==null||prev==null)return '';const d=cur-prev;if(Math.abs(d)<1e-9)return '<span style="color:var(--faint)">= período anterior</span>';const up=d>0;const txt=pct?Math.abs(prev)>1e-9?(Math.abs(d/prev*100)).toFixed(0)+'%':'—':num(Math.abs(d));return `<span style="color:${up?'#34d399':'#f87171'}">${up?'▲':'▼'} ${txt} vs anterior</span>`;};
   const tile=(label,val,sub,color)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;flex:1;min-width:150px">
     <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">${label}</div>
     <div style="font-size:22px;font-weight:800;margin-top:4px${color?`;color:${color}`:''}">${val}</div>
     ${sub?`<div style="font-size:11px;color:var(--faint);margin-top:2px">${sub}</div>`:''}</div>`;
   const tiles=`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
     ${tile(numContas>1?`Seguidores (${numContas} contas)`:'Seguidores',atual!=null?num(atual):'—',first&&last&&first.data!==last.data?`desde ${first.data.slice(8,10)}/${first.data.slice(5,7)}`:'')}
-    ${tile('Variação (90d)',variacao!=null?(variacao>=0?'+':'')+num(variacao):'—',null,variacao>0?'#34d399':variacao<0?'#f87171':null)}
-    ${tile('Posts (90d)',num(posts.length),comMetrica?`${comMetrica} com métrica`:'')}
-    ${tile('Engajamento médio',engMedio!=null?engMedio.toFixed(1).replace('.',',')+'%':'—','sobre o alcance')}
+    ${tile('Variação no período',variacao!=null?(variacao>=0?'+':'')+num(variacao):'—',_socCompare?delta(variacao,variacaoPrev,false):null,variacao>0?'#34d399':variacao<0?'#f87171':null)}
+    ${tile('Posts no período',num(postsCur.length),_socCompare?delta(postsCur.length,postsPrevWindow.length,false):(comMetrica?`${comMetrica} com métrica`:''))}
+    ${tile('Engajamento médio',engMedio!=null?engMedio.toFixed(1).replace('.',',')+'%':'—',_socCompare?delta(engMedio,engMedioPrev,false):'sobre o alcance')}
   </div>`;
-  const chart=_socSeguidoresSVG(segs);
-  const cards=posts.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">${posts.map(p=>_socPostCard(p,latestByPost[p.id],esc,num)).join('')}</div>`:'<div class="empty">Sem posts no período.</div>';
-  body.innerHTML=`${tiles}
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:18px">
-      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px">Evolução de seguidores</div>
-      ${chart}
+  // alerta: queda de seguidores ou post muito acima da média (destaque)
+  const rates=postsWindow.map(p=>({p,r:engRate(p)})).filter(x=>x.r!=null);
+  let destaqueIds=new Set();
+  if(rates.length>=4){
+    const vals=rates.map(x=>x.r);const mean=vals.reduce((s,v)=>s+v,0)/vals.length;
+    const sd=Math.sqrt(vals.reduce((s,v)=>s+(v-mean)*(v-mean),0)/vals.length);
+    rates.forEach(x=>{if(sd>0&&x.r>mean+1.25*sd)destaqueIds.add(x.p.id);});
+  }
+  const alerts=[];
+  if(variacao!=null&&variacao<0)alerts.push(`<div style="display:flex;align-items:center;gap:8px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:10px 14px;font-size:12.5px"><span>⚠</span><span>Perdeu <b>${num(Math.abs(variacao))}</b> seguidores nos últimos ${_socDays} dias.</span></div>`);
+  if(destaqueIds.size)alerts.push(`<div style="display:flex;align-items:center;gap:8px;background:rgba(240,192,64,.1);border:1px solid rgba(240,192,64,.3);border-radius:10px;padding:10px 14px;font-size:12.5px"><span>🔥</span><span><b>${destaqueIds.size}</b> post${destaqueIds.size!==1?'s':''} com engajamento muito acima da média — bons candidatos a recorte no Briefing.</span></div>`);
+  const alertBlock=alerts.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">${alerts.join('')}</div>`:'';
+  // gráfico: seguidores / alcance / visualizações (seletor de métrica)
+  const metricSeries={
+    seguidores:{pts:segsAgg.map(s=>({data:s.data,val:s.total_seguidores})),color:'#f0c040',label:'Evolução de seguidores'},
+    alcance:{pts:_socSumMetricPorDia(metricsWindow,'alcance'),color:'#60a5fa',label:'Alcance somado dos posts (por data de coleta)'},
+    visualizacoes:{pts:_socSumMetricPorDia(metricsWindow,'visualizacoes'),color:'#a78bfa',label:'Visualizações somadas dos posts (por data de coleta)'}
+  };
+  const ms=metricSeries[_socMetric]||metricSeries.seguidores;
+  const metricSel=`<select style="width:auto;font-size:12px" onchange="socSetMetric(this)">
+    <option value="seguidores" ${_socMetric==='seguidores'?'selected':''}>Seguidores</option>
+    <option value="alcance" ${_socMetric==='alcance'?'selected':''}>Alcance (soma dos posts)</option>
+    <option value="visualizacoes" ${_socMetric==='visualizacoes'?'selected':''}>Visualizações (soma dos posts)</option>
+  </select>`;
+  const chart=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">${ms.label}</div>
+      <div class="rt-no-print">${metricSel}</div>
     </div>
-    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px">Posts recentes</div>
-    ${cards}`;
+    ${_socLineSVG(ms.pts,ms.color)}
+  </div>`;
+  const formato=_socFormatoHTML(postsWindow,latestByPost,engRate,num);
+  const diaSemana=_socDiaSemanaHTML(postsWindow,engRate);
+  const freq=_socFrequenciaHTML(postsWindow,segsAgg,num);
+  const ranking=_socRankingHTML(postsWindow,latestByPost,engRate,num,esc);
+  const cards=postsSorted.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">${postsSorted.map(p=>_socPostCard(p,latestByPost[p.id],esc,num,destaqueIds.has(p.id))).join('')}</div>`:'<div class="empty">Sem posts nesse filtro.</div>';
+  body.innerHTML=`<div id="socPrintArea">${alertBlock}${tiles}${chart}
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px">${formato}${diaSemana}</div>
+    ${ranking}${freq}
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:18px 0 8px">Posts ${_socFilterTipo?'('+(SOC_TIPO_LABEL[_socFilterTipo]||_socFilterTipo)+')':''}</div>
+    ${cards}</div>`;
 }
-function _socSeguidoresSVG(segs){
-  if(!segs||segs.length<2)return '<div style="font-size:12px;color:var(--faint);padding:8px 0">Sem histórico suficiente ainda (precisa de pelo menos 2 dias de coleta).</div>';
-  const W=720,H=140,P={l:8,r:8,t:10,b:20},n=segs.length,iw=W-P.l-P.r,ih=H-P.t-P.b;
-  const vals=segs.map(s=>s.total_seguidores||0);const min=Math.min(...vals),max=Math.max(...vals);const range=(max-min)||1;
+function _socSumMetricPorDia(metrics,campo){const p={};metrics.forEach(m=>{const d=(m.data_coleta||'').slice(0,10);if(!d)return;p[d]=(p[d]||0)+(m[campo]||0);});return Object.keys(p).sort().map(data=>({data,val:p[data]}));}
+function _socLineSVG(pts,color){
+  if(!pts||pts.length<2)return '<div style="font-size:12px;color:var(--faint);padding:8px 0">Sem histórico suficiente ainda nesse período.</div>';
+  const W=720,H=140,P={l:8,r:8,t:10,b:20},n=pts.length,iw=W-P.l-P.r,ih=H-P.t-P.b;
+  const vals=pts.map(s=>s.val||0);const min=Math.min(...vals),max=Math.max(...vals);const range=(max-min)||1;
   const x=i=>P.l+(n<=1?iw/2:iw*i/(n-1));
   const y=v=>P.t+ih-((v-min)/range)*ih;
-  const pts=vals.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const svgpts=vals.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const lbl=d=>{const m=String(d).match(/(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}`:d;};
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
-    <polyline points="${pts}" fill="none" stroke="#f0c040" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-    <text x="${P.l}" y="${H-4}" fill="var(--faint)" font-size="10">${lbl(segs[0].data)}</text>
-    <text x="${W-P.r}" y="${H-4}" fill="var(--faint)" font-size="10" text-anchor="end">${lbl(segs[n-1].data)}</text>
+    <polyline points="${svgpts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="${P.l}" y="${H-4}" fill="var(--faint)" font-size="10">${lbl(pts[0].data)}</text>
+    <text x="${W-P.r}" y="${H-4}" fill="var(--faint)" font-size="10" text-anchor="end">${lbl(pts[n-1].data)}</text>
   </svg>`;
 }
-function _socPostCard(p,m,esc,num){
+function _socFormatoHTML(posts,latestByPost,engRate,num){
+  const byTipo={};
+  posts.forEach(p=>{const r=engRate(p);if(r==null)return;const t=p.tipo_midia||'—';if(!byTipo[t])byTipo[t]={soma:0,n:0};byTipo[t].soma+=r;byTipo[t].n++;});
+  const rows=Object.keys(byTipo).map(t=>({t,media:byTipo[t].soma/byTipo[t].n,n:byTipo[t].n})).sort((a,b)=>b.media-a.media);
+  const box=inner=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Desempenho por formato</div>${inner}</div>`;
+  if(!rows.length)return box('<div style="font-size:12px;color:var(--faint)">Sem posts com métrica suficiente no período.</div>');
+  const max=Math.max(...rows.map(r=>r.media))||1;
+  return box(rows.map(r=>`<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>${SOC_TIPO_LABEL[r.t]||r.t}</span><span style="color:var(--faint)">${(r.media*100).toFixed(1).replace('.',',')}% · ${r.n} post${r.n!==1?'s':''}</span></div>
+    <div style="height:7px;background:var(--border);border-radius:5px;overflow:hidden"><div style="height:100%;width:${Math.max(r.media/max*100,3).toFixed(1)}%;background:#f0c040;border-radius:5px"></div></div></div>`).join(''));
+}
+function _socDiaSemanaHTML(posts,engRate){
+  const byWd=Array.from({length:7},()=>({soma:0,n:0}));
+  posts.forEach(p=>{if(!p.publicado_em)return;const r=engRate(p);if(r==null)return;const wd=new Date(p.publicado_em).getDay();byWd[wd].soma+=r;byWd[wd].n++;});
+  const box=inner=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Melhor dia pra postar</div>${inner}</div>`;
+  const ordem=[1,2,3,4,5,6,0]; // Segunda a Domingo
+  const rows=ordem.map(wd=>({wd,media:byWd[wd].n?byWd[wd].soma/byWd[wd].n:0,n:byWd[wd].n})).filter(r=>r.n>0);
+  if(!rows.length)return box('<div style="font-size:12px;color:var(--faint)">Sem posts com métrica suficiente no período.</div>');
+  const max=Math.max(...rows.map(r=>r.media))||1;
+  return box(rows.map(r=>`<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>${SOC_WD_LABEL[r.wd]}</span><span style="color:var(--faint)">${(r.media*100).toFixed(1).replace('.',',')}% · ${r.n} post${r.n!==1?'s':''}</span></div>
+    <div style="height:7px;background:var(--border);border-radius:5px;overflow:hidden"><div style="height:100%;width:${Math.max(r.media/max*100,3).toFixed(1)}%;background:#60a5fa;border-radius:5px"></div></div></div>`).join(''));
+}
+function _socFrequenciaHTML(posts,segsAgg,num){
+  if(_socDays<30||segsAgg.length<8)return '';
+  const semanas=Math.min(Math.ceil(_socDays/7),12);
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const rows=[];
+  for(let i=0;i<semanas;i++){
+    const fim=new Date(hoje.getTime()-i*7*86400000);
+    const ini=new Date(fim.getTime()-6*86400000);
+    const iniISO=ini.toISOString().slice(0,10),fimISO=fim.toISOString().slice(0,10);
+    const nPosts=posts.filter(p=>{const d=(p.publicado_em||'').slice(0,10);return d>=iniISO&&d<=fimISO;}).length;
+    const segNaSemana=segsAgg.filter(s=>s.data>=iniISO&&s.data<=fimISO);
+    const delta=segNaSemana.length>=2?(segNaSemana[segNaSemana.length-1].total_seguidores-segNaSemana[0].total_seguidores):null;
+    rows.push({iniISO,fimISO,nPosts,delta});
+  }
+  rows.reverse();
+  const lbl=d=>{const m=d.match(/(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}`:d;};
+  const box=inner=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:18px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Frequência de posts × crescimento de seguidores (semanal)</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><tr><th style="text-align:left;padding:5px 8px;color:var(--muted);font-weight:600">Semana</th><th style="text-align:right;padding:5px 8px;color:var(--muted);font-weight:600">Posts</th><th style="text-align:right;padding:5px 8px;color:var(--muted);font-weight:600">Δ seguidores</th></tr>
+    ${inner}</table></div></div>`;
+  return box(rows.map(r=>`<tr><td style="padding:5px 8px;border-top:1px solid var(--border)">${lbl(r.iniISO)} – ${lbl(r.fimISO)}</td><td style="text-align:right;padding:5px 8px;border-top:1px solid var(--border)">${r.nPosts}</td><td style="text-align:right;padding:5px 8px;border-top:1px solid var(--border);color:${r.delta==null?'var(--faint)':r.delta>0?'#34d399':r.delta<0?'#f87171':'var(--faint)'}">${r.delta==null?'—':(r.delta>=0?'+':'')+num(r.delta)}</td></tr>`).join(''));
+}
+function _socRankingHTML(posts,latestByPost,engRate,num,esc){
+  const qual=posts.map(p=>({p,r:engRate(p)})).filter(x=>x.r!=null);
+  if(qual.length<3)return '';
+  const sorted=[...qual].sort((a,b)=>b.r-a.r);
+  const melhores=sorted.slice(0,5),piores=sorted.slice(-5).reverse().filter(x=>!melhores.includes(x));
+  const row=x=>{const dt=x.p.publicado_em?new Date(x.p.publicado_em).toLocaleDateString('pt-BR'):'—';
+    return `<a href="${x.p.permalink?esc(x.p.permalink):'#'}" target="_blank" rel="noopener" style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:12px;color:inherit;text-decoration:none">
+      <span>${SOC_TIPO_LABEL[x.p.tipo_midia]||x.p.tipo_midia||'post'} · ${dt}</span><span style="font-weight:700">${(x.r*100).toFixed(1).replace('.',',')}%</span></a>`;};
+  const box=(title,items)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px">${title}</div>
+    ${items.map(row).join('')||'<div style="font-size:12px;color:var(--faint);padding:6px 0">—</div>'}</div>`;
+  return `<div class="grid" style="grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px">${box('🏆 Melhores posts (engajamento sobre alcance)',melhores)}${box('📉 Piores posts (engajamento sobre alcance)',piores)}</div>`;
+}
+function _socPostCard(p,m,esc,num,destaque){
   const dt=p.publicado_em?new Date(p.publicado_em).toLocaleDateString('pt-BR'):'—';
   const thumb=p.thumbnail_url?`<img src="${esc(p.thumbnail_url)}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px 8px 0 0;display:block" loading="lazy">`:`<div style="width:100%;aspect-ratio:1;background:var(--bg2,#1a1a1a);border-radius:8px 8px 0 0;display:flex;align-items:center;justify-content:center;font-size:26px">📷</div>`;
   const stats=m?`<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--faint);margin-top:6px">
       <span title="Curtidas">❤ ${num(m.curtidas)}</span><span title="Comentários">💬 ${num(m.comentarios)}</span>
       <span title="Alcance">👁 ${num(m.alcance)}</span></div>`:'<div style="font-size:11px;color:var(--faint);margin-top:6px">sem métrica coletada</div>';
+  const briefBtn=`<button class="btn xs ghost rt-no-print" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.55);backdrop-filter:blur(2px)" title="Ver Briefing Criativo deste cliente" onclick="event.preventDefault();event.stopPropagation();socGoBriefing()">🎯</button>`;
+  const destaqueTag=destaque?`<span style="position:absolute;top:6px;left:6px;background:rgba(240,192,64,.9);color:#0a0906;font-size:10px;font-weight:800;padding:2px 7px;border-radius:20px" title="Engajamento muito acima da média do período">🔥 destaque</span>`:'';
   const body=`<div style="padding:8px 10px 10px">
-      <div style="font-size:10.5px;color:var(--muted);display:flex;justify-content:space-between"><span>${esc((p.tipo_midia||'').toUpperCase())}</span><span>${dt}</span></div>
+      <div style="font-size:10.5px;color:var(--muted);display:flex;justify-content:space-between"><span>${esc(SOC_TIPO_LABEL[p.tipo_midia]||(p.tipo_midia||'').toUpperCase())}</span><span>${dt}</span></div>
       ${stats}</div>`;
-  const inner=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">${thumb}${body}</div>`;
+  const inner=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;position:relative">${destaqueTag}${briefBtn}${thumb}${body}</div>`;
   return p.permalink?`<a href="${esc(p.permalink)}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">${inner}</a>`:inner;
 }
 /* ===== PÚBLICOS (Meta Custom/Saved Audiences) ===== */
