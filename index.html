@@ -20,7 +20,7 @@
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Inter',-apple-system,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
   .app{display:flex;min-height:100vh}
-  .sidebar{width:214px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);padding:20px 14px;display:flex;flex-direction:column;gap:18px;position:sticky;top:0;height:100vh;overflow-y:auto}
+  .sidebar{width:232px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);padding:18px 14px;display:flex;flex-direction:column;gap:16px;position:sticky;top:0;height:100vh;overflow-y:auto}
   .app.sidebar-hidden .sidebar{display:none}
   .app.sidebar-hidden .main{max-width:none}
   #sidebarShowBtn{display:none;position:fixed;left:12px;top:12px;z-index:700;box-shadow:0 6px 20px rgba(0,0,0,.45)}
@@ -35,6 +35,11 @@
   .brand .eyebrow{font-family:'Space Grotesk';font-size:.7rem;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);font-weight:600}
   .brand h1{font-family:'Space Grotesk';font-size:1.5rem;font-weight:700;letter-spacing:-.02em}
   .brand p{font-size:12px;color:var(--muted)}
+  .sidebar>.brand{gap:9px;align-items:center}
+  .sidebar>.brand .dot,.sidebar>.brand .dot img{width:34px!important;height:34px!important;border-radius:9px!important;flex:none}
+  .sidebar>.brand h1{font-size:1rem!important;line-height:1.15;white-space:nowrap;letter-spacing:-.025em}
+  .sidebar>.brand p{font-size:10.5px;line-height:1.25;white-space:nowrap;margin-top:3px}
+  .sidebar>.brand>.btn{width:28px;height:28px;padding:0!important;justify-content:center;margin-left:auto}
   .tabs{display:flex;flex-direction:column;gap:3px;background:transparent;padding:0;border:none}
   .tab{padding:10px 12px;border:none;background:transparent;color:var(--muted);font-size:.88rem;font-weight:600;border-radius:10px;cursor:pointer;font-family:inherit;transition:.18s;display:flex;align-items:center;gap:8px;justify-content:flex-start;width:100%;text-align:left}
   .tab:hover{color:var(--text)}
@@ -213,6 +218,12 @@
   .ui-icon svg{width:100%;height:100%;display:block;fill:none;stroke:currentColor;stroke-width:1.85;stroke-linecap:round;stroke-linejoin:round}
   .ui-icon.success{color:var(--green);filter:drop-shadow(0 0 4px rgba(57,255,154,.18))}.ui-icon.danger{color:var(--red);filter:drop-shadow(0 0 4px rgba(255,73,108,.2))}
   .ui-icon.warning{color:var(--amber);filter:drop-shadow(0 0 4px rgba(255,176,32,.18))}.ui-icon.info{color:var(--blue);filter:drop-shadow(0 0 4px rgba(56,207,255,.18))}
+  *{scrollbar-width:thin;scrollbar-color:rgba(214,169,23,.72) #0d0d0b}
+  *::-webkit-scrollbar{width:8px;height:8px}
+  *::-webkit-scrollbar-track{background:#0d0d0b;border-radius:999px}
+  *::-webkit-scrollbar-thumb{background:linear-gradient(180deg,#8c6500,#d6a917);border:2px solid #0d0d0b;border-radius:999px;min-height:32px}
+  *::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#d6a917,#ffd52a);box-shadow:0 0 8px rgba(255,213,42,.38)}
+  *::-webkit-scrollbar-corner{background:#0d0d0b}
   .card,.kpi{box-shadow:0 14px 34px rgba(0,0,0,.18)}
   .btn{border-color:rgba(214,169,23,.25);background:linear-gradient(180deg,#1c1a14,#14130f)}
   .btn:hover{border-color:var(--gold);color:var(--gold);box-shadow:0 0 14px rgba(255,213,42,.1)}
