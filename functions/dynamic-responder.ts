@@ -3348,12 +3348,33 @@ function _crmAiSafeFields(fields: any) {
 function _crmAiMaskText(v: any) {
   return String(v || "").replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[email oculto]").replace(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?9?\d{4}[-\s]?\d{4}/g, "[telefone oculto]").replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, "[documento oculto]").replace(/\b\d{2}\.?\d{3}\.?\d{3}\/\d{4}-?\d{2}\b/g, "[documento oculto]");
 }
+async function _crmAndreiaPrepareAction(args: any, client: any, clients: any[]) {
+  const p: any = { ...args, client_id: client.id };
+  if (args.cliente) {
+    const hit = _waResolveClient(String(args.cliente), clients);
+    if (!hit) return { error: `Não achei o cliente "${args.cliente}" no sistema.` };
+    p.client_id = hit.id;
+  }
+  if (p.tipo === "criar_tarefa") {
+    const team = await sbGet("team", "select=id,name&limit=500");
+    const q = String(p.responsavel || "").toLowerCase().trim();
+    const owner = q ? (team.find((t: any) => t.name.toLowerCase() === q) || team.find((t: any) => t.name.toLowerCase().includes(q))) : null;
+    const dueOk = /^\d{4}-\d{2}-\d{2}$/.test(String(p.quando || ""));
+    const missing: string[] = [];
+    if (!owner) missing.push(q ? `um responsável válido (${team.map((t: any) => t.name).join(", ")})` : "o responsável");
+    if (!dueOk) missing.push("a data");
+    if (missing.length) return { error: `Para criar a tarefa, preciso de ${missing.join(" e ")}.` };
+    p._owner = owner.id; p.responsavel = owner.name; p._due = p.quando;
+  }
+  return { action: p, confirmation: _waConfirmText(p, clients) };
+}
 async function crmAndreia(input: any) {
   const clientId = String(input.clientId || ""), question = String(input.question || "").trim();
   if (!clientId || !question) throw new Error("Cliente e pergunta são obrigatórios.");
   const days = Math.min(180, Math.max(7, Number(input.days) || 30));
   const since = new Date(Date.now() - days * 864e5).toISOString();
-  const client = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=id,name,seg,dna`))[0];
+  const clients = await sbGet("clients", "select=id,name,seg,dna,meta_account_id,google_account_id,conversion_source,report_sheet_url,report_tabs&limit=1000");
+  const client = clients.find((c: any) => c.id === clientId);
   if (!client) throw new Error("Cliente não encontrado.");
   let convs = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&last_at=gte.${encodeURIComponent(since)}&select=id,stage,origin_type,origin,fields,last_at,last_text,num_errado,irrelevante&order=last_at.desc&limit=2000`);
   const f = input.filters || {}, channels = Array.isArray(f.channels) ? f.channels : [], campaigns = Array.isArray(f.campaigns) ? f.campaigns : [];
@@ -3447,7 +3468,21 @@ async function crmAndreia(input: any) {
   const lossMoves = journeys.filter((j: any) => /perd|desqual|lost/i.test(String(j.to_stage || "")) || /perd|desist|sem retorno|preco|valor|data|lot|vaga|concorr/i.test(String(j.why || ""))).slice(-600).map((j: any) => { const cv = convById[j.conversation_id] || {}, o = cv.origin || {}; return { de: j.from_stage || "", para: j.to_stage || "", motivo: _crmAiMaskText(j.why).slice(0, 260), data: j.created_at, canal: _crmAiChannel(cv), campanha: o.campaign || "", anuncio: o.ad || "", palavra_chave: o.keyword || o.term || o.utm_term || "" }; });
   const base = { cliente: client.name, segmento: client.seg || "", periodo_dias: days, filtros: f, total, etapas_atuais: stageCounts, progressao_entre_etapas: progression, funil_e_qualificacao_por_canal: channelFunnel, conversoes_por_anuncio_ou_palavra_chave: conversionDrivers, parados_por_etapa_e_tempo: stalledByStage, canais: channelCounts, campanhas: campaignCounts, qualificados: qual, vendas: sales, taxa_qualificacao_pct: total ? +(qual / total * 100).toFixed(1) : 0, taxa_fechamento_pct: total ? +(sales / total * 100).toFixed(1) : 0, atividade_metade_recente: recent, atividade_metade_anterior: prior, movimentos_com_motivo_registrado: lossMoves, leads_comerciais: commercial.map(({ id: _id, ...x }: any) => x), conversas_amostra: transcripts };
   const history = (Array.isArray(input.history) ? input.history : []).slice(-8).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.text || "").slice(0, 1800) }));
-  const sys = `Você é a AndréIA, consultora de crescimento, CRM e funil da GT Marketing. Responda usando SOMENTE o pacote de dados fornecido, respeitando o cliente, período e filtros ativos. Além de analisar procura por produtos/serviços, perfil e qualidade dos contatos, motivos, passagem entre etapas, canais/campanhas, atendimento, gargalos, conversão e projeções, transforme o diagnóstico em orientação prática para melhorar o funil.
+  const playbook = await _waPlaybook();
+  const sys = `${playbook}
+
+Você é a AndréIA, o cérebro único e conversacional da Central de Gestão. É a mesma inteligência usada no CRM, Analytics, sistema e WhatsApp. Neste momento você está dentro do CRM do cliente ${client.name}, mas pode conversar, consultar dados reais de outras áreas e preparar ações no sistema usando as ferramentas disponíveis.
+
+ROTEAMENTO:
+- Pergunta simples ou conversa: responda naturalmente e de forma direta; não force um relatório.
+- Pergunta sobre dados: consulte as ferramentas quando o pacote CRM não for suficiente. Nunca invente.
+- Pedido de relatório/análise: use o pacote CRM e a estrutura analítica abaixo.
+- Pedido de ação: use preparar_acao. Não transforme a solicitação em diagnóstico e não diga que executou. O sistema mostrará uma confirmação antes de executar.
+- Para criar tarefa, responsável e data são obrigatórios. Se faltar algo, pergunte apenas o que falta.
+- Hoje é ${new Date().toISOString().slice(0, 10)}. Converta "hoje", "amanhã" e dias da semana para AAAA-MM-DD antes de preparar uma ação.
+- O cliente atual é ${client.name}; use-o como padrão, salvo se a pessoa citar claramente outro cliente.
+
+Ao analisar o CRM, respeite o cliente, período e filtros ativos. Além de analisar procura por produtos/serviços, perfil e qualidade dos contatos, motivos, passagem entre etapas, canais/campanhas, atendimento, gargalos, conversão e projeções, transforme o diagnóstico em orientação prática para melhorar o funil.
 
 REGRAS:
 - Nunca invente número, produto, motivo ou tendência. Diferencie claramente DADO, INFERÊNCIA e PROJEÇÃO.
@@ -3468,7 +3503,7 @@ REGRAS:
 - Se a pergunta não puder ser respondida com estes dados, diga exatamente qual dado está faltando e como a equipe deve registrá-lo.
 - Não mencione IDs internos. Não exponha dados pessoais. Responda em português, de modo executivo, claro e acionável.
 
-FORMATO OBRIGATÓRIO DA RESPOSTA:
+FORMATO PARA RELATÓRIOS E ANÁLISES (não use em conversa curta ou pedido de ação):
 - Use Markdown limpo com títulos iniciados por ##. Nunca use asterisco simples para negrito, nunca use "---" entre parágrafos e nunca coloque vários dados na mesma linha.
 - Comece por "## Resumo executivo" com no máximo 3 frases.
 - Quando a pergunta envolver funil, use "## Funil no período" e uma lista: Entrada; Não qualificaram como MQL; MQL que ainda não chegaram a SQL; SQL que ainda não viraram venda. Mostre volume e percentual quando houver base.
@@ -3481,9 +3516,35 @@ FORMATO OBRIGATÓRIO DA RESPOSTA:
 - Cada bullet deve conter uma ideia e ter no máximo 2 frases. No máximo 5 bullets por seção. Não repita números.
 - Destaque apenas números ou termos curtos com **negrito**; nunca deixe um parágrafo inteiro em negrito.
 - Se o volume for pequeno, mostre um aviso curto em vez de conclusões extensas. No resumo geral completo, máximo 800 palavras; nas demais respostas, máximo 450 palavras.`;
-  const messagesAi: any[] = [{ role: "system", content: sys }, ...history, { role: "user", content: `PERGUNTA: ${question}\n\nPACOTE CRM:\n${JSON.stringify(base).slice(0, 110000)}` }];
-  const ai = await callOpenAI({ model: "gpt-4o", messages: messagesAi, max_tokens: 2200, temperature: 0.25 });
-  return { answer: String(ai.choices?.[0]?.message?.content || "Não consegui gerar a análise."), scope: { cliente: client.name, dias: days, conversas: total, filtros: f }, suggestions: ["Resumo geral do CRM", "Resumo geral da procura de produtos e serviços", "Resumo da qualificação dos leads", "Onde os leads deixam de avançar entre MQL, SQL e venda?", "Faça uma projeção prudente para os próximos 30 dias."] };
+  const messagesAi: any[] = [{ role: "system", content: sys }, ...history, { role: "user", content: `PERGUNTA: ${question}\n\nPACOTE CRM ATUAL:\n${JSON.stringify(base).slice(0, 110000)}` }];
+  let answer = "", action: any = null;
+  for (let it = 0; it < 5; it++) {
+    const ai = await callOpenAI({ model: "gpt-4o", messages: messagesAi, tools: WA_TOOLS, tool_choice: "auto", max_tokens: 2200, temperature: 0.25 });
+    const msg = ai.choices?.[0]?.message || {};
+    if (!msg.tool_calls?.length) { answer = String(msg.content || "Não consegui responder agora."); break; }
+    messagesAi.push(msg);
+    for (const tc of msg.tool_calls) {
+      let args: any = {}; try { args = JSON.parse(tc.function.arguments || "{}"); } catch (_e) { /* */ }
+      if (tc.function.name === "preparar_acao") {
+        const prepared = await _crmAndreiaPrepareAction(args, client, clients);
+        if (prepared.error) messagesAi.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ erro: prepared.error, instrucao: "Peça somente os dados faltantes ao usuário." }) });
+        else { action = prepared.action; answer = prepared.confirmation; messagesAi.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ preparado: true, confirmacao: prepared.confirmation }) }); }
+      } else {
+        const result = await waExecTool(tc.function.name, args, clients);
+        messagesAi.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result).slice(0, 12000) });
+      }
+    }
+    if (action) break;
+  }
+  return { answer: answer || "Não consegui responder agora.", action, scope: { cliente: client.name, dias: days, conversas: total, filtros: f }, suggestions: ["Resumo geral do CRM", "Resumo geral da procura de produtos e serviços", "Resumo da qualificação dos leads", "Onde os leads deixam de avançar entre MQL, SQL e venda?", "Faça uma projeção prudente para os próximos 30 dias."] };
+}
+
+async function crmAndreiaAction(input: any) {
+  const action = input?.action || {}, clientId = String(input?.clientId || action.client_id || "");
+  if (!action.tipo) throw new Error("Ação inválida.");
+  const allowed = new Set(["criar_tarefa", "criar_reuniao", "cancelar_reuniao", "pausar_campanha", "reativar_campanha", "orcamento", "duplicar_campanha", "criar_lancamento", "dar_baixa"]);
+  if (!allowed.has(String(action.tipo))) throw new Error("Esta ação não está liberada no CRM.");
+  return { message: await waAgentExec(action, clientId || null) };
 }
 // Reuniões da agenda (Google Agenda) — tarefas sincronizadas (id 'cal*', nota "Reunião (Google Agenda)"). Diferente de tarefa operacional.
 async function waReunioes(args: any) {
@@ -4865,6 +4926,10 @@ Deno.serve(async (req) => {
     }
     if (body.crmAndreia) {
       const r = await crmAndreia(body.crmAndreia);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.crmAndreiaAction) {
+      const r = await crmAndreiaAction(body.crmAndreiaAction);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.briefingSugerirCampos) {
