@@ -3654,6 +3654,36 @@ FORMATO PARA RELATÓRIOS E ANÁLISES (não use em conversa curta ou pedido de a�
   return { answer: answer || "Não consegui responder agora.", action, scope: { cliente: client.name, dias: days, conversas: total, filtros: f }, suggestions: ["Resumo geral do CRM", "Resumo geral da procura de produtos e serviços", "Resumo da qualificação dos leads", "Onde os leads deixam de avançar entre MQL, SQL e venda?", "Faça uma projeção prudente para os próximos 30 dias."] };
 }
 
+async function crmCapaAudit(input: any) {
+  const clientId = String(input.clientId || ""), stage = String(input.stage || "sql").toLowerCase();
+  const sampleSize = Math.min(20, Math.max(5, Number(input.sampleSize) || 5)), days = Math.min(180, Math.max(7, Number(input.days) || 30));
+  const minHours = Math.max(0, Number(input.minHours) || 24), since = new Date(Date.now() - days * 864e5).toISOString(), cutoff = Date.now() - minHours * 36e5;
+  if (!clientId) throw new Error("Cliente obrigatório.");
+  const client = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=id,name,seg,dna&limit=1`))[0];
+  if (!client) throw new Error("Cliente não encontrado.");
+  let convs = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&last_at=gte.${encodeURIComponent(since)}&select=id,name,stage,origin_type,origin,fields,last_at,last_text,num_errado,irrelevante&order=last_at.asc&limit=1000`);
+  convs = convs.filter((c: any) => { const st = String(c.stage || "sem_etapa").toLowerCase(); return st === stage && !c.num_errado && !c.irrelevante && new Date(c.last_at).getTime() <= cutoff; }).slice(0, sampleSize);
+  if (!convs.length) return { ok: true, cliente: client.name, stage, requested: sampleSize, audited: 0, answer: `## Auditoria CAPA\n\nNenhuma conversa em **${stage.toUpperCase()}** está parada há pelo menos ${minHours} horas dentro dos últimos ${days} dias.` };
+  const ids = convs.map((c: any) => c.id), allMsgs: any[] = [];
+  for (let i = 0; i < ids.length; i += 10) {
+    const part = ids.slice(i, i + 10);
+    allMsgs.push(...await sbGet("wa_messages", `conversation_id=in.(${part.map((x: string) => encodeURIComponent(x)).join(",")})&select=conversation_id,direction,text,ts&order=ts.asc&limit=1200`));
+  }
+  const by: Record<string, any[]> = {}; allMsgs.forEach((m: any) => { const txt = _crmAiMaskText(m.text).trim(); if (txt) (by[m.conversation_id] ||= []).push({ quem: m.direction === "out" ? "equipe" : "lead", texto: txt.slice(0, 500), data: m.ts }); });
+  const refs: Record<string, any> = {}, cases = convs.map((cv: any, i: number) => { const ref = `C${i + 1}`; refs[ref] = cv; return { ref, etapa: cv.stage, canal: _crmAiChannel(cv), campanha: cv.origin?.campaign || "", conjunto_ou_grupo: cv.origin?.adset || cv.origin?.adgroup || "", anuncio: cv.origin?.ad || "", palavra_chave: cv.origin?.keyword || cv.origin?.term || "", horas_sem_avancar: Math.round((Date.now() - new Date(cv.last_at).getTime()) / 36e5), campos: _crmAiSafeFields(cv.fields), conversa: (by[cv.id] || []).slice(-30) }; });
+  const playbook = await _waPlaybook(); const results: any[] = [];
+  for (let i = 0; i < cases.length; i += 5) {
+    const part = cases.slice(i, i + 5);
+    const prompt = `${playbook}\n\nVocê é a AndréIA realizando uma AUDITORIA CAPA de atendimento comercial. Analise cada conversa de forma rigorosa e consultiva. O objetivo não é culpar: é descobrir o que impediu o próximo passo e ensinar a melhor condução. Nunca invente falas ou fatos. Quotes devem ser trechos EXATOS presentes na conversa, já anonimizada. A nota 0–10 deve considerar velocidade percebida, descoberta da necessidade, clareza, personalização, tratamento de objeção, CTA/próximo passo e follow-up. Não declare que público/nicho está errado; objetivos alternativos são possíveis. A mensagem recomendada deve ser pronta para envio, específica ao contexto, sem promessas inventadas.\n\nRetorne SOMENTE JSON válido: {"casos":[{"ref":"C1","nota":0,"diagnostico":"","ponto_de_quebra":"","quotes":[{"quem":"lead|equipe","texto":"","evidencia":""}],"faltou":[""],"mensagem_recomendada":"","follow_up":"","acoes_trafego":[""],"acoes_comercial":[""],"acoes_processo":[""]}]}\n\nCASOS:\n${JSON.stringify(part)}`;
+    const parsed = await _callOpenAIJson([{ role: "user", content: prompt }]);
+    results.push(...(Array.isArray(parsed.casos) ? parsed.casos : []));
+  }
+  const aggregate = await _callOpenAIJson([{ role: "user", content: `Você é a AndréIA. Consolide esta Auditoria CAPA de ${client.name}, sem analisar um a um novamente. Agrupe padrões, quantifique ocorrências somente contando os casos fornecidos e proponha melhorias práticas. Sem prazo. Separe Tráfego, Comercial e Processo/CRM. Inclua treinamento recomendado e indicadores para acompanhar. Retorne SOMENTE JSON: {"resumo":"","padroes":[{"tema":"","ocorrencias":0,"impacto":""}],"trafego":[""],"comercial":[""],"processo":[""],"treinamento":[""],"indicadores":[""]}. CASOS: ${JSON.stringify(results)}` }]);
+  const auditedAt = new Date().toISOString();
+  for (const item of results) { const cv = refs[item.ref]; if (!cv) continue; const fields = { ...(cv.fields || {}), capa: { audited_at: auditedAt, stage, score: Math.max(0, Math.min(10, Number(item.nota) || 0)) } }; const tags = Array.isArray(fields.tags) ? fields.tags : []; if (!tags.includes("Auditoria CAPA")) fields.tags = [...tags, "Auditoria CAPA"]; await sbPatchD("wa_conversations", `id=eq.${encodeURIComponent(cv.id)}`, { fields }); item.conversationId = cv.id; item.leadName = cv.name || "Conversa"; }
+  return { ok: true, cliente: client.name, stage, requested: sampleSize, audited: results.length, minHours, days, cases: results, aggregate, auditedAt };
+}
+
 async function crmAndreiaAction(input: any) {
   const action = input?.action || {}, clientId = String(input?.clientId || action.client_id || "");
   if (!action.tipo) throw new Error("Ação inválida.");
@@ -5056,6 +5086,10 @@ Deno.serve(async (req) => {
     }
     if (body.crmAndreia) {
       const r = await crmAndreia(body.crmAndreia);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.crmCapaAudit) {
+      const r = await crmCapaAudit(body.crmCapaAudit);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.crmAndreiaAction) {
