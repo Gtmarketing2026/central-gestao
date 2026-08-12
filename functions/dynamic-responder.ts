@@ -1147,6 +1147,34 @@ async function googleListAccounts() {
     .map((c: any) => ({ id: String(c.id), name: c.descriptiveName || String(c.id), status: c.status, currency: c.currencyCode }));
 }
 
+async function googleAudiences(m: any) {
+  const ids = (Array.isArray(m.accounts) ? m.accounts : []).map((a: any) => String(a.id || a).replace(/\D/g, "")).filter(Boolean);
+  if (!ids.length) throw new Error("Conta Google Ads obrigatória.");
+  const token = await googleAdsAccessToken(); const audiences: any[] = [], errors: string[] = [];
+  for (const accountId of ids) {
+    try {
+      const [lists, custom] = await Promise.all([
+        gadsSearch(accountId, `SELECT user_list.id, user_list.name, user_list.description, user_list.type, user_list.membership_status, user_list.membership_life_span, user_list.size_for_display, user_list.size_for_search, user_list.eligible_for_display, user_list.eligible_for_search, user_list.read_only, user_list.access_reason, user_list.resource_name FROM user_list WHERE user_list.membership_status != 'CLOSED'`, token),
+        gadsSearch(accountId, `SELECT custom_audience.id, custom_audience.name, custom_audience.description, custom_audience.type, custom_audience.status, custom_audience.resource_name, custom_audience.members FROM custom_audience WHERE custom_audience.status != 'REMOVED'`, token),
+      ]);
+      lists.forEach((r: any) => { const x = r.userList || {}; audiences.push({ accountId, resourceName: x.resourceName, id: String(x.id || ""), name: x.name || "Sem nome", description: x.description || "", type: x.type || "USER_LIST", source: "data", retention: Number(x.membershipLifeSpan) || null, sizeDisplay: Number(x.sizeForDisplay) || 0, sizeSearch: Number(x.sizeForSearch) || 0, eligibleDisplay: !!x.eligibleForDisplay, eligibleSearch: !!x.eligibleForSearch, readOnly: !!x.readOnly, accessReason: x.accessReason || "" }); });
+      custom.forEach((r: any) => { const x = r.customAudience || {}; audiences.push({ accountId, resourceName: x.resourceName, id: String(x.id || ""), name: x.name || "Sem nome", description: x.description || "", type: x.type || "CUSTOM", source: "custom", members: x.members || [], eligibleDisplay: true, eligibleSearch: false }); });
+    } catch (e) { errors.push(`${accountId}: ${(e as any)?.message || e}`); }
+  }
+  return { audiences, errors };
+}
+async function googleCreateCustomAudience(m: any) {
+  const cid = String(m.accountId || "").replace(/\D/g, ""), name = String(m.name || "").trim();
+  const terms = (Array.isArray(m.terms) ? m.terms : []).map((x: any) => String(x).trim()).filter(Boolean).slice(0, 1000);
+  const urls = (Array.isArray(m.urls) ? m.urls : []).map((x: any) => String(x).trim()).filter(Boolean).slice(0, 1000);
+  if (!cid || !name || (!terms.length && !urls.length)) throw new Error("Conta, nome e termos ou URLs são obrigatórios.");
+  const token = await googleAdsAccessToken(), devToken = Deno.env.get("GOOGLE_ADS_DEV_TOKEN"), mcc = String(Deno.env.get("GOOGLE_ADS_MCC_ID") || "").replace(/-/g, "");
+  const members = [...terms.map((keyword: string) => ({ keyword })), ...urls.map((url: string) => ({ url }))];
+  const r = await fetch(`https://googleads.googleapis.com/${GADS_VER}/customers/${cid}/customAudiences:mutate`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "developer-token": devToken!, "login-customer-id": mcc, "Content-Type": "application/json" }, body: JSON.stringify({ operations: [{ create: { name, description: String(m.description || "Criado pela Central de Gestão"), type: "SEARCH", status: "ENABLED", members } }] }) });
+  const j = await r.json(); if (!r.ok || j.error) throw new Error(j?.error?.details?.[0]?.errors?.[0]?.message || j?.error?.message || "Erro ao criar segmento no Google Ads.");
+  return { ok: true, name, resourceName: j.results?.[0]?.resourceName || "", members: members.length };
+}
+
 // Classifica uma AÇÃO de conversão do Google (form, WhatsApp, ligação, compra...) no balde certo.
 // É o evento que o gestor marca dentro do Google — cada campanha tem o seu.
 function _gConvBucket(name: string, category: string): "purchases" | "conversas" | "leads" {
@@ -5230,6 +5258,14 @@ Deno.serve(async (req) => {
     }
     if (body.googleAccounts) {
       const r = await googleListAccounts();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleAudiences) {
+      const r = await googleAudiences(body.googleAudiences);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleCreateCustomAudience) {
+      const r = await googleCreateCustomAudience(body.googleCreateCustomAudience);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.tiktokAds) {
