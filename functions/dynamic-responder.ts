@@ -627,10 +627,15 @@ async function metaAdsInsights(m: any) {
       rec.sales += Math.round(s.purchases); rec.spend += s.spend; rec.revenue += s.revenue; rec.clicks += s.clicks; rec.impressions += s.impressions;
       rec.reach += s.reach; rec.leads += s.leads; rec.conversas += s.conversas; rec.videoViews += s.videoViews; rec.engajamentos += s.engajamentos; rec.addToCart += s.addToCart; rec.checkout += s.initiateCheckout;
     }
-    const at = accountRows.length ? shape(accountRows[0]) : shape({});
-    totAgg.spend += at.spend; totAgg.impressions += at.impressions; totAgg.clicks += at.clicks; totAgg.reach += at.reach;
-    totAgg.revenue += at.revenue; totAgg.purchases += at.purchases; totAgg.leads += at.leads; totAgg.addToCart += at.addToCart; totAgg.initiateCheckout += at.initiateCheckout;
-    totAgg.conversas += at.conversas; totAgg.videoViews += at.videoViews; totAgg.engajamentos += at.engajamentos;
+    // accountRows (level=account, sem time_increment) normalmente vem em 1 linha só, mas o Meta pode
+    // devolver mais de uma (ex: conta que mudou de configuracao de atribuicao no meio do periodo) — usar so
+    // accountRows[0] descartava o resto silenciosamente e subcontava o investimento. Soma todas as linhas.
+    for (const row of accountRows) {
+      const at = shape(row);
+      totAgg.spend += at.spend; totAgg.impressions += at.impressions; totAgg.clicks += at.clicks; totAgg.reach += at.reach;
+      totAgg.revenue += at.revenue; totAgg.purchases += at.purchases; totAgg.leads += at.leads; totAgg.addToCart += at.addToCart; totAgg.initiateCheckout += at.initiateCheckout;
+      totAgg.conversas += at.conversas; totAgg.videoViews += at.videoViews; totAgg.engajamentos += at.engajamentos;
+    }
     for (const row of adRows) {
       const s = shape(row);
       ads.push({
