@@ -30,6 +30,7 @@ async function _requireInternal(req: Request) {
   const cron = req.headers.get("x-cron-secret") || "";
   if (CRON_SECRET && cron && _safeEq(cron, CRON_SECRET)) return null;
   if (await _isSignedIn(req)) return null;
+  _securityBg(_securityLog(req, "unauthorized_internal_route"));
   return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 }
 async function _hmac(value: string) {
@@ -93,12 +94,21 @@ async function sbPatch(table: string, query: string, row: Record<string, unknown
 }
 function uid() { return crypto.randomUUID().replace(/-/g, "").slice(0, 20); }
 const _rate = new Map<string, { n: number; until: number }>();
+async function _securityLog(req: Request, kind: string, detail = "") {
+  try {
+    const ip = (req.headers.get("cf-connecting-ip") || req.headers.get("x-forwarded-for") || "unknown").split(",")[0].trim();
+    const day = new Date().toISOString().slice(0, 10), raw = new TextEncoder().encode(`${day}:${CRON_SECRET}:${ip}`), digest = new Uint8Array(await crypto.subtle.digest("SHA-256", raw));
+    const actor_hash = Array.from(digest.slice(0, 12)).map((x) => x.toString(16).padStart(2, "0")).join("");
+    await sbInsert("security_events", { kind: kind.slice(0, 80), route: new URL(req.url).pathname.slice(0, 240), actor_hash, detail: detail.slice(0, 240), created_at: new Date().toISOString() });
+  } catch { /* segurança nunca interrompe a operação principal */ }
+}
+function _securityBg(p: Promise<unknown>) { try { (globalThis as any).EdgeRuntime?.waitUntil(p); } catch { /* */ } }
 function _publicGuard(req: Request, bucket: string, limit: number, maxBytes: number) {
-  const len = Number(req.headers.get("content-length") || 0); if (len > maxBytes) return new Response("payload too large", { status: 413, headers: cors });
+  const len = Number(req.headers.get("content-length") || 0); if (len > maxBytes) { _securityBg(_securityLog(req, "payload_too_large", bucket)); return new Response("payload too large", { status: 413, headers: cors }); }
   const ip = (req.headers.get("cf-connecting-ip") || req.headers.get("x-forwarded-for") || "unknown").split(",")[0].trim();
   const key = `${bucket}:${ip}`, now = Date.now(), cur = _rate.get(key);
   if (!cur || cur.until < now) _rate.set(key, { n: 1, until: now + 60e3 });
-  else if (++cur.n > limit) return new Response("too many requests", { status: 429, headers: { ...cors, "Retry-After": "60" } });
+  else if (++cur.n > limit) { _securityBg(_securityLog(req, "rate_limited", bucket)); return new Response("too many requests", { status: 429, headers: { ...cors, "Retry-After": "60" } }); }
   if (_rate.size > 5000) for (const [k, v] of _rate) if (v.until < now) _rate.delete(k);
   return null;
 }
@@ -1000,7 +1010,7 @@ Deno.serve(async (req) => {
     if (req.method !== "POST") return new Response("wa webhook ok", { headers: { ...cors, "Content-Type": "text/plain" } });
     const guard = _publicGuard(req, "wawh", 180, 2097152); if (guard) return guard;
     const raw = await req.text();
-    if (!(await _cloudWebhookValid(mWa[1], raw, req.headers.get("x-hub-signature-256") || ""))) return new Response("assinatura invalida", { status: 401, headers: { "Content-Type": "text/plain", "Cache-Control": "no-store" } });
+    if (!(await _cloudWebhookValid(mWa[1], raw, req.headers.get("x-hub-signature-256") || ""))) { _securityBg(_securityLog(req, "invalid_webhook_signature", mWa[1])); return new Response("assinatura invalida", { status: 401, headers: { "Content-Type": "text/plain", "Cache-Control": "no-store" } }); }
     return handleWaWebhook(mWa[1], new Request(req.url, { method: "POST", headers: req.headers, body: raw }));
   }
 

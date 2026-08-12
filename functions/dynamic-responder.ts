@@ -4999,6 +4999,14 @@ async function waAgencyPollTick() {
 async function securityAuditTick() {
   const r = await fetch(`${_SB_URL}/rest/v1/rpc/security_audit`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json" }, body: "{}" });
   const rows: any[] = r.ok ? await r.json() : [];
+  const since24 = new Date(Date.now() - 864e5).toISOString(), events = await sbGet("security_events", `created_at=gte.${encodeURIComponent(since24)}&select=kind&limit=2000`);
+  if (events.length >= 20) {
+    const by: Record<string, number> = {}; events.forEach((e: any) => { by[e.kind || "outro"] = (by[e.kind || "outro"] || 0) + 1; });
+    rows.push({ check_key: `attack_spike:${new Date().toISOString().slice(0, 10)}`, severity: "HIGH", detail: `${events.length} tentativas bloqueadas nas últimas 24h (${Object.entries(by).map(([k,v]) => `${k}: ${v}`).join(", ")})` });
+  }
+  // Minimização LGPD: telemetria de segurança (já sem IP em texto) expira em 90 dias.
+  const cutoff90 = new Date(Date.now() - 90 * 864e5).toISOString();
+  try { await fetch(`${_SB_URL}/rest/v1/security_events?created_at=lt.${encodeURIComponent(cutoff90)}`, { method: "DELETE", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, Prefer: "return=minimal" } }); } catch { /* */ }
   const current = rows.map((x) => x.check_key);
   const cfg = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
   const prev: string[] = cfg.security_audit_issues || [];
