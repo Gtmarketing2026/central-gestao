@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://mocrfqmdjwvyhqvdpimm.supabase.co wss://mocrfqmdjwvyhqvdpimm.supabase.co; worker-src 'self' blob: https://cdnjs.cloudflare.com; media-src 'self' blob: https:; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Central de Gestão · Painel da Agência</title>
 <link rel="icon" type="image/x-icon" href="logo.ico">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -2826,7 +2828,7 @@ async function reunLoadData(){
   _reunTasks=(data||[]).map(t=>({id:t.id,name:t.name,client:t.client,due:t.due,status:t.status,hora:(String(t.notes||'').match(/(\d{2}:\d{2})/)||[])[1]||'',link:(String(t.notes||'').match(/https?:\/\/\S+/)||[])[0]||''}));
 }
 function reunMonth(delta){if(delta===0)_reunRef=new Date();else _reunRef=new Date(_reunRef.getFullYear(),_reunRef.getMonth()+delta,1);renderReun();}
-async function reunSync(btn){const o=btn.textContent;btn.textContent='…';btn.disabled=true;try{const r=await fetch(TRACK_BASE+'/calendar/sync');const d=await r.json();await reunLoadData();renderReun();}catch(e){}btn.textContent=o;btn.disabled=false;}
+async function reunSync(btn){const o=btn.textContent;btn.textContent='…';btn.disabled=true;try{const r=await trackingFetch('/calendar/sync');const d=await r.json();await reunLoadData();renderReun();}catch(e){}btn.textContent=o;btn.disabled=false;}
 function reunOpen(id){const t=_reunTasks.find(x=>x.id===id);if(!t)return;if(t.link){window.open(t.link,'_blank');return;}const cn=(DB.clients.find(c=>c.id===t.client)||{}).name||'';alert(`📅 ${t.name}\n${t.hora?('🕐 '+t.hora+'\n'):''}${cn?('👤 '+cn+'\n'):''}${t.due?('📆 '+t.due.split('-').reverse().join('/')):''}`);}
 function reunNew(){
   const connected=(_acctCfg&&_acctCfg.google_cal&&_acctCfg.google_cal.refresh_token);
@@ -2858,7 +2860,7 @@ async function reunCreate(btn){
   if(!date){if(msg)msg.textContent='Escolha a data.';return;}
   btn.disabled=true;btn.textContent='Criando…';
   try{
-    const r=await fetch(TRACK_BASE+'/calendar/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary,date,time,durationMin,clientId})});
+    const r=await trackingFetch('/calendar/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary,date,time,durationMin,clientId})});
     const d=await r.json();
     if(d.error==='reconnect'){if(msg)msg.innerHTML='⚠ Reconecte o Google com permissão de edição (⚙️ Configurações → Google Agenda → Conectar Google).';btn.disabled=false;btn.textContent='Criar na agenda';return;}
     if(d.error){if(msg)msg.textContent='⚠ '+d.error;btn.disabled=false;btn.textContent='Criar na agenda';return;}
@@ -2870,7 +2872,7 @@ async function reunDel(id,btn){
   if(!confirm(`Excluir a reunião "${t?t.name:''}"? Ela será apagada também da sua Google Agenda.`))return;
   if(btn){btn.disabled=true;btn.textContent='…';}
   try{
-    const r=await fetch(TRACK_BASE+'/calendar/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:id})});
+    const r=await trackingFetch('/calendar/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:id})});
     const d=await r.json();
     if(d.error==='reconnect'){alert('Reconecte o Google com permissão de edição (⚙️ Configurações → Google Agenda → Conectar Google).');if(btn){btn.disabled=false;btn.textContent='🗑';}return;}
     if(d.error){alert('Erro: '+d.error);if(btn){btn.disabled=false;btn.textContent='🗑';}return;}
@@ -4393,25 +4395,25 @@ async function saveAccountConfig(patch){
 }
 /* ===== Google Agenda (iCal) → tarefas ===== */
 async function gcalSave(){const v=(document.getElementById('gcalUrl').value||'').trim();await saveAccountConfig({calendar_ics:v});const m=document.getElementById('gcalMsg');if(m)m.textContent=v?'✓ Link salvo. Clique em "Sincronizar agora".':'Link removido.';}
-async function gcalSync(btn){const m=document.getElementById('gcalMsg');if(btn){btn.disabled=true;btn.textContent='…';}if(m)m.textContent='Sincronizando…';try{const r=await fetch(TRACK_BASE+'/calendar/sync');const d=await r.json();if(m)m.innerHTML=d.error?('⚠ '+d.error):(`✓ ${d.created} reunião(ões) viraram tarefa`+(d.skipped?` · ${d.skipped} já existiam`:''));}catch(e){if(m)m.textContent='Erro: '+e.message;}if(btn){btn.disabled=false;btn.textContent='🔄 Sincronizar agora';}}
-async function calendarAutoSync(){try{if(!_acctCfg)await loadAccountConfig();if(_acctCfg&&((_acctCfg.google_cal&&_acctCfg.google_cal.refresh_token)||_acctCfg.calendar_ics))await fetch(TRACK_BASE+'/calendar/sync');}catch(e){}}
-async function gcalCheckConn(){const s=document.getElementById('gcalConnState');const db=document.getElementById('gcalDiscBtn');if(!s)return;try{const r=await fetch(TRACK_BASE+'/google/status');const d=await r.json();if(d.connected){s.innerHTML='✅ Conectado'+(d.email?` como <b>${d.email}</b>`:'');if(db)db.style.display='';}else{s.innerHTML='<span style="color:var(--faint)">Nenhuma conta conectada.</span>';if(db)db.style.display='none';}}catch(e){s.textContent='';}}
+async function gcalSync(btn){const m=document.getElementById('gcalMsg');if(btn){btn.disabled=true;btn.textContent='…';}if(m)m.textContent='Sincronizando…';try{const r=await trackingFetch('/calendar/sync');const d=await r.json();if(m)m.innerHTML=d.error?('⚠ '+d.error):(`✓ ${d.created} reunião(ões) viraram tarefa`+(d.skipped?` · ${d.skipped} já existiam`:''));}catch(e){if(m)m.textContent='Erro: '+e.message;}if(btn){btn.disabled=false;btn.textContent='🔄 Sincronizar agora';}}
+async function calendarAutoSync(){try{if(!_acctCfg)await loadAccountConfig();if(_acctCfg&&((_acctCfg.google_cal&&_acctCfg.google_cal.refresh_token)||_acctCfg.calendar_ics))await trackingFetch('/calendar/sync');}catch(e){}}
+async function gcalCheckConn(){const s=document.getElementById('gcalConnState');const db=document.getElementById('gcalDiscBtn');if(!s)return;try{const r=await trackingFetch('/google/status');const d=await r.json();if(d.connected){s.innerHTML='✅ Conectado'+(d.email?` como <b>${d.email}</b>`:'');if(db)db.style.display='';}else{s.innerHTML='<span style="color:var(--faint)">Nenhuma conta conectada.</span>';if(db)db.style.display='none';}}catch(e){s.textContent='';}}
 let _gcalPoll=null;
 async function gcalConnect(btn){
-  const w=window.open(TRACK_BASE+'/google/auth','gcalOAuth','width=520,height=640');
+  const w=window.open('about:blank','gcalOAuth','width=520,height=640');const ar=await trackingFetch('/google/auth');const aj=await ar.json();if(!ar.ok||!aj.url){if(w)w.close();alert('Não foi possível iniciar a conexão segura com o Google.');return;}if(w)w.location=aj.url;else window.open(aj.url,'_blank');
   const m=document.getElementById('gcalMsg');if(m)m.textContent='Abrindo o Google… autorize na janela que abriu.';
   if(_gcalPoll)clearInterval(_gcalPoll);
   let tries=0;
   _gcalPoll=setInterval(async()=>{
     tries++;
-    try{const r=await fetch(TRACK_BASE+'/google/status');const d=await r.json();
+    try{const r=await trackingFetch('/google/status');const d=await r.json();
       if(d.connected){clearInterval(_gcalPoll);_gcalPoll=null;if(w&&!w.closed)w.close();
         await loadAccountConfig();await gcalCheckConn();if(m)m.textContent='✅ Conta conectada! Sincronizando…';await gcalSync();
       }}catch(e){}
     if(tries>150){clearInterval(_gcalPoll);_gcalPoll=null;}
   },2000);
 }
-async function gcalDisconnect(){if(!confirm('Desconectar a conta Google? As reuniões param de sincronizar.'))return;try{await fetch(TRACK_BASE+'/google/disconnect');await loadAccountConfig();await gcalCheckConn();const m=document.getElementById('gcalMsg');if(m)m.textContent='Conta desconectada.';}catch(e){}}
+async function gcalDisconnect(){if(!confirm('Desconectar a conta Google? As reuniões param de sincronizar.'))return;try{await trackingFetch('/google/disconnect');await loadAccountConfig();await gcalCheckConn();const m=document.getElementById('gcalMsg');if(m)m.textContent='Conta desconectada.';}catch(e){}}
 function integStatusPill(state,txt){
   const m={ok:['#34d399','rgba(52,211,153,.13)','rgba(52,211,153,.4)'],warn:['#f59e0b','rgba(245,158,11,.12)','rgba(245,158,11,.4)'],err:['#f87171','rgba(248,113,113,.12)','rgba(248,113,113,.4)'],off:['var(--faint)','var(--surface2)','var(--border)'],load:['var(--muted)','var(--surface2)','var(--border)']};
   const [c,bg,bd]=m[state]||m.off;
@@ -5222,7 +5224,7 @@ async function saveNuvemApp(){
 async function connectNuvemForClient(clientId){
   const app=(await loadAccountConfig()).nuvemshop||{};
   if(!app.app_id){alert('Primeiro configure o App da Nuvemshop em ⚙️ Configurações.');return;}
-  const url='https://www.tiendanube.com/apps/'+encodeURIComponent(app.app_id)+'/authorize?state='+encodeURIComponent(clientId);
+  const state=await trackingOAuthState('nuvemshop',clientId);const url='https://www.tiendanube.com/apps/'+encodeURIComponent(app.app_id)+'/authorize?state='+encodeURIComponent(state);
   window.open(url,'_blank','width=620,height=760');
   alert('Abri a autorização da Nuvemshop numa aba nova. Faça login na loja DESTE cliente e autorize; depois recarregue o cadastro pra ver "Conectada".');
 }
@@ -5315,7 +5317,7 @@ async function connectRdForClient(clientId){
   const app=(await loadAccountConfig()).rd_station||{};
   if(!app.client_id){alert('Primeiro configure as credenciais do App do RD em ⚙️ Configurações.');return;}
   const redirect=TRACK_BASE+'/rd/callback';
-  const url='https://api.rd.services/auth/dialog?client_id='+encodeURIComponent(app.client_id)+'&redirect_uri='+encodeURIComponent(redirect)+'&state='+encodeURIComponent(clientId);
+  const state=await trackingOAuthState('rd',clientId);const url='https://api.rd.services/auth/dialog?client_id='+encodeURIComponent(app.client_id)+'&redirect_uri='+encodeURIComponent(redirect)+'&state='+encodeURIComponent(state);
   window.open(url,'_blank','width=560,height=760');
   alert('Abri a tela do RD Station numa aba nova. IMPORTANTE: esteja logado na conta RD DESTE cliente. Autorize por lá; depois recarregue o cadastro pra ver "Conectado".');
 }
@@ -5354,7 +5356,7 @@ async function connectTiktokForClient(clientId){
   const app=(await loadAccountConfig()).tiktok_ads||{};
   if(!app.app_id){alert('Primeiro configure o App ID e o Secret do TikTok em ⚙️ Configurações.');return;}
   const redirect=SUPA_URL+'/functions/v1/tracking/tiktok/callback';
-  const url='https://business-api.tiktok.com/portal/auth?app_id='+encodeURIComponent(app.app_id)+'&redirect_uri='+encodeURIComponent(redirect)+'&state='+encodeURIComponent(clientId);
+  const state=await trackingOAuthState('tiktok',clientId);const url='https://business-api.tiktok.com/portal/auth?app_id='+encodeURIComponent(app.app_id)+'&redirect_uri='+encodeURIComponent(redirect)+'&state='+encodeURIComponent(state);
   window.open(url,'_blank','width=560,height=760');
   alert('Abri a tela do TikTok numa aba nova. Esteja logado na conta TikTok Business DESTE cliente. Autorize por lá; depois recarregue o cadastro pra ver "Conectado" e escolha a conta de anúncio.');
 }
@@ -5386,7 +5388,7 @@ async function connectPinterestForClient(clientId){
   const app=(await loadAccountConfig()).pinterest_ads||{};
   if(!app.client_id){alert('Primeiro configure o Client ID e o Secret do Pinterest em ⚙️ Configurações.');return;}
   const redirect=SUPA_URL+'/functions/v1/tracking/pinterest/callback';
-  const url='https://www.pinterest.com/oauth/?client_id='+encodeURIComponent(app.client_id)+'&redirect_uri='+encodeURIComponent(redirect)+'&response_type=code&scope='+encodeURIComponent('ads:read,user_accounts:read')+'&state='+encodeURIComponent(clientId);
+  const state=await trackingOAuthState('pinterest',clientId);const url='https://www.pinterest.com/oauth/?client_id='+encodeURIComponent(app.client_id)+'&redirect_uri='+encodeURIComponent(redirect)+'&response_type=code&scope='+encodeURIComponent('ads:read,user_accounts:read')+'&state='+encodeURIComponent(state);
   window.open(url,'_blank','width=560,height=760');
   alert('Abri a tela do Pinterest numa aba nova. Esteja logado na conta Pinterest DESTE cliente. Autorize por lá; depois recarregue o cadastro, clique em "Carregar contas" e escolha a conta de anúncio.');
 }
@@ -5970,6 +5972,8 @@ async function brAbrirHistorico(briefingId){
 }
 /* ================= RASTREAMENTO (pixel + links + jornada do lead) ================= */
 const TRACK_BASE=SUPA_URL+'/functions/v1/tracking';
+async function trackingFetch(path,opts={}){const {data}=await sb.auth.getSession();const token=data&&data.session&&data.session.access_token;if(!token)throw new Error('Sessão expirada. Entre novamente.');const headers=new Headers(opts.headers||{});headers.set('Authorization','Bearer '+token);headers.set('apikey',SUPA_KEY);return fetch(TRACK_BASE+path,{...opts,headers});}
+async function trackingOAuthState(provider,clientId){const r=await trackingFetch('/oauth/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider,clientId})});const d=await r.json();if(!r.ok||!d.state)throw new Error('Não foi possível iniciar a conexão segura.');return d.state;}
 // Domínio próprio (Cloudflare Worker → tracking) só pro que o CLIENTE vê: pixel e links rastreáveis.
 // Espelha /functions/v1/tracking, então o caminho é a raiz. Callbacks internos (google/rd/nuvemshop) ficam no supabase.
 const PIXEL_BASE='https://pixel.gt-marketing.app.br';

@@ -3378,8 +3378,21 @@ function _crmAiSafeFields(fields: any) {
   });
   return out;
 }
-function _crmAiMaskText(v: any) {
-  return String(v || "").replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[email oculto]").replace(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?9?\d{4}[-\s]?\d{4}/g, "[telefone oculto]").replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, "[documento oculto]").replace(/\b\d{2}\.?\d{3}\.?\d{3}\/\d{4}-?\d{2}\b/g, "[documento oculto]");
+function _crmAiMaskText(v: any, knownNames: string[] = []) {
+  let s = String(v || "")
+    .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[email oculto]")
+    .replace(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?9?\d{4}[-\s]?\d{4}/g, "[telefone oculto]")
+    .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, "[documento oculto]")
+    .replace(/\b\d{2}\.?\d{3}\.?\d{3}\/\d{4}-?\d{2}\b/g, "[documento oculto]")
+    .replace(/\b\d{5}-?\d{3}\b/g, "[CEP oculto]")
+    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, "[link oculto]")
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[IP oculto]")
+    .replace(/\b[A-Z0-9]{12,}\b/gi, "[identificador oculto]");
+  for (const name of knownNames.filter((x) => String(x || "").trim().length >= 3)) {
+    const escaped = String(name).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    s = s.replace(new RegExp(escaped, "gi"), "[nome oculto]");
+  }
+  return s;
 }
 
 let _metaTokenCache = "", _metaTokenCacheAt = 0;
@@ -3669,7 +3682,8 @@ async function crmCapaAudit(input: any) {
     const part = ids.slice(i, i + 10);
     allMsgs.push(...await sbGet("wa_messages", `conversation_id=in.(${part.map((x: string) => encodeURIComponent(x)).join(",")})&select=conversation_id,direction,text,ts&order=ts.asc&limit=1200`));
   }
-  const by: Record<string, any[]> = {}; allMsgs.forEach((m: any) => { const txt = _crmAiMaskText(m.text).trim(); if (txt) (by[m.conversation_id] ||= []).push({ quem: m.direction === "out" ? "equipe" : "lead", texto: txt.slice(0, 500), data: m.ts }); });
+  const convName: Record<string, string> = {}; convs.forEach((c: any) => { convName[c.id] = c.name || ""; });
+  const by: Record<string, any[]> = {}; allMsgs.forEach((m: any) => { const txt = _crmAiMaskText(m.text, [convName[m.conversation_id]]).trim(); if (txt) (by[m.conversation_id] ||= []).push({ quem: m.direction === "out" ? "equipe" : "lead", texto: txt.slice(0, 500), data: m.ts }); });
   const refs: Record<string, any> = {}, cases = convs.map((cv: any, i: number) => { const ref = `C${i + 1}`; refs[ref] = cv; return { ref, etapa: cv.stage, canal: _crmAiChannel(cv), campanha: cv.origin?.campaign || "", conjunto_ou_grupo: cv.origin?.adset || cv.origin?.adgroup || "", anuncio: cv.origin?.ad || "", palavra_chave: cv.origin?.keyword || cv.origin?.term || "", horas_sem_avancar: Math.round((Date.now() - new Date(cv.last_at).getTime()) / 36e5), campos: _crmAiSafeFields(cv.fields), conversa: (by[cv.id] || []).slice(-30) }; });
   const playbook = await _waPlaybook(); const results: any[] = [];
   for (let i = 0; i < cases.length; i += 5) {
@@ -3678,7 +3692,7 @@ async function crmCapaAudit(input: any) {
     const parsed = await _callOpenAIJson([{ role: "user", content: prompt }]);
     results.push(...(Array.isArray(parsed.casos) ? parsed.casos : []));
   }
-  const aggregate = await _callOpenAIJson([{ role: "user", content: `Você é a AndréIA. Consolide esta Auditoria CAPA de ${client.name}, sem analisar um a um novamente. Agrupe padrões, quantifique ocorrências somente contando os casos fornecidos e proponha melhorias práticas. Sem prazo. Separe Tráfego, Comercial e Processo/CRM. Inclua treinamento recomendado e indicadores para acompanhar. Retorne SOMENTE JSON: {"resumo":"","padroes":[{"tema":"","ocorrencias":0,"impacto":""}],"trafego":[""],"comercial":[""],"processo":[""],"treinamento":[""],"indicadores":[""]}. CASOS: ${JSON.stringify(results)}` }]);
+  const aggregate = await _callOpenAIJson([{ role: "user", content: `Você é a AndréIA. Consolide esta Auditoria CAPA sem identificar cliente ou pessoas e sem analisar um a um novamente. Agrupe padrões, quantifique ocorrências somente contando os casos fornecidos e proponha melhorias práticas. Sem prazo. Separe Tráfego, Comercial e Processo/CRM. Inclua treinamento recomendado e indicadores para acompanhar. Retorne SOMENTE JSON: {"resumo":"","padroes":[{"tema":"","ocorrencias":0,"impacto":""}],"trafego":[""],"comercial":[""],"processo":[""],"treinamento":[""],"indicadores":[""]}. CASOS: ${JSON.stringify(results)}` }]);
   const auditedAt = new Date().toISOString();
   for (const item of results) { const cv = refs[item.ref]; if (!cv) continue; const fields = { ...(cv.fields || {}), capa: { audited_at: auditedAt, stage, score: Math.max(0, Math.min(10, Number(item.nota) || 0)) } }; const tags = Array.isArray(fields.tags) ? fields.tags : []; if (!tags.includes("Auditoria CAPA")) fields.tags = [...tags, "Auditoria CAPA"]; await sbPatchD("wa_conversations", `id=eq.${encodeURIComponent(cv.id)}`, { fields }); item.conversationId = cv.id; item.leadName = cv.name || "Conversa"; }
   return { ok: true, cliente: client.name, stage, requested: sampleSize, audited: results.length, minHours, days, cases: results, aggregate, auditedAt };

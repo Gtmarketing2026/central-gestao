@@ -7,12 +7,69 @@
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") || "";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "content-type",
+  "Access-Control-Allow-Headers": "content-type, authorization, apikey, x-cron-secret, x-hub-signature-256",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
+
+function _safeEq(a: string, b: string) {
+  const aa = new TextEncoder().encode(a), bb = new TextEncoder().encode(b);
+  if (aa.length !== bb.length) return false;
+  let d = 0; for (let i = 0; i < aa.length; i++) d |= aa[i] ^ bb[i]; return d === 0;
+}
+async function _isSignedIn(req: Request) {
+  const auth = req.headers.get("authorization") || "";
+  if (!/^Bearer\s+\S+/i.test(auth)) return false;
+  const r = await fetch(`${SB_URL}/auth/v1/user`, { headers: { apikey: SB_KEY, Authorization: auth } });
+  return r.ok;
+}
+async function _requireInternal(req: Request) {
+  const cron = req.headers.get("x-cron-secret") || "";
+  if (CRON_SECRET && cron && _safeEq(cron, CRON_SECRET)) return null;
+  if (await _isSignedIn(req)) return null;
+  return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+}
+async function _hmac(value: string) {
+  if (!CRON_SECRET) throw new Error("INTERNAL_CRON_SECRET não configurado");
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(CRON_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value)));
+  return Array.from(sig).map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+async function _signedState(provider: string, clientId: string) {
+  const raw = `${provider}:${clientId}:${Date.now()}:${crypto.randomUUID()}`;
+  return `${raw}:${await _hmac(raw)}`;
+}
+async function _verifiedState(state: string, provider: string) {
+  const parts = String(state || "").split(":"), sig = parts.pop() || "", raw = parts.join(":"), ts = Number(parts[2] || 0);
+  if (parts[0] !== provider || !parts[1] || !ts || Math.abs(Date.now() - ts) > 15 * 60e3) return "";
+  const expected = await _hmac(raw); return sig && _safeEq(sig, expected) ? parts[1] : "";
+}
+function _fromB64(s: string) { const b = atob(s), a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+async function _decryptCredential(value: string) {
+  const [iv64, data64] = String(value || "").split("."); if (!iv64 || !data64) return "";
+  const raw = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`central-gestao:${SB_KEY}`));
+  const key = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"]);
+  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: _fromB64(iv64) }, key, _fromB64(data64)));
+}
+async function _cloudWebhookValid(instanceId: string, rawBody: string, signature: string) {
+  const inst = (await sbSelect("wa_instances", `id=eq.${encodeURIComponent(instanceId)}&select=provider&limit=1`))[0];
+  if (inst?.provider !== "cloud") return true;
+  let parsed: any = null; try { parsed = JSON.parse(rawBody); } catch { return false; }
+  if (parsed?.object !== "whatsapp_business_account" || !Array.isArray(parsed?.entry)) return false;
+  const rows = await sbSelect("secure_credentials", `id=eq.${encodeURIComponent(`wa_cloud_app_secret:${instanceId}`)}&select=secret_cipher&limit=1`);
+  // Compatibilidade controlada: instâncias antigas sem App Secret continuam recebendo apenas
+  // o formato oficial. Assim que o segredo for salvo, a assinatura passa a ser obrigatória.
+  if (!rows[0]?.secret_cipher) { console.warn(`WA Cloud ${instanceId}: App Secret ausente; validação estrutural temporária`); return true; }
+  if (!/^sha256=[0-9a-f]{64}$/i.test(signature)) return false;
+  const secret = await _decryptCredential(rows[0].secret_cipher);
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const bytes = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody)));
+  const expected = "sha256=" + Array.from(bytes).map((x) => x.toString(16).padStart(2, "0")).join("");
+  return _safeEq(signature.toLowerCase(), expected);
+}
 
 async function sbInsert(table: string, row: Record<string, unknown>) {
   await fetch(`${SB_URL}/rest/v1/${table}`, {
@@ -35,13 +92,23 @@ async function sbPatch(table: string, query: string, row: Record<string, unknown
   });
 }
 function uid() { return crypto.randomUUID().replace(/-/g, "").slice(0, 20); }
+const _rate = new Map<string, { n: number; until: number }>();
+function _publicGuard(req: Request, bucket: string, limit: number, maxBytes: number) {
+  const len = Number(req.headers.get("content-length") || 0); if (len > maxBytes) return new Response("payload too large", { status: 413, headers: cors });
+  const ip = (req.headers.get("cf-connecting-ip") || req.headers.get("x-forwarded-for") || "unknown").split(",")[0].trim();
+  const key = `${bucket}:${ip}`, now = Date.now(), cur = _rate.get(key);
+  if (!cur || cur.until < now) _rate.set(key, { n: 1, until: now + 60e3 });
+  else if (++cur.n > limit) return new Response("too many requests", { status: 429, headers: { ...cors, "Retry-After": "60" } });
+  if (_rate.size > 5000) for (const [k, v] of _rate) if (v.until < now) _rate.delete(k);
+  return null;
+}
 
 // OAuth da Nuvemshop: recebe o ?code, troca por access_token + store_id e guarda no cliente (state = clientId).
 async function handleNuvemshopCallback(url: URL) {
   const strip = (s: string) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "");
   const page = (t: string, m: string, ok: boolean) => new Response((ok ? "[OK] " : "[!] ") + strip(t) + "\n\n" + strip(m) + "\n\nPode fechar esta aba e voltar ao sistema.", { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
   const code = url.searchParams.get("code");
-  const clientId = url.searchParams.get("state");
+  const clientId = await _verifiedState(url.searchParams.get("state") || "", "nuvemshop");
   if (!code) return page("Autorizacao nao concluida", "Nao recebi o codigo da Nuvemshop.", false);
   if (!clientId) return page("Cliente nao identificado", "Refaca a conexao pelo cadastro do cliente.", false);
   const acc = await sbSelect("account_config", `id=eq.main&select=data`);
@@ -108,7 +175,7 @@ async function handleRdCallback(url: URL) {
     (ok ? "[OK] " : "[!] ") + strip(title) + "\n\n" + strip(msg) + "\n\nPode fechar esta aba e voltar ao sistema.",
     { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
   const code = url.searchParams.get("code");
-  const clientId = url.searchParams.get("state"); // qual cliente está conectando o RD dele
+  const clientId = await _verifiedState(url.searchParams.get("state") || "", "rd"); // estado assinado identifica o cliente
   if (!code) return page("Autorização não concluída", "Não recebi o código do RD Station. Tente conectar de novo.", false);
   if (!clientId) return page("Cliente não identificado", "Faltou identificar o cliente. Refaça a conexão pelo cadastro do cliente.", false);
   // client_id/secret do APP (nível conta)
@@ -142,7 +209,7 @@ async function handleTikTokCallback(url: URL) {
   const strip = (s: string) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "");
   const page = (t: string, m: string, ok: boolean) => new Response((ok ? "[OK] " : "[!] ") + strip(t) + "\n\n" + strip(m) + "\n\nPode fechar esta aba e voltar ao sistema.", { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
   const authCode = url.searchParams.get("auth_code") || url.searchParams.get("code");
-  const clientId = url.searchParams.get("state");
+  const clientId = await _verifiedState(url.searchParams.get("state") || "", "tiktok");
   if (!authCode) return page("Autorizacao nao concluida", "Nao recebi o auth_code do TikTok.", false);
   if (!clientId) return page("Cliente nao identificado", "Refaca a conexao pelo cadastro do cliente.", false);
   const acc = await sbSelect("account_config", `id=eq.main&select=data`);
@@ -171,7 +238,7 @@ async function handlePinterestCallback(url: URL) {
   const strip = (s: string) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "");
   const page = (t: string, m: string, ok: boolean) => new Response((ok ? "[OK] " : "[!] ") + strip(t) + "\n\n" + strip(m) + "\n\nPode fechar esta aba e voltar ao sistema.", { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
   const code = url.searchParams.get("code");
-  const clientId = url.searchParams.get("state");
+  const clientId = await _verifiedState(url.searchParams.get("state") || "", "pinterest");
   const err = url.searchParams.get("error");
   if (err) return page("Conexao cancelada", "Voce recusou o acesso (" + err + ").", false);
   if (!code) return page("Autorizacao nao concluida", "Nao recebi o codigo do Pinterest.", false);
@@ -643,14 +710,16 @@ async function saveAcctData(patch: Record<string, unknown>) {
   const cur = ((await sbSelect("account_config", "id=eq.main&select=data"))[0]?.data || {}) as any;
   await sbPatch("account_config", "id=eq.main", { data: { ...cur, ...patch } });
 }
-function handleGoogleAuth(): Response {
+async function handleGoogleAuth(): Promise<Response> {
   if (!GOOGLE_CID) return new Response("GOOGLE_ADS_CLIENT_ID não configurado nos secrets.", { status: 500, headers: cors });
+  const stateRaw = `${Date.now()}:${crypto.randomUUID()}`;
+  const state = `${stateRaw}:${await _hmac(stateRaw)}`;
   const p = new URLSearchParams({
     client_id: GOOGLE_CID, redirect_uri: googleRedirectUri(), response_type: "code",
     access_type: "offline", prompt: "consent", include_granted_scopes: "true",
-    scope: "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email",
+    scope: "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email", state,
   });
-  return new Response(null, { status: 302, headers: { ...cors, Location: `https://accounts.google.com/o/oauth2/v2/auth?${p}` } });
+  return new Response(JSON.stringify({ url: `https://accounts.google.com/o/oauth2/v2/auth?${p}` }), { headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 }
 function _oauthPage(title: string, msg: string) {
   return new Response(`<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><body style="font-family:system-ui,-apple-system,sans-serif;background:#0f0f12;color:#eee;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center;max-width:420px;padding:24px"><h2 style="margin:0 0 8px">${title}</h2><p style="color:#aaa;line-height:1.5">${msg}</p><p style="color:#666;font-size:13px;margin-top:18px">Pode fechar esta aba.</p></div><script>try{setTimeout(function(){window.close()},2500)}catch(e){}</script>`, { headers: { ...cors, "Content-Type": "text/html; charset=utf-8" } });
@@ -659,6 +728,9 @@ async function handleGoogleCallback(url: URL): Promise<Response> {
   const code = url.searchParams.get("code"), err = url.searchParams.get("error");
   if (err) return _oauthPage("Conexão cancelada", "Você recusou o acesso (" + err + ").");
   if (!code) return _oauthPage("Erro", "Não recebi o código do Google.");
+  const state = url.searchParams.get("state") || "", parts = state.split(":"), sig = parts.pop() || "", raw = parts.join(":");
+  const ts = Number(parts[0] || 0), expected = raw ? await _hmac(raw) : "";
+  if (!raw || !sig || !_safeEq(sig, expected) || !ts || Math.abs(Date.now() - ts) > 10 * 60e3) return _oauthPage("Conexão inválida", "A autorização expirou ou não foi iniciada dentro da Central de Gestão.");
   try {
     const tr = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: GOOGLE_CID, client_secret: GOOGLE_CSEC, redirect_uri: googleRedirectUri(), grant_type: "authorization_code" }) });
     const tj = await tr.json();
@@ -798,18 +870,32 @@ Deno.serve(async (req) => {
     return new Response(js, { headers: { ...cors, "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=300" } });
   }
 
-  if (p === "/collect" && req.method === "POST") return handleCollect(req);
-  if (p === "/wa/ref" && req.method === "POST") return handleWaRef(req);
+  if (p === "/collect" && req.method === "POST") { const g = _publicGuard(req, "collect", 120, 262144); return g || handleCollect(req); }
+  if (p === "/wa/ref" && req.method === "POST") { const g = _publicGuard(req, "waref", 60, 262144); return g || handleWaRef(req); }
 
   if (p === "/rd/callback") return handleRdCallback(url);
 
-  if (p === "/rd/webhook" && req.method === "POST") return handleRdWebhook(url, req);
+  if (p === "/rd/webhook" && req.method === "POST") { const g = _publicGuard(req, "rd", 60, 2097152); return g || handleRdWebhook(url, req); }
   if (p === "/rd/webhook") return new Response("rd webhook ok", { headers: { ...cors, "Content-Type": "text/plain" } });
 
   if (p === "/nuvemshop/callback") return handleNuvemshopCallback(url);
 
   if (p === "/tiktok/callback") return handleTikTokCallback(url);
   if (p === "/pinterest/callback") return handlePinterestCallback(url);
+
+  // Tudo abaixo desta lista executa leitura ou alteração administrativa com service_role.
+  // A função continua pública apenas para pixel/webhooks/callbacks, mas essas rotas exigem
+  // uma sessão real do Supabase ou o segredo exclusivo dos cron jobs.
+  const internalPrefixes = ["/oauth/", "/calendar/", "/google/auth", "/google/status", "/google/disconnect", "/automations/", "/wa/connectivity", "/wa/resolve-origins", "/wa/agency-poll", "/journey/orders-tick", "/metrics/tick", "/instagram/", "/security/audit", "/wa/connect/"];
+  if (internalPrefixes.some((x) => p.startsWith(x))) {
+    const denied = await _requireInternal(req); if (denied) return denied;
+  }
+  if (p === "/oauth/state" && req.method === "POST") {
+    let body: any = {}; try { body = await req.json(); } catch { /* */ }
+    const provider = String(body.provider || ""), clientId = String(body.clientId || "");
+    if (!/^(rd|nuvemshop|tiktok|pinterest)$/.test(provider) || !clientId) return new Response(JSON.stringify({ error: "invalid_request" }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ state: await _signedState(provider, clientId) }), { headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  }
 
   // GET /calendar/sync -> lê o Google Agenda (OAuth ou iCal) e cria tarefas das reuniões
   if (p === "/calendar/sync") return handleCalendarSync();
@@ -912,7 +998,10 @@ Deno.serve(async (req) => {
       return new Response("token invalido", { status: 403, headers: { "Content-Type": "text/plain" } });
     }
     if (req.method !== "POST") return new Response("wa webhook ok", { headers: { ...cors, "Content-Type": "text/plain" } });
-    return handleWaWebhook(mWa[1], req);
+    const guard = _publicGuard(req, "wawh", 180, 2097152); if (guard) return guard;
+    const raw = await req.text();
+    if (!(await _cloudWebhookValid(mWa[1], raw, req.headers.get("x-hub-signature-256") || ""))) return new Response("assinatura invalida", { status: 401, headers: { "Content-Type": "text/plain", "Cache-Control": "no-store" } });
+    return handleWaWebhook(mWa[1], new Request(req.url, { method: "POST", headers: req.headers, body: raw }));
   }
 
   // GET /l/<client_id>/<slug>
