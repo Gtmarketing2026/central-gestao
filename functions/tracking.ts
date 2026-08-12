@@ -896,7 +896,7 @@ Deno.serve(async (req) => {
   // Tudo abaixo desta lista executa leitura ou alteração administrativa com service_role.
   // A função continua pública apenas para pixel/webhooks/callbacks, mas essas rotas exigem
   // uma sessão real do Supabase ou o segredo exclusivo dos cron jobs.
-  const internalPrefixes = ["/oauth/", "/calendar/", "/google/auth", "/google/status", "/google/disconnect", "/automations/", "/wa/connectivity", "/wa/resolve-origins", "/wa/agency-poll", "/journey/orders-tick", "/metrics/tick", "/instagram/", "/security/audit", "/wa/connect/"];
+  const internalPrefixes = ["/oauth/", "/calendar/", "/google/auth", "/google/status", "/google/disconnect", "/automations/", "/wa/connectivity", "/wa/resolve-origins", "/wa/agency-poll", "/journey/orders-tick", "/metrics/tick", "/meta/", "/instagram/", "/security/audit", "/wa/connect/"];
   if (internalPrefixes.some((x) => p.startsWith(x))) {
     const denied = await _requireInternal(req); if (denied) return denied;
   }
@@ -949,7 +949,8 @@ Deno.serve(async (req) => {
   // /instagram/followers-tick -> snapshot diario de seguidores no schema `midia` (Fase 3, chamado pelo cron diario).
   if (p === "/instagram/followers-tick") {
     try {
-      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ instagramFollowersSnapshot: true }) });
+      const clientId = url.searchParams.get("clientId") || "";
+      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ instagramFollowersSnapshot: clientId ? { clientIds: [clientId] } : true }) });
       const t = await r.text();
       return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
     } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
@@ -958,7 +959,8 @@ Deno.serve(async (req) => {
   // /instagram/organic-tick -> historiza conteudo organico no schema `midia` (Fase 4, chamado pelo cron diario).
   if (p === "/instagram/organic-tick") {
     try {
-      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ instagramOrganicSnapshot: { days: 30 } }) });
+      const clientId = url.searchParams.get("clientId") || "";
+      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ instagramOrganicSnapshot: { days: clientId ? 90 : 30, ...(clientId ? { clientIds: [clientId] } : {}) } }) });
       const t = await r.text();
       return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
     } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
@@ -1012,6 +1014,16 @@ Deno.serve(async (req) => {
     const raw = await req.text();
     if (!(await _cloudWebhookValid(mWa[1], raw, req.headers.get("x-hub-signature-256") || ""))) { _securityBg(_securityLog(req, "invalid_webhook_signature", mWa[1])); return new Response("assinatura invalida", { status: 401, headers: { "Content-Type": "text/plain", "Cache-Control": "no-store" } }); }
     return handleWaWebhook(mWa[1], new Request(req.url, { method: "POST", headers: req.headers, body: raw }));
+  }
+
+  // Descobre diariamente todos os Instagrams ligados às contas Meta já escolhidas em cada cliente.
+  // Só acrescenta ativos reais e respeita exclusões manuais; depois atualiza o banco da aba Social.
+  if (p === "/meta/assets-tick") {
+    try {
+      const dryRun = url.searchParams.get("dryRun") === "1";
+      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ metaAssetsSync: { dryRun } }) });
+      const t = await r.text(); return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
+    } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
   }
 
   // GET /l/<client_id>/<slug>

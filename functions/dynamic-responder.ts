@@ -333,16 +333,17 @@ function _igNormName(s: string) { return String(s || "").normalize("NFD").replac
 async function instagramAutoMatch(input: any) {
   const { clientId } = input;
   if (!clientId) throw new Error("clientId obrigatório.");
-  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=id,name,instagram_accounts`))[0];
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=id,name,instagram_accounts,instagram_accounts_excluded`))[0];
   if (!c) throw new Error("Cliente não encontrado.");
   const atual: any[] = Array.isArray(c.instagram_accounts) ? c.instagram_accounts : [];
+  const excluidos = new Set((Array.isArray(c.instagram_accounts_excluded) ? c.instagram_accounts_excluded : []).map(String));
   const list = await instagramListAccounts();
   if (!list.ok) return { erro: list.erro };
   const comIg = (list.paginas || []).filter((p: any) => p.instagram);
   const alvo = _igNormName(c.name);
   const jaTemIds = new Set(atual.map((a: any) => a.id));
   const candidatos = comIg.filter((p: any) => {
-    if (jaTemIds.has(p.instagram.id)) return false;
+    if (jaTemIds.has(p.instagram.id) || excluidos.has(String(p.instagram.id))) return false;
     const nome = _igNormName(p.pagina);
     const uname = _igNormName(p.instagram.username || "").replace(/ /g, "");
     return nome === alvo || (alvo.length > 3 && (nome.includes(alvo) || alvo.includes(nome))) || uname === alvo.replace(/ /g, "");
@@ -953,6 +954,11 @@ async function metaAudienceSources(m: any) {
     getJson(`${base}/act_${acc.id}/promote_pages?fields=id,name&limit=50&access_token=${token}`).then((j: any) => { if (j && !j.error) (j.data || []).forEach((p: any) => { if (!out.pages.some((x: any) => x.id === p.id)) out.pages.push({ id: p.id, name: p.name || p.id, account: acc.id }); }); }),
     getJson(`${base}/act_${acc.id}/instagram_accounts?fields=id,username,name&limit=50&access_token=${token}`).then((j: any) => { if (j && !j.error) (j.data || []).forEach((ig: any) => { if (ig.id && !out.igs.some((x: any) => x.id === ig.id)) out.igs.push({ id: ig.id, name: "@" + (ig.username || ig.name || ig.id), account: acc.id }); }); }),
   ]));
+  // Algumas contas não expõem o Instagram em /instagram_accounts, mas expõem a Página promovida.
+  await Promise.all(out.pages.map((pg: any) => getJson(`${base}/${pg.id}?fields=instagram_business_account{id,username,name}&access_token=${token}`).then((j: any) => {
+    const ig = j && !j.error ? j.instagram_business_account : null;
+    if (ig?.id && !out.igs.some((x: any) => String(x.id) === String(ig.id))) out.igs.push({ id: ig.id, name: "@" + (ig.username || ig.name || ig.id), account: pg.account, pageId: pg.id, pageName: pg.name || "" });
+  })));
   // vídeos/formulários NÃO entram aqui (são pesados) — carregam sob demanda via metaAudienceMedia. Retorna já as páginas/IGs pra isso.
   return out;
 }
@@ -1145,6 +1151,31 @@ async function googleListAccounts() {
     .map((r: any) => r.customerClient)
     .filter((c: any) => c && !c.manager)
     .map((c: any) => ({ id: String(c.id), name: c.descriptiveName || String(c.id), status: c.status, currency: c.currencyCode }));
+}
+
+// Sincroniza ativos Instagram pelo vínculo REAL da conta de anúncios Meta escolhida no cliente.
+// É mais confiável que casar nomes. Nunca remove nem substitui escolha manual; só acrescenta ativos
+// visíveis naquela(s) conta(s), respeitando a lista de exclusão feita pelo gestor.
+async function metaAssetsSync(input: any = {}) {
+  const dryRun = !!input.dryRun, only = Array.isArray(input.clientIds) ? new Set(input.clientIds.map(String)) : null;
+  const clients = (await _sbAll("clients", "status=neq.Encerrado&meta_account_id=not.is.null&select=id,name,meta_account_id,instagram_accounts,instagram_accounts_excluded")).filter((c: any) => !only || only.has(String(c.id)));
+  let clientsUpdated = 0, assetsAdded = 0; const results: any[] = [];
+  for (const c of clients) {
+    const ids = String(c.meta_account_id || "").split(",").map((x) => x.trim().replace(/^act_/, "")).filter(Boolean);
+    if (!ids.length) continue;
+    try {
+      const src = await metaAudienceSources({ accounts: ids.map((id) => ({ id })) });
+      const current: any[] = Array.isArray(c.instagram_accounts) ? c.instagram_accounts : [], known = new Set(current.map((x: any) => String(x.id)));
+      const excluded = new Set((Array.isArray(c.instagram_accounts_excluded) ? c.instagram_accounts_excluded : []).map(String));
+      const additions = (src.igs || []).filter((ig: any) => ig.id && !known.has(String(ig.id)) && !excluded.has(String(ig.id))).map((ig: any) => ({ id: String(ig.id), username: String(ig.name || "").replace(/^@/, ""), pagina: "", meta_account_id: String(ig.account || ""), auto_synced: true }));
+      if (additions.length) {
+        if (!dryRun) await sbPatchD("clients", `id=eq.${encodeURIComponent(c.id)}`, { instagram_accounts: [...current, ...additions] });
+        clientsUpdated++; assetsAdded += additions.length;
+      }
+      results.push({ clientId: c.id, cliente: c.name, contasMeta: ids.length, encontrados: (src.igs || []).length, novos: additions.length, ativos: additions.map((x: any) => `@${x.username || x.id}`) });
+    } catch (e) { results.push({ clientId: c.id, cliente: c.name, erro: String((e as any)?.message || e).slice(0, 180) }); }
+  }
+  return { dryRun, clientsChecked: clients.length, clientsUpdated, assetsAdded, results };
 }
 
 async function googleAudiences(m: any) {
@@ -1602,13 +1633,14 @@ async function _midiaWriteAdsDaily(clientId: string, platform: "meta" | "google"
 // Gap real: instagramListAccounts() so busca ao vivo, nunca guardou historico (por isso "seguidores ganhos
 // no periodo" nao existia). 1 chamada de API pra TODOS os perfis da agencia de uma vez (me/accounts ja
 // retorna todo mundo) - nao faz 1 chamada por cliente. Ver docs/spec-banco-dados-midia.md.
-async function instagramFollowersSnapshot() {
+async function instagramFollowersSnapshot(input: any = {}) {
   const list = await instagramListAccounts();
   if (!(list as any).ok) throw new Error((list as any).erro || "Falha ao listar contas do Instagram");
   const seguidoresPorId: Record<string, number> = {};
   for (const p of ((list as any).paginas || [])) if (p.instagram && p.instagram.id) seguidoresPorId[p.instagram.id] = Number(p.instagram.seguidores || 0);
 
-  const clientes = await _sbAll("clients", "status=neq.Encerrado&select=id,name,instagram_accounts");
+  const clientesAll = await _sbAll("clients", "status=neq.Encerrado&select=id,name,instagram_accounts");
+  const clientes = Array.isArray(input.clientIds) && input.clientIds.length ? clientesAll.filter((c: any) => input.clientIds.includes(c.id)) : clientesAll;
   const hoje = new Date().toISOString().slice(0, 10);
   let gravados = 0; const semDado: string[] = [];
   for (const c of clientes) {
@@ -5155,7 +5187,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.instagramFollowersSnapshot) {
-      const r = await instagramFollowersSnapshot();
+      const r = await instagramFollowersSnapshot(body.instagramFollowersSnapshot === true ? {} : body.instagramFollowersSnapshot);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.instagramOrganicSnapshot) {
@@ -5358,6 +5390,10 @@ Deno.serve(async (req) => {
     }
     if (body.metaAccounts) {
       const r = await metaListAccounts();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.metaAssetsSync) {
+      const r = await metaAssetsSync(body.metaAssetsSync);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.metaPixels) {

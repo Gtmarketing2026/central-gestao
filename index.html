@@ -2016,7 +2016,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||'',instagramAccounts:Array.isArray(r.instagram_accounts)?r.instagram_accounts:[],pixelBannerProprio:!!r.pixel_banner_proprio});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||'',instagramAccounts:Array.isArray(r.instagram_accounts)?r.instagram_accounts:[],instagramAccountsExcluded:Array.isArray(r.instagram_accounts_excluded)?r.instagram_accounts_excluded:[],pixelBannerProprio:!!r.pixel_banner_proprio});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],budget_campaigns:o.budgetCampaigns||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,ga4_property_id:o.ga4PropertyId||null,gsc_site_url:o.gscSiteUrl||null,whatsapp:o.whatsapp||null,pixel_id:o.pixelId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -2302,7 +2302,7 @@ let _socMetric='seguidores';
 let _socCompare=false;
 const SOC_TIPO_LABEL={VIDEO:'Reels/Vídeo',CAROUSEL_ALBUM:'Carrossel',IMAGE:'Imagem'};
 const SOC_WD_LABEL=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-async function loadSocial(clientId){
+async function loadSocial(clientId,_retried){
   const c=DB.clients.find(x=>x.id===(clientId||activeClientId||_socClientId));
   const body=document.getElementById('socBody');if(!body)return;
   const fbar=document.getElementById('socFilterBar');if(fbar)fbar.innerHTML='';
@@ -2313,7 +2313,9 @@ async function loadSocial(clientId){
   try{
     const {data:contas,error:e1}=await sb.schema('midia').from('dim_conta').select('id,nome').eq('client_id',c.id).eq('plataforma_id','instagram_organico').eq('ativa',true);
     if(e1)throw e1;
-    if(!contas||!contas.length){body.innerHTML='<div class="empty">Este cliente ainda não tem Instagram conectado.<br><span style="font-size:11.5px;color:var(--faint)">Conecte em Configuração do Cliente para ver seguidores e posts aqui.</span></div>';return}
+    if(!contas||!contas.length){
+      if(!_retried&&c.instagramAccounts&&c.instagramAccounts.length){body.innerHTML='<div class="empty">Sincronizando o Instagram conectado com a aba Social…</div>';await _syncInstagramWarehouse(c.id);return loadSocial(c.id,true);}
+      body.innerHTML='<div class="empty">Este cliente ainda não tem Instagram conectado.<br><span style="font-size:11.5px;color:var(--faint)">Conecte em Configuração do Cliente para ver seguidores e posts aqui.</span></div>';return}
     const contaIds=contas.map(x=>x.id);
     const since=daysAgoISO(_socDays*2); // busca o dobro do período pra poder comparar com o anterior sem refazer a consulta
     const [{data:segs,error:e2},{data:posts,error:e3}]=await Promise.all([
@@ -5426,6 +5428,12 @@ function renderInstagramConnect(clientId){
   <div id="cInstagramAccSel" style="margin-top:8px"></div>`;
   brInstagramAutoConnect(clientId);
 }
+async function _syncInstagramWarehouse(clientId){
+  await Promise.all([
+    sb.functions.invoke('dynamic-responder',{body:{instagramFollowersSnapshot:{clientIds:[clientId]}}}),
+    sb.functions.invoke('dynamic-responder',{body:{instagramOrganicSnapshot:{clientIds:[clientId],days:90}}})
+  ]);
+}
 // Roda sozinho ao abrir o cadastro: tenta achar o(s) perfil(is) pelo nome, sem pedir clique nenhum.
 async function brInstagramAutoConnect(clientId){
   const st=document.getElementById('cInstagramStatus');
@@ -5435,6 +5443,7 @@ async function brInstagramAutoConnect(clientId){
     if(r.novos>0){
       const c=DB.clients.find(x=>x.id===clientId);
       if(c){const {data:cd}=await sb.from('clients').select('instagram_accounts').eq('id',clientId).maybeSingle();c.instagramAccounts=(cd&&cd.instagram_accounts)||[];}
+      await _syncInstagramWarehouse(clientId);
       renderInstagramConnect(clientId);
       return;
     }
@@ -5465,18 +5474,21 @@ async function saveInstagramAccount(clientId,sel){
   const nova={id,username:opt.dataset.username||'',pagina:opt.dataset.pagina||''};
   const c=DB.clients.find(x=>x.id===clientId);
   const contas=[...((c&&c.instagramAccounts)||[]).filter(a=>a.id!==id),nova];
-  const {error}=await sb.from('clients').update({instagram_accounts:contas}).eq('id',clientId);
+  const excluded=((c&&c.instagramAccountsExcluded)||[]).filter(x=>String(x)!==String(id));
+  const {error}=await sb.from('clients').update({instagram_accounts:contas,instagram_accounts_excluded:excluded}).eq('id',clientId);
   if(error){alert('Erro ao salvar: '+error.message);return;}
-  if(c)c.instagramAccounts=contas;
+  if(c){c.instagramAccounts=contas;c.instagramAccountsExcluded=excluded;}
+  await _syncInstagramWarehouse(clientId);
   renderInstagramConnect(clientId);
 }
 async function removeInstagramAccount(clientId,instagramId){
   if(!confirm('Remover esse perfil do Instagram?'))return;
   const c=DB.clients.find(x=>x.id===clientId);
   const contas=((c&&c.instagramAccounts)||[]).filter(a=>a.id!==instagramId);
-  const {error}=await sb.from('clients').update({instagram_accounts:contas}).eq('id',clientId);
+  const excluded=[...new Set([...(c&&c.instagramAccountsExcluded||[]).map(String),String(instagramId)])];
+  const {error}=await sb.from('clients').update({instagram_accounts:contas,instagram_accounts_excluded:excluded}).eq('id',clientId);
   if(error){alert('Erro ao remover: '+error.message);return;}
-  if(c)c.instagramAccounts=contas;
+  if(c){c.instagramAccounts=contas;c.instagramAccountsExcluded=excluded;}
   renderInstagramConnect(clientId);
 }
 // Testa a conexão puxando os últimos 7 dias — valida ponta a ponta (fase 1, antes de integrar no Dashboard/funil de verdade).
@@ -8530,6 +8542,9 @@ async function saveClient(){
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
   await _upsertClient(o);
+  if(o.metaAccountIds.length){
+    try{const {data}=await sb.functions.invoke('dynamic-responder',{body:{metaAssetsSync:{clientIds:[o.id]}}});const r=(data&&data.data)||{};if(r.assetsAdded)await _syncInstagramWarehouse(o.id);}catch(e){}
+  }
   if(isNew&&activeClientChannels.length)await createClientTasks(o);
   if(isNew&&activeClientChannels.length)renderAll();
   if(_configClientId===o.id&&document.getElementById('clientConfig').classList.contains('active'))renderClientConfig();
