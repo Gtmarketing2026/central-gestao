@@ -2437,7 +2437,10 @@ function _socRender(ctx){
     rates.forEach(x=>{if(sd>0&&x.r>mean+1.25*sd)destaqueIds.add(x.p.id);});
   }
   const alerts=[];
-  if(variacao!=null&&variacao<0)alerts.push(`<div style="display:flex;align-items:center;gap:8px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:10px 14px;font-size:12.5px"><span>⚠</span><span>Perdeu <b>${num(Math.abs(variacao))}</b> seguidores nos últimos ${_socDays} dias.</span></div>`);
+  // se o histórico real de coleta é mais curto que o período escolhido, o número é o mesmo em qualquer botão — deixa isso explícito
+  const cutCurAlerta=daysAgoISO(_socDays);
+  const histCurto=first&&first.data>cutCurAlerta;
+  if(variacao!=null&&variacao<0)alerts.push(`<div style="display:flex;align-items:center;gap:8px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:10px 14px;font-size:12.5px"><span>⚠</span><span>Perdeu <b>${num(Math.abs(variacao))}</b> seguidores ${histCurto?`desde que começamos a coletar (${first.data.slice(8,10)}/${first.data.slice(5,7)}) — ainda não temos ${_socDays} dias de histórico`:`nos últimos ${_socDays} dias`}.</span></div>`);
   if(destaqueIds.size)alerts.push(`<div style="display:flex;align-items:center;gap:8px;background:rgba(240,192,64,.1);border:1px solid rgba(240,192,64,.3);border-radius:10px;padding:10px 14px;font-size:12.5px"><span>🔥</span><span><b>${destaqueIds.size}</b> post${destaqueIds.size!==1?'s':''} com engajamento muito acima da média — bons candidatos a recorte no Briefing.</span></div>`);
   const alertBlock=alerts.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">${alerts.join('')}</div>`:'';
   // gráfico: seguidores / alcance / visualizações (seletor de métrica)
