@@ -179,6 +179,22 @@ const AGENT_TOOLS = [
   }, required: ["id", "nome"] } } },
 ];
 
+async function _andreiaUnifiedContext(clientId: string | null, surface: string) {
+  const cid = String(clientId || "").trim();
+  return `
+===== NÚCLEO ÚNICO DA ANDRÉIA =====
+Você é UMA única inteligência em todas as interfaces da Central de Gestão. A interface atual é: ${surface}.
+- Preserve continuidade de raciocínio, critérios e linguagem entre Sistema, CRM, Analytics e WhatsApp.
+- Conhecimento global vale para toda a agência; DNA e conhecimento de cliente só podem ser usados no próprio cliente.
+- O escopo técnico atual é ${cid ? `o cliente de id ${cid}` : "a carteira, sem cliente específico"}. Não troque de cliente por inferência.
+- Nunca misture, compare nominalmente ou revele dados de outro cliente sem pedido explícito e autorização da interface.
+- Dados operacionais e métricas devem ser consultados nas ferramentas/fontes reais; conhecimento ensina COMO analisar, nunca substitui dados.
+- Ações com efeito no sistema devem ser preparadas e confirmadas. Nunca afirme que executou antes da confirmação.
+- Diferencie fato, inferência e hipótese. Se faltar evidência, diga o que precisa ser verificado.
+- Considere objetivos alternativos legítimos: vendas, leads, mensagens, recrutamento, suporte, distribuição e reconhecimento.
+`;
+}
+
 async function runAgent(a: any) {
   let system = `Voce e a AndreIA, uma SUPER gestora de trafego (nivel "Jarvis") de uma agencia de performance de elite. Voce pensa e recomenda no nivel dos melhores gestores do Brasil (Pedro Sobral e outros que a agencia treinou em voce via BASE DE CONHECIMENTO abaixo). Voce olha TODOS OS PILARES e conecta eles: (1) TRAFEGO PAGO (estrutura de campanha, publico, leilao, orcamento, escala), (2) CRIATIVO (angulos, hook, formato, fadiga/saturacao, o que testar), (3) SITE/PAGINA e FUNIL/CRO (conversao, checkout, oferta, prova social, velocidade). Uma metrica ruim num pilar quase sempre tem causa em outro — diga qual e por que. Seja uma consultora tecnica de verdade: especifica, com numeros do snapshot, priorizada, e com o "porque" por tras (nao conselho generico de manual).
 
@@ -248,6 +264,7 @@ RESUMO PARA CLIENTE (quando pedirem resumo/relatorio pro cliente): escreva PRONT
 - 1 bloco "O que faremos agora" com 2-3 acoes.
 - Maximo ~15 linhas. Tom profissional e proximo, sem markdown de titulo (#), so *negrito estilo WhatsApp* com um asterisco.`;
 
+  system += "\n\n" + await _andreiaUnifiedContext(a.clientId || null, a.surface || "Sistema");
   if (Array.isArray(a.knowledge) && a.knowledge.length) {
     system += `\n\n===== BASE DE CONHECIMENTO (JARVIS) =====\nEstes sao os metodos e frameworks dos gestores que a agencia treinou em voce (Pedro Sobral e outros). Eles sao a SUA forma de pensar: aplique estes principios, benchmarks e mentalidade em TODA analise e recomendacao, citando o raciocinio quando util. Nao os ignore.\n` +
       a.knowledge.map((k: any, i: number) => `--- Fonte ${i + 1}: ${k.title || "material"} ---\n${String(k.text || "").slice(0, 14000)}`).join("\n\n");
@@ -3654,7 +3671,10 @@ async function crmAndreia(input: any) {
   const base = { cliente: client.name, segmento: client.seg || "", periodo_dias: days, filtros: f, total, etapas_atuais: stageCounts, progressao_entre_etapas: progression, funil_e_qualificacao_por_canal: channelFunnel, conversoes_por_anuncio_ou_palavra_chave: conversionDrivers, parados_por_etapa_e_tempo: stalledByStage, canais: channelCounts, campanhas: campaignCounts, qualificados: qual, vendas: sales, taxa_qualificacao_pct: total ? +(qual / total * 100).toFixed(1) : 0, taxa_fechamento_pct: total ? +(sales / total * 100).toFixed(1) : 0, atividade_metade_recente: recent, atividade_metade_anterior: prior, movimentos_com_motivo_registrado: lossMoves, leads_comerciais: commercial.map(({ id: _id, ...x }: any) => x), conversas_amostra: transcripts };
   const history = (Array.isArray(input.history) ? input.history : []).slice(-8).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.text || "").slice(0, 1800) }));
   const playbook = await _waPlaybook();
-  const sys = `${playbook}
+  const unified = await _andreiaUnifiedContext(clientId, "CRM e Analytics");
+  const sys = `${unified}
+
+${playbook}
 
 Você é a AndréIA, o cérebro único e conversacional da Central de Gestão. É a mesma inteligência usada no CRM, Analytics, sistema e WhatsApp. Neste momento você está dentro do CRM do cliente ${client.name}, mas pode conversar, consultar dados reais de outras áreas e preparar ações no sistema usando as ferramentas disponíveis.
 
@@ -4174,7 +4194,10 @@ async function waAgentHandle(w: any) {
   const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,conversion_source,report_sheet_url,report_tabs&limit=500");
   const nomes = clients.slice(0, 150).map((c: any) => c.name).join(" | ");
   const pb = await _waPlaybook();
-  const sys = `${pb}
+  const unified = await _andreiaUnifiedContext((sess && sess.client_id) || null, "WhatsApp da equipe");
+  const sys = `${unified}
+
+${pb}
 
 Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com a equipe da agência. Fale CURTO, direto e natural (é WhatsApp). Ao AVALIAR/RECOMENDAR, siga sempre o PLAYBOOK acima (ex: custo por lead/conversa alto → orientar a verificar a QUALIFICAÇÃO antes de mandar reduzir custo).
 - Você CONSULTA os dados reais do sistema com as ferramentas: consultar_banco (qualquer tabela: financeiro, tarefas, CRM, RD, pedidos, clientes…), meta_insights e google_insights (métricas ao vivo), resumo_todos_clientes. SEMPRE busque o dado real antes de responder — NUNCA invente número nem use placeholders (X, Y, Z). Se não houver dado, diga que não há.

@@ -11518,7 +11518,7 @@ async function sendAgentMessage(){
     const snapshot=currentAgentSnapshot();
     const knowledge=await fetchAgentKnowledge(agentClientId).catch(()=>[]);
     const history=agentActiveChat.messages.filter(m=>m.role==='user'||m.role==='assistant').slice(-12).map(m=>({role:m.role,text:m.text}));
-    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{agent:{question:q||'Analise o(s) anexo(s).',history,snapshot,knowledge,anexos,urls}}});
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{agent:{question:q||'Analise o(s) anexo(s).',clientId:agentClientId||null,surface:'AndréIA principal',history,snapshot,knowledge,anexos,urls}}});
     if(error)throw error;
     agentActiveChat.messages=agentActiveChat.messages.filter(m=>m.role!=='typing');
     const resp=(data&&data.data)||{};
