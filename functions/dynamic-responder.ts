@@ -3672,6 +3672,60 @@ async function _minerApifyCapture(url: string, limit: number) {
   if (!r.ok || !Array.isArray(rows)) throw new Error(`Apify: ${rows?.error?.message || `HTTP ${r.status}`}`);
   return rows;
 }
+async function eventReports(input: any) {
+  const op = String(input?.op || "list"), clientId = String(input?.clientId || "").trim();
+  if (op === "list") {
+    const cq = clientId ? `client_id=eq.${encodeURIComponent(clientId)}&` : "";
+    const projects = await sbGet("event_projects", `${cq}select=*&order=created_at.desc&limit=300`);
+    const editions = await sbGet("event_editions", `${cq}select=*&order=event_date.desc&limit=500`);
+    const editionIds = (editions || []).map((x: any) => x.id);
+    let snapshots: any[] = [], versions: any[] = [];
+    if (editionIds.length) {
+      const ids = editionIds.map((x: string) => encodeURIComponent(x)).join(",");
+      snapshots = await sbGet("event_snapshots", `edition_id=in.(${ids})&select=*&order=collected_at.desc&limit=1000`);
+      versions = await sbGet("event_report_versions", `edition_id=in.(${ids})&select=*&order=version_no.desc&limit=1000`);
+    }
+    return { projects, editions, snapshots, versions };
+  }
+  if (!clientId) throw new Error("Selecione um cliente.");
+  if (op === "create") {
+    const name = String(input.name || "").trim(), editionName = String(input.editionName || "").trim();
+    if (!name || !editionName) throw new Error("Informe o projeto e a edição.");
+    const projectId = _wuid(), editionId = _wuid(), now = new Date().toISOString();
+    await sbPost("event_projects", { id: projectId, client_id: clientId, name, description: String(input.description || ""), created_at: now, updated_at: now });
+    await sbPost("event_editions", { id: editionId, project_id: projectId, client_id: clientId, name: editionName, year: Number(input.year) || null, capture_start: input.captureStart || null, capture_end: input.captureEnd || null, event_date: input.eventDate || null, sales_start: input.salesStart || null, sales_end: input.salesEnd || null, config: input.config || {}, created_at: now, updated_at: now });
+    return { projectId, editionId };
+  }
+  if (op === "addEdition") {
+    const projectId = String(input.projectId || ""), name = String(input.editionName || "").trim();
+    if (!projectId || !name) throw new Error("Projeto e nome da edição são obrigatórios.");
+    const id = _wuid(), now = new Date().toISOString();
+    await sbPost("event_editions", { id, project_id: projectId, client_id: clientId, name, year: Number(input.year) || null, capture_start: input.captureStart || null, capture_end: input.captureEnd || null, event_date: input.eventDate || null, sales_start: input.salesStart || null, sales_end: input.salesEnd || null, config: input.config || {}, created_at: now, updated_at: now });
+    return { editionId: id };
+  }
+  if (op === "snapshot") {
+    const editionId = String(input.editionId || ""), since = String(input.since || ""), until = String(input.until || "");
+    if (!editionId || !since || !until) throw new Error("Edição e período são obrigatórios.");
+    const rows = await _sbAll("channel_metrics_daily", `client_id=eq.${encodeURIComponent(clientId)}&date=gte.${since}&date=lte.${until}&select=channel,spend,impressions,clicks,reach,purchases,revenue,leads,conversas,video_views,engajamentos`);
+    const empty = () => ({ spend: 0, impressions: 0, clicks: 0, reach: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, video_views: 0, engajamentos: 0 });
+    const total: any = empty(), channels: Record<string, any> = {};
+    for (const r of rows || []) { const c = channels[r.channel] || (channels[r.channel] = empty()); for (const k of Object.keys(total)) { const v = Number(r[k]) || 0; c[k] += v; total[k] += v; } }
+    total.ctr = total.impressions ? total.clicks / total.impressions * 100 : 0; total.cpm = total.impressions ? total.spend / total.impressions * 1000 : 0; total.roas = total.spend ? total.revenue / total.spend : 0;
+    Object.values(channels).forEach((c: any) => { c.ctr = c.impressions ? c.clicks / c.impressions * 100 : 0; c.cpm = c.impressions ? c.spend / c.impressions * 1000 : 0; c.roas = c.spend ? c.revenue / c.spend : 0; });
+    const id = _wuid(), collectedAt = new Date().toISOString(), metrics = { total, channels };
+    await sbPost("event_snapshots", { id, edition_id: editionId, client_id: clientId, period_start: since, period_end: until, metrics, sources: { channel_metrics_daily: true, youtube: false, rd: false }, collected_at: collectedAt });
+    return { snapshot: { id, edition_id: editionId, client_id: clientId, period_start: since, period_end: until, metrics, collected_at: collectedAt } };
+  }
+  if (op === "saveVersion") {
+    const editionId = String(input.editionId || ""); if (!editionId) throw new Error("Edição obrigatória.");
+    const prev = await sbGet("event_report_versions", `edition_id=eq.${encodeURIComponent(editionId)}&select=version_no&order=version_no.desc&limit=1`);
+    const versionNo = (Number(prev?.[0]?.version_no) || 0) + 1, id = _wuid();
+    await sbPost("event_report_versions", { id, edition_id: editionId, snapshot_id: input.snapshotId || null, version_no: versionNo, status: input.status || "draft", title: String(input.title || `Relatório v${versionNo}`), instructions: String(input.instructions || ""), report_data: input.reportData || {}, created_by: input.createdBy || null });
+    return { id, versionNo };
+  }
+  throw new Error("Operação de evento inválida.");
+}
+
 async function creativeMiner(input: any) {
   const op = String(input?.op || "list"), clientId = String(input?.clientId || "").trim();
   if (!clientId) throw new Error("Selecione um cliente.");
@@ -5635,6 +5689,10 @@ Deno.serve(async (req) => {
     }
     if (body.creativeMiner) {
       const r = await creativeMiner(body.creativeMiner);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.eventReports) {
+      const r = await eventReports(body.eventReports);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.resolveAllOrigins) {
