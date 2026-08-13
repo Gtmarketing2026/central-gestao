@@ -4605,17 +4605,80 @@ async function _gsaToken(scopes: string[]): Promise<string> {
   return tok;
 }
 function _gsaEmail(): string { try { return JSON.parse(Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY") || "{}").client_email || ""; } catch { return ""; } }
+
+// ===== Login pessoal do Google (OAuth) — fallback quando a service account nao tem acesso a uma propriedade
+// especifica (ex: GA4 de um cliente onde ninguem lembrou de compartilhar com a conta de servico, mas um membro
+// da equipe ja tem acesso via o proprio login). O refresh_token fica no cofre (secure_credentials), igual ao
+// token pessoal do Meta. E-mail/data de conexao ficam em account_config.data.google_oauth (sem segredo, so exibicao).
+async function _googleUserRefreshToken(): Promise<string> {
+  const r = await fetch(`${_SB_URL}/rest/v1/secure_credentials?id=eq.google_user_refresh_token&select=secret_cipher&limit=1`, { headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
+  const rows = r.ok ? await r.json() : [];
+  return rows[0]?.secret_cipher ? await _decryptCredential(rows[0].secret_cipher) : "";
+}
+async function _googleUserToken(scopes: string[]): Promise<string | null> {
+  const clientId = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID"), clientSecret = Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET");
+  if (!clientId || !clientSecret) return null;
+  const refresh = await _googleUserRefreshToken();
+  if (!refresh) return null;
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refresh, grant_type: "refresh_token" }),
+  });
+  const j = await r.json();
+  return j.access_token || null;
+}
+// Tenta a service account primeiro; se o erro for de PERMISSAO e existir login pessoal conectado, tenta de novo com ele.
+// fetchFn(token) faz a chamada e devolve o JSON já parseado (com .error quando falha, no formato do Google).
+async function _googleTryTokens(scopes: string[], fetchFn: (token: string) => Promise<any>): Promise<any> {
+  let j1: any = null, err1: unknown = null;
+  try {
+    const gsa = await _gsaToken(scopes);
+    j1 = await fetchFn(gsa);
+    if (!j1?.error) return j1;
+    if (!/permission|PERMISSION|not have|403/i.test(j1.error.message || "")) return j1; // erro que nao e de permissao: nao adianta trocar de token
+  } catch (e) { err1 = e; } // service account nem configurada/autenticou — ainda vale tentar o login pessoal
+  const userTok = await _googleUserToken(scopes).catch(() => null);
+  if (!userTok) { if (err1) throw err1; return j1; }
+  const j2 = await fetchFn(userTok);
+  if (!j2?.error) return j2;
+  if (err1) throw err1; // login pessoal tambem falhou: mostra o erro original da service account, mais familiar
+  return j1;
+}
+async function googleOAuthStart(authorization: string) {
+  if (!authorization) throw new Error("Sessão obrigatória.");
+  const ur = await fetch(`${_SB_URL}/auth/v1/user`, { headers: { apikey: _SB_KEY, Authorization: authorization } });
+  if (!ur.ok) throw new Error("Sessão inválida.");
+  const clientId = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID");
+  if (!clientId) throw new Error("GOOGLE_OAUTH_CLIENT_ID não configurada nos secrets — crie o OAuth Client no Google Cloud primeiro.");
+  // state assinado (mesma criptografia do cofre — simetrica com a decriptação que o callback faz em tracking.ts)
+  const state = await _encryptCredential(`google_oauth:${Date.now()}:${crypto.randomUUID()}`);
+  const redirect = `${_SB_URL}/functions/v1/tracking/google/oauth/callback`;
+  const scopes = ["https://www.googleapis.com/auth/analytics.readonly", "https://www.googleapis.com/auth/webmasters.readonly", "openid", "email"].join(" ");
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({ client_id: clientId, redirect_uri: redirect, response_type: "code", access_type: "offline", prompt: "consent", scope: scopes, state })}`;
+  return { url };
+}
+async function googleOAuthDisconnect(authorization: string) {
+  if (!authorization) throw new Error("Sessão obrigatória.");
+  const ur = await fetch(`${_SB_URL}/auth/v1/user`, { headers: { apikey: _SB_KEY, Authorization: authorization } });
+  if (!ur.ok) throw new Error("Sessão inválida.");
+  await fetch(`${_SB_URL}/rest/v1/secure_credentials?id=eq.google_user_refresh_token`, { method: "DELETE", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
+  const acc = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
+  delete acc.google_oauth;
+  await sbPatchD("account_config", "id=eq.main", { data: acc });
+  return { ok: true };
+}
 async function ga4Report(m: any) {
   const prop = String(m.propertyId || "").replace(/[^0-9]/g, "");
   if (!prop) throw new Error("propertyId do GA4 obrigatório (só os números, ex: 123456789)");
-  const token = await _gsaToken(["https://www.googleapis.com/auth/analytics.readonly"]);
   const run = async (dims: string[], mets: string[], limit = 50) => {
-    const r = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${prop}:runReport`, {
-      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ dateRanges: [{ startDate: m.since, endDate: m.until }], dimensions: dims.map((name) => ({ name })), metrics: mets.map((name) => ({ name })), limit }),
+    const j = await _googleTryTokens(["https://www.googleapis.com/auth/analytics.readonly"], async (token) => {
+      const r = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${prop}:runReport`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ dateRanges: [{ startDate: m.since, endDate: m.until }], dimensions: dims.map((name) => ({ name })), metrics: mets.map((name) => ({ name })), limit }),
+      });
+      return r.json();
     });
-    const j = await r.json();
-    if (j.error) throw new Error(`GA4: ${j.error.message}${/permission|PERMISSION/i.test(j.error.message || "") ? ` — dê acesso de Leitor à ${_gsaEmail()} na propriedade ${prop}` : ""}`);
+    if (j.error) throw new Error(`GA4: ${j.error.message}${/permission|PERMISSION/i.test(j.error.message || "") ? ` — dê acesso de Leitor à ${_gsaEmail()} na propriedade ${prop} (ou conecte um login pessoal com acesso em Configurações)` : ""}`);
     return (j.rows || []).map((row: any) => {
       const o: any = {};
       (j.dimensionHeaders || []).forEach((h: any, i: number) => { o[h.name] = row.dimensionValues[i].value; });
@@ -4643,19 +4706,20 @@ async function ga4Report(m: any) {
 async function ga4DailyBySource(m: any) {
   const prop = String(m.propertyId || "").replace(/[^0-9]/g, "");
   if (!prop) throw new Error("propertyId do GA4 obrigatório");
-  const token = await _gsaToken(["https://www.googleapis.com/auth/analytics.readonly"]);
-  const r = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${prop}:runReport`, {
-    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      dateRanges: [{ startDate: m.since, endDate: m.until }],
-      dimensions: [{ name: "date" }, { name: "sessionSourceMedium" }, { name: "sessionCampaignName" }, { name: "sessionManualAdContent" }],
-      metrics: [{ name: "eventCount" }, { name: "eventValue" }],
-      dimensionFilter: { filter: { fieldName: "eventName", stringFilter: { value: "purchase" } } },
-      limit: 100000,
-    }),
+  const j = await _googleTryTokens(["https://www.googleapis.com/auth/analytics.readonly"], async (token) => {
+    const r = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${prop}:runReport`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dateRanges: [{ startDate: m.since, endDate: m.until }],
+        dimensions: [{ name: "date" }, { name: "sessionSourceMedium" }, { name: "sessionCampaignName" }, { name: "sessionManualAdContent" }],
+        metrics: [{ name: "eventCount" }, { name: "eventValue" }],
+        dimensionFilter: { filter: { fieldName: "eventName", stringFilter: { value: "purchase" } } },
+        limit: 100000,
+      }),
+    });
+    return r.json();
   });
-  const j = await r.json();
-  if (j.error) throw new Error(`GA4: ${j.error.message}`);
+  if (j.error) throw new Error(`GA4: ${j.error.message}${/permission|PERMISSION/i.test(j.error.message || "") ? ` — dê acesso de Leitor à ${_gsaEmail()} na propriedade ${prop} (ou conecte um login pessoal com acesso em Configurações)` : ""}`);
   return (j.rows || []).map((row: any) => {
     const raw = row.dimensionValues[0].value || ""; // YYYYMMDD
     const date = raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}` : raw;
@@ -4668,22 +4732,27 @@ async function ga4DailyBySource(m: any) {
 }
 // Diagnóstico: quais propriedades do Search Console a service account enxerga
 async function gscSites() {
-  const token = await _gsaToken(["https://www.googleapis.com/auth/webmasters.readonly"]);
-  const r = await fetch("https://searchconsole.googleapis.com/webmasters/v3/sites", { headers: { Authorization: `Bearer ${token}` } });
-  const j = await r.json();
+  const j = await _googleTryTokens(["https://www.googleapis.com/auth/webmasters.readonly"], async (token) => {
+    const r = await fetch("https://searchconsole.googleapis.com/webmasters/v3/sites", { headers: { Authorization: `Bearer ${token}` } });
+    return r.json();
+  });
   if (j.error) throw new Error(`Search Console: ${j.error.message}`);
   return { email: _gsaEmail(), sites: (j.siteEntry || []).map((s: any) => ({ site: s.siteUrl, permissao: s.permissionLevel })) };
+}
+async function _gscListSites(): Promise<string[]> {
+  const j = await _googleTryTokens(["https://www.googleapis.com/auth/webmasters.readonly"], async (token) => {
+    const r = await fetch("https://searchconsole.googleapis.com/webmasters/v3/sites", { headers: { Authorization: `Bearer ${token}` } });
+    return r.json();
+  });
+  return ((j && j.siteEntry) || []).map((s: any) => s.siteUrl);
 }
 async function gscReport(m: any) {
   let site = String(m.siteUrl || "").trim();
   if (!site) throw new Error("siteUrl do Search Console obrigatório (ex: https://site.com.br/ ou sc-domain:site.com.br)");
-  const token = await _gsaToken(["https://www.googleapis.com/auth/webmasters.readonly"]);
   // o Search Console é exigente com o formato (http/https, www, barra final, sc-domain).
   // Se o que está no cadastro não for exatamente uma das propriedades, acha a do mesmo domínio.
   try {
-    const lr = await fetch("https://searchconsole.googleapis.com/webmasters/v3/sites", { headers: { Authorization: `Bearer ${token}` } });
-    const lj = await lr.json();
-    const lista: string[] = ((lj && lj.siteEntry) || []).map((s: any) => s.siteUrl);
+    const lista = await _gscListSites();
     if (lista.length && !lista.includes(site)) {
       const dom = (u: string) => String(u).replace(/^sc-domain:/, "").replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").toLowerCase();
       const alvo = dom(site);
@@ -4692,16 +4761,18 @@ async function gscReport(m: any) {
       const cands = lista.filter((s) => dom(s) === alvo).sort((a, b) => (b.startsWith("sc-domain:") ? 1 : 0) - (a.startsWith("sc-domain:") ? 1 : 0));
       const hit = cands[0];
       if (hit) site = hit;
-      else throw new Error(`a service account não tem acesso a "${site}". Propriedades disponíveis: ${lista.join(", ") || "(nenhuma)"} — adicione ${_gsaEmail()} como usuário da propriedade certa no Search Console.`);
+      else throw new Error(`a service account não tem acesso a "${site}". Propriedades disponíveis: ${lista.join(", ") || "(nenhuma)"} — adicione ${_gsaEmail()} como usuário da propriedade certa no Search Console (ou conecte um login pessoal com acesso em Configurações).`);
     }
   } catch (e) { if (/service account não tem acesso/.test(String((e as any).message))) throw e; /* senão segue com o valor informado */ }
   const q = async (dimensions: string[], rowLimit = 25) => {
-    const r = await fetch(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
-      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ startDate: m.since, endDate: m.until, dimensions, rowLimit }),
+    const j = await _googleTryTokens(["https://www.googleapis.com/auth/webmasters.readonly"], async (token) => {
+      const r = await fetch(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ startDate: m.since, endDate: m.until, dimensions, rowLimit }),
+      });
+      return r.json();
     });
-    const j = await r.json();
-    if (j.error) throw new Error(`Search Console: ${j.error.message}${/permission|not have|403/i.test(j.error.message || "") ? ` — adicione ${_gsaEmail()} como usuário da propriedade` : ""}`);
+    if (j.error) throw new Error(`Search Console: ${j.error.message}${/permission|not have|403/i.test(j.error.message || "") ? ` — adicione ${_gsaEmail()} como usuário da propriedade (ou conecte um login pessoal com acesso em Configurações)` : ""}`);
     return (j.rows || []).map((row: any) => ({ chave: (row.keys || []).join(" · "), cliques: row.clicks || 0, impressoes: row.impressions || 0, ctr: +((row.ctr || 0) * 100).toFixed(2), posicao: +(row.position || 0).toFixed(1) }));
   };
   const [termos, paginas] = await Promise.all([q(["query"], 30), q(["page"], 20).catch(() => [])]);
@@ -5550,6 +5621,14 @@ Deno.serve(async (req) => {
     }
     if (body.metaTokenUpdate) {
       const r = await metaTokenUpdate(body.metaTokenUpdate, req.headers.get("Authorization") || "");
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleOAuthStart) {
+      const r = await googleOAuthStart(req.headers.get("Authorization") || "");
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleOAuthDisconnect) {
+      const r = await googleOAuthDisconnect(req.headers.get("Authorization") || "");
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.apifyConfig) {

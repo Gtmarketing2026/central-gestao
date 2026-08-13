@@ -49,11 +49,20 @@ async function _verifiedState(state: string, provider: string) {
   const expected = await _hmac(raw); return sig && _safeEq(sig, expected) ? parts[1] : "";
 }
 function _fromB64(s: string) { const b = atob(s), a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+function _toB64(a: Uint8Array) { let s = ""; for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode(...a.subarray(i, i + 0x8000)); return btoa(s); }
+async function _credentialKey() {
+  const raw = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`central-gestao:${SB_KEY}`));
+  return await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+}
 async function _decryptCredential(value: string) {
   const [iv64, data64] = String(value || "").split("."); if (!iv64 || !data64) return "";
-  const raw = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`central-gestao:${SB_KEY}`));
-  const key = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"]);
+  const key = await _credentialKey();
   return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: _fromB64(iv64) }, key, _fromB64(data64)));
+}
+async function _encryptCredential(value: string) {
+  const iv = crypto.getRandomValues(new Uint8Array(12)), key = await _credentialKey();
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(value)));
+  return `${_toB64(iv)}.${_toB64(encrypted)}`;
 }
 async function _cloudWebhookValid(instanceId: string, rawBody: string, signature: string) {
   const inst = (await sbSelect("wa_instances", `id=eq.${encodeURIComponent(instanceId)}&select=provider&limit=1`))[0];
@@ -212,6 +221,47 @@ async function handleRdCallback(url: URL) {
   }
 }
 function clip(s: unknown, n = 400) { const v = s == null ? null : String(s); return v ? v.slice(0, n) : null; }
+
+// OAuth do login pessoal do Google (fallback quando a service account nao tem acesso a uma propriedade do
+// GA4/Search Console). Nao e por cliente — e um login da EQUIPE, guardado uma vez e reaproveitado em qualquer
+// propriedade que essa pessoa ja tenha acesso. O "state" e o proprio cofre cifrado (nao carrega clientId).
+async function handleGoogleOAuthCallback(url: URL) {
+  const strip = (s: string) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const page = (t: string, m: string, ok: boolean) => new Response((ok ? "[OK] " : "[!] ") + strip(t) + "\n\n" + strip(m) + "\n\nPode fechar esta aba e voltar ao sistema.", { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
+  const errParam = url.searchParams.get("error");
+  if (errParam) return page("Conexão cancelada", "Você cancelou a autorização no Google (ou negou o acesso).", false);
+  const code = url.searchParams.get("code");
+  if (!code) return page("Autorização não concluída", "Não recebi o código do Google. Tente conectar de novo.", false);
+  let stateOk = false;
+  try {
+    const dec = await _decryptCredential(url.searchParams.get("state") || "");
+    const parts = dec.split(":"); const ts = Number(parts[1] || 0);
+    stateOk = parts[0] === "google_oauth" && !!ts && Math.abs(Date.now() - ts) < 15 * 60e3;
+  } catch (_e) { stateOk = false; }
+  if (!stateOk) return page("Link expirado", "Esse link de conexão expirou ou é inválido. Volte em Configurações e clique em \"Conectar com Google\" de novo.", false);
+  const clientId = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID"), clientSecret = Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET");
+  if (!clientId || !clientSecret) return page("Faltam credenciais do App", "GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET não configurados nos secrets do Supabase.", false);
+  const redirect = `${url.origin}/functions/v1/tracking/google/oauth/callback`;
+  try {
+    const r = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, code, redirect_uri: redirect, grant_type: "authorization_code" }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.refresh_token) return page("Falha ao conectar", "O Google não devolveu o token de acesso contínuo: " + (j.error_description || j.error || `HTTP ${r.status}`), false);
+    let email = "";
+    try { const ur = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", { headers: { Authorization: `Bearer ${j.access_token}` } }); email = (await ur.json())?.email || ""; } catch (_e) { /* nao critico */ }
+    const cipher = await _encryptCredential(j.refresh_token);
+    const save = await fetch(`${SB_URL}/rest/v1/secure_credentials?on_conflict=id`, { method: "POST", headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ id: "google_user_refresh_token", secret_cipher: cipher, updated_at: new Date().toISOString() }) });
+    if (!save.ok) return page("Erro ao guardar", "Consegui autorizar, mas não consegui guardar o token no cofre. Tente de novo.", false);
+    const accRows = await sbSelect("account_config", "id=eq.main&select=data");
+    const acc = accRows[0]?.data || {};
+    await sbPatch("account_config", "id=eq.main", { data: { ...acc, google_oauth: { email, connected_at: new Date().toISOString() } } });
+    return page("Google conectado!", `Conectado como ${email || "sua conta"}. A partir de agora esse login entra como reforço sempre que a conta de serviço não tiver acesso a alguma propriedade do GA4 ou Search Console.`, true);
+  } catch (e) {
+    return page("Erro ao conectar", String((e as any)?.message || e), false);
+  }
+}
 
 // OAuth do TikTok Ads: recebe ?auth_code (TikTok não usa "code") + state=clientId, troca por access_token e guarda no cliente.
 // TikTok não expira o access_token (fica válido até o usuário revogar) — não tem refresh_token nesse fluxo.
@@ -889,6 +939,8 @@ Deno.serve(async (req) => {
   if (p === "/rd/webhook") return new Response("rd webhook ok", { headers: { ...cors, "Content-Type": "text/plain" } });
 
   if (p === "/nuvemshop/callback") return handleNuvemshopCallback(url);
+
+  if (p === "/google/oauth/callback") return handleGoogleOAuthCallback(url);
 
   if (p === "/tiktok/callback") return handleTikTokCallback(url);
   if (p === "/pinterest/callback") return handlePinterestCallback(url);

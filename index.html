@@ -4427,6 +4427,23 @@ function fillSidebarClient(){
 }
 let activeClientId='';
 /* ================= CONFIGURAÇÕES DA CONTA (integrações) ================= */
+async function googleOauthConnect(){
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleOAuthStart:true}});
+    if(error)throw error;
+    const url=(data&&data.data&&data.data.url)||null;
+    if(!url)throw new Error((data&&data.error)||'Não recebi a URL de conexão.');
+    window.open(url,'_blank','noopener');
+  }catch(e){alert('Erro ao iniciar conexão: '+(e.message||e));}
+}
+async function googleOauthDisconnect(){
+  if(!confirm('Desconectar o login pessoal do Google? O sistema volta a depender só da conta de serviço.'))return;
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{googleOAuthDisconnect:true}});
+    if(error)throw error;
+    _acctCfg=null;loadConfiguracoes();
+  }catch(e){alert('Erro ao desconectar: '+(e.message||e));}
+}
 let _acctCfg=null;
 async function loadAccountConfig(){
   if(_acctCfg)return _acctCfg;
@@ -4487,6 +4504,12 @@ async function loadConfiguracoes(){
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;margin:4px 0 12px">🔌 Integrações</div>
     ${integCard('meta','Ⓜ️','Meta Ads','Contas de anúncio do Facebook/Instagram (token da API).',integStatusPill('load','Checando…'),'')}
     ${integCard('google','🔎','Google Ads','Contas via MCC do Google Ads.',integStatusPill('load','Checando…'),'')}
+    ${integCard('googleOauth','🔐','Google — login pessoal','Reforço de acesso ao GA4/Search Console: usado só quando a conta de serviço não tem permissão numa propriedade específica de um cliente.',
+      _acctCfg.google_oauth?integStatusPill('ok','✓ '+(_acctCfg.google_oauth.email||'Conectado')):integStatusPill('off','Não conectado'),
+      _acctCfg.google_oauth
+        ?`<div style="font-size:12px;color:var(--muted)">Conectado em ${dateBR((_acctCfg.google_oauth.connected_at||'').slice(0,10))}. <button class="btn sm ghost" onclick="googleOauthDisconnect()">Desconectar</button> <button class="btn sm ghost" onclick="_acctCfg=null;loadConfiguracoes()">↻ Atualizar</button></div>`
+        :`<div style="font-size:12px;color:var(--muted)">Conecte uma conta Google que já tenha acesso de Leitor nas propriedades que a conta de serviço não alcança. Abre numa aba nova — depois de autorizar, feche ela e clique em "↻ Atualizar" aqui. <div style="margin-top:8px"><button class="btn sm primary" onclick="googleOauthConnect()">Conectar com Google</button> <button class="btn sm ghost" onclick="_acctCfg=null;loadConfiguracoes()">↻ Atualizar</button></div></div>`
+    )}
     ${integCard('apify','⛏️','Minerador de Criativos · Apify','Captura referências externas do Instagram para análise semântica e geração de estáticos.',integStatusPill('load','Checando…'),
       `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
         <div style="flex:1;min-width:260px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">PERSONAL API TOKEN</label><input id="apifyTokenInput" type="password" autocomplete="new-password" placeholder="Cole o token criado no Apify" style="width:100%;font-size:12px;font-family:monospace"></div>
