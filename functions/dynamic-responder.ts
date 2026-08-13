@@ -1363,7 +1363,7 @@ async function googleAdsInsights(g: any) {
     for (const row of (adsetRows || [])) {
       const label = (row.campaign?.name || "Google Ads") + " › " + (row.adGroup?.name || "Grupo de anúncios");
       const s = gadsShape(row.metrics);
-      if (!byAdset[label]) byAdset[label] = { campaign: row.campaign?.name || "", adset: row.adGroup?.name || "", spend: 0, records: [] };
+      if (!byAdset[label]) byAdset[label] = { campaign: row.campaign?.name || "", campaignId: row.campaign?.id ? String(row.campaign.id) : null, adset: row.adGroup?.name || "", spend: 0, records: [] };
       const c = byAdset[label];
       c.spend += s.spend;
       if (g.daily && row.segments?.date) c.records.push({ date: row.segments.date, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: 0, leads: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos });
@@ -1428,6 +1428,31 @@ async function googleAdsInsights(g: any) {
         leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: c.videoViews || 0, engajamentos: c.engajamentos || 0,
         convActions: c.convActions, cpa: c.purchases ? c.spend / c.purchases : 0,
       });
+    }
+  }
+  // MESMA sintese acima, agora pro nivel "conjunto" (alimenta channel_metrics_daily/Banco de Dados) — sem isso, uma
+  // campanha Performance Max/Demand Gen com gasto real simplesmente nao aparecia em nenhum grafico por dia.
+  if (g.byAdset && g.byCampaign) {
+    const comAdset = new Set(Object.values(byAdset).map((a: any) => a.campaignId).filter(Boolean));
+    for (const c of Object.values(byCamp) as any[]) {
+      if ((c.spend || 0) <= 0) continue;
+      if (c.campaignId && comAdset.has(c.campaignId)) continue;
+      const label = c.campaign + " › (campanha inteira — Performance Max/Demand Gen)";
+      byAdset[label] = { campaign: c.campaign, campaignId: c.campaignId, adset: "(campanha inteira)", spend: c.spend, records: g.daily ? c.records : [] };
+    }
+  }
+  // MESMA sintese, agora pro nivel "anuncio x dia" (banco de dados de midia, schema `midia`) — mesmo motivo.
+  if (g.byAd && g.daily && g.byCampaign) {
+    const comAdDaily = new Set(Object.values(byAdDaily).map((a: any) => a.campaignId).filter(Boolean));
+    for (const c of Object.values(byCamp) as any[]) {
+      if ((c.spend || 0) <= 0) continue;
+      if (c.campaignId && comAdDaily.has(c.campaignId)) continue;
+      const adId = "pmax_" + c.campaignId; // sintetico e estavel: mesmo id em toda sincronizacao, nao duplica no upsert
+      byAdDaily[adId] = {
+        adId, adName: "(campanha inteira — Performance Max/Demand Gen)", campaign: c.campaign, campaignId: c.campaignId,
+        adset: "(campanha inteira)", adsetId: "grp_" + adId, account: c.account, accountId: c.accountId,
+        objetivo: c.objetivo, records: c.records || [],
+      };
     }
   }
   ads.sort((a: any, b: any) => b.spend - a.spend);
