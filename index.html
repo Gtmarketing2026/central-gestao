@@ -769,6 +769,10 @@
           <option value="">⏬ Sincronizar…</option>
           <option value="7">Últimos 7 dias</option>
           <option value="30">Últimos 30 dias</option>
+          <option value="60">Últimos 60 dias</option>
+          <option value="90">Últimos 90 dias</option>
+          <option value="custom">Período personalizado…</option>
+          <option value="file">Importar arquivo exportado…</option>
         </select>
       </div>
     </div>
@@ -3315,6 +3319,14 @@ async function renderCrmGuide(){
     ${step(linksOk,'4. Criar links rastreáveis (bio/site)','Links pra bio do Instagram e botões — o clique grava a origem antes de ir pro WhatsApp.','Links',"goToTab('rastreamento')")}
     ${cid?step(eventsOk,'5. Confirmar que o pixel está recebendo eventos','Verifica que o site já manda dados (visitas/cliques). Se ⬜, revise a instalação do pixel.','',null):''}
     <div style="font-size:11px;color:var(--faint);margin-top:8px">💡 Pro cruzamento WhatsApp × anúncio, o essencial são os passos <b>1</b> e <b>2</b>. Os passos 3 e 4 cobrem quem chega pelo site/bio.</div>
+    <details style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--accent)">⏳ Como trazer conversas antigas para o CRM</summary>
+      <div style="font-size:11.5px;color:var(--muted);line-height:1.65;margin-top:9px"><b>Opção 1 — histórico pela API:</b> no CRM, clique em <b>Sincronizar…</b>, escolha 7, 30, 60 ou 90 dias. Para datas específicas, escolha <b>Período personalizado</b>. Essa opção recupera somente o histórico que ainda estiver disponível no provedor.</div>
+      <div style="font-size:11.5px;color:var(--muted);line-height:1.65;margin-top:8px"><b>Opção 2 — arquivo exportado pelo WhatsApp:</b><br>
+        <b>Android:</b> abra o WhatsApp → entre na conversa → toque em <b>⋮</b> → <b>Mais</b> → <b>Exportar conversa</b> → <b>Sem mídia</b>.<br>
+        <b>iPhone:</b> abra a conversa → toque no nome do contato → role até <b>Exportar conversa</b> → <b>Sem mídia</b>.<br>
+        Salve ou envie o arquivo para o computador. Se vier em <b>.zip</b>, abra o ZIP e extraia o arquivo <b>.txt</b>. Depois volte ao CRM → <b>Sincronizar… → Importar arquivo exportado</b>, informe o telefone do contato e o nome da empresa exatamente como aparece no arquivo, escolha o .txt, confira a prévia e confirme.</div>
+      <div style="font-size:10.5px;color:var(--faint);margin-top:7px">Importe uma conversa individual por vez. O sistema identifica duplicados e não grava a mesma mensagem novamente. Por segurança e LGPD, use apenas conversas do cliente selecionado e com finalidade legítima de atendimento/análise.</div>
+    </details>
   </div>`;
 }
 function stopCrmPoll(){if(_crmPollTimer){clearInterval(_crmPollTimer);_crmPollTimer=null;}}
@@ -3350,6 +3362,8 @@ function crmToggleAgency(){_crmViewAgency=!_crmViewAgency;_crmActive=null;_crmFC
 // Sincroniza o histórico direto do provedor (pro caso do WhatsApp ter caído / webhook ter falhado e faltar conversa).
 async function crmSync(dias){
   if(!_crmInstId){alert('Selecione um cliente com WhatsApp conectado.');return;}
+  if(dias==='custom')return crmHistoryOpen('api');
+  if(dias==='file')return crmHistoryOpen('file');
   if(!confirm(`Buscar as mensagens dos últimos ${dias} dias direto do WhatsApp? Pode levar um tempinho pra contas com muito volume.`))return;
   const btn=document.getElementById('crmPollBtn');const o=btn?btn.textContent:'';if(btn){btn.disabled=true;btn.textContent='Sincronizando…';}
   try{
@@ -3360,6 +3374,30 @@ async function crmSync(dias){
   }catch(e){alert('Erro ao sincronizar: '+(e.message||e));}
   if(btn){btn.disabled=false;btn.textContent=o;}
 }
+let _crmHistRows=[];
+function crmHistoryOpen(tab){
+  if(!_crmInstId){alert('Selecione um cliente com WhatsApp conectado.');return;}
+  let ov=document.getElementById('crmHistOv');if(!ov){ov=document.createElement('div');ov.id='crmHistOv';document.body.appendChild(ov);}
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.68);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML=`<div class="card" style="width:min(720px,96vw);max-height:92vh;overflow:auto;padding:22px">
+    <div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:10px;color:var(--accent);font-weight:800;letter-spacing:.1em">HISTÓRICO DO WHATSAPP</div><h3 style="margin:4px 0">Importar conversas antigas</h3></div><button class="btn sm ghost" onclick="document.getElementById('crmHistOv').remove()">✕</button></div>
+    <div class="seg" style="margin:14px 0"><button class="${tab!=='file'?'active':''}" onclick="crmHistoryOpen('api')">Buscar pela API</button><button class="${tab==='file'?'active':''}" onclick="crmHistoryOpen('file')">Importar arquivo</button></div>
+    ${tab==='file'?`<div style="font-size:12.5px;color:var(--muted);line-height:1.55;margin-bottom:12px">Importe o <b>.txt</b> exportado de uma conversa individual. O sistema mostra uma prévia, evita duplicados e grava o histórico no cliente selecionado.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label style="font-size:11px;color:var(--muted)">TELEFONE DO CONTATO<input id="crmHistPhone" placeholder="Ex.: 5521999999999" style="margin-top:4px"></label><label style="font-size:11px;color:var(--muted)">NOME DA EMPRESA NO ARQUIVO<input id="crmHistOwn" placeholder="Ex.: Motirõ" style="margin-top:4px" title="Mensagens desse nome serão consideradas enviadas pela empresa"></label></div>
+      <label class="btn primary" style="display:inline-flex;margin-top:12px;cursor:pointer">Escolher arquivo .txt<input type="file" accept=".txt,text/plain" style="display:none" onchange="crmHistoryReadFile(this)"></label>
+      <div id="crmHistPreview" style="margin-top:14px"></div>`
+      :`<div style="font-size:12.5px;color:var(--muted);line-height:1.55;margin-bottom:12px">Busca o histórico ainda disponível no provedor. Contas com grande volume podem ter um limite de mensagens recuperáveis.</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label style="font-size:11px;color:var(--muted)">DE<input id="crmHistFrom" type="date" value="${daysAgoISO(90)}" style="margin-top:4px"></label><label style="font-size:11px;color:var(--muted)">ATÉ<input id="crmHistTo" type="date" value="${today()}" style="margin-top:4px"></label></div><div style="display:flex;justify-content:flex-end;margin-top:15px"><button class="btn primary" onclick="crmHistoryApiRun(this)">Buscar e importar</button></div><div id="crmHistPreview" style="margin-top:12px"></div>`}
+  </div>`;ov.onclick=e=>{if(e.target===ov)ov.remove();};_crmHistRows=[];
+}
+function _crmHistParseDate(d,t){const p=d.split(/[\/.-]/).map(Number);if(p.length<3)return null;let y=p[2],m=p[1],day=p[0];if(y<100)y+=2000;const tm=(t||'00:00').match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i);let h=tm?+tm[1]:0;if(tm&&tm[4]){if(/pm/i.test(tm[4])&&h<12)h+=12;if(/am/i.test(tm[4])&&h===12)h=0;}const dt=new Date(y,m-1,day,h,tm?+tm[2]:0,tm&&tm[3]?+tm[3]:0);return isNaN(dt)?null:dt.toISOString();}
+function crmHistoryParseTxt(txt,own){
+  const rows=[];let cur=null;const re1=/^\[?(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})[, ]+\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)\]?\s*[-–]?\s*([^:]+):\s*(.*)$/i;
+  for(const line of String(txt||'').replace(/^\uFEFF/,'').split(/\r?\n/)){const m=line.match(re1);if(m){const ts=_crmHistParseDate(m[1],m[2]);if(!ts)continue;cur={ts,sender:m[3].trim(),text:m[4]||''};rows.push(cur);}else if(cur&&line.trim())cur.text+='\n'+line;}
+  const ownN=String(own||'').trim().toLowerCase();return rows.filter(r=>r.text.trim()).map(r=>({...r,direction:ownN&&r.sender.toLowerCase()===ownN?'out':'in'}));
+}
+async function crmHistoryReadFile(input){const f=input.files&&input.files[0],phone=(document.getElementById('crmHistPhone').value||'').replace(/\D/g,''),own=document.getElementById('crmHistOwn').value.trim(),box=document.getElementById('crmHistPreview');if(!f)return;if(!phone){alert('Informe o telefone do contato antes de escolher o arquivo.');input.value='';return;}if(f.size>12*1024*1024){alert('Arquivo muito grande. Exporte a conversa sem mídia.');return;}const txt=await f.text();_crmHistRows=crmHistoryParseTxt(txt,own);if(!_crmHistRows.length){box.innerHTML='<div style="color:#f87171">Não reconheci mensagens nesse arquivo. Confira se é o .txt original exportado pelo WhatsApp.</div>';return;}const first=_crmHistRows[0],last=_crmHistRows[_crmHistRows.length-1],ins=_crmHistRows.filter(x=>x.direction==='in').length;box.innerHTML=`<div class="card" style="background:var(--surface2)"><b>Prévia da importação</b><div style="font-size:12px;color:var(--muted);margin-top:6px">${_crmHistRows.length} mensagens · ${ins} recebidas · ${_crmHistRows.length-ins} enviadas<br>${new Date(first.ts).toLocaleString('pt-BR')} até ${new Date(last.ts).toLocaleString('pt-BR')}</div><div style="margin-top:9px;font-size:12px">${_crmHistRows.slice(0,3).map(x=>`<div style="padding:4px 0"><b>${x.direction==='out'?'Empresa':x.sender}:</b> ${x.text.replace(/</g,'&lt;').slice(0,120)}</div>`).join('')}</div><div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn primary" onclick="crmHistoryFileImport(this,'${phone}')">Confirmar importação</button></div></div>`;}
+async function crmHistoryFileImport(btn,phone){if(!_crmHistRows.length)return;btn.disabled=true;btn.textContent='Importando…';try{const contactName=(_crmHistRows.find(x=>x.direction==='in')||{}).sender||phone;const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'importHistory',instanceId:_crmInstId,phone,contactName,messages:_crmHistRows.slice(0,10000)}}});if(error)throw error;const r=(data&&data.data)||{};await loadCrmConvs();document.getElementById('crmHistOv').remove();alert(`Importação concluída: ${r.added||0} mensagem(ns) adicionada(s); ${r.duplicates||0} duplicada(s) ignorada(s).`);}catch(e){alert('Erro ao importar: '+(e.message||e));btn.disabled=false;btn.textContent='Confirmar importação';}}
+async function crmHistoryApiRun(btn){const from=document.getElementById('crmHistFrom').value,to=document.getElementById('crmHistTo').value,box=document.getElementById('crmHistPreview');if(!from||!to||from>to){alert('Escolha um período válido.');return;}btn.disabled=true;btn.textContent='Buscando…';box.textContent='Consultando o histórico disponível no provedor…';try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,sinceDate:from,untilDate:to,limit:5000}}});if(error)throw error;const r=(data&&data.data)||{};await loadCrmConvs();box.innerHTML=`<div style="color:#34d399">✓ ${r.added||0} mensagens recuperadas em ${r.conversas||0} conversas. Foram verificadas ${r.scanned||0} mensagens disponíveis.</div>`;}catch(e){box.innerHTML='<div style="color:#f87171">Erro: '+String(e.message||e).replace(/</g,'&lt;')+'</div>';}btn.disabled=false;btn.textContent='Buscar e importar';}
 async function crmPoll(manual){
   const btn=document.getElementById('crmPollBtn');if(manual&&btn){btn.textContent='…';btn.disabled=true;}
   const _inst=_crmInsts.find(i=>i.id===_crmInstId);const _cli=DB.clients.find(c=>c.id===((_inst&&_inst.client_id)||activeClientId));const _metaAcc=(_cli&&_cli.metaAccountIds)||[];const _gAcc=(_cli&&_cli.googleAccountIds)||[];

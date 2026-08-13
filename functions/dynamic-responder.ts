@@ -4508,6 +4508,28 @@ async function waHandler(w: any) {
   if (!inst) throw new Error("Instância WhatsApp não encontrada.");
   const host = inst.uaz_host, token = inst.uaz_token, clientId = inst.client_id || null;
   const clientFilter = clientId ? "eq." + encodeURIComponent(clientId) : "is.null";
+  if (w.op === "importHistory") {
+    const phone = String(w.phone || "").replace(/[^0-9]/g, "");
+    const input = Array.isArray(w.messages) ? w.messages.slice(0, 10000) : [];
+    if (!phone || phone.length < 8) throw new Error("Telefone do contato inválido.");
+    if (!input.length) throw new Error("Arquivo sem mensagens reconhecidas.");
+    const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
+    const clean = input.map((x: any) => { const d = new Date(x.ts); return { ts: isNaN(d.getTime()) ? "" : d.toISOString(), text: String(x.text || "").slice(0, 12000), direction: x.direction === "out" ? "out" : "in", sender: String(x.sender || "") }; }).filter((x: any) => x.ts && x.text).sort((a: any, b: any) => a.ts.localeCompare(b.ts));
+    if (!clean.length) throw new Error("Nenhuma mensagem válida no arquivo.");
+    let conv = (await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=eq.${phone}&select=id,name,origin_type&limit=1`))[0];
+    let convId = conv?.id;
+    const last = clean[clean.length - 1]; const contactName = String(w.contactName || phone).slice(0, 160);
+    if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: phone, name: contactName, last_text: last.text, last_at: last.ts, unread: 0, origin_type: "organico" }); }
+    else { await sbPatchD("wa_conversations", `id=eq.${convId}`, { last_text: last.text, last_at: last.ts, ...(conv.name === phone && contactName !== phone ? { name: contactName } : {}) }); }
+    const rows = clean.map((x: any) => { const mid = `hist_${hash(`${phone}|${x.ts}|${x.direction}|${x.text}`)}`; return { id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: mid, direction: x.direction, msg_type: "text", text: x.text, ts: x.ts, raw: { imported: true, source: "whatsapp_export", sender: x.sender } }; });
+    const known = new Set<string>();
+    for (let i = 0; i < rows.length; i += 300) { const ids = rows.slice(i, i + 300).map((x: any) => x.wa_msgid); const ex = await sbGet("wa_messages", `wa_msgid=in.(${ids.map((x: string) => encodeURIComponent(x)).join(",")})&select=wa_msgid`); (ex || []).forEach((x: any) => known.add(x.wa_msgid)); }
+    const fresh = rows.filter((x: any) => !known.has(x.wa_msgid));
+    for (let i = 0; i < fresh.length; i += 300) await sbPost("wa_messages", fresh.slice(i, i + 300) as any);
+    // Uma única classificação ao final: o histórico inteiro já está disponível para a IA.
+    if (fresh.some((x: any) => x.direction === "in")) try { await waExtract(convId, true); } catch (_e) {}
+    return { added: fresh.length, duplicates: rows.length - fresh.length, conversationId: convId };
+  }
   if (w.op === "status") {
     const { j } = await waCall(host, token, "/instance/status"); const ins = (j && j.instance) || {};
     if (ins.status) { const patch: Record<string, unknown> = { status: ins.status, updated_at: new Date().toISOString() }; if (ins.owner) patch.phone = String(ins.owner).replace(/@.*$/, ""); if (ins.status === "connected") patch.connected_at = new Date().toISOString(); await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, patch); }
@@ -4548,13 +4570,17 @@ async function waHandler(w: any) {
     // A API do provedor não tem filtro de data nativo — pedimos um lote grande e cortamos localmente pela timestamp
     // (a resposta vem ordenada da mais recente pra mais antiga, então paramos de processar assim que passar do corte).
     const sinceDays = Number(w.sinceDays) || 0;
-    const limit = sinceDays ? Math.min(Math.max(Number(w.limit) || 3000, 500), 5000) : (w.limit || 60);
-    const cutoff = sinceDays ? Date.now() - sinceDays * 864e5 : 0;
+    const sinceDate = /^\d{4}-\d{2}-\d{2}$/.test(String(w.sinceDate || "")) ? new Date(`${w.sinceDate}T00:00:00-03:00`).getTime() : 0;
+    const untilDate = /^\d{4}-\d{2}-\d{2}$/.test(String(w.untilDate || "")) ? new Date(`${w.untilDate}T23:59:59-03:00`).getTime() : 0;
+    const historical = !!(sinceDays || sinceDate || untilDate);
+    const limit = historical ? Math.min(Math.max(Number(w.limit) || 3000, 500), 5000) : (w.limit || 60);
+    const cutoff = sinceDate || (sinceDays ? Date.now() - sinceDays * 864e5 : 0);
     const { j } = await waCall(host, token, "/message/find", "POST", { limit });
     // a API devolve um array puro (não {messages:[...]}) — antes disso o parsing sempre resultava em [] e o poll não importava nada
     const msgsAll: any[] = Array.isArray(j) ? j : ((j && j.messages) || []);
     let msgs = msgsAll.filter((m) => !(m.isGroup || String(m.chatid || "").endsWith("@g.us")));
     if (cutoff) msgs = msgs.filter((m) => waTs(m.messageTimestamp) >= new Date(cutoff).toISOString());
+    if (untilDate) msgs = msgs.filter((m) => waTs(m.messageTimestamp) <= new Date(untilDate).toISOString());
     const ids = msgs.map((m) => String(m.messageid || m.id || "")).filter(Boolean);
     const known = new Set<string>();
     for (let i = 0; i < ids.length; i += 300) { const chunk = ids.slice(i, i + 300); const ex = await sbGet("wa_messages", `wa_msgid=in.(${chunk.map((x) => encodeURIComponent(x)).join(",")})&select=wa_msgid`); (ex || []).forEach((r: any) => known.add(r.wa_msgid)); }
