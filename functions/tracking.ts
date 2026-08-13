@@ -248,7 +248,7 @@ async function handleGoogleOAuthCallback(url: URL) {
       body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, code, redirect_uri: redirect, grant_type: "authorization_code" }),
     });
     const j = await r.json();
-    if (!r.ok || !j.refresh_token) return page("Falha ao conectar", "O Google não devolveu o token de acesso contínuo: " + (j.error_description || j.error || `HTTP ${r.status}`), false);
+    if (!r.ok || !j.refresh_token) return page("Falha ao conectar", `HTTP ${r.status} — erro: ${j.error || "?"} — descricao: ${j.error_description || "(nenhuma)"} — redirect_uri usado: ${redirect}`, false);
     let email = "";
     try { const ur = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", { headers: { Authorization: `Bearer ${j.access_token}` } }); email = (await ur.json())?.email || ""; } catch (_e) { /* nao critico */ }
     const cipher = await _encryptCredential(j.refresh_token);
