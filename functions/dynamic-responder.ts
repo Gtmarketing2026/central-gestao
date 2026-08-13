@@ -3604,6 +3604,76 @@ async function apifyConfig(input: any, authorization: string) {
   await _saveSecureCredential(id, token);
   return { ok: true, configured: true, username: tj?.data?.username || tj?.data?.email || "" };
 }
+async function sbDeleteD(table: string, query: string) {
+  const r = await fetch(`${_SB_URL}/rest/v1/${table}?${query}`, { method: "DELETE", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
+  if (!r.ok) throw new Error(`DB delete ${table}: ${await r.text()}`);
+}
+function _minerPick(row: any, keys: string[]) { for (const k of keys) if (row?.[k] != null && row[k] !== "") return row[k]; return null; }
+async function _minerAnalyzePayload(item: any, client: any) {
+  const instruction = `Você é o núcleo semântico do Minerador de Criativos. Analise esta referência para ${client?.name || "o cliente"}. DNA: ${JSON.stringify(client?.dna || {}).slice(0, 8000)}. Legenda: ${String(item.caption || "").slice(0, 10000)}.
+REGRA CENTRAL: entenda tudo o que o conteúdo FALA/ENSINA, e não apenas seus frames. Se ensina "10 tipos de criativos", extraia os dez tipos e suas explicações; não transforme o tema em "10 vídeos". Diferencie MEIO ORIGINAL, ASSUNTO REAL, CONHECIMENTO TRANSMITIDO e FORMA CRIATIVA. Frames são somente evidência visual. Gere aplicações originais para o cliente, sem copiar texto, marca ou identidade de terceiros.
+Retorne somente JSON válido: {"assunto_real":"","tese_central":"","resumo_do_conteudo":"","itens_mencionados":[{"titulo":"","explicacao":"","exemplo":"","aplicacao_cliente":""}],"hook":{"texto":"","tipo":"","por_que_funciona":""},"promessa":"","estrutura_narrativa":[{"momento":"","funcao":"","conteudo":""}],"textos_na_tela":[],"prova_social":"","cta":"","etapa_funil":"","forma_criativa":{"ritmo":"","estetica":"","estrutura":""},"ideias_estaticas":[{"titulo":"","headline":"","conceito_visual":"","formato":"imagem|carrossel","funil":"","por_que":""}],"alertas_direitos":[]}`;
+  const gem = Deno.env.get("GEMINI_API_KEY") || "";
+  if (item.media_type === "video" && item.media_url && gem) {
+    const vr = await fetch(String(item.media_url));
+    if (vr.ok) {
+      const bytes = new Uint8Array(await vr.arrayBuffer());
+      if (bytes.length <= 24 * 1024 * 1024) {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${gem}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: instruction }, { inline_data: { mime_type: vr.headers.get("content-type") || "video/mp4", data: _b64Bytes(bytes) } }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.25, maxOutputTokens: 5000 } }) });
+        const j = await r.json();
+        const txt = j?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
+        if (r.ok && txt) return JSON.parse(txt.replace(/^```json\s*|\s*```$/g, ""));
+      }
+    }
+  }
+  const content: any[] = [{ type: "text", text: instruction }];
+  if (item.thumbnail_url) content.push({ type: "image_url", image_url: { url: String(item.thumbnail_url) } });
+  const j = await callOpenAI({ model: "gpt-4o", messages: [{ role: "user", content }], response_format: { type: "json_object" }, max_tokens: 2600, temperature: 0.3 });
+  return JSON.parse(j.choices?.[0]?.message?.content || "{}");
+}
+async function _minerApifyCapture(url: string, limit: number) {
+  const token = await _loadSecureCredential("apify_creative_miner_token");
+  if (!token) throw new Error("Configure o token do Apify em Configurações → Integrações.");
+  const endpoint = `https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=120&memory=1024`;
+  const input = { directUrls: [url], resultsType: "posts", resultsLimit: Math.min(30, Math.max(1, limit || 12)), searchType: "user" };
+  const r = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  const rows = await r.json();
+  if (!r.ok || !Array.isArray(rows)) throw new Error(`Apify: ${rows?.error?.message || `HTTP ${r.status}`}`);
+  return rows;
+}
+async function creativeMiner(input: any) {
+  const op = String(input?.op || "list"), clientId = String(input?.clientId || "").trim();
+  if (!clientId) throw new Error("Selecione um cliente.");
+  if (op === "list") return { items: await sbGet("creative_miner_items", `client_id=eq.${encodeURIComponent(clientId)}&select=*&order=created_at.desc&limit=200`) };
+  if (op === "remove") { await sbDeleteD("creative_miner_items", `id=eq.${encodeURIComponent(String(input.id || ""))}&client_id=eq.${encodeURIComponent(clientId)}`); return { ok: true }; }
+  if (op === "capture_official") {
+    const org = await instagramOrganicContent({ clientId, days: Math.min(365, Number(input.days) || 90) });
+    const rows = (org.posts || []).slice(0, Math.min(50, Number(input.limit) || 20)).map((p: any) => ({ id: `cm_${_hash36(clientId + "|" + p.permalink)}`, client_id: clientId, source_type: "instagram_official", source_url: p.permalink, profile: p.username || "", media_type: /VIDEO|REELS/i.test(p.tipo) ? "video" : "image", caption: p.caption || "", media_url: p.midia || null, thumbnail_url: p.midia || null, published_at: p.data || null, metrics: { likes: p.likes, comments: p.comments, reach: p.reach, saved: p.saved, shares: p.shares, views: p.views, engagement: p.eng }, status: "captured", updated_at: new Date().toISOString() }));
+    if (rows.length) await _sbUpsert("creative_miner_items", rows, "client_id,source_url");
+    return { captured: rows.length, items: rows };
+  }
+  if (op === "capture_external") {
+    const url = String(input.url || "").trim(); if (!/^https:\/\/(www\.)?instagram\.com\//i.test(url)) throw new Error("Informe uma URL pública do Instagram.");
+    const raw = await _minerApifyCapture(url, Number(input.limit) || 12);
+    const rows = raw.map((x: any) => {
+      const sourceUrl = String(_minerPick(x, ["url", "postUrl", "inputUrl", "shortCodeUrl"]) || url);
+      const type = String(_minerPick(x, ["type", "productType", "mediaType"]) || "post").toLowerCase();
+      const video = _minerPick(x, ["videoUrl", "video_url", "displayUrl"]), image = _minerPick(x, ["displayUrl", "imageUrl", "thumbnailUrl"]);
+      return { id: `cm_${_hash36(clientId + "|" + sourceUrl)}`, client_id: clientId, source_type: "apify", source_url: sourceUrl, profile: String(_minerPick(x, ["ownerUsername", "username", "ownerFullName"]) || ""), media_type: /video|reel/.test(type) || !!x.videoUrl ? "video" : (/sidecar|carousel/.test(type) ? "carousel" : "image"), caption: String(_minerPick(x, ["caption", "text", "description"]) || ""), media_url: video || image || null, thumbnail_url: image || null, published_at: _minerPick(x, ["timestamp", "takenAt", "date"]) || null, metrics: { likes: Number(_minerPick(x, ["likesCount", "likes"]) || 0), comments: Number(_minerPick(x, ["commentsCount", "comments"]) || 0), views: Number(_minerPick(x, ["videoViewCount", "videoPlayCount", "views"]) || 0) }, status: "captured", updated_at: new Date().toISOString() };
+    }).filter((x: any) => x.source_url);
+    if (rows.length) await _sbUpsert("creative_miner_items", rows, "client_id,source_url");
+    return { captured: rows.length, items: rows };
+  }
+  const item = (await sbGet("creative_miner_items", `id=eq.${encodeURIComponent(String(input.id || ""))}&client_id=eq.${encodeURIComponent(clientId)}&select=*&limit=1`))[0];
+  if (!item) throw new Error("Referência não encontrada.");
+  if (op === "analyze") {
+    const client = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,seg,dna&limit=1`))[0];
+    const analysis = await _minerAnalyzePayload(item, client);
+    await sbPatchD("creative_miner_items", `id=eq.${encodeURIComponent(item.id)}`, { analysis, concepts: analysis.ideias_estaticas || [], status: "analyzed", updated_at: new Date().toISOString() });
+    return { item: { ...item, analysis, concepts: analysis.ideias_estaticas || [], status: "analyzed" } };
+  }
+  throw new Error("Operação do Minerador não reconhecida.");
+}
 async function waCloudConfig(input: any, authorization: string) {
   await _requireCredentialAdmin(authorization);
   const op = String(input?.op || "status"), clientId = String(input?.clientId || "").trim();
@@ -4667,6 +4737,58 @@ async function googleOAuthDisconnect(authorization: string) {
   await sbPatchD("account_config", "id=eq.main", { data: acc });
   return { ok: true };
 }
+function _normName(s: string): string { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim(); }
+function _nameScore(a: string, b: string): number {
+  const na = _normName(a), nb = _normName(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  if (na.includes(nb) || nb.includes(na)) return 0.85;
+  const ta = new Set(na.split(" ")), tb = new Set(nb.split(" "));
+  let common = 0; for (const t of ta) if (t.length > 2 && tb.has(t)) common++;
+  return (common / (Math.max(ta.size, tb.size) || 1)) * 0.7;
+}
+// Lista as propriedades do GA4 que a conta de servico E o login pessoal conseguem ver (Admin API), casa por nome
+// com os clientes que ainda nao tem ga4_property_id preenchido. NUNCA grava nada sozinho — so sugere; quem confirma
+// o vinculo e o gestor, clicando (ver dados-clientes-inviolaveis: nao alteramos cadastro de cliente sem confirmacao).
+async function googleGa4Discover(authorization: string) {
+  if (!authorization) throw new Error("Sessão obrigatória.");
+  const ur = await fetch(`${_SB_URL}/auth/v1/user`, { headers: { apikey: _SB_KEY, Authorization: authorization } });
+  if (!ur.ok) throw new Error("Sessão inválida.");
+  const scopes = ["https://www.googleapis.com/auth/analytics.readonly"];
+  type Prop = { id: string; name: string; account: string; via: string };
+  const props: Prop[] = []; const seen = new Set<string>();
+  const pull = async (token: string | null, via: string) => {
+    if (!token) return;
+    try {
+      const r = await fetch("https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=200", { headers: { Authorization: `Bearer ${token}` } });
+      const j = await r.json();
+      for (const acc of (j.accountSummaries || [])) {
+        for (const p of (acc.propertySummaries || [])) {
+          const id = String(p.property || "").replace("properties/", "");
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          props.push({ id, name: p.displayName || id, account: acc.displayName || "", via });
+        }
+      }
+    } catch (_e) { /* essa identidade pode nao ter Admin API habilitada — segue com a outra */ }
+  };
+  await pull(await _gsaToken(scopes).catch(() => null), "conta de serviço");
+  await pull(await _googleUserToken(scopes).catch(() => null), "login pessoal");
+  const clients = await _sbAll("clients", "select=id,name,ga4_property_id&status=neq.Encerrado");
+  const semGa4 = clients.filter((c: any) => !c.ga4_property_id);
+  const sugestoes: any[] = [];
+  for (const c of semGa4) {
+    let best: (Prop & { score: number }) | null = null;
+    for (const p of props) {
+      const score = Math.max(_nameScore(c.name, p.name), _nameScore(c.name, p.account));
+      if (score >= 0.5 && (!best || score > best.score)) best = { ...p, score };
+    }
+    if (best) sugestoes.push({ clientId: c.id, clientName: c.name, propertyId: best.id, propertyName: best.name, account: best.account, via: best.via, confianca: Math.round(best.score * 100) });
+  }
+  const jaSugeridos = new Set(sugestoes.map((s) => s.clientId));
+  const semAcesso = semGa4.filter((c: any) => !jaSugeridos.has(c.id)).map((c: any) => ({ id: c.id, name: c.name }));
+  return { totalClientes: clients.length, jaConfigurados: clients.length - semGa4.length, propriedadesEncontradas: props.length, sugestoes: sugestoes.sort((a, b) => b.confianca - a.confianca), semAcesso };
+}
 async function ga4Report(m: any) {
   const prop = String(m.propertyId || "").replace(/[^0-9]/g, "");
   if (!prop) throw new Error("propertyId do GA4 obrigatório (só os números, ex: 123456789)");
@@ -5441,6 +5563,10 @@ Deno.serve(async (req) => {
       const r = await briefingCuradoria(body.briefingCuradoria);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    if (body.creativeMiner) {
+      const r = await creativeMiner(body.creativeMiner);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     if (body.resolveAllOrigins) {
       const r = await waResolveAllOrigins();
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -5629,6 +5755,10 @@ Deno.serve(async (req) => {
     }
     if (body.googleOAuthDisconnect) {
       const r = await googleOAuthDisconnect(req.headers.get("Authorization") || "");
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleGa4Discover) {
+      const r = await googleGa4Discover(req.headers.get("Authorization") || "");
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.apifyConfig) {
