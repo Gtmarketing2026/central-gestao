@@ -241,7 +241,10 @@ async function handleGoogleOAuthCallback(url: URL) {
   if (!stateOk) return page("Link expirado", "Esse link de conexão expirou ou é inválido. Volte em Configurações e clique em \"Conectar com Google\" de novo.", false);
   const clientId = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID"), clientSecret = Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET");
   if (!clientId || !clientSecret) return page("Faltam credenciais do App", "GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET não configurados nos secrets do Supabase.", false);
-  const redirect = `${url.origin}/functions/v1/tracking/google/oauth/callback`;
+  // url.origin as vezes reporta http (o proxy interno do Supabase termina o TLS antes) — usa a URL fixa e publica do
+  // projeto (sempre https), tem que ser IDENTICA ao que googleOAuthStart mandou na autorizacao e ao que esta cadastrado
+  // no Google Cloud, ou a troca do code por token falha com redirect_uri_mismatch mesmo a autorizacao tendo funcionado.
+  const redirect = `${SB_URL}/functions/v1/tracking/google/oauth/callback`;
   try {
     const r = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
