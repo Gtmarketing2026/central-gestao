@@ -3627,7 +3627,15 @@ Retorne somente JSON válido: {"assunto_real":"","tese_central":"","resumo_do_co
     }
   }
   const content: any[] = [{ type: "text", text: instruction }];
-  if (item.thumbnail_url) content.push({ type: "image_url", image_url: { url: String(item.thumbnail_url) } });
+  if (item.thumbnail_url || item.media_url) {
+    try {
+      const ir = await fetch(String(item.thumbnail_url || item.media_url), { headers: { "User-Agent": "Mozilla/5.0" } });
+      if (ir.ok) {
+        const b = new Uint8Array(await ir.arrayBuffer());
+        if (b.length <= 8 * 1024 * 1024) content.push({ type: "image_url", image_url: { url: `data:${ir.headers.get("content-type") || "image/jpeg"};base64,${_b64Bytes(b)}` } });
+      }
+    } catch (_e) { /* legenda ainda permite análise parcial */ }
+  }
   const j = await callOpenAI({ model: "gpt-4o", messages: [{ role: "user", content }], response_format: { type: "json_object" }, max_tokens: 2600, temperature: 0.3 });
   return JSON.parse(j.choices?.[0]?.message?.content || "{}");
 }
