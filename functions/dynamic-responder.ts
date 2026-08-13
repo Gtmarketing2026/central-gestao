@@ -181,6 +181,24 @@ const AGENT_TOOLS = [
 
 async function _andreiaUnifiedContext(clientId: string | null, surface: string) {
   const cid = String(clientId || "").trim();
+  let clientBlock = "", knowledgeBlock = "", memoryBlock = "";
+  try {
+    if (cid) {
+      const c = (await sbGet("clients", `id=eq.${encodeURIComponent(cid)}&select=id,name,seg,dna&limit=1`))[0];
+      if (c) clientBlock = `\nCLIENTE ATUAL (uso exclusivo neste escopo):\n${JSON.stringify({ nome: c.name, segmento: c.seg || "", dna: c.dna || {} }).slice(0, 12000)}`;
+    }
+    const docs = await sbGet("agent_knowledge", `select=title,text,client_id&order=created_at.desc&limit=40`);
+    const allowed = (docs || []).filter((d: any) => !String(d.client_id || "").trim() || (cid && String(d.client_id) === cid));
+    const globalDocs = allowed.filter((d: any) => !String(d.client_id || "").trim()).slice(0, 4);
+    const clientDocs = cid ? allowed.filter((d: any) => String(d.client_id) === cid).slice(0, 5) : [];
+    const picked = [...globalDocs, ...clientDocs];
+    if (picked.length) knowledgeBlock = "\nCONHECIMENTO COMPARTILHADO AUTORIZADO:\n" + picked.map((d: any) => `--- ${d.title || "Material"} [${d.client_id ? "cliente" : "agência"}] ---\n${String(d.text || "").slice(0, 5000)}`).join("\n\n");
+  } catch (_e) { /* o núcleo continua disponível mesmo se a base estiver temporariamente indisponível */ }
+  try {
+    const mem = await sbGet("andreia_memory", `active=eq.true&select=client_id,kind,content,source,created_at&order=created_at.desc&limit=80`);
+    const allowed = (mem || []).filter((x: any) => !x.client_id || (cid && String(x.client_id) === cid)).slice(0, 20);
+    if (allowed.length) memoryBlock = "\nMEMÓRIA SELETIVA (decisões e preferências explícitas; não é transcrição):\n" + allowed.map((x: any) => `- [${x.kind || "decisão"}] ${x.content}`).join("\n");
+  } catch (_e) { /* tabela pode ainda não existir durante a primeira publicação */ }
   return `
 ===== NÚCLEO ÚNICO DA ANDRÉIA =====
 Você é UMA única inteligência em todas as interfaces da Central de Gestão. A interface atual é: ${surface}.
@@ -192,7 +210,23 @@ Você é UMA única inteligência em todas as interfaces da Central de Gestão. 
 - Ações com efeito no sistema devem ser preparadas e confirmadas. Nunca afirme que executou antes da confirmação.
 - Diferencie fato, inferência e hipótese. Se faltar evidência, diga o que precisa ser verificado.
 - Considere objetivos alternativos legítimos: vendas, leads, mensagens, recrutamento, suporte, distribuição e reconhecimento.
-`;
+${clientBlock}${knowledgeBlock}${memoryBlock}`;
+}
+
+async function _andreiaMaybeRemember(clientId: string | null, surface: string, userText: any) {
+  const raw = String(userText || "").trim();
+  if (raw.length < 8 || raw.length > 4000) return;
+  // Só memoriza instruções/decisões explícitas. Perguntas e conversas comuns nunca viram memória.
+  const trigger = /\b(lembre|memorize|decidimos|definimos|a partir de agora|prefiro|não use|nunca use|sempre use|regra(?: geral)?|considere como regra|fica definido)\b/i;
+  if (!trigger.test(raw)) return;
+  const content = _crmAiMaskText(raw).replace(/\s+/g, " ").trim().slice(0, 700);
+  if (content.length < 8) return;
+  const cid = String(clientId || "").trim() || null;
+  try {
+    const recent = await sbGet("andreia_memory", `active=eq.true&select=id,client_id,content&order=created_at.desc&limit=100`);
+    if ((recent || []).some((x: any) => String(x.client_id || "") === String(cid || "") && String(x.content || "").toLowerCase() === content.toLowerCase())) return;
+    await sbPost("andreia_memory", { id: _wuid(), client_id: cid, scope: cid ? "client" : "global", kind: /prefiro|não use|nunca use|sempre use/i.test(raw) ? "preference" : "decision", content, source: String(surface || "Sistema").slice(0, 80), active: true });
+  } catch (_e) { /* memória não pode bloquear a resposta */ }
 }
 
 async function runAgent(a: any) {
@@ -291,15 +325,30 @@ RESUMO PARA CLIENTE (quando pedirem resumo/relatorio pro cliente): escreva PRONT
     if (imgs.length) messages.push({ role: "user", content: [{ type: "text", text: "Imagem(ns) anexada(s) pelo gestor — analise:" }, ...imgs] });
   }
 
-  const json = await callOpenAI({ model: "gpt-4o", messages, tools: AGENT_TOOLS, tool_choice: "auto", max_tokens: 2000, temperature: 0.5 });
-  const msg = json.choices?.[0]?.message || {};
+  const actionNames = new Set(AGENT_TOOLS.map((t: any) => t.function.name));
+  const readTools = WA_TOOLS.filter((t: any) => t.function.name !== "preparar_acao" && !actionNames.has(t.function.name));
+  const allTools = [...readTools, ...AGENT_TOOLS];
+  const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,conversion_source,report_sheet_url,report_tabs&limit=500");
   const actions: any[] = [];
-  if (Array.isArray(msg.tool_calls)) {
+  let answer = "";
+  for (let it = 0; it < 6; it++) {
+    const json = await callOpenAI({ model: "gpt-4o", messages, tools: allTools, tool_choice: "auto", max_tokens: 2000, temperature: 0.4 });
+    const msg = json.choices?.[0]?.message || {};
+    if (!Array.isArray(msg.tool_calls) || !msg.tool_calls.length) { answer = String(msg.content || ""); break; }
+    messages.push(msg);
     for (const tc of msg.tool_calls) {
-      try { actions.push({ name: tc.function.name, args: JSON.parse(tc.function.arguments || "{}") }); } catch (_e) { /* ignora */ }
+      let args: any = {}; try { args = JSON.parse(tc.function.arguments || "{}"); } catch (_e) { /* ignora */ }
+      if (actionNames.has(tc.function.name)) {
+        actions.push({ name: tc.function.name, args });
+        messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ preparado: true, confirmacao_necessaria: true, instrucao: "Explique brevemente a ação preparada e aguarde confirmação no card." }) });
+      } else {
+        const result = await waExecTool(tc.function.name, args, clients);
+        messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result).slice(0, 12000) });
+      }
     }
   }
-  return { answer: msg.content || "", actions };
+  await _andreiaMaybeRemember(a.clientId || null, a.surface || "Sistema", a.question);
+  return { answer, actions };
 }
 
 // Normaliza o objetivo da campanha do Meta em um tipo + metrica de sucesso, para analise correta.
@@ -3741,6 +3790,7 @@ FORMATO PARA RELATÓRIOS E ANÁLISES (não use em conversa curta ou pedido de a�
     }
     if (action) break;
   }
+  await _andreiaMaybeRemember(clientId, "CRM e Analytics", question);
   return { answer: answer || "Não consegui responder agora.", action, scope: { cliente: client.name, dias: days, conversas: total, filtros: f }, suggestions: ["Resumo geral do CRM", "Resumo geral da procura de produtos e serviços", "Resumo da qualificação dos leads", "Onde os leads deixam de avançar entre MQL, SQL e venda?", "Faça uma projeção prudente para os próximos 30 dias."] };
 }
 
@@ -4299,6 +4349,7 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
     const reply = msg.content || "Ok.";
     const hist = [...((sess && sess.history) || []), { role: "user", text }, { role: "assistant", text: reply }].slice(-16);
     await saveSess({ client_id: clientId, pending: null, last_msgid: w.msgid, history: hist });
+    await _andreiaMaybeRemember(clientId, "WhatsApp da equipe", text);
     await send(reply); return { ok: true };
   }
   await send("Me embananei aqui 😅 pode reformular?");
