@@ -3750,9 +3750,45 @@ async function crmCapaAudit(input: any) {
     results.push(...(Array.isArray(parsed.casos) ? parsed.casos : []));
   }
   const aggregate = await _callOpenAIJson([{ role: "user", content: `Você é a AndréIA. Consolide esta Auditoria CAPA sem identificar cliente ou pessoas e sem analisar um a um novamente. Agrupe padrões, quantifique ocorrências somente contando os casos fornecidos e proponha melhorias práticas. Sem prazo. Separe Tráfego, Comercial e Processo/CRM. Inclua treinamento recomendado e indicadores para acompanhar. Retorne SOMENTE JSON: {"resumo":"","padroes":[{"tema":"","ocorrencias":0,"impacto":""}],"trafego":[""],"comercial":[""],"processo":[""],"treinamento":[""],"indicadores":[""]}. CASOS: ${JSON.stringify(results)}` }]);
-  const auditedAt = new Date().toISOString();
-  for (const item of results) { const cv = refs[item.ref]; if (!cv) continue; const fields = { ...(cv.fields || {}), capa: { audited_at: auditedAt, stage, score: Math.max(0, Math.min(10, Number(item.nota) || 0)) } }; const tags = Array.isArray(fields.tags) ? fields.tags : []; if (!tags.includes("Auditoria CAPA")) fields.tags = [...tags, "Auditoria CAPA"]; await sbPatchD("wa_conversations", `id=eq.${encodeURIComponent(cv.id)}`, { fields }); item.conversationId = cv.id; item.leadName = cv.name || "Conversa"; }
-  return { ok: true, cliente: client.name, stage, requested: sampleSize, audited: results.length, minHours, days, cases: results, aggregate, auditedAt };
+  const auditedAt = new Date().toISOString(), auditId = _wuid();
+  const scores = results.map((x: any) => Math.max(0, Math.min(10, Number(x.nota) || 0)));
+  const averageScore = scores.length ? Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length * 10) / 10 : 0;
+  await sbPost("crm_capa_audits", { id: auditId, client_id: clientId, stage, days, min_hours: minHours, requested: sampleSize, audited: results.length, average_score: averageScore, aggregate, created_by: input.createdBy || null, created_at: auditedAt });
+  const caseRows: any[] = [];
+  for (const item of results) {
+    const cv = refs[item.ref]; if (!cv) continue;
+    const score = Math.max(0, Math.min(10, Number(item.nota) || 0));
+    const fields = { ...(cv.fields || {}), capa: { audited_at: auditedAt, audit_id: auditId, stage, score } };
+    const tags = Array.isArray(fields.tags) ? fields.tags : [];
+    if (!tags.includes("Auditoria CAPA")) fields.tags = [...tags, "Auditoria CAPA"];
+    await sbPatchD("wa_conversations", `id=eq.${encodeURIComponent(cv.id)}`, { fields });
+    item.conversationId = cv.id; item.leadName = cv.name || "Conversa";
+    caseRows.push({ id: _wuid(), audit_id: auditId, client_id: clientId, conversation_id: cv.id, stage, channel: _crmAiChannel(cv), score, diagnosis: item.diagnostico || "", break_point: item.ponto_de_quebra || "", themes: item.faltou || [], recommended_message: item.mensagem_recomendada || "", follow_up: item.follow_up || "", traffic_actions: item.acoes_trafego || [], commercial_actions: item.acoes_comercial || [], process_actions: item.acoes_processo || [], created_at: auditedAt });
+  }
+  if (caseRows.length) await sbPost("crm_capa_cases", caseRows as any);
+  return { ok: true, auditId, cliente: client.name, stage, requested: sampleSize, audited: results.length, averageScore, minHours, days, cases: results, aggregate, auditedAt };
+}
+
+async function crmCapaDashboard(input: any) {
+  const clientId = String(input.clientId || ""), days = Math.min(365, Math.max(7, Number(input.days) || 90));
+  if (!clientId) throw new Error("Cliente obrigatório.");
+  const since = new Date(Date.now() - days * 864e5).toISOString();
+  const [audits, cases] = await Promise.all([
+    sbGet("crm_capa_audits", `client_id=eq.${encodeURIComponent(clientId)}&created_at=gte.${encodeURIComponent(since)}&select=id,stage,audited,average_score,aggregate,created_at&order=created_at.asc&limit=500`),
+    sbGet("crm_capa_cases", `client_id=eq.${encodeURIComponent(clientId)}&created_at=gte.${encodeURIComponent(since)}&select=id,audit_id,conversation_id,stage,channel,score,diagnosis,break_point,themes,recommended_message,created_at&order=created_at.desc&limit=2000`),
+  ]);
+  const byStage: Record<string, any> = {}, byChannel: Record<string, any> = {}, themes: Record<string, number> = {};
+  for (const c of cases) {
+    const add = (map: any, key: string) => { const x = map[key] ||= { key, cases: 0, total: 0, low: 0 }; x.cases++; x.total += Number(c.score) || 0; if ((Number(c.score) || 0) < 6) x.low++; };
+    add(byStage, c.stage || "sem_etapa"); add(byChannel, c.channel || "organico");
+    for (const t of (Array.isArray(c.themes) ? c.themes : [])) { const k = String(t || "").trim(); if (k) themes[k] = (themes[k] || 0) + 1; }
+  }
+  const finish = (m: any) => Object.values(m).map((x: any) => ({ ...x, average: x.cases ? Math.round(x.total / x.cases * 10) / 10 : 0 })).sort((a: any, b: any) => b.cases - a.cases);
+  const weekly: Record<string, any> = {};
+  for (const a of audits) { const d = new Date(a.created_at), day = d.getUTCDay() || 7; d.setUTCDate(d.getUTCDate() - day + 1); const key = d.toISOString().slice(0, 10); const w = weekly[key] ||= { week: key, audits: 0, cases: 0, weighted: 0 }; w.audits++; w.cases += Number(a.audited) || 0; w.weighted += (Number(a.average_score) || 0) * (Number(a.audited) || 0); }
+  const trend = Object.values(weekly).map((w: any) => ({ ...w, average: w.cases ? Math.round(w.weighted / w.cases * 10) / 10 : 0 }));
+  const queue = cases.filter((c: any) => Number(c.score) < 6).slice(0, 30);
+  return { ok: true, days, audits: audits.length, cases: cases.length, averageScore: cases.length ? Math.round(cases.reduce((s: number, c: any) => s + (Number(c.score) || 0), 0) / cases.length * 10) / 10 : 0, trend, byStage: finish(byStage), byChannel: finish(byChannel), themes: Object.entries(themes).map(([theme, count]) => ({ theme, count })).sort((a: any, b: any) => b.count - a.count).slice(0, 12), queue };
 }
 
 async function crmAndreiaAction(input: any) {
@@ -5169,6 +5205,10 @@ Deno.serve(async (req) => {
     }
     if (body.crmCapaAudit) {
       const r = await crmCapaAudit(body.crmCapaAudit);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.crmCapaDashboard) {
+      const r = await crmCapaDashboard(body.crmCapaDashboard);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.crmAndreiaAction) {
