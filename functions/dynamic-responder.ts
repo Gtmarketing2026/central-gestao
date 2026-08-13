@@ -3575,6 +3575,35 @@ async function _saveSecureCredential(id: string, value: string) {
   const r = await fetch(`${_SB_URL}/rest/v1/secure_credentials?on_conflict=id`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ id, secret_cipher: cipher, updated_at: new Date().toISOString() }) });
   if (!r.ok) throw new Error("Não consegui guardar a credencial no cofre privado.");
 }
+async function _loadSecureCredential(id: string) {
+  const rows = await sbGet("secure_credentials", `id=eq.${encodeURIComponent(id)}&select=secret_cipher&limit=1`);
+  return rows[0]?.secret_cipher ? await _decryptCredential(rows[0].secret_cipher) : "";
+}
+async function apifyConfig(input: any, authorization: string) {
+  await _requireCredentialAdmin(authorization);
+  const op = String(input?.op || "status");
+  const id = "apify_creative_miner_token";
+  if (op === "status") {
+    const token = await _loadSecureCredential(id);
+    if (!token) return { configured: false };
+    try {
+      const r = await fetch("https://api.apify.com/v2/users/me", { headers: { Authorization: `Bearer ${token}` } });
+      const j = await r.json();
+      return { configured: r.ok, valid: r.ok, username: j?.data?.username || j?.data?.email || "", error: r.ok ? "" : (j?.error?.message || `HTTP ${r.status}`) };
+    } catch (e) { return { configured: true, valid: false, error: String((e as any)?.message || e) }; }
+  }
+  if (op === "remove") {
+    await fetch(`${_SB_URL}/rest/v1/secure_credentials?id=eq.${id}`, { method: "DELETE", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
+    return { ok: true, configured: false };
+  }
+  const token = String(input?.token || "").trim();
+  if (token.length < 20) throw new Error("Token do Apify inválido ou incompleto.");
+  const test = await fetch("https://api.apify.com/v2/users/me", { headers: { Authorization: `Bearer ${token}` } });
+  const tj = await test.json();
+  if (!test.ok || tj?.error) throw new Error(`Apify: ${tj?.error?.message || "token não autorizado"}`);
+  await _saveSecureCredential(id, token);
+  return { ok: true, configured: true, username: tj?.data?.username || tj?.data?.email || "" };
+}
 async function waCloudConfig(input: any, authorization: string) {
   await _requireCredentialAdmin(authorization);
   const op = String(input?.op || "status"), clientId = String(input?.clientId || "").trim();
@@ -5521,6 +5550,10 @@ Deno.serve(async (req) => {
     }
     if (body.metaTokenUpdate) {
       const r = await metaTokenUpdate(body.metaTokenUpdate, req.headers.get("Authorization") || "");
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.apifyConfig) {
+      const r = await apifyConfig(body.apifyConfig, req.headers.get("Authorization") || "");
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.waCloudConfig) {

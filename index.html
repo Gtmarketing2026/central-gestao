@@ -4484,6 +4484,13 @@ async function loadConfiguracoes(){
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;margin:4px 0 12px">🔌 Integrações</div>
     ${integCard('meta','Ⓜ️','Meta Ads','Contas de anúncio do Facebook/Instagram (token da API).',integStatusPill('load','Checando…'),'')}
     ${integCard('google','🔎','Google Ads','Contas via MCC do Google Ads.',integStatusPill('load','Checando…'),'')}
+    ${integCard('apify','⛏️','Minerador de Criativos · Apify','Captura referências externas do Instagram para análise semântica e geração de estáticos.',integStatusPill('load','Checando…'),
+      `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        <div style="flex:1;min-width:260px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">PERSONAL API TOKEN</label><input id="apifyTokenInput" type="password" autocomplete="new-password" placeholder="Cole o token criado no Apify" style="width:100%;font-size:12px;font-family:monospace"></div>
+        <button id="apifyTokenSave" class="btn sm primary" style="flex:none" onclick="saveApifyToken()">Validar e salvar</button>
+        <button id="apifyTokenRemove" class="btn sm ghost" style="display:none;flex:none;color:var(--red)" onclick="removeApifyToken()">Remover</button>
+      </div>
+      <div id="apifyTokenMsg" style="font-size:11px;color:var(--faint);margin-top:8px">O token será validado no Apify e armazenado somente no cofre criptografado. O valor salvo nunca será exibido novamente.</div>`)}
     ${integCard('tiktok','🎵','TikTok Ads (App)','Credenciais do App (nível conta). A conexão é feita em cada cliente.',
       integStatusPill(tk.app_id&&tk.secret?'ok':'off',tk.app_id&&tk.secret?'✓ App configurado':'Faltam credenciais'),
       `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
@@ -4546,6 +4553,7 @@ async function loadConfiguracoes(){
     <div style="font-size:11px;color:var(--faint);margin-top:6px">O status de Meta e Google é verificado ao vivo. Se aparecer "reconectar", o token expirou — me avise que renovamos.</div>`;
   // status ao vivo Meta + Google
   checkIntegMeta();checkIntegGoogle();gcalCheckConn();
+  checkIntegApify();
 }
 /* ===== Banco de Dados (histórico diário por canal — CSV / Power BI) ===== */
 let _bdSince='',_bdUntil='',_bdClient='',_bdChannel='',_bdObjetivo='';
@@ -5200,6 +5208,22 @@ async function checkIntegMeta(){
 }
 function openMetaTokenEditor(){let ov=document.getElementById('metaTokenOverlay');if(!ov){ov=document.createElement('div');ov.id='metaTokenOverlay';document.body.appendChild(ov);}ov.style.cssText='position:fixed;inset:0;z-index:9999;background:#000b;display:flex;align-items:center;justify-content:center;padding:16px';ov.onclick=e=>{if(e.target===ov)ov.remove()};ov.innerHTML=`<div style="width:min(560px,96vw);background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:0 20px 60px #000"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px"><div><h3 style="margin:0">Token do Meta Ads</h3><div style="font-size:11px;color:var(--muted);margin-top:4px">O token atual nunca é exibido. O novo será validado e guardado criptografado.</div></div><button class="btn sm ghost" onclick="document.getElementById('metaTokenOverlay').remove()">✕</button></div><div style="display:flex;gap:7px"><input id="metaTokenInput" type="password" autocomplete="new-password" placeholder="Cole o novo token de acesso" style="flex:1;font-family:monospace"><button class="btn sm ghost" onclick="const i=document.getElementById('metaTokenInput');i.type=i.type==='password'?'text':'password'">👁</button></div><div id="metaTokenMsg" style="min-height:18px;font-size:11px;color:var(--muted);margin-top:8px">Necessário: acesso às contas e permissões ads_read/ads_management.</div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn ghost" onclick="document.getElementById('metaTokenOverlay').remove()">Cancelar</button><button id="metaTokenSave" class="btn primary" onclick="saveMetaToken()">Validar e salvar</button></div></div>`;setTimeout(()=>document.getElementById('metaTokenInput')?.focus(),30);}
 async function saveMetaToken(){const input=document.getElementById('metaTokenInput'),msg=document.getElementById('metaTokenMsg'),btn=document.getElementById('metaTokenSave'),token=(input&&input.value||'').trim();if(token.length<40){msg.style.color='var(--red)';msg.textContent='Cole o token completo.';return;}btn.disabled=true;btn.textContent='Validando…';msg.style.color='var(--muted)';msg.textContent='Conferindo o token diretamente na Meta…';try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaTokenUpdate:{token}}});if(error)throw error;const r=(data&&data.data)||data||{};if(!r.ok)throw new Error(r.error||'Não foi possível validar.');input.value='';msg.style.color='#34d399';msg.textContent='✓ Token validado, criptografado e ativado.';setTimeout(()=>{document.getElementById('metaTokenOverlay')?.remove();loadConfiguracoes();},900);}catch(e){btn.disabled=false;btn.textContent='Validar e salvar';msg.style.color='var(--red)';msg.textContent=e.message||String(e);}}
+async function checkIntegApify(){
+  const right=document.getElementById('integRight_apify'),msg=document.getElementById('apifyTokenMsg'),rm=document.getElementById('apifyTokenRemove');if(!right)return;
+  try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{apifyConfig:{op:'status'}}});if(error)throw error;const r=(data&&data.data)||data||{};
+    if(r.configured&&r.valid){right.innerHTML=integStatusPill('ok','✓ Token válido')+(r.username?`<span style="font-size:11px;color:var(--faint)">${String(r.username).replace(/</g,'&lt;')}</span>`:'');if(msg)msg.textContent='Token ativo no cofre. Para trocar, cole um novo token abaixo.';if(rm)rm.style.display='';}
+    else if(r.configured){right.innerHTML=integStatusPill('err','⚠ Token inválido');if(msg)msg.textContent='O token salvo não foi aceito pelo Apify. Cole um novo.';if(rm)rm.style.display='';}
+    else{right.innerHTML=integStatusPill('off','Não configurado');if(rm)rm.style.display='none';}
+  }catch(e){right.innerHTML=integStatusPill('err','⚠ Não foi possível verificar');if(msg)msg.textContent=e.message||String(e);}
+}
+async function saveApifyToken(){
+  const input=document.getElementById('apifyTokenInput'),msg=document.getElementById('apifyTokenMsg'),btn=document.getElementById('apifyTokenSave'),token=(input?.value||'').trim();
+  if(token.length<20){msg.style.color='var(--red)';msg.textContent='Cole o token completo do Apify.';return}
+  btn.disabled=true;btn.textContent='Validando…';msg.style.color='var(--muted)';msg.textContent='Conferindo diretamente no Apify…';
+  try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{apifyConfig:{op:'save',token}}});if(error)throw error;const r=(data&&data.data)||data||{};if(!r.ok)throw new Error(r.error||'Não foi possível validar.');input.value='';msg.style.color='#34d399';msg.textContent='✓ Token validado e salvo no cofre criptografado.';await checkIntegApify();}
+  catch(e){msg.style.color='var(--red)';msg.textContent=e.message||String(e);}finally{btn.disabled=false;btn.textContent='Validar e salvar';}
+}
+async function removeApifyToken(){if(!confirm('Remover o token do Apify? A captura de referências externas será interrompida.'))return;const {error}=await sb.functions.invoke('dynamic-responder',{body:{apifyConfig:{op:'remove'}}});if(error){alert(error.message||error);return}await checkIntegApify();}
 async function checkIntegGoogle(){
   const el=document.getElementById('integRight_google');if(!el)return;
   try{
