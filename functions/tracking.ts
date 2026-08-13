@@ -719,10 +719,28 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
 }
 
 // Página/endpoint público de conexão: devolve o QR + código de pareamento de uma instância (id não-adivinhável)
+const WA_CONSENT_VERSION = "2026-08-13";
+const WA_CONSENT_PURPOSE = "Autoriza a GT Marketing a conectar este número via Aparelhos Conectados para receber, armazenar e ler conversas de atendimento no CRM, realizar classificação, análise comercial, auditoria de qualidade e recomendações pela AndréIA, exclusivamente no contexto do cliente vinculado. O acesso não inclui senha e pode ser revogado.";
+async function _waConsent(id: string) {
+  return (await sbSelect("wa_qr_consents", `instance_id=eq.${encodeURIComponent(id)}&revoked_at=is.null&select=id,authorized_by,authorized_role,authorized_email,accepted_at,term_version&order=accepted_at.desc&limit=1`))[0] || null;
+}
+async function handleWaConsent(req: Request, id: string): Promise<Response> {
+  const out = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  const inst = (await sbSelect("wa_instances", `id=eq.${encodeURIComponent(id)}&select=id,client_id,name&limit=1`))[0]; if (!inst) return out({ error: "not_found" }, 404);
+  if (req.method === "GET") { const c = await _waConsent(id); return out({ accepted: !!c, consent: c ? { authorized_by: c.authorized_by, accepted_at: c.accepted_at, term_version: c.term_version } : null, term: WA_CONSENT_PURPOSE, version: WA_CONSENT_VERSION }); }
+  if (req.method !== "POST") return out({ error: "method" }, 405);
+  const guard = _publicGuard(req, "waconsent", 20, 32768); if (guard) return guard;
+  const b = await req.json().catch(() => ({})); const name = String(b.authorizedBy || "").trim().slice(0, 160), role = String(b.role || "").trim().slice(0, 120), email = String(b.email || "").trim().slice(0, 180);
+  if (!b.accepted || name.length < 3) return out({ error: "Informe o nome do responsável e marque a autorização." }, 400);
+  const ip = (req.headers.get("cf-connecting-ip") || req.headers.get("x-forwarded-for") || "unknown").split(",")[0].trim(); const raw = new TextEncoder().encode(ip + "|" + id); const dig = await crypto.subtle.digest("SHA-256", raw); const ipHash = [...new Uint8Array(dig)].map(x => x.toString(16).padStart(2, "0")).join("");
+  await sbInsert("wa_qr_consents", { id: uid(), instance_id: id, client_id: inst.client_id || null, authorized_by: name, authorized_role: role || null, authorized_email: email || null, term_version: WA_CONSENT_VERSION, purpose: WA_CONSENT_PURPOSE, accepted_at: new Date().toISOString(), ip_hash: ipHash, user_agent: String(req.headers.get("user-agent") || "").slice(0, 500) });
+  return out({ ok: true, accepted: true });
+}
 async function handleWaConnect(id: string, url: URL): Promise<Response> {
   const j = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
   const inst = (await sbSelect("wa_instances", `id=eq.${encodeURIComponent(id)}&select=id,name,uaz_host,uaz_token,status`))[0];
   if (!inst) return j({ error: "not_found" }, 404);
+  if (!(await _waConsent(id))) return j({ error: "consent_required" }, 403);
   const host = String(inst.uaz_host || "").replace(/\/$/, ""); const token = inst.uaz_token;
   const call = async (path: string, method = "GET", body?: any) => {
     try { const r = await fetch(host + path, { method, headers: { token, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); return await r.json(); } catch { return {}; }
@@ -948,10 +966,17 @@ Deno.serve(async (req) => {
   if (p === "/tiktok/callback") return handleTikTokCallback(url);
   if (p === "/pinterest/callback") return handlePinterestCallback(url);
 
+  // Link público não-adivinhável enviado ao próprio cliente. O QR só é liberado após
+  // aceite explícito registrado; ambas as rotas têm proteção de volume e não expõem token.
+  const publicWaConsent = p.match(/^\/wa\/consent\/([^/]+)$/);
+  if (publicWaConsent) return handleWaConsent(req, publicWaConsent[1]);
+  const publicWaConnect = p.match(/^\/wa\/connect\/([^/]+)$/);
+  if (publicWaConnect) { const g = _publicGuard(req, "waconnect", 40, 8192); return g || handleWaConnect(publicWaConnect[1], url); }
+
   // Tudo abaixo desta lista executa leitura ou alteração administrativa com service_role.
   // A função continua pública apenas para pixel/webhooks/callbacks, mas essas rotas exigem
   // uma sessão real do Supabase ou o segredo exclusivo dos cron jobs.
-  const internalPrefixes = ["/oauth/", "/calendar/", "/google/auth", "/google/status", "/google/disconnect", "/automations/", "/wa/connectivity", "/wa/resolve-origins", "/wa/agency-poll", "/journey/orders-tick", "/metrics/tick", "/meta/", "/instagram/", "/security/audit", "/wa/connect/"];
+  const internalPrefixes = ["/oauth/", "/calendar/", "/google/auth", "/google/status", "/google/disconnect", "/automations/", "/wa/connectivity", "/wa/resolve-origins", "/wa/agency-poll", "/journey/orders-tick", "/metrics/tick", "/meta/", "/instagram/", "/security/audit"];
   if (internalPrefixes.some((x) => p.startsWith(x))) {
     const denied = await _requireInternal(req); if (denied) return denied;
   }
@@ -1051,9 +1076,6 @@ Deno.serve(async (req) => {
   }
 
   // GET /wa/connect/<instanceId> -> JSON com qrcode/paircode/status (usado pela página pública de conexão)
-  const mWaC = p.match(/^\/wa\/connect\/([^/]+)$/);
-  if (mWaC) return handleWaConnect(mWaC[1], url);
-
   // POST /wa/webhook/<instanceId>  -> ingere eventos do uazapi (mensagens/conexão) da instância
   const mWa = p.match(/^\/wa\/webhook\/([^/]+)$/);
   if (mWa) {

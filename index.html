@@ -5277,7 +5277,7 @@ async function renderWaConfig(){
     const st=i.status==='connected'?'<span style="color:#34d399">● conectado</span>':`<span style="color:#f59e0b">● ${i.status||'desconectado'}</span>`;
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
       <div><b style="font-size:12.5px">${who.replace(/</g,'&lt;')}</b> <span style="color:var(--faint);font-size:11px">${i.phone||'—'}</span><div style="font-size:11px">${st}</div></div>
-      <div style="display:flex;gap:6px">${i.status==='connected'?'':`<button class="btn sm ghost" onclick="waShowQr('${i.id}')">📷 Ver QR</button><button class="btn sm ghost" title="Copiar link QR WhatsApp pro cliente" onclick="waCopyLink('${i.id}',this)">🔗 Link</button>`}<button class="btn sm ghost" style="color:var(--red)" onclick="waRemoveInst('${i.id}')">Remover</button></div></div>`;
+      <div style="display:flex;gap:6px">${i.status==='connected'?`<button class="btn sm ghost" style="color:#f59e0b" onclick="waRevokeConsent('${i.id}')">Revogar acesso</button>`:`<button class="btn sm ghost" onclick="waShowQr('${i.id}')">📷 Ver QR</button><button class="btn sm ghost" title="Copiar link de autorização + QR para o cliente" onclick="waCopyLink('${i.id}',this)">🔗 Link</button>`}<button class="btn sm ghost" style="color:var(--red)" onclick="waRemoveInst('${i.id}')">Remover</button></div></div>`;
   }).join('');
 }
 function waConnectStart(clientId){
@@ -5288,6 +5288,7 @@ function waConnectStart(clientId){
     <h3 style="margin:0 0 12px;font-size:17px">📷 Conectar número no WhatsApp</h3>
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">De quem é este número?</div>
     <select id="waConnWho" style="width:100%;margin-bottom:14px"><option value="">🏢 Agência (só para envios)</option>${clientOpts}</select>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:11px;margin-bottom:12px"><b style="font-size:12px;color:var(--accent)">Autorização obrigatória</b><div style="font-size:11px;color:var(--muted);line-height:1.5;margin:5px 0 8px">O responsável autoriza a conexão para leitura e armazenamento das conversas no CRM, análise comercial, classificação, auditoria de qualidade e recomendações da AndréIA, somente para o cliente selecionado.</div><input id="waConnAuthName" placeholder="Nome completo do responsável" style="margin-bottom:7px"><input id="waConnAuthRole" placeholder="Cargo / relação com a empresa" style="margin-bottom:7px"><label style="display:flex;gap:7px;align-items:flex-start;font-size:11px;line-height:1.4;cursor:pointer"><input id="waConnAuthCheck" type="checkbox" style="width:auto;margin-top:2px"> Confirmo que o responsável foi informado, tem poderes para autorizar e aceitou esta finalidade.</label></div>
     <div id="waConnStep"><button class="btn primary" style="width:100%" onclick="waConnCreate()">Gerar QR Code</button></div>
     <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn ghost" onclick="waConnClose()">Fechar</button></div>
   </div>`;
@@ -5296,11 +5297,13 @@ function waConnectStart(clientId){
 function waConnClose(){if(_waConnectPoll){clearInterval(_waConnectPoll);_waConnectPoll=null;}const ov=document.getElementById('waConnOverlay');if(ov)ov.remove();renderWaConfig();renderAndreiaWa();}
 async function waConnCreate(){
   const clientId=document.getElementById('waConnWho').value||null;
+  const authorizedBy=(document.getElementById('waConnAuthName').value||'').trim(),role=(document.getElementById('waConnAuthRole').value||'').trim();if(authorizedBy.length<3||!document.getElementById('waConnAuthCheck').checked){alert('Informe o responsável e confirme a autorização antes de gerar o QR Code.');return;}
   const step=document.getElementById('waConnStep');step.innerHTML='<div style="text-align:center;color:var(--muted);padding:20px">Criando instância…</div>';
   const name=(clientId?(DB.clients.find(c=>c.id===clientId)||{}).name:'agencia')||'num';
   const r=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'create',clientId,name}}});
   const id=r.data&&r.data.data&&r.data.data.id;
   if(!id){step.innerHTML='<div style="color:var(--red);padding:12px">Falha ao criar instância. '+((r.data&&r.data.error)||'')+'</div>';return;}
+  const consentUrl='https://mocrfqmdjwvyhqvdpimm.supabase.co/functions/v1/tracking/wa/consent/'+encodeURIComponent(id);const cr=await fetch(consentUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accepted:true,authorizedBy,role})});if(!cr.ok){step.innerHTML='<div style="color:var(--red);padding:12px">A instância foi criada, mas a autorização não pôde ser registrada. Remova e tente novamente.</div>';return;}
   waRenderQrStep(id);
 }
 async function waRenderQrStep(id){
@@ -5326,8 +5329,9 @@ async function waRenderQrStep(id){
   },3000);
 }
 function waConnConnected(){const step=document.getElementById('waConnStep');if(step)step.innerHTML='<div style="text-align:center;color:#34d399;padding:24px;font-weight:600">✓ Número conectado!</div>';setTimeout(waConnClose,1500);}
-function waShowQr(id){waConnectStart('');const who=document.getElementById('waConnWho');if(who)who.parentElement.style.display='none';waRenderQrStep(id);}
+function waShowQr(id){const link=new URL('connect.html',location.href).href+'?i='+id;window.open(link,'_blank','noopener');}
 async function waRemoveInst(id){if(!confirm('Remover este número? As conversas já salvas permanecem, mas para de receber novas.'))return;await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'remove',instanceId:id}}});renderWaConfig();}
+async function waRevokeConsent(id){if(!confirm('Revogar a autorização e desconectar este WhatsApp agora? As conversas já registradas permanecem bloqueadas no CRM conforme as regras de retenção aplicáveis.'))return;try{const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'revokeConsent',instanceId:id}}});if(error)throw error;const r=(data&&data.data)||data;if(!r||!r.revoked)throw new Error('Não foi possível confirmar a revogação.');alert('Acesso revogado e número desconectado. Para reconectar será necessária uma nova autorização.');renderWaConfig();}catch(e){alert('Erro ao revogar: '+(e.message||e));}}
 async function waToggleShowAgency(v){await saveAccountConfig({crm_show_agency:!!v});}
 function waCopyLink(id,btn){const link=new URL('connect.html',location.href).href+'?i='+id;navigator.clipboard.writeText(link).then(()=>{if(btn){const t=btn.textContent;btn.textContent='✓ Copiado';setTimeout(()=>btn.textContent=t,1600);}}).catch(()=>{prompt('Copie o link:',link);});}
 async function checkIntegMeta(){

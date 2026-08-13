@@ -4488,6 +4488,14 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
 async function waHandler(w: any) {
   if (w.op === "extract") return await waExtract(w.convId, w.autoApply !== false);
   if (w.op === "capi") return await waCapi(w.convId, w.event);
+  if (w.op === "revokeConsent") {
+    const instanceId = String(w.instanceId || ""); if (!instanceId) throw new Error("instanceId obrigatório");
+    await sbPatchD("wa_qr_consents", `instance_id=eq.${encodeURIComponent(instanceId)}&revoked_at=is.null`, { revoked_at: new Date().toISOString() });
+    const ri = (await sbGet("wa_instances", `id=eq.${encodeURIComponent(instanceId)}&select=id,uaz_host,uaz_token`))[0]; if (!ri) throw new Error("Instância não encontrada.");
+    try { await waCall(ri.uaz_host, ri.uaz_token, "/instance/logout", "POST", {}); } catch (_e) {}
+    await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(instanceId)}`, { status: "disconnected", updated_at: new Date().toISOString() });
+    return { revoked: true, disconnected: true };
+  }
   // criar instância nova (número da agência ou de um cliente) — não precisa de instanceId
   if (w.op === "create") {
     const uz = await waUzConfig();
@@ -4544,6 +4552,11 @@ async function waHandler(w: any) {
     const { j } = await waCall(host, token, "/group/list");
     const gs = (j && j.groups) || [];
     return { groups: gs.map((g: any) => ({ jid: g.JID || g.jid || "", name: g.Name || g.name || g.JID || "" })).filter((g: any) => g.jid) };
+  }
+  if (w.op === "disconnect") {
+    try { await waCall(host, token, "/instance/logout", "POST", {}); } catch (_e) {}
+    await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { status: "disconnected", updated_at: new Date().toISOString() });
+    return { disconnected: true };
   }
   if (w.op === "remove") {
     const uz = await waUzConfig().catch(() => null);

@@ -33,20 +33,30 @@
   <div class="brand">GT Marketing · Agência de Marketing</div>
   <h1>Conectar o WhatsApp do seu atendimento</h1>
   <div class="sub" id="sub">Isto conecta o WhatsApp da sua empresa à plataforma de gestão da <b>GT Marketing</b>, usando o recurso oficial <b>“Aparelhos conectados”</b> do próprio WhatsApp — o mesmo do WhatsApp Web.</div>
-  <div class="qrbox" id="qrbox"><span class="muted">Carregando…</span></div>
-  <div class="steps">
+  <div id="consentbox" class="steps" style="display:none;background:#18160f;border:1px solid #5b4819;text-align:left">
+    <b style="color:#e8bd53">Autorização de acesso e análise comercial</b>
+    <p style="font-size:12px;line-height:1.55;margin:8px 0">Ao autorizar, você permite que a GT Marketing conecte este número via “Aparelhos conectados” para receber, armazenar e ler conversas de atendimento no CRM, realizar classificação, análise comercial, auditoria de qualidade e recomendações pela AndréIA, exclusivamente para a empresa vinculada.</p>
+    <p style="font-size:11px;color:#aaa;line-height:1.5">O acesso não revela sua senha. A conexão pode ler as conversas disponíveis enquanto estiver ativa. O tratamento deve observar finalidade, necessidade, confidencialidade e LGPD. A autorização pode ser revogada desconectando o aparelho e solicitando à GT Marketing o encerramento do tratamento aplicável.</p>
+    <input id="authName" placeholder="Nome completo do responsável" style="margin-top:8px">
+    <input id="authRole" placeholder="Cargo ou relação com a empresa" style="margin-top:8px">
+    <input id="authEmail" type="email" placeholder="E-mail (opcional)" style="margin-top:8px">
+    <label style="display:flex;gap:8px;align-items:flex-start;font-size:11.5px;line-height:1.45;margin-top:12px;cursor:pointer"><input id="authCheck" type="checkbox" style="width:auto;margin-top:2px"> <span>Declaro que tenho autorização para representar a empresa e concordo, de forma livre e informada, com a finalidade descrita acima.</span></label>
+    <button style="width:100%;margin-top:12px" onclick="acceptConsent()">Autorizar e liberar QR Code</button><div id="authMsg" class="muted" style="font-size:11px;margin-top:7px"></div>
+  </div>
+  <div class="qrbox" id="qrbox" style="display:none"><span class="muted">Aguardando autorização…</span></div>
+  <div class="steps" id="connectSteps" style="display:none">
     <b>Como conectar:</b><br>
     1. Abra o <b>WhatsApp</b> no celular do número.<br>
     2. Toque em <b>⋮ (menu)</b> → <b>Aparelhos conectados</b>.<br>
     3. Toque em <b>Conectar um aparelho</b> e aponte a câmera para o QR acima.
   </div>
-  <div class="steps" style="background:#12160f;border:1px solid #2a3520">
+  <div class="steps" id="securityBox" style="display:none;background:#12160f;border:1px solid #2a3520">
     <b style="color:#9fd88a">🔒 Sua segurança</b><br>
-    • Nós <b>não vemos sua senha</b> e não conseguimos ler suas conversas antigas.<br>
+    • Nós <b>não vemos sua senha</b>. Enquanto conectado, o sistema poderá ler as conversas disponibilizadas pelo WhatsApp para o CRM e as análises autorizadas.<br>
     • Você pode <b>desconectar quando quiser</b> em <b>Aparelhos conectados</b>.<br>
     • Se você <b>não solicitou</b> essa conexão à sua agência, <b>não escaneie</b> este código.
   </div>
-  <div class="pair" id="pairbox">
+  <div class="pair" id="pairbox" style="display:none">
     <div>Não consegue escanear? Conecte pelo <b>número de telefone</b>:</div>
     <div class="row"><input id="phone" placeholder="DDD + número, ex: 5521999998888" inputmode="numeric"><button onclick="genPair()">Gerar código</button></div>
     <div id="paircode"></div>
@@ -57,6 +67,7 @@
   var params=new URLSearchParams(location.search);
   var id=params.get("i")||"";
   var timer=null;
+  var consented=false;
   function esc(s){return String(s||"").replace(/[<>&]/g,function(c){return {"<":"&lt;",">":"&gt;","&":"&amp;"}[c];});}
   async function poll(phone){
     if(!id){document.getElementById("qrbox").innerHTML='<span class="muted">Link inválido.</span>';return;}
@@ -76,9 +87,11 @@
       if(phone&&d.paircode)document.getElementById("paircode").innerHTML='<div class="code">'+esc(d.paircode)+'</div><div style="margin-top:6px">No WhatsApp: Aparelhos conectados → Conectar com número → digite este código.</div>';
     }catch(e){document.getElementById("qrbox").innerHTML='<span class="muted">Erro ao carregar. Recarregue a página.</span>';}
   }
+  function showConnection(){consented=true;document.getElementById("consentbox").style.display="none";document.getElementById("qrbox").style.display="flex";document.getElementById("connectSteps").style.display="block";document.getElementById("securityBox").style.display="block";document.getElementById("pairbox").style.display="block";poll();if(timer)clearInterval(timer);timer=setInterval(function(){poll(curPhone);},3500);}
+  async function checkConsent(){if(!id){document.getElementById("consentbox").style.display="block";document.getElementById("authMsg").textContent="Link inválido.";return;}try{var r=await fetch(BASE+"/wa/consent/"+encodeURIComponent(id));var d=await r.json();if(d.accepted)showConnection();else document.getElementById("consentbox").style.display="block";}catch(e){document.getElementById("consentbox").style.display="block";document.getElementById("authMsg").textContent="Não foi possível validar a autorização.";}}
+  async function acceptConsent(){var name=(document.getElementById("authName").value||"").trim(),msg=document.getElementById("authMsg");if(name.length<3||!document.getElementById("authCheck").checked){msg.textContent="Informe o responsável e marque a autorização.";return;}msg.textContent="Registrando autorização…";try{var r=await fetch(BASE+"/wa/consent/"+encodeURIComponent(id),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accepted:true,authorizedBy:name,role:document.getElementById("authRole").value,email:document.getElementById("authEmail").value})});var d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||"Falha");showConnection();}catch(e){msg.textContent="Não foi possível registrar: "+e.message;}}
   var curPhone="";
   function genPair(){var p=(document.getElementById("phone").value||"").replace(/[^0-9]/g,"");if(p.length<10){alert("Digite o número com DDD (ex: 5521999998888).");return;}curPhone=p;document.getElementById("paircode").innerHTML='<div class="muted">Gerando código…</div>';poll(p);}
-  poll();
-  timer=setInterval(function(){poll(curPhone);},3500);
+  checkConsent();
 </script>
 </body></html>
