@@ -2342,7 +2342,6 @@ function socSetSort(sel){_socSort=sel.value;_socRenderFiltered();}
 function socSetMetric(sel){_socMetric=sel.value;_socRenderFiltered();}
 function socToggleCompare(){_socCompare=!_socCompare;_socRenderFiltered();}
 function socExport(){window.print();}
-function socGoBriefing(){goToTab('briefing');}
 // soma seguidores por data entre contas (várias contas de Instagram podem estar no mesmo cliente — nunca intercalar as séries)
 function _socSumPorData(segs){const p={};segs.forEach(s=>{p[s.data]=(p[s.data]||0)+(s.total_seguidores||0);});return Object.keys(p).sort().map(data=>({data,total_seguidores:p[data]}));}
 function _socEngRate(p,latestByPost){const m=latestByPost[p.id];if(!m||!m.alcance)return null;return ((m.curtidas||0)+(m.comentarios||0)+(m.compartilhamentos||0)+(m.salvamentos||0))/m.alcance;}
@@ -2550,14 +2549,41 @@ function _socPostCard(p,m,esc,num,destaque){
   const stats=m?`<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--faint);margin-top:6px">
       <span title="Curtidas">❤ ${num(m.curtidas)}</span><span title="Comentários">💬 ${num(m.comentarios)}</span>
       <span title="Alcance">👁 ${num(m.alcance)}</span></div>`:'<div style="font-size:11px;color:var(--faint);margin-top:6px">sem métrica coletada</div>';
-  const briefBtn=`<button class="btn xs ghost rt-no-print" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.55);backdrop-filter:blur(2px)" title="Ver Briefing Criativo deste cliente" onclick="event.preventDefault();event.stopPropagation();socGoBriefing()">🎯</button>`;
   const destaqueTag=destaque?`<span style="position:absolute;top:6px;left:6px;background:rgba(240,192,64,.9);color:#0a0906;font-size:10px;font-weight:800;padding:2px 7px;border-radius:20px" title="Engajamento muito acima da média do período">🔥 destaque</span>`:'';
   const body=`<div style="padding:8px 10px 10px">
       <div style="font-size:10.5px;color:var(--muted);display:flex;justify-content:space-between"><span>${esc(SOC_TIPO_LABEL[p.tipo_midia]||(p.tipo_midia||'').toUpperCase())}</span><span>${dt}</span></div>
       ${stats}</div>`;
-  const inner=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;position:relative">${destaqueTag}${briefBtn}${thumb}${body}</div>`;
-  return p.permalink?`<a href="${esc(p.permalink)}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">${inner}</a>`:inner;
+  const top=`<div style="position:relative">${destaqueTag}${thumb}${body}</div>`;
+  const link=p.permalink?`<a href="${esc(p.permalink)}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;display:block">${top}</a>`:top;
+  const actions=`<div class="rt-no-print" style="display:flex;border-top:1px solid var(--border)">
+      <button class="btn xs ghost" style="flex:1;border-radius:0;border:none" title="Cria uma tarefa pra considerar impulsionar esse post" onclick="socImpulsionar('${p.id}')">🚀 Impulsionar</button>
+      <button class="btn xs ghost" style="flex:1;border-radius:0;border:none;border-left:1px solid var(--border)" title="Cria uma tarefa pra usar esse post como referência de conteúdo" onclick="socIdeia('${p.id}')">💡 Ideia</button>
+    </div>`;
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">${link}${actions}</div>`;
 }
+// Impulsionar/Ideia viram tarefa pro time — nao criamos campanha nem gasto real sozinhos aqui (v1 e um encaminhamento
+// rastreavel; automatizar a criacao de anuncio de verdade fica pra quando puder ser testado com uma conta real).
+async function _socPostQuickTask(postId,kind){
+  try{
+    if(!_socData)return;
+    const p=_socData.postsRaw.find(x=>x.id===postId);if(!p)return;
+    const c=DB.clients.find(x=>x.id===_socClientId);if(!c)return;
+    const m=_socData.latestByPost[postId];
+    const statsTxt=m?`❤ ${m.curtidas||0} · 💬 ${m.comentarios||0} · 👁 ${m.alcance||0}`:'sem métrica coletada ainda';
+    const tipoLbl=SOC_TIPO_LABEL[p.tipo_midia]||p.tipo_midia||'post';
+    const cfg=kind==='impulsionar'
+      ?{icon:'🚀',titulo:'Impulsionar',prio:'media',diasPrazo:2,motivo:'considerar impulsionar/criar campanha a partir dele'}
+      :{icon:'💡',titulo:'Ideia',prio:'baixa',diasPrazo:5,motivo:'usar como referência pra próxima pauta / Briefing Criativo'};
+    const row={id:uid(),name:`${cfg.icon} ${cfg.titulo}: ${tipoLbl} de ${c.name}`,client:c.id,owner:'',status:'todo',due:daysAgoISO(-cfg.diasPrazo),prio:cfg.prio,repeat:'',
+      notes:`Post orgânico com bom desempenho (${statsTxt}) — ${cfg.motivo}.${p.permalink?`\n${p.permalink}`:''}`,link:p.permalink||'',channels:['instagram']};
+    const {error}=await sb.from('tasks').insert(row);
+    if(error){alert('Erro ao criar tarefa: '+error.message);return}
+    DB.tasks=[...DB.tasks,row];
+    renderAll();
+  }catch(e){alert('Erro ao criar tarefa: '+((e&&e.message)||e));}
+}
+function socImpulsionar(postId){_socPostQuickTask(postId,'impulsionar');}
+function socIdeia(postId){_socPostQuickTask(postId,'ideia');}
 /* ===== PÚBLICOS (Meta Custom/Saved Audiences) ===== */
 let _pubData=null,_pubFilter='all',_pubClientId='',_pubSources=null,_pubAccFilter='',_pubRetFilter='',_pubSource='meta';
 function _pubClient(){return DB.clients.find(x=>x.id===(activeClientId||_pubClientId));}
