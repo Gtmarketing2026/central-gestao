@@ -3706,14 +3706,24 @@ async function eventReports(input: any) {
   if (op === "snapshot") {
     const editionId = String(input.editionId || ""), since = String(input.since || ""), until = String(input.until || "");
     if (!editionId || !since || !until) throw new Error("Edição e período são obrigatórios.");
-    const rows = await _sbAll("channel_metrics_daily", `client_id=eq.${encodeURIComponent(clientId)}&date=gte.${since}&date=lte.${until}&select=channel,spend,impressions,clicks,reach,purchases,revenue,leads,conversas,video_views,engajamentos`);
+    const rows = await _sbAll("channel_metrics_daily", `client_id=eq.${encodeURIComponent(clientId)}&date=gte.${since}&date=lte.${until}&select=channel,source_medium,campaign,adset,ad_content,spend,impressions,clicks,reach,purchases,revenue,leads,conversas,video_views,engajamentos`);
     const empty = () => ({ spend: 0, impressions: 0, clicks: 0, reach: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, video_views: 0, engajamentos: 0 });
-    const total: any = empty(), channels: Record<string, any> = {};
-    for (const r of rows || []) { const c = channels[r.channel] || (channels[r.channel] = empty()); for (const k of Object.keys(total)) { const v = Number(r[k]) || 0; c[k] += v; total[k] += v; } }
+    const total: any = empty(), channels: Record<string, any> = {}, campaignMap: Record<string, any> = {};
+    for (const r of rows || []) { const c = channels[r.channel] || (channels[r.channel] = empty()); for (const k of Object.keys(total)) { const v = Number(r[k]) || 0; c[k] += v; total[k] += v; }
+      const ck = `${r.channel}|${r.campaign || r.source_medium || "(sem campanha)"}`; const cp = campaignMap[ck] || (campaignMap[ck] = { channel: r.channel, campaign: r.campaign || "", source_medium: r.source_medium || "", spend: 0, impressions: 0, clicks: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, video_views: 0 });
+      for (const k of ["spend", "impressions", "clicks", "purchases", "revenue", "leads", "conversas", "video_views"]) cp[k] += Number(r[k]) || 0;
+    }
     total.ctr = total.impressions ? total.clicks / total.impressions * 100 : 0; total.cpm = total.impressions ? total.spend / total.impressions * 1000 : 0; total.roas = total.spend ? total.revenue / total.spend : 0;
     Object.values(channels).forEach((c: any) => { c.ctr = c.impressions ? c.clicks / c.impressions * 100 : 0; c.cpm = c.impressions ? c.spend / c.impressions * 1000 : 0; c.roas = c.spend ? c.revenue / c.spend : 0; });
-    const id = _wuid(), collectedAt = new Date().toISOString(), metrics = { total, channels };
-    await sbPost("event_snapshots", { id, edition_id: editionId, client_id: clientId, period_start: since, period_end: until, metrics, sources: { channel_metrics_daily: true, youtube: false, rd: false }, collected_at: collectedAt });
+    const rd = await _sbAll("rd_conversions", `client_id=eq.${encodeURIComponent(clientId)}&converted_at=gte.${since}T00:00:00Z&converted_at=lte.${until}T23:59:59Z&select=event_identifier,source,medium,campaign`);
+    const rdEvents: Record<string, number> = {}; for (const x of rd || []) { const k = String(x.event_identifier || "Conversão"); rdEvents[k] = (rdEvents[k] || 0) + 1; }
+    const convs = await _sbAll("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&created_at=gte.${since}T00:00:00Z&created_at=lte.${until}T23:59:59Z&select=stage,origin_type`);
+    const crmStages: Record<string, number> = {}; for (const x of convs || []) { const k = String(x.stage || "sem_etapa"); crmStages[k] = (crmStages[k] || 0) + 1; }
+    const salesTp = await _sbAll("lead_touchpoints", `client_id=eq.${encodeURIComponent(clientId)}&kind=eq.purchase&ts=gte.${since}T00:00:00Z&ts=lte.${until}T23:59:59Z&select=value,channel,campaign,label`);
+    const commerce = { purchases: (salesTp || []).length, revenue: (salesTp || []).reduce((a: number, x: any) => a + (Number(x.value) || 0), 0) };
+    const campaigns = Object.values(campaignMap).map((x: any) => ({ ...x, ctr: x.impressions ? x.clicks / x.impressions * 100 : 0, cpa: (x.purchases || x.leads || x.conversas) ? x.spend / (x.purchases || x.leads || x.conversas) : 0 })).sort((a: any, b: any) => b.spend - a.spend).slice(0, 100);
+    const id = _wuid(), collectedAt = new Date().toISOString(), metrics = { total, channels, campaigns, rd: { total: (rd || []).length, events: rdEvents }, crm: { total: (convs || []).length, stages: crmStages }, commerce };
+    await sbPost("event_snapshots", { id, edition_id: editionId, client_id: clientId, period_start: since, period_end: until, metrics, sources: { channel_metrics_daily: true, journey_sales: !!salesTp.length, rd: !!rd.length, crm: !!convs.length, youtube: false }, collected_at: collectedAt });
     return { snapshot: { id, edition_id: editionId, client_id: clientId, period_start: since, period_end: until, metrics, collected_at: collectedAt } };
   }
   if (op === "saveVersion") {
@@ -3722,6 +3732,14 @@ async function eventReports(input: any) {
     const versionNo = (Number(prev?.[0]?.version_no) || 0) + 1, id = _wuid();
     await sbPost("event_report_versions", { id, edition_id: editionId, snapshot_id: input.snapshotId || null, version_no: versionNo, status: input.status || "draft", title: String(input.title || `Relatório v${versionNo}`), instructions: String(input.instructions || ""), report_data: input.reportData || {}, created_by: input.createdBy || null });
     return { id, versionNo };
+  }
+  if (op === "analyze") {
+    const editionId = String(input.editionId || ""), snapshotId = String(input.snapshotId || "");
+    const edition = (await sbGet("event_editions", `id=eq.${encodeURIComponent(editionId)}&client_id=eq.${encodeURIComponent(clientId)}&select=*&limit=1`))[0];
+    const snapshot = (await sbGet("event_snapshots", `id=eq.${encodeURIComponent(snapshotId)}&edition_id=eq.${encodeURIComponent(editionId)}&select=metrics,sources,period_start,period_end&limit=1`))[0];
+    if (!edition || !snapshot) throw new Error("Atualize os dados antes de gerar a análise.");
+    const prompt = `Você é AndréIA, consultora sênior de eventos de marketing. Analise somente os dados reais abaixo. Diferencie fatos, hipóteses e dados ausentes. Não diga que público/nicho está errado; quando houver dúvida, proponha investigação. Produza JSON em português: {"resumo":"3-5 frases","destaques":["..."],"gargalos":[{"ponto":"...","evidencia":"...","acao":"..."}],"canais":[{"canal":"...","leitura":"..."}],"criativos_campanhas":[{"nome":"...","leitura":"..."}],"projecoes":["..."],"proximos_passos":["..."]}. Não inclua prazos.\nPERÍODO: ${snapshot.period_start} a ${snapshot.period_end}\nORIENTAÇÃO DO GESTOR: ${String(input.instructions || "Sem orientação adicional").slice(0, 3000)}\nDADOS: ${JSON.stringify(snapshot.metrics).slice(0, 45000)}\nFONTES: ${JSON.stringify(snapshot.sources)}`;
+    return { analysis: await _callOpenAIJson([{ role: "user", content: prompt }]) };
   }
   throw new Error("Operação de evento inválida.");
 }
