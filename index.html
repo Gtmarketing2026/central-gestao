@@ -2016,7 +2016,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||'',instagramAccounts:Array.isArray(r.instagram_accounts)?r.instagram_accounts:[],instagramAccountsExcluded:Array.isArray(r.instagram_accounts_excluded)?r.instagram_accounts_excluded:[],pixelBannerProprio:!!r.pixel_banner_proprio});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||'',instagramAccounts:Array.isArray(r.instagram_accounts)?r.instagram_accounts:[],instagramAccountsExcluded:Array.isArray(r.instagram_accounts_excluded)?r.instagram_accounts_excluded:[],pixelBannerProprio:!!r.pixel_banner_proprio,isSelf:!!r.is_self});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],budget_campaigns:o.budgetCampaigns||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,ga4_property_id:o.ga4PropertyId||null,gsc_site_url:o.gscSiteUrl||null,whatsapp:o.whatsapp||null,pixel_id:o.pixelId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -2076,6 +2076,8 @@ async function doLogout(){
 async function loadAll(){
   const [c,t,f,s,tm,cr,w,rt]=await Promise.all([sb.from('clients').select('*'),sb.from('tasks').select('*'),sb.from('finance').select('*'),sb.from('shows').select('*'),sb.from('team').select('*'),sb.from('creditors').select('*').order('name'),sb.from('wallet').select('*').order('date'),sb.from('report_templates').select('*').order('created_at')]);
   DB.clients=(c.data||[]).map(mapClient);DB.tasks=(t.data||[]).map(mapTask).filter(x=>!String(x.id).startsWith('cal'));DB.finance=(f.data||[]).map(mapFinance);DB.shows=(s.data||[]).map(mapShow);DB.team=tm.data||[];DB.creditors=cr.data||[];DB.wallet=w.data||[];DB.reportTemplates=(rt.data||[]).map(mapTemplate);
+  await loadAccountConfig(); // "Agência como cliente": só entra no seletor/CRM se a feature estiver ligada
+  if(!_acctCfg.agency_client_active)DB.clients=DB.clients.filter(cl=>!cl.isSelf);
   if(!DB.team.length){const dt=[{id:'eu',name:'Andreia'},{id:'col1',name:'Dionathan'}];await sb.from('team').insert(dt);DB.team=dt;}
   setFinSub(finSub);
   renderWhoAmI();loadNotifications();
@@ -4422,7 +4424,7 @@ function fillSidebarClient(){
   const s=document.getElementById('sidebarClient');if(!s)return;
   const cur=s.value;
   const vis=DB.clients.filter(c=>c.status!=='Encerrado'||c.id===cur); // encerrados fora do seletor (mantém se for o selecionado)
-  s.innerHTML='<option value="">— selecionar cliente —</option>'+vis.sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}">${c.name.replace(/</g,'&lt;')}</option>`).join('');
+  s.innerHTML='<option value="">— selecionar cliente —</option>'+vis.sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}">${c.isSelf?'🏢 ':''}${c.name.replace(/</g,'&lt;')}</option>`).join('');
   s.value=cur;
 }
 let activeClientId='';
@@ -4443,6 +4445,30 @@ async function googleOauthDisconnect(){
     if(error)throw error;
     _acctCfg=null;loadConfiguracoes();
   }catch(e){alert('Erro ao desconectar: '+(e.message||e));}
+}
+async function agencyClientToggle(ativar){
+  try{
+    if(ativar){
+      const {data:existing,error:e1}=await sb.from('clients').select('*').eq('is_self',true).maybeSingle();
+      if(e1)throw e1;
+      let self=existing;
+      if(!self){
+        const row=dbClient({id:uid(),name:'GT Marketing',status:'Ativo',isSelf:true});
+        row.is_self=true; // dbClient() nao mapeia isSelf pro DB — grava explicito
+        const {data,error:e2}=await sb.from('clients').insert(row).select().maybeSingle();
+        if(e2)throw e2;
+        self=data;
+      }
+      const mapped=mapClient(self);
+      if(!DB.clients.some(c=>c.id===mapped.id))DB.clients=[...DB.clients,mapped];
+    }else{
+      DB.clients=DB.clients.filter(c=>!c.isSelf);
+    }
+    const {error:e3}=await sb.from('account_config').update({data:{..._acctCfg,agency_client_active:ativar}}).eq('id','main');
+    if(e3)throw e3;
+    _acctCfg={..._acctCfg,agency_client_active:ativar};
+    fillSidebarClient();renderAll();loadConfiguracoes();
+  }catch(e){alert('Erro: '+(e.message||e));}
 }
 async function ga4DiscoverRun(btn){
   const box=document.getElementById('ga4DiscoverBox');if(!box)return;
@@ -4534,8 +4560,15 @@ async function loadConfiguracoes(){
   const rd=_acctCfg.rd_station||{};
   const tk=_acctCfg.tiktok_ads||{};
   const pt=_acctCfg.pinterest_ads||{};
+  const agAtiva=!!_acctCfg.agency_client_active;
   body.innerHTML=`
-    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;margin:4px 0 12px">🔌 Integrações</div>
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;margin:4px 0 12px">📈 Aquisição</div>
+    ${integCard('agencyClient','🏢','Agência como cliente','Faz a própria agência (GT Marketing) aparecer como cliente no seletor — reaproveita o CRM Kanban e o WhatsApp pra vendas da própria agência, sem misturar com clientes de verdade.',
+      agAtiva?integStatusPill('ok','✓ Ativo'):integStatusPill('off','Inativo'),
+      `<div style="font-size:12px;color:var(--muted)">${agAtiva?'Já aparece no seletor de clientes (com o ícone 🏢, pra não confundir com cliente pagante). Conecte o WhatsApp dela na Configuração do Cliente quando tiver o número.':'Cria um registro de cliente pra "GT Marketing" e libera o CRM Kanban pra receber leads de gente interessada em contratar a agência.'}
+        <div style="margin-top:8px"><button class="btn sm ${agAtiva?'ghost':'primary'}" onclick="agencyClientToggle(${!agAtiva})">${agAtiva?'Desativar':'Ativar'}</button></div></div>`
+    )}
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;margin:20px 0 12px">🔌 Integrações</div>
     ${integCard('meta','Ⓜ️','Meta Ads','Contas de anúncio do Facebook/Instagram (token da API).',integStatusPill('load','Checando…'),'')}
     ${integCard('google','🔎','Google Ads','Contas via MCC do Google Ads.',integStatusPill('load','Checando…'),'')}
     ${integCard('googleOauth','🔐','Google — login pessoal','Reforço de acesso ao GA4/Search Console: usado só quando a conta de serviço não tem permissão numa propriedade específica de um cliente.',
@@ -6026,15 +6059,20 @@ function brRenderAnalise(r,curadoria,curadoriaErro){
   const aviso=r.avisoConfiabilidade?`<div class="card" style="margin-bottom:14px;border:1px solid rgba(240,192,64,.4);background:rgba(240,192,64,.08)"><b>⚠ Confiabilidade reduzida:</b> ${r.funil_inferido_pct}% dos criativos não tinham o funil explícito no nome — a IA inferiu pela campanha/anúncio. Vale revisar a nomenclatura das campanhas.</div>`:'';
   const emLeitura=r.criativos_em_leitura?`<div style="font-size:11.5px;color:var(--faint);margin-bottom:14px">${r.criativos_em_leitura} anúncio(s) ficaram "em leitura" (volume abaixo do piso) e não entraram na análise.</div>`:'';
   const thumbs=r.thumbsByCodigo||{};
+  const detalhes=r.criativosByCodigo||{};
   const itens=(arr)=>(arr&&arr.length)?arr.map(i=>`
-    <div style="display:flex;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px">
-      ${thumbs[i.codigo]?`<img src="${thumbs[i.codigo]}" style="width:56px;height:56px;border-radius:8px;object-fit:cover;flex:none" referrerpolicy="no-referrer">`:`<div style="width:56px;height:56px;border-radius:8px;background:var(--surface);flex:none;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:9px;text-align:center">sem prévia</div>`}
+    ${(()=>{const d=detalhes[i.codigo]||{},th=d.thumbnail||thumbs[i.codigo]||'',kpis=[d.spend!=null?'Invest. '+fmt(d.spend):'',d.impressions!=null?num(d.impressions)+' impr.':'',d.ctr!=null?'CTR '+(+d.ctr).toFixed(2)+'%':'',d.resultadoLabel?(num(d.resultadoValor||0)+' '+d.resultadoLabel):'',d.custoPorResultado!=null?('Custo/'+d.resultadoLabel+' '+fmt(d.custoPorResultado)):''].filter(Boolean);return `<div style="display:flex;gap:12px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:9px">
+      <div style="width:112px;flex:none">${th?`<a href="${_brEsc(d.link||th)}" target="_blank" rel="noopener"><img src="${_brEsc(th)}" style="width:112px;height:112px;border-radius:9px;object-fit:cover;display:block" referrerpolicy="no-referrer"></a>`:`<a href="${_brEsc(d.link||'#')}" target="_blank" rel="noopener" style="width:112px;height:112px;border-radius:9px;background:var(--surface);display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:10px;text-align:center;text-decoration:none">Abrir anúncio</a>`}${d.link?`<a href="${_brEsc(d.link)}" target="_blank" rel="noopener" class="btn xs ghost" style="width:100%;margin-top:5px;text-align:center">↗ Ver criativo</a>`:''}</div>
       <div style="flex:1;min-width:0">
-        <div style="font-family:monospace;font-weight:700;font-size:12.5px">${_brEsc(i.codigo)}</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="font-family:monospace;font-weight:800;font-size:12px">${_brEsc(i.codigo)}</span>${d.canal?`<span class="badge">${_brEsc(d.canal)}</span>`:''}${d.objetivo?`<span class="badge">Objetivo: ${_brEsc(d.objetivo)}</span>`:''}</div>
+        <div style="font-weight:750;font-size:13px;margin:4px 0">${_brEsc(d.nome||'Criativo')}</div>
+        ${d.campanha?`<div style="font-size:10.5px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${_brEsc(d.campanha)}">Campanha: ${_brEsc(d.campanha)}</div>`:''}${d.conjunto?`<div style="font-size:10.5px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${_brEsc(d.conjunto)}">Conjunto/grupo: ${_brEsc(d.conjunto)}</div>`:''}
+        ${kpis.length?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin:7px 0">${kpis.map(k=>`<span style="font-size:10.5px;border:1px solid var(--border);border-radius:5px;padding:2px 6px;color:var(--muted)">${_brEsc(k)}</span>`).join('')}</div>`:''}
+        ${i.metricas?`<div style="font-size:11px;color:var(--accent);margin-bottom:5px"><b>Por que entrou aqui:</b> ${_brEsc(i.metricas)}</div>`:''}
         ${(i.positivos||[]).map(p=>`<div style="font-size:12.5px;color:#34d399;padding-left:14px;position:relative"><span style="position:absolute;left:0">+</span>${_brEsc(p)}</div>`).join('')}
         ${(i.negativos||[]).map(n=>`<div style="font-size:12.5px;color:#f87171;padding-left:14px;position:relative"><span style="position:absolute;left:0">−</span>${_brEsc(n)}</div>`).join('')}
       </div>
-    </div>`).join(''):'<div style="font-size:12px;color:var(--faint)">Sem peça com volume suficiente.</div>';
+    </div>`})()}`).join(''):'<div style="font-size:12px;color:var(--faint)">Sem peça com volume suficiente.</div>';
   const funis=(r.funis||[]).map(fn=>`
     <div style="display:flex;align-items:center;gap:10px;margin:20px 0 10px">
       <h3 style="margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:${brFunilBadgeColor(fn.funil)}">${_brEsc(fn.funil)}</h3>
@@ -6129,7 +6167,7 @@ async function brAbrirHistorico(briefingId){
     const r=(data&&data.data)||{};
     if(!r.briefing){out.innerHTML='<div class="empty">Briefing não encontrado.</div>';return;}
     const a=r.analise||{};
-    _brResult={briefingId:r.briefing.id,leitura:a.leitura||'',funis:a.funis_json||[],padroes:a.padroes_json||[],criativos_em_leitura:a.criativos_em_leitura||0,funil_inferido_pct:a.funil_inferido_pct||0,avisoConfiabilidade:(a.funil_inferido_pct||0)>30,thumbsByCodigo:{},_aprovado:true};
+    _brResult={briefingId:r.briefing.id,leitura:a.leitura||'',funis:a.funis_json||[],padroes:a.padroes_json||[],criativos_em_leitura:a.criativos_em_leitura||0,funil_inferido_pct:a.funil_inferido_pct||0,avisoConfiabilidade:(a.funil_inferido_pct||0)>30,thumbsByCodigo:{},criativosByCodigo:a.criativos_json||{},_aprovado:true};
     brRenderAnalise(_brResult,r.curadoria,null);
     document.getElementById('brOut').insertAdjacentHTML('afterbegin','<button class="btn sm ghost" style="margin-bottom:12px" onclick="brVerHistorico()">← Voltar ao histórico</button>');
     if((r.fichas||[]).length)brRenderFichas(r.fichas);
