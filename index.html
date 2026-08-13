@@ -10015,26 +10015,46 @@ function metaChannelFromData(d){
   }
   return {META:{label:'META',spend:t.spend||0,impressions:t.impressions||0,clicks:t.clicks||0,reach:t.reach||0,revenue:t.revenue||0,sales:Math.round(t.purchases||0),leads:t.leads||0,addToCart:t.addToCart||0,initiateCheckout:t.initiateCheckout||0,conversas:t.conversas||0,videoViews:t.videoViews||0,engajamentos:t.engajamentos||0,records,_meta:true}};
 }
+// Cache curto + deduplicação: Dashboard, CRM, Campanhas e Relatório costumam pedir o mesmo
+// período quase ao mesmo tempo. Uma única consulta ao Meta atende todas essas telas.
+const _metaInsightsCache=new Map(),_metaInsightsPending=new Map();
+function _metaInsightsKey(payload){
+  const p={...payload,accounts:(payload.accounts||[]).map(a=>({id:String(a.id),name:a.name||''})).sort((a,b)=>a.id.localeCompare(b.id))};
+  return JSON.stringify(p);
+}
+async function fetchMetaInsightsCached(payload,opts={}){
+  const key=_metaInsightsKey(payload),now=Date.now(),ttl=opts.ttl==null?120000:+opts.ttl;
+  const hit=_metaInsightsCache.get(key);
+  if(!opts.force&&hit&&now-hit.ts<ttl)return hit.data;
+  if(!opts.force&&_metaInsightsPending.has(key))return _metaInsightsPending.get(key);
+  const req=(async()=>{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:payload}});
+    if(error)throw new Error('Meta Ads: '+(error.message||error));
+    if(data&&data.error)throw new Error('Meta Ads: '+data.error);
+    const d=(data&&data.data)||data;
+    _metaInsightsCache.set(key,{ts:Date.now(),data:d});
+    // evita crescimento indefinido em sessões longas
+    if(_metaInsightsCache.size>40){const oldest=[..._metaInsightsCache.entries()].sort((a,b)=>a[1].ts-b[1].ts).slice(0,10);oldest.forEach(([k])=>_metaInsightsCache.delete(k));}
+    return d;
+  })().finally(()=>_metaInsightsPending.delete(key));
+  _metaInsightsPending.set(key,req);return req;
+}
+function clearMetaInsightsCache(){_metaInsightsCache.clear();_metaInsightsPending.clear();}
+
 // UMA chamada só: traz canal META + anúncios (Diagnóstico) juntos (mais rápido que 2 chamadas)
 async function fetchMetaReport(c,month){
   const ids=c.metaAccountIds||[];
   if(!ids.length)return {channelStats:null,ads:null};
   const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
   const {since,until}=monthRange(month);
-  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,daily:true,byAd:true}}});
-  if(error)throw new Error('Meta Ads: '+(error.message||error));
-  if(data&&data.error)throw new Error('Meta Ads: '+data.error);
-  const d=(data&&data.data)||data;
+  const d=await fetchMetaInsightsCached({accounts,since,until,daily:true,byAd:true,byCampaign:true});
   return {channelStats:metaChannelFromData(d),ads:(d&&d.ads)||[],total:d&&d.total};
 }
 // Dashboard Meta ao vivo (por período) para clientes com Meta vinculado
 async function fetchMetaReportRange(c,since,until){
   const ids=c.metaAccountIds||[];if(!ids.length)return {channelStats:null,ads:[]};
   const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
-  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,daily:true,byAd:true,byCampaign:true}}});
-  if(error)throw new Error('Meta Ads: '+(error.message||error));
-  if(data&&data.error)throw new Error('Meta Ads: '+data.error);
-  const d=(data&&data.data)||data;
+  const d=await fetchMetaInsightsCached({accounts,since,until,daily:true,byAd:true,byCampaign:true});
   return {channelStats:metaChannelFromData(d),ads:(d&&d.ads)||[],campaigns:(d&&d.campaigns)||[],total:d&&d.total,accountErrors:(d&&d.accountErrors)||[]};
 }
 /* ---- GOOGLE ADS ao vivo (mesma lógica do Meta) ---- */
@@ -10116,7 +10136,7 @@ function metaErrHuman(msg){
 async function fetchMetaTotals(c,since,until){
   const ids=c.metaAccountIds||[];if(!ids.length)return null;
   const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
-  try{const {data}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until}}});const d=(data&&data.data)||data;return (d&&d.total)||null;}catch(e){return null;}
+  try{const d=await fetchMetaInsightsCached({accounts,since,until});return (d&&d.total)||null;}catch(e){return null;}
 }
 function metaTotalResumo(t){if(!t)return null;return{investimento:Math.round(t.spend||0),impressoes:t.impressions||0,cliques:t.clicks||0,ctrPct:+(t.ctr||0).toFixed(2),cpc:+(t.cpc||0).toFixed(2),cpm:+(t.cpm||0).toFixed(2),roas:+(t.roas||0).toFixed(2),compras:Math.round(t.purchases||0),leads:Math.round(t.leads||0),conversas:Math.round(t.conversas||0),videoViews:Math.round(t.videoViews||0)};}
 // Total (Meta, pro teto) + gasto POR campanha (Meta + Google quando houver verba de campanha do Google) — pros avisos de estouro
@@ -10127,8 +10147,7 @@ async function fetchMetaBudgetData(c,since,until){
   let total=null,campaigns=[];
   if(ids.length){try{
     const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
-    const {data}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,byCampaign:true}}});
-    const d=(data&&data.data)||data;if(d){total=d.total||null;campaigns=campaigns.concat(d.campaigns||[]);}
+    const d=await fetchMetaInsightsCached({accounts,since,until,byCampaign:true});if(d){total=d.total||null;campaigns=campaigns.concat(d.campaigns||[]);}
   }catch(e){}}
   if(wantGoogle){try{const g=await fetchGoogleReportRange(c,since,until);campaigns=campaigns.concat(g.campaigns||[]);}catch(e){}}
   return {total,campaigns};
@@ -10990,29 +11009,17 @@ function renderMetaDashboard(c,rep,since,until){
   renderBudgetBanner(c,'dashBudgetWarn'); // teto de investimento (async)
 }
 async function fetchMetaChannelStats(c,month){
-  const ids=c.metaAccountIds||[];
-  if(!ids.length)return null;
-  const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
   const {since,until}=monthRange(month);
-  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,daily:true,byCampaign:true}}});
-  if(error)throw new Error('Meta Ads: '+(error.message||error));
-  if(data&&data.error)throw new Error('Meta Ads: '+data.error);
-  const d=(data&&data.data)||data;const stats=metaChannelFromData(d);
-  _tplMetaCampaigns=(d&&d.campaigns)||[]; // campanhas com diário — alimenta o Comparativo Semanal por objetivo
-  return stats?{stats,total:d.total}:null;
+  const rep=await fetchMetaReportRange(c,since,until);
+  _tplMetaCampaigns=rep.campaigns||[]; // campanhas com diário — alimenta o Comparativo Semanal por objetivo
+  return rep.channelStats?{stats:rep.channelStats,total:rep.total}:null;
 }
 let _tplMetaCampaigns=[];
 // Diagnóstico: performance por anúncio (criativo) ao vivo. Retorna array de ads ordenado por investimento.
 async function fetchMetaCreatives(c,month){
-  const ids=c.metaAccountIds||[];
-  if(!ids.length)return null;
-  const accounts=ids.map(id=>({id,name:(metaAccountsCache.find(a=>a.id===id)||{}).name||id}));
   const {since,until}=monthRange(month);
-  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{metaAds:{accounts,since,until,byAd:true}}});
-  if(error)throw new Error('Diagnóstico: '+(error.message||error));
-  if(data&&data.error)throw new Error('Diagnóstico: '+data.error);
-  const d=(data&&data.data)||data;
-  return (d&&d.ads)||[];
+  const rep=await fetchMetaReportRange(c,since,until);
+  return rep.ads||[];
 }
 function computeChannelStats(adTabs,dataByTab,month){
   const stats={};
@@ -11510,6 +11517,7 @@ async function metaExecute(payload){
   if(data&&data.error)throw new Error(data.error);
   const d=(data&&data.data)||data;
   if(!d||!d.ok)throw new Error((d&&d.detail)||'Falha na ação no Meta');
+  clearMetaInsightsCache();
   return d;
 }
 async function cancelAgentAction(mi,ai){const act=agentActiveChat.messages[mi].actions[ai];act.status='cancelled';await persistAgentChat();renderAgentChat()}

@@ -663,9 +663,10 @@ async function metaAdsInsights(m: any) {
     } catch (_e) { return null; }
   }
   const perAccount = await Promise.all(accounts.map(async (acc) => {
-    const statusIssue = await fetchAccountStatus(acc.id);
+    let statusIssue: string | null = null;
     try {
-      const [accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, adsetRows, adDailyRows] = await Promise.all([
+      const [status, accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, adsetRows, adDailyRows] = await Promise.all([
+        fetchAccountStatus(acc.id),
         fetchInsights(acc.id, "account"),
         m.daily ? fetchInsights(acc.id, "account", "&time_increment=1") : Promise.resolve([] as any[]),
         wantObj ? fetchObjectives(acc.id) : Promise.resolve({} as Record<string, any>),
@@ -675,9 +676,11 @@ async function metaAdsInsights(m: any) {
         // Buscamos tambem SEM quebra diaria pra ter o reach/frequencia DEDUPLICADO por campanha no periodo.
         (m.byCampaign && m.daily) ? fetchInsights(acc.id, "campaign", "") : Promise.resolve([] as any[]),
         m.byAdset ? fetchInsights(acc.id, "adset", m.daily ? "&time_increment=1" : "") : Promise.resolve([] as any[]),
-        // anuncio x dia — so quando pedido explicitamente (banco de dados de midia); nenhum outro caller usa byAd+daily juntos hoje
-        (m.byAd && m.daily) ? fetchInsights(acc.id, "ad", "&time_increment=1") : Promise.resolve([] as any[]),
+        // anúncio x dia é muito volumoso. Só busca quando solicitado explicitamente;
+        // Dashboard/Relatório precisam do total por anúncio, não da duplicação anúncio × dia.
+        m.byAdDaily ? fetchInsights(acc.id, "ad", "&time_increment=1") : Promise.resolve([] as any[]),
       ]);
+      statusIssue = status;
       return { acc, accountRows, acctDaily, objByCampId, adRows, campRows, campDedup, adsetRows, adDailyRows, error: statusIssue as string | null };
     } catch (e) {
       // conta com erro NAO derruba as outras: devolve vazia + motivo (front mostra o disclaimer)
@@ -1919,6 +1922,18 @@ function _briefingElegivel(funil: string | null, a: any): boolean {
   if (funil === "Fundo") return (a.spend || 0) >= 50;
   return (a.impressions || 0) >= 2000; // funil nao resolvido ainda: usa o piso mais permissivo, LLM decide o funil depois
 }
+async function _briefingMetaThumbs(adIds: string[]) {
+  const out: Record<string, string> = {}, token = await _metaUserToken();
+  if (!token) return out;
+  for (let i = 0; i < adIds.length; i += 50) {
+    const ids = adIds.slice(i, i + 50).filter(Boolean); if (!ids.length) continue;
+    try {
+      const r = await fetch(`https://graph.facebook.com/v21.0/?ids=${ids.join(",")}&fields=creative{thumbnail_url,image_url}&access_token=${token}`), j = await r.json();
+      for (const id of ids) { const cr = j[id]?.creative, thumb = cr?.thumbnail_url || cr?.image_url; if (thumb) out[id] = thumb; }
+    } catch (_e) { /* card continua com link e KPIs */ }
+  }
+  return out;
+}
 async function _briefingCriativos(clientId: string, since: string, until: string) {
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=id,name,meta_account_id,google_account_id`))[0];
   if (!c) throw new Error("Cliente não encontrado.");
@@ -1938,14 +1953,19 @@ async function _briefingCriativos(clientId: string, since: string, until: string
     const elegivel = _briefingElegivel(funilResolvido, a);
     const r = _briefingResultado(a);
     return {
-      codigo, adId: a.adId, canal: a._google ? "Google" : "Meta", campanha: a.campaign || "", conjunto: a.adset || "",
+      codigo, adId: a.adId, nome: a.adName || a.campaign || codigo, canal: a._google ? "Google" : "Meta", campanha: a.campaign || "", conjunto: a.adset || "", objetivo: a.objetivo?.rotulo || a.objetivo?.tipo || "",
       funil: funilResolvido, elegivel, thumbnail: a.thumbnail || null,
+      link: a._google
+        ? `https://ads.google.com/aw/ads?campaignId=${encodeURIComponent(a.campaignId || "")}&adGroupId=${encodeURIComponent(a.adsetId || "")}`
+        : `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${encodeURIComponent(a.accountId || "")}&selected_ad_ids=${encodeURIComponent(a.adId || "")}`,
       spend: Math.round((a.spend || 0) * 100) / 100, impressions: a.impressions || 0, clicks: a.clicks || 0,
       reach: a.reach || 0, frequency: +(a.frequency || 0).toFixed(2), ctr: +(a.ctr || 0).toFixed(2), cpm: +(a.cpm || 0).toFixed(2),
       resultadoLabel: r.label, resultadoValor: Math.round(r.valor), custoPorResultado: r.custo != null ? Math.round(r.custo * 100) / 100 : null,
       videoViews: a.videoViews || 0,
     };
   });
+  const missingMeta = criativos.filter((x: any) => x.canal === "Meta" && x.elegivel && !x.thumbnail && x.adId).map((x: any) => x.adId);
+  if (missingMeta.length) { const extra = await _briefingMetaThumbs(missingMeta); for (const x of criativos) if (!x.thumbnail && extra[x.adId]) x.thumbnail = extra[x.adId]; }
   const total = criativos.length;
   const pctInferido = total ? Math.round((inferidos / total) * 1000) / 10 : 0;
   return { criativos, total, pctInferido, erros: [(mRes as any).error, (gRes as any).error].filter(Boolean) };
@@ -2006,8 +2026,11 @@ async function briefingAnalise(input: any) {
   }
   const elegiveis = criativos.filter((x) => x.elegivel);
   if (!elegiveis.length) return { erro: `Nenhum criativo elegível${funilDesejado ? ` do funil ${funilDesejado}` : ""}${produto ? ` com "${produto}" no nome da campanha/conjunto` : ""} no período. Amplie o período ou ajuste os filtros.`, erros };
-  const thumbsByCodigo: Record<string, string> = {};
-  for (const x of criativos) if (x.thumbnail) thumbsByCodigo[x.codigo] = x.thumbnail;
+  const thumbsByCodigo: Record<string, string> = {}, criativosByCodigo: Record<string, any> = {};
+  for (const x of criativos) {
+    if (x.thumbnail) thumbsByCodigo[x.codigo] = x.thumbnail;
+    criativosByCodigo[x.codigo] = x;
+  }
   const dadosTxt = _briefingDadosTxt(criativos);
   const prompt = `Voce e analista de criativos de trafego pago. Analise os criativos que rodaram e devolva a leitura para o time de producao, que precisa entender o que funcionou antes de criar peca nova (direcao de DESIGN E VIDEO - a leitura de investimento/orcamento e feita em outro lugar, nao repita numero de gasto na resposta).
 
@@ -2050,9 +2073,9 @@ Responda APENAS com JSON valido, sem markdown, sem preambulo:
     id: analiseId, briefing_id: briefingId,
     leitura: parsed.leitura || "", funis_json: parsed.funis || [], padroes_json: parsed.padroes || [],
     criativos_analisados: elegiveis.length, criativos_em_leitura: total - elegiveis.length,
-    funil_inferido_pct: pctInferido, gerado_em: new Date().toISOString(),
+    funil_inferido_pct: pctInferido, criativos_json: criativosByCodigo, gerado_em: new Date().toISOString(),
   });
-  return { briefingId, analiseId, ...parsed, thumbsByCodigo, criativos_analisados: elegiveis.length, criativos_em_leitura: total - elegiveis.length, funil_inferido_pct: pctInferido, avisoConfiabilidade: pctInferido > 30, erros };
+  return { briefingId, analiseId, ...parsed, thumbsByCodigo, criativosByCodigo, criativos_analisados: elegiveis.length, criativos_em_leitura: total - elegiveis.length, funil_inferido_pct: pctInferido, avisoConfiabilidade: pctInferido > 30, erros };
 }
 // Aprova o briefing (congela e "envia pra fila de producao"). So muda status - fichas ja foram geradas antes.
 async function briefingAprovar(input: any) {
