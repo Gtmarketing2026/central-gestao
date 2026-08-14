@@ -4603,6 +4603,23 @@ async function waHandler(w: any) {
   if (!inst) throw new Error("Instância WhatsApp não encontrada.");
   const host = inst.uaz_host, token = inst.uaz_token, clientId = inst.client_id || null;
   const clientFilter = clientId ? "eq." + encodeURIComponent(clientId) : "is.null";
+  if (w.op === "listLeadImports") {
+    if (!clientId) return { imports: [] };
+    const imports = await sbGet("crm_import_batches", `client_id=eq.${encodeURIComponent(clientId)}&select=*&order=created_at.desc&limit=50`);
+    return { imports };
+  }
+  if (w.op === "deleteLeadImport") {
+    if (!clientId || !w.batchId) throw new Error("Lote de importação inválido.");
+    const batch = (await sbGet("crm_import_batches", `id=eq.${encodeURIComponent(w.batchId)}&client_id=eq.${encodeURIComponent(clientId)}&status=eq.active&select=*&limit=1`))[0];
+    if (!batch) throw new Error("Arquivo importado não encontrado ou já excluído.");
+    const convs = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&import_batch_id=eq.${encodeURIComponent(batch.id)}&select=id&limit=6000`);
+    const ids = convs.map((x: any) => String(x.id)); const protectedIds = new Set<string>();
+    for (let i = 0; i < ids.length; i += 200) { const chunk = ids.slice(i, i + 200); if (!chunk.length) continue; const msgs = await sbGet("wa_messages", `conversation_id=in.(${chunk.map((x: string) => encodeURIComponent(x)).join(",")})&select=conversation_id&limit=5000`); (msgs || []).forEach((x: any) => protectedIds.add(String(x.conversation_id))); }
+    const deletable = ids.filter((id: string) => !protectedIds.has(id));
+    for (let i = 0; i < deletable.length; i += 200) { const chunk = deletable.slice(i, i + 200); const r = await fetch(`${_SB_URL}/rest/v1/wa_conversations?id=in.(${chunk.map((x: string) => encodeURIComponent(x)).join(",")})`, { method: "DELETE", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, Prefer: "return=minimal" } }); if (!r.ok) throw new Error(`Falha ao remover leads do lote (${r.status}).`); }
+    await sbPatchD("crm_import_batches", `id=eq.${encodeURIComponent(batch.id)}`, { status: "deleted", deleted_count: deletable.length, protected_count: protectedIds.size, deleted_at: new Date().toISOString() });
+    return { deleted: deletable.length, protected: protectedIds.size };
+  }
   if (w.op === "importLeads") {
     if (!clientId) throw new Error("Selecione o CRM de um cliente para importar leads.");
     const input = Array.isArray(w.leads) ? w.leads.slice(0, 5000) : [];
@@ -4615,9 +4632,12 @@ async function waHandler(w: any) {
     const unique = new Map<string, any>(); clean.forEach((x: any) => { if (!unique.has(x.chat)) unique.set(x.chat, x); }); const rows = [...unique.values()];
     const existing = new Set<string>();
     for (let i = 0; i < rows.length; i += 200) { const ids = rows.slice(i, i + 200).map((x: any) => encodeURIComponent(x.chat)); const found = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&chat_id=in.(${ids.join(",")})&select=chat_id`); (found || []).forEach((x: any) => existing.add(String(x.chat_id))); }
-    const fresh = rows.filter((x: any) => !existing.has(x.chat)).map((x: any) => ({ id: _wuid(), client_id: clientId, chat_id: x.chat, name: x.name, stage: x.stage, fields: { ...x.fields, _csv_entrada: x.entered, _csv_mensagens: x.msgCount, _csv_tempo_resposta_s: x.responseTime }, last_text: "Lead importado via CSV", last_at: x.at, unread: 0, origin_type: x.origin_type, origin: x.origin, num_errado: x.numErrado, irrelevante: x.irrelevante, irrelevante_motivo: x.irrelevante ? "Marcado como irrelevante no CSV importado" : null }));
+    const batchId = _wuid();
+    const fresh = rows.filter((x: any) => !existing.has(x.chat)).map((x: any) => ({ id: _wuid(), client_id: clientId, chat_id: x.chat, name: x.name, stage: x.stage, fields: { ...x.fields, _csv_entrada: x.entered, _csv_mensagens: x.msgCount, _csv_tempo_resposta_s: x.responseTime }, last_text: "Lead importado via CSV", last_at: x.at, unread: 0, origin_type: x.origin_type, origin: x.origin, num_errado: x.numErrado, irrelevante: x.irrelevante, irrelevante_motivo: x.irrelevante ? "Marcado como irrelevante no CSV importado" : null, import_batch_id: batchId, import_source: "csv" }));
     for (let i = 0; i < fresh.length; i += 250) await sbPost("wa_conversations", fresh.slice(i, i + 250) as any);
-    return { added: fresh.length, duplicates: rows.length - fresh.length + (clean.length - rows.length), invalid: input.length - clean.length };
+    const duplicates = rows.length - fresh.length + (clean.length - rows.length), invalid = input.length - clean.length;
+    await sbPost("crm_import_batches", { id: batchId, client_id: clientId, instance_id: inst.id, file_name: String(w.fileName || "Importação CSV").slice(0, 240), row_count: input.length, added_count: fresh.length, duplicate_count: duplicates, invalid_count: invalid, status: "active" });
+    return { batchId, added: fresh.length, duplicates, invalid };
   }
   if (w.op === "importHistory") {
     const phone = String(w.phone || "").replace(/[^0-9]/g, "");
