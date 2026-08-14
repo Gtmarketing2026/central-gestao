@@ -364,7 +364,7 @@
       <button class="tab" data-tab="crm" data-nav-icon="message">CRM</button>
       <button class="tab" data-tab="jornada" data-nav-icon="compass">Jornada</button>
       <button class="tab" data-tab="raiox" data-nav-icon="search">Diagnóstico</button>
-      <button class="tab" data-tab="briefing" data-nav-icon="target">Briefing</button>
+      <button class="tab" data-tab="briefing" data-nav-icon="target">Criativos</button>
       <button class="tab" data-tab="social" data-nav-icon="image">Social</button>
       <button class="tab" data-tab="campanhas" data-nav-icon="megaphone" style="position:relative">Campanha<span id="campSubArrow" onclick="event.stopPropagation();toggleCampSubmenu()" title="Canais (Meta / Google)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);padding:4px 6px;border-radius:6px;color:var(--muted);cursor:pointer">▾</span></button>
       <div id="campSubmenu" style="display:none">
@@ -859,10 +859,10 @@
     <div id="raioxBody"></div>
   </section>
 
-  <!-- AGENTE DE BRIEFING CRIATIVO (analisa criativos por funil, monta briefing de produção) -->
+  <!-- CENTRAL DE CRIATIVOS (analista de mídia + minerador de referências e ideias) -->
   <section class="panel" id="briefing">
-    <div class="section-head" style="margin-top:0"><h2>🎯 Briefing Criativo <span id="brClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
-    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Lê sozinho os criativos que rodaram (Meta/Google) e os posts orgânicos, analisa por etapa de funil, sugere recortes e monta a ficha de produção pronta pra aprovar.</div>
+    <div class="section-head" style="margin-top:0"><h2>🎯 Criativos <span id="brClientName" style="font-weight:400;color:var(--muted);font-size:15px"></span></h2></div>
+    <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 14px">Analise o desempenho dos anúncios por etapa do funil ou transforme conteúdos próprios e externos em referências e novas ideias.</div>
     <div id="brBody"></div>
   </section>
 
@@ -6015,7 +6015,8 @@ async function loadBriefing(clientId){
   _brClientId=c.id;_brResult=null;
   const semAds=!(c.metaAccountIds&&c.metaAccountIds.length)&&!(c.googleAccountIds&&c.googleAccountIds.length);
   body.innerHTML=`
-    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px"><button class="btn sm primary">🎯 Performance e Briefing</button><button class="btn sm ghost" onclick="brOpenMiner()">⛏️ Minerador de Criativos</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><button class="btn sm primary">📊 Analista de Criativos</button><button class="btn sm ghost" onclick="brOpenMiner()">⛏️ Minerador de Criativos · Extrator de Ideias</button></div>
+    <div class="card" style="margin-bottom:14px;padding:12px 14px"><div style="font-weight:750;font-size:14px;margin-bottom:3px">📊 Analista de Criativos</div><div style="font-size:11.5px;color:var(--muted)">Desempenho dos anúncios por período, canal e etapa do funil. Identifica padrões, vencedores, pontos de melhoria e gera o briefing de produção.</div></div>
     ${semAds?'<div class="card" style="margin-bottom:12px;color:var(--muted);font-size:12px">Meta/Google ainda não estão conectados para analisar performance, mas o <b>Minerador de Criativos</b> pode ser usado normalmente.</div>':''}
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:flex-end;margin-bottom:4px"><button type="button" class="btn sm ghost" onclick="brVerHistorico()">📚 Ver briefings aprovados</button></div>
@@ -6042,8 +6043,8 @@ let _cmItems=[];
 async function _cmInvoke(payload){const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{creativeMiner:{clientId:_brClientId,...payload}}});if(error)throw error;const r=(data&&data.data)||data||{};if(r.error)throw new Error(r.error);return r;}
 async function brOpenMiner(){
   const body=document.getElementById('brBody');if(!body||!_brClientId)return;
-  body.innerHTML=`<div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px"><button class="btn sm ghost" onclick="loadBriefing(_brClientId)">🎯 Performance e Briefing</button><button class="btn sm primary">⛏️ Minerador de Criativos</button></div>
-  <div class="card" style="margin-bottom:14px"><div style="font-weight:750;font-size:15px;margin-bottom:4px">Descobrir referências</div><div style="font-size:11.5px;color:var(--muted);margin-bottom:12px">Perfis próprios usam a API oficial. Perfis e posts externos usam o Apify conectado, apenas para estudo e criação original.</div>
+  body.innerHTML=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><button class="btn sm ghost" onclick="loadBriefing(_brClientId)">📊 Analista de Criativos</button><button class="btn sm primary">⛏️ Minerador de Criativos · Extrator de Ideias</button></div>
+  <div class="card" style="margin-bottom:14px"><div style="font-weight:750;font-size:15px;margin-bottom:4px">⛏️ Minerador de Criativos · Extrator de Ideias</div><div style="font-size:11.5px;color:var(--muted);margin-bottom:12px">Encontra referências orgânicas próprias e externas, entende o conteúdo e extrai conceitos para novas criações originais. Perfis próprios usam a API oficial; conteúdos externos usam o Apify conectado.</div>
     <div style="display:flex;gap:7px;flex-wrap:wrap"><button class="btn sm primary" onclick="cmCaptureOfficial(this)">📷 Importar Instagram do cliente</button><input id="cmUrl" placeholder="https://www.instagram.com/perfil ou /reel/..." style="flex:1;min-width:280px;font-size:12px"><button class="btn sm ghost" onclick="cmCaptureExternal(this)">⛏️ Minerar URL externa</button></div><div id="cmMsg" style="font-size:11px;color:var(--faint);margin-top:8px"></div>
   </div>
   <div style="display:flex;align-items:center;gap:8px;margin:15px 0 10px"><h3 style="margin:0;font-size:15px">Biblioteca privada</h3><span id="cmCount" class="badge">0</span><div style="flex:1"></div><button class="btn sm ghost" onclick="cmLoad()">↻ Atualizar</button></div><div id="cmGrid"><div class="empty">Carregando…</div></div>`;
