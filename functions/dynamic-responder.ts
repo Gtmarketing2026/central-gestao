@@ -4082,6 +4082,11 @@ function _menuForOperation(key: string) {
 async function _guardUserRequest(body: any, authorization: string) {
   const jwt = _jwtPayload(authorization);
   if (jwt?.role === "service_role") return;
+  // Chave nova do Supabase (sb_secret_...) nao e JWT — o decode acima da {} e a chamada INTERNA (crons via
+  // tracking.ts) caia na validacao de sessao humana, derrubando todas as automacoes. Igualdade exata com a
+  // chave do proprio servidor = mesma garantia do role service_role, sem chance de forjar.
+  const rawTok = String(authorization || "").replace(/^Bearer\s+/i, "").trim();
+  if (rawTok && rawTok === String(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "")) return;
   const actor = await _accessActor(authorization, true);
   if (actor.profile.status !== "active") throw new Error("Conclua a ativação do seu acesso antes de usar o sistema.");
   if (["master", "admin"].includes(actor.profile.role)) return;
