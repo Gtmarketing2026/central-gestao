@@ -3885,8 +3885,8 @@ async function eventReports(input: any) {
     const empty = () => ({ spend: 0, impressions: 0, clicks: 0, reach: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, video_views: 0, engajamentos: 0 });
     const total: any = empty(), channels: Record<string, any> = {}, campaignMap: Record<string, any> = {};
     for (const r of rows || []) { const c = channels[r.channel] || (channels[r.channel] = empty()); for (const k of Object.keys(total)) { const v = Number(r[k]) || 0; c[k] += v; total[k] += v; }
-      const ck = `${r.channel}|${r.campaign || r.source_medium || "(sem campanha)"}`; const cp = campaignMap[ck] || (campaignMap[ck] = { channel: r.channel, campaign: r.campaign || "", source_medium: r.source_medium || "", spend: 0, impressions: 0, clicks: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, video_views: 0 });
-      for (const k of ["spend", "impressions", "clicks", "purchases", "revenue", "leads", "conversas", "video_views"]) cp[k] += Number(r[k]) || 0;
+      const ck = `${r.channel}|${r.campaign || r.source_medium || "(sem campanha)"}`; const cp = campaignMap[ck] || (campaignMap[ck] = { channel: r.channel, campaign: r.campaign || "", source_medium: r.source_medium || "", spend: 0, impressions: 0, reach: 0, clicks: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, video_views: 0 });
+      for (const k of ["spend", "impressions", "reach", "clicks", "purchases", "revenue", "leads", "conversas", "video_views"]) cp[k] += Number(r[k]) || 0;
     }
     // Evita somar a mesma venda no gerenciador e no Analytics. Mídia fornece entrega/custo;
     // quando GA4 existe, ele é a fonte de verdade para vendas e faturamento do período.
