@@ -4772,6 +4772,24 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
 async function waHandler(w: any) {
   if (w.op === "extract") return await waExtract(w.convId, w.autoApply !== false);
   if (w.op === "capi") return await waCapi(w.convId, w.event);
+  // CRM manual: cria apenas o vínculo interno necessário para importar e classificar
+  // conversas, sem abrir uma instância no provedor de WhatsApp.
+  if (w.op === "ensureManual") {
+    const clientId = String(w.clientId || "").trim();
+    if (!clientId) throw new Error("Selecione um cliente para ativar o CRM manual.");
+    const client = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=id,name&limit=1`))[0];
+    if (!client) throw new Error("Cliente não encontrado.");
+    const current = await sbGet("wa_instances", `client_id=eq.${encodeURIComponent(clientId)}&select=id,client_id,name,status,provider,uaz_host,uaz_token,phone&order=created_at.asc&limit=20`);
+    // Se o número já foi conectado, usa a conexão real. Caso contrário, reaproveita
+    // o vínculo manual já existente para não fragmentar o histórico do cliente.
+    const existing = current.find((x: any) => String(x.provider || "uazapi").toLowerCase() !== "manual") || current.find((x: any) => String(x.provider || "").toLowerCase() === "manual");
+    if (existing) return { instance: existing, created: false, manual: String(existing.provider || "").toLowerCase() === "manual" };
+    const id = _wuid();
+    const row = { id, client_id: clientId, name: `crm-manual-${id.slice(0, 8)}`, uaz_token: "", uaz_host: "", phone: "", status: "manual", provider: "manual" };
+    const saved = await sbInsertOk("wa_instances", row);
+    if (!saved.ok) throw new Error("Não foi possível ativar o CRM manual: " + saved.err);
+    return { instance: row, created: true, manual: true };
+  }
   if (w.op === "revokeConsent") {
     const instanceId = String(w.instanceId || ""); if (!instanceId) throw new Error("instanceId obrigatório");
     await sbPatchD("wa_qr_consents", `instance_id=eq.${encodeURIComponent(instanceId)}&revoked_at=is.null`, { revoked_at: new Date().toISOString() });
@@ -4796,7 +4814,7 @@ async function waHandler(w: any) {
     try { await waCall(uz.server, itoken, "/webhook", "POST", { enabled: true, url: hook, events: ["messages", "connection"], excludeMessages: excl }); } catch (_e) {}
     return { id };
   }
-  const inst = (await sbGet("wa_instances", `id=eq.${encodeURIComponent(w.instanceId)}&select=id,client_id,uaz_host,uaz_token,phone`))[0];
+  const inst = (await sbGet("wa_instances", `id=eq.${encodeURIComponent(w.instanceId)}&select=id,client_id,uaz_host,uaz_token,phone,provider,status`))[0];
   if (!inst) throw new Error("Instância WhatsApp não encontrada.");
   const host = inst.uaz_host, token = inst.uaz_token, clientId = inst.client_id || null;
   const clientFilter = clientId ? "eq." + encodeURIComponent(clientId) : "is.null";
@@ -4857,6 +4875,9 @@ async function waHandler(w: any) {
     // Uma única classificação ao final: o histórico inteiro já está disponível para a IA.
     if (fresh.some((x: any) => x.direction === "in")) try { await waExtract(convId, true); } catch (_e) {}
     return { added: fresh.length, duplicates: rows.length - fresh.length, conversationId: convId };
+  }
+  if (String(inst.provider || "").toLowerCase() === "manual") {
+    throw new Error("Este CRM está no modo manual. Importe um arquivo para incluir conversas; conecte o WhatsApp para sincronizar ou enviar mensagens.");
   }
   if (w.op === "status") {
     const { j } = await waCall(host, token, "/instance/status"); const ins = (j && j.instance) || {};
