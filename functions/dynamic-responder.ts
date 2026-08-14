@@ -2073,8 +2073,11 @@ async function _briefingCriativos(clientId: string, since: string, until: string
       seguidores: Math.round(a.seguidores || 0), videoViews: a.videoViews || 0,
     };
   });
-  const missingMeta = criativos.filter((x: any) => x.canal === "Meta" && (x.elegivel || x.spend > 0) && !x.thumbnail && x.adId).map((x: any) => x.adId);
-  if (missingMeta.length) { const extra = await _briefingMetaThumbs(missingMeta); for (const x of criativos) { const e = extra[x.adId]; if (!e) continue; if (!x.thumbnail && e.thumb) x.thumbnail = e.thumb; if (e.ig) (x as any).igUrl = e.ig; } }
+  // Resolve todos os anúncios Meta relevantes: além da miniatura, traz o permalink do
+  // post no Instagram quando o criativo foi publicado por lá. Sem permalink, o card
+  // mantém o link seguro para o anúncio no Gerenciador.
+  const metaToResolve = criativos.filter((x: any) => x.canal === "Meta" && (x.elegivel || x.spend > 0) && x.adId).map((x: any) => x.adId);
+  if (metaToResolve.length) { const extra = await _briefingMetaThumbs(metaToResolve); for (const x of criativos) { const e = extra[x.adId]; if (!e) continue; if (!x.thumbnail && e.thumb) x.thumbnail = e.thumb; if (e.ig) (x as any).igUrl = e.ig; } }
   const total = criativos.length;
   const pctInferido = total ? Math.round((inferidos / total) * 1000) / 10 : 0;
   return { criativos, total, pctInferido, erros: [(mRes as any).error, (gRes as any).error].filter(Boolean) };
@@ -3880,6 +3883,8 @@ async function eventReports(input: any) {
     const editionId = String(input.editionId || ""), since = String(input.since || ""), until = String(input.until || "");
     if (!editionId || !since || !until) throw new Error("Edição e período são obrigatórios.");
     let rows = await _sbAll("channel_metrics_daily", `client_id=eq.${encodeURIComponent(clientId)}&date=gte.${since}&date=lte.${until}&select=channel,source_medium,campaign,adset,ad_content,spend,impressions,clicks,reach,purchases,revenue,leads,conversas,video_views,engajamentos`);
+    const selectedChannels = Array.isArray(input.channels) ? input.channels.map((x: any) => String(x).toLowerCase()) : [];
+    if (selectedChannels.length) rows = rows.filter((r: any) => String(r.channel || "").toLowerCase() === "ga4" || selectedChannels.includes(String(r.channel || "").toLowerCase()));
     const selectedCampaigns = Array.isArray(input.campaigns) ? input.campaigns.map(String) : [];
     if (selectedCampaigns.length) { const set = new Set(selectedCampaigns); rows = rows.filter((r: any) => String(r.channel || "").toLowerCase() === "ga4" || set.has(`${r.channel}|${String(r.campaign || "").trim()}`)); }
     const empty = () => ({ spend: 0, impressions: 0, clicks: 0, reach: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, video_views: 0, engajamentos: 0 });
@@ -3908,7 +3913,7 @@ async function eventReports(input: any) {
     const commerce = { purchases: (salesTp || []).length, revenue: (salesTp || []).reduce((a: number, x: any) => a + (Number(x.value) || 0), 0) };
     const campaigns = Object.values(campaignMap).map((x: any) => ({ ...x, ctr: x.impressions ? x.clicks / x.impressions * 100 : 0, cpa: (x.purchases || x.leads || x.conversas) ? x.spend / (x.purchases || x.leads || x.conversas) : 0 })).sort((a: any, b: any) => b.spend - a.spend).slice(0, 100);
     const id = _wuid(), collectedAt = new Date().toISOString(), metrics = { total, channels, campaigns, rd: { total: (rd || []).length, events: rdEvents }, crm: { total: (convs || []).length, stages: crmStages }, commerce };
-    await sbPost("event_snapshots", { id, edition_id: editionId, client_id: clientId, period_start: since, period_end: until, metrics, sources: { channel_metrics_daily: true, journey_sales: !!salesTp.length, rd: !!rd.length, crm: !!convs.length, youtube: false, filters: { campaigns: selectedCampaigns, rd_events: selectedRd, since, until } }, collected_at: collectedAt });
+    await sbPost("event_snapshots", { id, edition_id: editionId, client_id: clientId, period_start: since, period_end: until, metrics, sources: { channel_metrics_daily: true, journey_sales: !!salesTp.length, rd: !!rd.length, crm: !!convs.length, youtube: false, filters: { channels: selectedChannels, campaigns: selectedCampaigns, rd_events: selectedRd, since, until } }, collected_at: collectedAt });
     return { snapshot: { id, edition_id: editionId, client_id: clientId, period_start: since, period_end: until, metrics, collected_at: collectedAt } };
   }
   if (op === "saveVersion") {
