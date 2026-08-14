@@ -1909,6 +1909,23 @@ function _briefingResolveFunil(campanha: string, adset: string): string | null {
   if (/\bMOFU\b|\bMEIO\b|\bQUENTE\b|ENGAJAMENTO|TR[AÁ]FEGO|TRAFEGO/.test(s)) return "Meio";
   return null;
 }
+// Funil V2: o OBJETIVO da campanha e a ancora principal (a gente sabe com certeza a etapa dele);
+// o nome so confirma ou desempata quando o objetivo nao resolve. Pedido da gestora: nomenclatura
+// nem sempre identifica a etapa, entao o objetivo manda e o nome cruza.
+const _FUNIL_POR_OBJETIVO: Record<string, string> = {
+  alcance: "Topo", video: "Topo",
+  trafego: "Meio", engajamento: "Meio",
+  leads: "Fundo", mensagens: "Fundo", conversao: "Fundo", app: "Fundo",
+};
+function _briefingResolveFunilV2(objetivo: any, campanha: string, conjunto: string): { funil: string | null; origem: string } {
+  const porNome = _briefingResolveFunil(campanha, conjunto);
+  const porObjetivo = _FUNIL_POR_OBJETIVO[String(objetivo?.tipo || "").toLowerCase()] || null;
+  if (porObjetivo && porNome === porObjetivo) return { funil: porObjetivo, origem: "objetivo+nome" };
+  if (porObjetivo && porNome) return { funil: porObjetivo, origem: "objetivo (nome diverge)" };
+  if (porObjetivo) return { funil: porObjetivo, origem: "objetivo" };
+  if (porNome) return { funil: porNome, origem: "nome" };
+  return { funil: null, origem: "indefinido" };
+}
 // Metrica de "resultado" certa pro objetivo do anuncio (mesma logica de classifyAdByObjective/raioXMetricRows do front, replicada aqui pro server).
 function _briefingResultado(a: any): { label: string; valor: number; custo: number | null } {
   const tipo = (a.objetivo && a.objetivo.tipo) || "conversao";
@@ -1934,8 +1951,9 @@ async function _briefingMetaThumbs(adIds: string[]) {
   for (let i = 0; i < adIds.length; i += 50) {
     const ids = adIds.slice(i, i + 50).filter(Boolean); if (!ids.length) continue;
     try {
-      const r = await fetch(`https://graph.facebook.com/v21.0/?ids=${ids.join(",")}&fields=creative{thumbnail_url,image_url}&access_token=${token}`), j = await r.json();
-      for (const id of ids) { const cr = j[id]?.creative, thumb = cr?.thumbnail_url || cr?.image_url; if (thumb) out[id] = thumb; }
+      // image_url primeiro (resolucao cheia) e thumbnail_width/height=512 pro fallback — o padrao do Graph e 64px, pequeno demais pros cards grandes do ranking
+      const r = await fetch(`https://graph.facebook.com/v21.0/?ids=${ids.join(",")}&fields=creative{thumbnail_url,image_url}&thumbnail_width=512&thumbnail_height=512&access_token=${token}`), j = await r.json();
+      for (const id of ids) { const cr = j[id]?.creative, thumb = cr?.image_url || cr?.thumbnail_url; if (thumb) out[id] = thumb; }
     } catch (_e) { /* card continua com link e KPIs */ }
   }
   return out;
@@ -1954,23 +1972,24 @@ async function _briefingCriativos(clientId: string, since: string, until: string
   let inferidos = 0;
   const criativos = rawAds.map((a: any, i: number) => {
     const codigo = "AD" + String(i + 1).padStart(2, "0");
-    const funilResolvido = _briefingResolveFunil(a.campaign, a.adset);
-    if (!funilResolvido) inferidos++;
-    const elegivel = _briefingElegivel(funilResolvido, a);
+    const fr = _briefingResolveFunilV2(a.objetivo, a.campaign, a.adset);
+    if (fr.origem === "nome" || fr.origem === "indefinido") inferidos++; // sem ancora de objetivo = menos confiavel
+    const elegivel = _briefingElegivel(fr.funil, a);
     const r = _briefingResultado(a);
     return {
       codigo, adId: a.adId, nome: a.adName || a.campaign || codigo, canal: a._google ? "Google" : "Meta", campanha: a.campaign || "", conjunto: a.adset || "", objetivo: a.objetivo?.rotulo || a.objetivo?.tipo || "",
-      funil: funilResolvido, elegivel, thumbnail: a.thumbnail || null,
+      funil: fr.funil, funilOrigem: fr.origem, elegivel, thumbnail: a.thumbnail || null,
       link: a._google
         ? `https://ads.google.com/aw/ads?campaignId=${encodeURIComponent(a.campaignId || "")}&adGroupId=${encodeURIComponent(a.adsetId || "")}`
         : `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${encodeURIComponent(a.accountId || "")}&selected_ad_ids=${encodeURIComponent(a.adId || "")}`,
       spend: Math.round((a.spend || 0) * 100) / 100, impressions: a.impressions || 0, clicks: a.clicks || 0,
       reach: a.reach || 0, frequency: +(a.frequency || 0).toFixed(2), ctr: +(a.ctr || 0).toFixed(2), cpm: +(a.cpm || 0).toFixed(2),
       resultadoLabel: r.label, resultadoValor: Math.round(r.valor), custoPorResultado: r.custo != null ? Math.round(r.custo * 100) / 100 : null,
+      compras: Math.round(a.purchases || 0), receita: Math.round((a.revenue || 0) * 100) / 100,
       videoViews: a.videoViews || 0,
     };
   });
-  const missingMeta = criativos.filter((x: any) => x.canal === "Meta" && x.elegivel && !x.thumbnail && x.adId).map((x: any) => x.adId);
+  const missingMeta = criativos.filter((x: any) => x.canal === "Meta" && (x.elegivel || x.spend > 0) && !x.thumbnail && x.adId).map((x: any) => x.adId);
   if (missingMeta.length) { const extra = await _briefingMetaThumbs(missingMeta); for (const x of criativos) if (!x.thumbnail && extra[x.adId]) x.thumbnail = extra[x.adId]; }
   const total = criativos.length;
   const pctInferido = total ? Math.round((inferidos / total) * 1000) / 10 : 0;
@@ -2016,6 +2035,56 @@ ${REGRAS_DE_LINGUAGEM}
 
 Responda APENAS com JSON valido, sem markdown: {"objetivo":"<1 frase curta, o que a campanha precisa entregar>","angulo":"<1 frase curta, a dor ou desejo a trabalhar>"}`;
   return await _callOpenAIJson([{ role: "user", content: prompt }]);
+}
+// Ranking de criativos SEM IA: devolve os anuncios do periodo classificados por funil (objetivo como ancora,
+// nome como confirmacao) com KPIs e thumbnail — o front ordena e renderiza. A leitura de pontos fortes/fracos
+// e um segundo passo SOB DEMANDA por criativo (briefingCreativoAnalise), pra nao poluir nem gastar IA a toa.
+async function briefingRanking(input: any) {
+  const { clientId, since, until, funilDesejado, produto } = input;
+  if (!clientId || !since || !until) throw new Error("clientId, since e until são obrigatórios.");
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name`))[0];
+  if (!c) throw new Error("Cliente não encontrado.");
+  const { criativos, total, pctInferido, erros } = await _briefingCriativos(clientId, since, until);
+  let lista = funilDesejado ? criativos.filter((x: any) => x.funil === funilDesejado) : criativos;
+  if (produto) {
+    const alvo = String(produto).toLowerCase();
+    lista = lista.filter((x: any) => x.campanha.toLowerCase().includes(alvo) || x.conjunto.toLowerCase().includes(alvo));
+  }
+  return { criativos: lista, total, pctInferido, erros };
+}
+// Pontos fortes/fracos de UM criativo, sob demanda (botao no card). Compara com os pares do mesmo funil que o
+// front ja tem em maos; quando ha thumbnail, manda a imagem junto pra leitura de design de verdade.
+async function briefingCreativoAnalise(input: any) {
+  const { clientId, criativo, pares } = input;
+  if (!clientId || !criativo) throw new Error("clientId e criativo são obrigatórios.");
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,seg`))[0];
+  if (!c) throw new Error("Cliente não encontrado.");
+  const linha = (x: any) => `${x.codigo} | ${x.nome} | campanha: ${x.campanha} | invest: R$${x.spend} | ${x.resultadoLabel}: ${x.resultadoValor} | custo/${x.resultadoLabel}: ${x.custoPorResultado != null ? "R$" + x.custoPorResultado : "—"} | CTR: ${x.ctr}% | CPM: R$${x.cpm}`;
+  const prompt = `Voce e analista de criativos de trafego pago. Analise UM criativo especifico e devolva pontos fortes e fracos como instrucao util pra quem vai PRODUZIR a proxima peca (design/roteiro/edicao) — nao como descricao de metrica.
+
+Cliente: ${c.name}${c.seg ? ` (${c.seg})` : ""}
+Funil deste criativo: ${criativo.funil || "não identificado"} (classificado pelo ${criativo.funilOrigem || "?"})
+
+CRIATIVO ANALISADO:
+${linha(criativo)}
+
+PARES DO MESMO FUNIL (contexto de comparação):
+${(Array.isArray(pares) ? pares : []).slice(0, 8).map(linha).join("\n") || "(sem pares no período)"}
+
+${criativo.thumbnail ? "A imagem do criativo esta anexada — analise TAMBEM o design (hierarquia visual, legibilidade, gancho, CTA visivel)." : "Sem imagem disponivel — analise apenas pelos numeros e pelos nomes, sem inventar atributo visual."}
+
+${REGRAS_DE_LINGUAGEM}
+
+Responda APENAS com JSON valido, sem markdown:
+{"veredito":"<1 frase: por que este criativo esta acima ou abaixo dos pares>","positivos":["<max 3, frases curtas>"],"negativos":["<max 3, frases curtas>"]}`;
+  let messages: any[] = [{ role: "user", content: prompt }];
+  if (criativo.thumbnail) messages = [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: criativo.thumbnail } }] }];
+  try {
+    return await _callOpenAIJson(messages);
+  } catch (e) {
+    if (!criativo.thumbnail) throw e;
+    return await _callOpenAIJson([{ role: "user", content: prompt }]); // imagem inacessivel (URL do FB expira): repete so com texto
+  }
 }
 async function briefingAnalise(input: any) {
   const { clientId, since, until, objetivo, criadoPor, funilDesejado, produto } = input;
@@ -6009,6 +6078,14 @@ Deno.serve(async (req) => {
     }
     if (body.briefingAnalise) {
       const r = await briefingAnalise(body.briefingAnalise);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.briefingRanking) {
+      const r = await briefingRanking(body.briefingRanking);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.briefingCreativoAnalise) {
+      const r = await briefingCreativoAnalise(body.briefingCreativoAnalise);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.briefingGerarFichas) {

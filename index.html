@@ -343,10 +343,20 @@
         <h1 style="font-family:'Space Grotesk';font-size:1.4rem;font-weight:700">Entrar</h1>
       </div>
     </div>
-    <div class="form-row"><label>Email</label><input type="email" id="loginEmail" placeholder="seu@email.com" autocomplete="email"></div>
-    <div class="form-row"><label>Senha</label><input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
-    <div id="loginError"></div>
-    <button class="btn primary" style="width:100%;justify-content:center;padding:11px" onclick="doLogin()">Entrar</button>
+    <div id="loginForm">
+      <div class="form-row"><label>Email</label><input type="email" id="loginEmail" placeholder="seu@email.com" autocomplete="email"></div>
+      <div class="form-row"><label>Senha</label><div style="display:flex;gap:6px"><input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"><button type="button" class="btn ghost" style="padding:7px 10px;flex:none" aria-label="Mostrar senha" title="Mostrar senha" onclick="togglePasswordField('loginPassword',this)">👁</button></div></div>
+      <div style="display:flex;justify-content:flex-end;margin:-4px 0 10px"><button type="button" class="btn sm ghost" style="border:0;padding:3px 0;color:var(--accent)" onclick="showForgotPassword()">Esqueci minha senha</button></div>
+      <div id="loginError"></div>
+      <button id="loginSubmitBtn" class="btn primary" style="width:100%;justify-content:center;padding:11px" onclick="doLogin()">Entrar</button>
+    </div>
+    <div id="forgotPasswordForm" style="display:none">
+      <div style="font-size:12.5px;color:var(--muted);line-height:1.55;margin-bottom:14px">Informe seu e-mail de acesso. Se ele estiver cadastrado, você receberá um link seguro para criar uma nova senha.</div>
+      <div class="form-row"><label>Email</label><input type="email" id="forgotEmail" placeholder="seu@email.com" autocomplete="email" onkeydown="if(event.key==='Enter')sendPasswordReset()"></div>
+      <div id="forgotError" style="font-size:12px;min-height:18px;margin-bottom:8px"></div>
+      <button id="forgotSendBtn" class="btn primary" style="width:100%;justify-content:center;padding:11px" onclick="sendPasswordReset()">Enviar link de recuperação</button>
+      <button class="btn sm ghost" style="width:100%;justify-content:center;margin-top:8px" onclick="showLoginForm()">Voltar para entrar</button>
+    </div>
   </div>
 </div>
 
@@ -1829,7 +1839,7 @@
 </div>
 
 <script>
-const APP_VERSION = '1.5';
+const APP_VERSION = '1.6';
 const APP_URL = location.origin + location.pathname.replace(/[^/]*$/, ''); // relativo ao domínio atual (funciona no github.io e no domínio próprio)
 
 const SUPA_URL = 'https://mocrfqmdjwvyhqvdpimm.supabase.co';
@@ -1837,7 +1847,7 @@ const SUPA_KEY = 'sb_publishable_gWzVyEm8hT0_CH16UO8UqA_kkcbfo14';
 const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
 const DB = {clients:[], tasks:[], finance:[], shows:[], team:[], creditors:[], wallet:[]};
-let _accessProfile=null,_accessClientIds=[],_accessUsers=[],_mfaFactor=null,_mfaPasswordReady=false,_mfaCurrentAal='aal1',_mfaStarting=false;
+let _accessProfile=null,_accessClientIds=[],_accessUsers=[],_mfaFactor=null,_mfaPasswordReady=false,_mfaCurrentAal='aal1',_mfaStarting=false,_passwordRecoveryMode=/type=recovery/i.test(location.hash+location.search);
 
 const fmt = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
 // Converte o campo "Valor" do lead (texto livre, ex.: "R$ 1.500,00") em número. Usado pra somar faturamento por etapa do CRM.
@@ -2131,11 +2141,18 @@ function applyAccessUI(){
 }
 function _showMfa(title,desc,html){const o=document.getElementById('mfaOverlay');o.style.display='flex';document.getElementById('mfaTitle').textContent=title;document.getElementById('mfaDesc').innerHTML=desc;document.getElementById('mfaBody').innerHTML=html;document.getElementById('mfaError').textContent='';document.getElementById('loginOverlay').style.display='none';document.getElementById('appWrapper').style.display='none';}
 function _mfaErr(e){let m=(e&&e.message)||String(e);if(/friendly name.*already exists|factor.*already exists/i.test(m))m='Já existe uma ativação incompleta. Clique em “Gerar novo QR Code” para reiniciar com segurança.';document.getElementById('mfaError').textContent=m;}
+function togglePasswordField(id,btn){const el=document.getElementById(id);if(!el)return;const show=el.type==='password';el.type=show?'text':'password';if(btn){btn.textContent=show?'🙈':'👁';btn.title=show?'Ocultar senha':'Mostrar senha';btn.setAttribute('aria-label',btn.title);}}
+function _passwordIssue(p){if(String(p||'').length<10)return'Use pelo menos 10 caracteres.';if(!/[A-Za-zÀ-ÿ]/.test(p)||!/[0-9]/.test(p))return'Use pelo menos uma letra e um número.';return'';}
+function showForgotPassword(){const src=(document.getElementById('loginEmail')||{}).value||'';document.getElementById('loginForm').style.display='none';document.getElementById('forgotPasswordForm').style.display='';document.getElementById('forgotEmail').value=src;document.getElementById('forgotError').textContent='';setTimeout(()=>document.getElementById('forgotEmail')?.focus(),30);}
+function showLoginForm(){document.getElementById('forgotPasswordForm').style.display='none';document.getElementById('loginForm').style.display='';document.getElementById('loginError').textContent='';setTimeout(()=>document.getElementById('loginEmail')?.focus(),30);}
+async function sendPasswordReset(){const email=(document.getElementById('forgotEmail').value||'').trim().toLowerCase(),msg=document.getElementById('forgotError'),btn=document.getElementById('forgotSendBtn');if(!/^\S+@\S+\.\S+$/.test(email)){msg.style.color='var(--red)';msg.textContent='Informe um e-mail válido.';return}btn.disabled=true;btn.textContent='Enviando…';msg.textContent='';try{const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:'https://app.gt-marketing.app.br/'});if(error)throw error;msg.style.color='#34d399';msg.textContent='Se este e-mail estiver cadastrado, o link de recuperação chegará em alguns minutos. Confira também o spam.';btn.textContent='Link solicitado';}catch(e){btn.disabled=false;btn.textContent='Enviar link de recuperação';msg.style.color='var(--red)';msg.textContent=/rate|limit|seconds/i.test(e.message||'')?'Muitas tentativas. Aguarde alguns minutos antes de solicitar novamente.':'Não foi possível enviar agora. Tente novamente em alguns minutos.';}}
+function showPasswordRecovery(){_passwordRecoveryMode=true;_showMfa('Crie uma nova senha','Defina uma senha exclusiva para a Central de Gestão. Depois você entrará novamente e confirmará o seu autenticador de dois fatores.',`<div class="form-row"><label>Nova senha</label><div style="display:flex;gap:6px"><input id="recoveryPassword" type="password" autocomplete="new-password" placeholder="Mínimo de 10 caracteres"><button type="button" class="btn ghost" style="padding:7px 10px;flex:none" onclick="togglePasswordField('recoveryPassword',this)">👁</button></div></div><div class="form-row"><label>Confirmar nova senha</label><div style="display:flex;gap:6px"><input id="recoveryPassword2" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')saveRecoveredPassword()"><button type="button" class="btn ghost" style="padding:7px 10px;flex:none" onclick="togglePasswordField('recoveryPassword2',this)">👁</button></div></div><div style="font-size:10.5px;color:var(--faint);margin:-3px 0 10px">Mínimo de 10 caracteres, com pelo menos uma letra e um número.</div><button id="recoverySaveBtn" class="btn primary" style="width:100%;justify-content:center" onclick="saveRecoveredPassword()">Salvar nova senha</button>`);setTimeout(()=>document.getElementById('recoveryPassword')?.focus(),30);}
+async function saveRecoveredPassword(){const p=document.getElementById('recoveryPassword').value,p2=document.getElementById('recoveryPassword2').value,btn=document.getElementById('recoverySaveBtn'),issue=_passwordIssue(p);if(issue){_mfaErr(new Error(issue));return}if(p!==p2){_mfaErr(new Error('As senhas não conferem.'));return}btn.disabled=true;btn.textContent='Salvando…';try{const {error}=await sb.auth.updateUser({password:p});if(error)throw error;await sb.auth.signOut({scope:'global'});_passwordRecoveryMode=false;history.replaceState({},document.title,location.pathname);showLogin();showLoginForm();document.getElementById('loginError').style.color='#34d399';document.getElementById('loginError').textContent='Senha alterada. Entre novamente com a nova senha.';}catch(e){btn.disabled=false;btn.textContent='Salvar nova senha';_mfaErr(e)}}
 function _mfaQrSrc(raw){const s=String(raw||'').trim();if(!s)return'';if(s.startsWith('<svg'))return'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(s);const i=s.indexOf(',');if(/^data:image\/svg\+xml/i.test(s)&&i>=0){const body=s.slice(i+1);if(body.trim().startsWith('<svg'))return'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(body);}return s;}
 async function _mfaDropPending(list){for(const f of (list||[]).filter(x=>x.status!=='verified')){const {error}=await sb.auth.mfa.unenroll({factorId:f.id});if(error&&!/not found/i.test(error.message||''))throw error;}}
 async function _setupInvitedPassword(){
   const p=document.getElementById('mfaNewPassword').value,p2=document.getElementById('mfaNewPassword2').value,btn=document.getElementById('mfaPasswordBtn');
-  if(p.length<10){_mfaErr(new Error('Use pelo menos 10 caracteres.'));return}if(p!==p2){_mfaErr(new Error('As senhas não conferem.'));return}
+  const issue=_passwordIssue(p);if(issue){_mfaErr(new Error(issue));return}if(p!==p2){_mfaErr(new Error('As senhas não conferem.'));return}
   btn.disabled=true;btn.textContent='Salvando…';const {error}=await sb.auth.updateUser({password:p});if(error){btn.disabled=false;btn.textContent='Salvar senha e continuar';_mfaErr(error);return}_mfaPasswordReady=true;await _startMfa();
 }
 async function _startMfa(){
@@ -2163,7 +2180,7 @@ async function finishAuth(session){
   try{
     const a=await _accessCall({op:'me'});_accessProfile=a.profile;_accessClientIds=a.clientIds||[];
     if(_accessProfile.status==='inactive')throw new Error('Este usuário está desativado.');
-    if(_accessProfile.status==='invited'&&!_mfaPasswordReady){_showMfa('Crie sua senha','Este é seu primeiro acesso. Crie uma senha exclusiva; em seguida você ativará o autenticador de dois fatores.',`<div class="form-row"><label>Nova senha</label><input id="mfaNewPassword" type="password" autocomplete="new-password" placeholder="Mínimo de 10 caracteres"></div><div class="form-row"><label>Confirmar senha</label><input id="mfaNewPassword2" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')_setupInvitedPassword()"></div><button id="mfaPasswordBtn" class="btn primary" style="width:100%;justify-content:center" onclick="_setupInvitedPassword()">Salvar senha e continuar</button>`);return;}
+    if(_accessProfile.status==='invited'&&!_mfaPasswordReady){_showMfa('Crie sua senha','Este é seu primeiro acesso. Crie uma senha exclusiva; em seguida você ativará o autenticador de dois fatores.',`<div class="form-row"><label>Nova senha</label><div style="display:flex;gap:6px"><input id="mfaNewPassword" type="password" autocomplete="new-password" placeholder="Mínimo de 10 caracteres"><button type="button" class="btn ghost" style="padding:7px 10px;flex:none" onclick="togglePasswordField('mfaNewPassword',this)">👁</button></div></div><div class="form-row"><label>Confirmar senha</label><div style="display:flex;gap:6px"><input id="mfaNewPassword2" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')_setupInvitedPassword()"><button type="button" class="btn ghost" style="padding:7px 10px;flex:none" onclick="togglePasswordField('mfaNewPassword2',this)">👁</button></div></div><div style="font-size:10.5px;color:var(--faint);margin:-3px 0 10px">Mínimo de 10 caracteres, com pelo menos uma letra e um número.</div><button id="mfaPasswordBtn" class="btn primary" style="width:100%;justify-content:center" onclick="_setupInvitedPassword()">Salvar senha e continuar</button>`);return;}
     const {data:aal}=await sb.auth.mfa.getAuthenticatorAssuranceLevel();_mfaCurrentAal=(aal&&aal.currentLevel)||'aal1';
     if(_accessProfile.mfa_required!==false&&aal.currentLevel!=='aal2'){await _startMfa();return;}
     applyAccessUI();showApp();await loadAll();
@@ -2171,16 +2188,17 @@ async function finishAuth(session){
 }
 async function checkAuth(){
   const {data:{session}}=await sb.auth.getSession();
+  if(_passwordRecoveryMode){if(session)showPasswordRecovery();else{showLogin();showForgotPassword();const m=document.getElementById('forgotError');m.style.color='var(--red)';m.textContent='Este link de recuperação expirou ou já foi usado. Solicite um novo.';}return;}
   if(session)await finishAuth(session);
   else showLogin();
 }
-function showLogin(){document.getElementById('loginOverlay').style.display='flex';document.getElementById('mfaOverlay').style.display='none';document.getElementById('appWrapper').style.display='none';}
+function showLogin(){document.getElementById('loginOverlay').style.display='flex';document.getElementById('mfaOverlay').style.display='none';document.getElementById('appWrapper').style.display='none';if(!_passwordRecoveryMode&&document.getElementById('loginForm').style.display==='none')showLoginForm();}
 function showApp(email){document.getElementById('loginOverlay').style.display='none';document.getElementById('appWrapper').style.display='block';if(email)document.getElementById('userLabel').textContent=email;}
 async function doLogin(){
   const email=document.getElementById('loginEmail').value.trim(),password=document.getElementById('loginPassword').value;
   const errEl=document.getElementById('loginError');errEl.textContent='';
   if(!email||!password){errEl.textContent='Preencha email e senha.';return}
-  const btn=document.querySelector('#loginOverlay .btn.primary');btn.textContent='Entrando...';btn.disabled=true;
+  const btn=document.getElementById('loginSubmitBtn');btn.textContent='Entrando...';btn.disabled=true;
   const {data,error}=await sb.auth.signInWithPassword({email,password});
   btn.textContent='Entrar';btn.disabled=false;
   if(error){errEl.textContent='Email ou senha incorretos.';return}
@@ -2188,7 +2206,7 @@ async function doLogin(){
 }
 async function doLogout(){
   await sb.auth.signOut();
-  _accessProfile=null;_accessClientIds=[];_accessUsers=[];_mfaFactor=null;_mfaPasswordReady=false;_mfaCurrentAal='aal1';_mfaStarting=false;
+  _accessProfile=null;_accessClientIds=[];_accessUsers=[];_mfaFactor=null;_mfaPasswordReady=false;_mfaCurrentAal='aal1';_mfaStarting=false;_passwordRecoveryMode=false;
   DB.clients=[];DB.tasks=[];DB.finance=[];DB.shows=[];DB.team=[];DB.notifications=[];DB.reportTemplates=[];
   if(realtimeChannel){sb.removeChannel(realtimeChannel);realtimeChannel=null;}
   if(notifChannel){sb.removeChannel(notifChannel);notifChannel=null;}
@@ -6219,6 +6237,7 @@ function rxDrawCharts(rep,dominant){
 function rxShareHTML(){alert('Exportar do Diagnóstico vem junto com a fase da IA (resumo + confronto). Por ora use o 📤 Compartilhar do Dashboard.');}
 /* ================= AGENTE DE BRIEFING CRIATIVO (Fase 1: análise por funil) ================= */
 let _brClientId='',_brResult=null,_brMode='analyst';
+let _brRank=null,_brFundoSort='vendas',_brCardAn={};
 function _brEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 async function loadBriefing(clientId,mode='analyst'){
   const c=DB.clients.find(x=>x.id===(clientId||activeClientId||_brClientId));
@@ -6237,18 +6256,18 @@ async function loadBriefing(clientId,mode='analyst'){
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">PERÍODO ANALISADO — DE</label><input type="date" id="brSince" value="${daysAgoISO(30)}" style="width:auto;font-size:12px"></div>
         <div><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ATÉ</label><input type="date" id="brUntil" value="${today()}" style="width:auto;font-size:12px"></div>
       </div>
-      <div class="fg"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">OBJETIVO DA CAMPANHA</label><input id="brObjetivo" placeholder="O que a campanha precisa entregar" style="width:100%;font-size:12.5px"></div>
+      ${_brMode==='generator'?`<div class="fg"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">OBJETIVO DA CAMPANHA</label><input id="brObjetivo" placeholder="O que a campanha precisa entregar" style="width:100%;font-size:12.5px"></div>`:''}
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
-        <div class="fg" style="flex:1;min-width:160px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ÂNGULO (pra curadoria)</label><input id="brAngulo" placeholder="Dor ou desejo a trabalhar" style="width:100%;font-size:12.5px"></div>
+        ${_brMode==='generator'?`<div class="fg" style="flex:1;min-width:160px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">ÂNGULO (pra curadoria)</label><input id="brAngulo" placeholder="Dor ou desejo a trabalhar" style="width:100%;font-size:12.5px"></div>`:''}
         <div class="fg" style="min-width:140px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">FUNIL DESEJADO</label><select id="brFunilDesejado" style="width:100%;font-size:12.5px"><option value="">Qualquer</option><option>Topo</option><option>Meio</option><option>Fundo</option></select></div>
-        <div class="fg" style="min-width:160px"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">PRODUTO/SEGMENTO (opcional)</label><input id="brProduto" placeholder="Ex.: ENEM, Concurso…" title="Filtra pelo nome da campanha/conjunto que contenha esse termo" style="width:100%;font-size:12.5px"></div>
-        <button type="button" class="btn sm ghost" id="brSugerirBtn" onclick="brSugerirCampos()" title="Preenche Objetivo e Ângulo com base no funil escolhido e no DNA do cliente" style="margin-bottom:1px">✨ Sugerir com IA</button>
+        <div class="fg" style="min-width:160px;${_brMode==='generator'?'':'flex:1'}"><label style="font-size:10px;color:var(--faint);display:block;margin-bottom:3px">PRODUTO/SEGMENTO (opcional)</label><input id="brProduto" placeholder="Ex.: ENEM, Concurso…" title="Filtra pelo nome da campanha/conjunto que contenha esse termo" style="width:100%;font-size:12.5px"></div>
+        ${_brMode==='generator'?`<button type="button" class="btn sm ghost" id="brSugerirBtn" onclick="brSugerirCampos()" title="Preenche Objetivo e Ângulo com base no funil escolhido e no DNA do cliente" style="margin-bottom:1px">✨ Sugerir com IA</button>`:''}
       </div>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:6px 0 2px;font-size:12.5px" title="Procura posts do Instagram do cliente que podem virar recorte em vez de peça nova">
+      ${_brMode==='generator'?`<label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:6px 0 2px;font-size:12.5px" title="Procura posts do Instagram do cliente que podem virar recorte em vez de peça nova">
         <input type="checkbox" id="brCuradoria" style="width:auto">🖼 Também curar conteúdo orgânico do Instagram pra recorte
-      </label>
-      <button class="btn primary" style="width:100%;margin-top:6px" onclick="brRunAnalise()" id="brBtn">${_brMode==='generator'?'Analisar referências para gerar briefing':'Analisar criativos do período'}</button>
-      <div class="hint" style="font-size:11.5px;color:var(--faint);margin-top:8px">Lê sozinho os anúncios que rodaram no período (Meta e Google), separa por topo/meio/fundo de funil e traz o que funcionou e o que não funcionou — sem precisar colar dado nenhum.</div>
+      </label>`:''}
+      <button class="btn primary" style="width:100%;margin-top:6px" onclick="brRunAnalise()" id="brBtn">${_brMode==='generator'?'Analisar referências para gerar briefing':'Montar ranking de criativos do período'}</button>
+      <div class="hint" style="font-size:11.5px;color:var(--faint);margin-top:8px">${_brMode==='generator'?'Lê sozinho os anúncios que rodaram no período (Meta e Google), separa por topo/meio/fundo de funil e traz o que funcionou e o que não funcionou — sem precisar colar dado nenhum.':'Lê sozinho os anúncios do período (Meta e Google), classifica a etapa do funil pelo OBJETIVO da campanha (nome só confirma) e monta o ranking com thumbnail e KPIs. Pontos fortes/fracos são sob demanda: um botão em cada criativo.'}</div>
     </div>
     <div id="brOut"></div>`;
 }
@@ -6294,10 +6313,24 @@ async function brRunAnalise(){
   const btn=document.getElementById('brBtn');const out=document.getElementById('brOut');
   const since=document.getElementById('brSince').value,until=document.getElementById('brUntil').value;
   if(!since||!until){alert('Preencha o período.');return;}
-  const objetivo=document.getElementById('brObjetivo').value.trim();
-  const angulo=document.getElementById('brAngulo').value.trim();
   const funilDesejado=document.getElementById('brFunilDesejado').value;
   const produto=document.getElementById('brProduto').value.trim();
+  if(_brMode!=='generator'){ // Analista: ranking direto, sem IA — pontos fortes/fracos são sob demanda por card
+    btn.disabled=true;btn.textContent='Lendo os anúncios que rodaram…';
+    out.innerHTML='<div class="empty" style="padding:30px">🔎 Buscando os anúncios do período e classificando o funil pelo objetivo…</div>';
+    try{
+      const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingRanking:{clientId:_brClientId,since,until,funilDesejado,produto}}});
+      if(error)throw error;
+      const r=(data&&data.data)||{};
+      if(r.error)throw new Error(r.error);
+      _brRank=r;_brCardAn={};
+      brRenderRanking();
+    }catch(e){out.innerHTML=`<div class="empty">Erro ao analisar: ${_brEsc(e.message||e)}</div>`;}
+    finally{btn.disabled=false;btn.textContent='Montar ranking de criativos do período';}
+    return;
+  }
+  const objetivo=document.getElementById('brObjetivo').value.trim();
+  const angulo=document.getElementById('brAngulo').value.trim();
   const curadoriaOn=document.getElementById('brCuradoria').checked;
   btn.disabled=true;btn.textContent='Lendo os criativos e analisando… pode levar um minuto';
   out.innerHTML='<div class="empty" style="padding:30px"><div style="margin-bottom:8px">🔎 Buscando os anúncios que rodaram, separando por funil e escrevendo a leitura…</div></div>';
@@ -6326,6 +6359,104 @@ async function brRunAnalise(){
   }finally{
     btn.disabled=false;btn.textContent=_brMode==='generator'?'Analisar referências para gerar briefing':'Analisar criativos do período';
   }
+}
+/* ---- Ranking de criativos (Analista): grade por funil, thumbnail grande, KPIs, 🏆 nos melhores ---- */
+function _brSortFunil(arr,funil){
+  const a=[...arr];
+  if(funil==='Fundo'){
+    if(_brFundoSort==='faturamento')a.sort((x,y)=>(y.receita||0)-(x.receita||0)||(y.compras||0)-(x.compras||0));
+    else a.sort((x,y)=>(y.compras||0)-(x.compras||0)||(y.receita||0)-(x.receita||0));
+  }else{
+    // Topo/Meio: menor custo pelo resultado DO OBJETIVO daquele anuncio; sem custo (0 resultado) vai pro fim
+    a.sort((x,y)=>{
+      const cx=x.custoPorResultado,cy=y.custoPorResultado;
+      if(cx==null&&cy==null)return (y.resultadoValor||0)-(x.resultadoValor||0);
+      if(cx==null)return 1;if(cy==null)return -1;
+      return cx-cy||(y.resultadoValor||0)-(x.resultadoValor||0);
+    });
+  }
+  return a;
+}
+function brSetFundoSort(s){_brFundoSort=s;brRenderRanking();}
+function _brKpi(l,v){return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:2px 0"><span style="color:var(--faint)">${l}</span><b>${v}</b></div>`;}
+function _brCardRanking(x,pos,funil){
+  const money=v=>'R$'+(+v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const medal=pos===1?['🏆 1º','#f0c040']:pos===2?['🥈 2º','#c0c8d4']:pos===3?['🥉 3º','#d49a6a']:null;
+  const thumb=x.thumbnail
+    ?`<img src="${_brEsc(x.thumbnail)}" referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover" onerror="this.outerHTML='<div style=&quot;display:flex;align-items:center;justify-content:center;height:100%;font-size:34px&quot;>${x.canal==='Google'?'🔎':'🖼'}</div>'">`
+    :`<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:34px;color:var(--faint)">${x.canal==='Google'?'🔎':'🖼'}</div>`;
+  let kpis=_brKpi('Investimento',money(x.spend))+_brKpi(x.resultadoLabel,(x.resultadoValor||0).toLocaleString('pt-BR'))+_brKpi('Custo/'+x.resultadoLabel,x.custoPorResultado!=null?money(x.custoPorResultado):'—');
+  if(funil==='Fundo'){const roas=x.spend>0?(x.receita||0)/x.spend:0;kpis+=_brKpi('Receita',money(x.receita))+_brKpi('ROAS',roas?roas.toFixed(2).replace('.',',')+'x':'—');}
+  else kpis+=_brKpi('CTR',(x.ctr||0).toFixed(2).replace('.',',')+'%')+_brKpi('CPM',money(x.cpm));
+  const an=_brCardAn[x.codigo];
+  const anHtml=an?`<div style="border-top:1px dashed var(--border);margin-top:8px;padding-top:8px;font-size:11.5px">
+      ${an.veredito?`<div style="color:var(--muted);margin-bottom:6px;line-height:1.4">${_brEsc(an.veredito)}</div>`:''}
+      ${(an.positivos||[]).map(p=>`<div style="color:#34d399;line-height:1.4">▲ ${_brEsc(p)}</div>`).join('')}
+      ${(an.negativos||[]).map(p=>`<div style="color:#f87171;line-height:1.4">▼ ${_brEsc(p)}</div>`).join('')}
+    </div>`:'';
+  return `<div class="card" style="padding:0;overflow:hidden;${x.elegivel?'':'opacity:.55'}">
+    <div style="height:210px;background:#0b0b0b;position:relative">
+      ${thumb}
+      ${medal?`<span style="position:absolute;top:8px;left:8px;background:${medal[1]};color:#0a0906;font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px">${medal[0]}</span>`:''}
+      <span class="badge" style="position:absolute;top:8px;right:8px">${x.canal}</span>
+      ${x.elegivel?'':'<span class="badge" style="position:absolute;bottom:8px;left:8px" title="Volume abaixo do piso do funil — fica fora do ranking">em leitura</span>'}
+    </div>
+    <div style="padding:11px 12px">
+      <div style="font-size:12px;font-weight:700;line-height:1.35;margin-bottom:2px" title="${_brEsc(x.nome)}">${_brEsc(String(x.nome).slice(0,70))}</div>
+      <div style="font-size:10.5px;color:var(--faint);margin-bottom:7px" title="${_brEsc(x.campanha)}">${_brEsc(String(x.campanha).slice(0,55))}${x.funilOrigem&&x.funilOrigem!=='objetivo+nome'?` · <span title="Como a etapa do funil foi identificada">${_brEsc(x.funilOrigem)}</span>`:''}</div>
+      ${kpis}
+      <div id="brCardAn_${_brEsc(x.codigo)}">${anHtml}</div>
+      <div style="display:flex;gap:6px;margin-top:9px">
+        ${an?'':`<button class="btn sm ghost" style="flex:1" onclick="brCardAnalise('${_brEsc(x.codigo)}',this)">🧠 Fortes e fracos</button>`}
+        <a class="btn sm ghost" href="${_brEsc(x.link)}" target="_blank" rel="noopener" title="Abrir no gerenciador de anúncios">↗</a>
+      </div>
+    </div>
+  </div>`;
+}
+function brRenderRanking(){
+  const out=document.getElementById('brOut');if(!out||!_brRank)return;
+  const list=(_brRank.criativos||[]).filter(x=>(x.spend||0)>0);
+  if(!list.length){out.innerHTML='<div class="empty">Nenhum anúncio com investimento no período/filtros.</div>';return;}
+  const ordem=['Topo','Meio','Fundo'];
+  const byF={};list.forEach(x=>{const f=ordem.includes(x.funil)?x.funil:'Sem etapa identificada';(byF[f]=byF[f]||[]).push(x);});
+  const cor=f=>brFunilBadgeColor(f==='Sem etapa identificada'?'':f);
+  const secs=[...ordem,'Sem etapa identificada'].filter(f=>byF[f]&&byF[f].length).map(f=>{
+    const eleg=_brSortFunil(byF[f].filter(x=>x.elegivel),f);
+    const resto=byF[f].filter(x=>!x.elegivel);
+    const fundoSort=f==='Fundo'?`<div style="display:flex;gap:6px">
+        <button class="btn sm ${_brFundoSort==='vendas'?'primary':'ghost'}" onclick="brSetFundoSort('vendas')">🛒 Mais vendas</button>
+        <button class="btn sm ${_brFundoSort==='faturamento'?'primary':'ghost'}" onclick="brSetFundoSort('faturamento')">💰 Mais faturamento</button>
+      </div>`:'';
+    return `<div style="margin-bottom:26px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <h3 style="margin:0;font-size:15px;color:${cor(f)}">● ${f}</h3>
+        <span class="badge">${byF[f].length} criativo${byF[f].length!==1?'s':''}</span>
+        <div style="flex:1"></div>${fundoSort}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px">
+        ${eleg.map((x,i)=>_brCardRanking(x,i+1,f)).join('')}${resto.map(x=>_brCardRanking(x,0,f)).join('')}
+      </div>
+    </div>`;
+  }).join('');
+  const avisos=[];
+  if(_brRank.pctInferido>30)avisos.push(`⚠ ${_brRank.pctInferido}% dos criativos sem objetivo claro — a etapa foi inferida pelo nome, confira antes de decidir.`);
+  (_brRank.erros||[]).forEach(e=>avisos.push('⚠ '+e));
+  out.innerHTML=(avisos.length?`<div class="card" style="margin-bottom:14px;font-size:12px;color:#f0c040">${avisos.map(_brEsc).join('<br>')}</div>`:'')+secs;
+}
+async function brCardAnalise(codigo,btn){
+  const x=(_brRank&&_brRank.criativos||[]).find(z=>z.codigo===codigo);if(!x)return;
+  const pares=(_brRank.criativos||[]).filter(z=>z.funil===x.funil&&z.codigo!==codigo&&z.elegivel)
+    .sort((a,b)=>(b.spend||0)-(a.spend||0)).slice(0,8)
+    .map(z=>({codigo:z.codigo,nome:z.nome,campanha:z.campanha,spend:z.spend,resultadoLabel:z.resultadoLabel,resultadoValor:z.resultadoValor,custoPorResultado:z.custoPorResultado,ctr:z.ctr,cpm:z.cpm}));
+  btn.disabled=true;btn.textContent='🧠 Analisando…';
+  try{
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{briefingCreativoAnalise:{clientId:_brClientId,criativo:x,pares}}});
+    if(error)throw error;
+    const r=(data&&data.data)||{};
+    if(r.error)throw new Error(r.error);
+    _brCardAn[codigo]=r;
+    brRenderRanking();
+  }catch(e){alert('Erro na análise: '+(e.message||e));btn.disabled=false;btn.textContent='🧠 Fortes e fracos';}
 }
 function brCuradoriaHTML(curadoria,erro){
   if(erro)return `<div class="card" style="margin:20px 0;border:1px solid rgba(248,113,113,.35);background:rgba(248,113,113,.06);color:#fca5a5;font-size:12.5px">${_brEsc(erro)}</div>`;
@@ -13146,6 +13277,9 @@ function renderCharts(){
   if(cFinEl){const pm={};DB.finance.filter(f=>f.type==='receita'&&f.status!=='pago').forEach(f=>{const m=(f.due||'').slice(0,7);if(m)pm[m]=(pm[m]||0)+(+f.val||0)});DB.shows.forEach(s=>showPays(s).forEach(p=>{if(p.status!=='pago'){const m=(p.date||'').slice(0,7);if(m)pm[m]=(pm[m]||0)+(+p.val||0)}}));const meses=Object.keys(pm).sort();const nM={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};const cores=[CHART_C.blue,CHART_C.v2,CHART_C.accent,CHART_C.gold,CHART_C.pink,CHART_C.red];destroyChart('fin');_charts.fin=new Chart(cFinEl,{type:'bar',data:{labels:meses.map(m=>{const[y,mm]=m.split('-');return nM[mm]+'/'+y.slice(2)}),datasets:[{data:meses.map(m=>pm[m]),backgroundColor:meses.map((_,i)=>cores[i%cores.length]),borderRadius:8,barThickness:64}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{...gc,ticks:{callback:v=>'R$ '+v}},x:gc}}})}
 }
 
+sb.auth.onAuthStateChange((event)=>{
+  if(event==='PASSWORD_RECOVERY')setTimeout(showPasswordRecovery,0);
+});
 restoreNavGroups();restoreSidebarState();
 checkAuth();
 </script>
