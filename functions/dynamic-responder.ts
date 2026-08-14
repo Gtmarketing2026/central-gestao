@@ -3853,6 +3853,18 @@ async function accessControl(input: any, authorization: string) {
   if (!current) throw new Error("Usuário não encontrado.");
   if (current.protected) throw new Error("O usuário master protegido não pode ser alterado ou excluído.");
   if (!_isMaster(actor) && current.role !== "gestor") throw new Error("Administradores só podem gerenciar usuários gestores.");
+  if (op === "reset_mfa") {
+    const fr = await fetch(`${_SB_URL}/auth/v1/admin/users/${encodeURIComponent(userId)}/factors`, { headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
+    const fj = fr.ok ? await fr.json() : [];
+    const factors = Array.isArray(fj) ? fj : (fj?.factors || []);
+    let removed = 0;
+    for (const f of factors) {
+      const dr = await fetch(`${_SB_URL}/auth/v1/admin/users/${encodeURIComponent(userId)}/factors/${encodeURIComponent(f.id)}`, { method: "DELETE", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
+      if (dr.ok) removed++;
+    }
+    await _auditAccess(actor.user.id, userId, "mfa_reset", { factors: factors.length }, { removed });
+    return { ok: true, removed };
+  }
   if (op === "update") {
     const role = _isMaster(actor) && input.role === "admin" ? "admin" : "gestor";
     const status = ["active", "inactive", "invited"].includes(input.status) ? input.status : current.status;
