@@ -3703,10 +3703,20 @@ async function eventReports(input: any) {
     await sbPost("event_editions", { id, project_id: projectId, client_id: clientId, name, year: Number(input.year) || null, capture_start: input.captureStart || null, capture_end: input.captureEnd || null, event_date: input.eventDate || null, sales_start: input.salesStart || null, sales_end: input.salesEnd || null, config: input.config || {}, created_at: now, updated_at: now });
     return { editionId: id };
   }
+  if (op === "filterOptions") {
+    const since = String(input.since || ""), until = String(input.until || ""); if (!since || !until) throw new Error("Período obrigatório.");
+    const media = await _sbAll("channel_metrics_daily", `client_id=eq.${encodeURIComponent(clientId)}&date=gte.${since}&date=lte.${until}&select=channel,campaign,source_medium`);
+    const rd = await _sbAll("rd_conversions", `client_id=eq.${encodeURIComponent(clientId)}&converted_at=gte.${since}T00:00:00Z&converted_at=lte.${until}T23:59:59Z&select=event_identifier`);
+    const campaigns = [...new Map((media || []).map((x: any) => { const name = String(x.campaign || x.source_medium || "").trim(); return [`${x.channel}|${name}`, { key: `${x.channel}|${name}`, channel: x.channel, name }]; }).filter((x: any) => x[1].name)).values()].sort((a: any, b: any) => a.name.localeCompare(b.name));
+    const rdEvents = [...new Set((rd || []).map((x: any) => String(x.event_identifier || "").trim()).filter(Boolean))].sort();
+    return { campaigns, rdEvents };
+  }
   if (op === "snapshot") {
     const editionId = String(input.editionId || ""), since = String(input.since || ""), until = String(input.until || "");
     if (!editionId || !since || !until) throw new Error("Edição e período são obrigatórios.");
-    const rows = await _sbAll("channel_metrics_daily", `client_id=eq.${encodeURIComponent(clientId)}&date=gte.${since}&date=lte.${until}&select=channel,source_medium,campaign,adset,ad_content,spend,impressions,clicks,reach,purchases,revenue,leads,conversas,video_views,engajamentos`);
+    let rows = await _sbAll("channel_metrics_daily", `client_id=eq.${encodeURIComponent(clientId)}&date=gte.${since}&date=lte.${until}&select=channel,source_medium,campaign,adset,ad_content,spend,impressions,clicks,reach,purchases,revenue,leads,conversas,video_views,engajamentos`);
+    const selectedCampaigns = Array.isArray(input.campaigns) ? input.campaigns.map(String) : [];
+    if (selectedCampaigns.length) { const set = new Set(selectedCampaigns); rows = rows.filter((r: any) => set.has(`${r.channel}|${String(r.campaign || r.source_medium || "").trim()}`)); }
     const empty = () => ({ spend: 0, impressions: 0, clicks: 0, reach: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, video_views: 0, engajamentos: 0 });
     const total: any = empty(), channels: Record<string, any> = {}, campaignMap: Record<string, any> = {};
     for (const r of rows || []) { const c = channels[r.channel] || (channels[r.channel] = empty()); for (const k of Object.keys(total)) { const v = Number(r[k]) || 0; c[k] += v; total[k] += v; }
@@ -3715,7 +3725,9 @@ async function eventReports(input: any) {
     }
     total.ctr = total.impressions ? total.clicks / total.impressions * 100 : 0; total.cpm = total.impressions ? total.spend / total.impressions * 1000 : 0; total.roas = total.spend ? total.revenue / total.spend : 0;
     Object.values(channels).forEach((c: any) => { c.ctr = c.impressions ? c.clicks / c.impressions * 100 : 0; c.cpm = c.impressions ? c.spend / c.impressions * 1000 : 0; c.roas = c.spend ? c.revenue / c.spend : 0; });
-    const rd = await _sbAll("rd_conversions", `client_id=eq.${encodeURIComponent(clientId)}&converted_at=gte.${since}T00:00:00Z&converted_at=lte.${until}T23:59:59Z&select=event_identifier,source,medium,campaign`);
+    let rd = await _sbAll("rd_conversions", `client_id=eq.${encodeURIComponent(clientId)}&converted_at=gte.${since}T00:00:00Z&converted_at=lte.${until}T23:59:59Z&select=event_identifier,source,medium,campaign`);
+    const selectedRd = Array.isArray(input.rdEvents) ? input.rdEvents.map(String) : [];
+    if (selectedRd.length) { const set = new Set(selectedRd); rd = rd.filter((r: any) => set.has(String(r.event_identifier || ""))); }
     const rdEvents: Record<string, number> = {}; for (const x of rd || []) { const k = String(x.event_identifier || "Conversão"); rdEvents[k] = (rdEvents[k] || 0) + 1; }
     const convs = await _sbAll("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&created_at=gte.${since}T00:00:00Z&created_at=lte.${until}T23:59:59Z&select=stage,origin_type`);
     const crmStages: Record<string, number> = {}; for (const x of convs || []) { const k = String(x.stage || "sem_etapa"); crmStages[k] = (crmStages[k] || 0) + 1; }
@@ -3723,7 +3735,7 @@ async function eventReports(input: any) {
     const commerce = { purchases: (salesTp || []).length, revenue: (salesTp || []).reduce((a: number, x: any) => a + (Number(x.value) || 0), 0) };
     const campaigns = Object.values(campaignMap).map((x: any) => ({ ...x, ctr: x.impressions ? x.clicks / x.impressions * 100 : 0, cpa: (x.purchases || x.leads || x.conversas) ? x.spend / (x.purchases || x.leads || x.conversas) : 0 })).sort((a: any, b: any) => b.spend - a.spend).slice(0, 100);
     const id = _wuid(), collectedAt = new Date().toISOString(), metrics = { total, channels, campaigns, rd: { total: (rd || []).length, events: rdEvents }, crm: { total: (convs || []).length, stages: crmStages }, commerce };
-    await sbPost("event_snapshots", { id, edition_id: editionId, client_id: clientId, period_start: since, period_end: until, metrics, sources: { channel_metrics_daily: true, journey_sales: !!salesTp.length, rd: !!rd.length, crm: !!convs.length, youtube: false }, collected_at: collectedAt });
+    await sbPost("event_snapshots", { id, edition_id: editionId, client_id: clientId, period_start: since, period_end: until, metrics, sources: { channel_metrics_daily: true, journey_sales: !!salesTp.length, rd: !!rd.length, crm: !!convs.length, youtube: false, filters: { campaigns: selectedCampaigns, rd_events: selectedRd, since, until } }, collected_at: collectedAt });
     return { snapshot: { id, edition_id: editionId, client_id: clientId, period_start: since, period_end: until, metrics, collected_at: collectedAt } };
   }
   if (op === "saveVersion") {
