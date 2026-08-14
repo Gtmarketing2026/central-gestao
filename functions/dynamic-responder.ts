@@ -5002,11 +5002,11 @@ async function googleGa4Discover(authorization: string) {
 async function ga4Report(m: any) {
   const prop = String(m.propertyId || "").replace(/[^0-9]/g, "");
   if (!prop) throw new Error("propertyId do GA4 obrigatório (só os números, ex: 123456789)");
-  const run = async (dims: string[], mets: string[], limit = 50) => {
+  const run = async (dims: string[], mets: string[], limit = 50, orderMetric = "") => {
     const j = await _googleTryTokens(["https://www.googleapis.com/auth/analytics.readonly"], async (token) => {
       const r = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${prop}:runReport`, {
         method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ dateRanges: [{ startDate: m.since, endDate: m.until }], dimensions: dims.map((name) => ({ name })), metrics: mets.map((name) => ({ name })), limit }),
+        body: JSON.stringify({ dateRanges: [{ startDate: m.since, endDate: m.until }], dimensions: dims.map((name) => ({ name })), metrics: mets.map((name) => ({ name })), ...(orderMetric ? { orderBys: [{ metric: { metricName: orderMetric }, desc: true }] } : {}), limit }),
       });
       return r.json();
     });
@@ -5018,17 +5018,78 @@ async function ga4Report(m: any) {
       return o;
     });
   };
-  const [canais, paginas, origens, campanhas] = await Promise.all([
-    run(["sessionDefaultChannelGroup"], ["sessions", "totalUsers", "conversions", "purchaseRevenue", "transactions"], 20).catch((e) => ({ _err: String(e.message || e) } as any)),
-    run(["pagePath"], ["screenPageViews", "totalUsers"], 25).catch(() => []),
-    run(["sessionSource", "sessionMedium"], ["sessions", "conversions", "purchaseRevenue", "transactions"], 25).catch(() => []),
+  const [canais, paginas, origens, campanhas, qualidadeCanais, qualidadePaginas, qualidadePalavras] = await Promise.all([
+    run(["sessionDefaultChannelGroup"], ["sessions", "totalUsers", "conversions", "purchaseRevenue", "transactions", "engagedSessions", "engagementRate", "averageSessionDuration", "userEngagementDuration", "screenPageViewsPerSession", "keyEvents"], 30, "sessions").catch((e) => ({ _err: String(e.message || e) } as any)),
+    run(["pagePath"], ["screenPageViews", "totalUsers"], 25, "screenPageViews").catch(() => []),
+    run(["sessionSource", "sessionMedium"], ["sessions", "conversions", "purchaseRevenue", "transactions"], 25, "sessions").catch(() => []),
     // campanha com RECEITA e COMPRAS — é o que liga o GA4 à jornada/atribuição
-    run(["sessionCampaignName", "sessionSource", "sessionMedium"], ["sessions", "transactions", "purchaseRevenue", "conversions"], 40).catch(() => []),
+    run(["sessionCampaignName", "sessionSource", "sessionMedium"], ["sessions", "transactions", "purchaseRevenue", "conversions"], 40, "purchaseRevenue").catch(() => []),
+    // Relatórios separados mantêm compatibilidade do GA4 e evitam que uma dimensão muito granular
+    // altere os totais gerais. Estes três blocos alimentam a Qualidade da Navegação na Jornada.
+    run(["sessionDefaultChannelGroup", "sessionSource", "sessionMedium", "sessionCampaignName"], ["sessions", "totalUsers", "engagedSessions", "engagementRate", "averageSessionDuration", "userEngagementDuration", "screenPageViewsPerSession", "keyEvents"], 800, "sessions").catch(() => []),
+    run(["sessionSourceMedium", "pagePath", "pageTitle"], ["sessions", "totalUsers", "screenPageViews", "userEngagementDuration", "averageSessionDuration", "engagementRate", "keyEvents"], 300, "screenPageViews").catch(() => []),
+    run(["sessionGoogleAdsKeyword", "sessionGoogleAdsQuery", "sessionGoogleAdsCampaignName"], ["sessions", "engagedSessions", "engagementRate", "averageSessionDuration", "userEngagementDuration", "screenPageViewsPerSession", "keyEvents"], 500, "sessions").catch(() => []),
   ]);
   if ((canais as any)._err) throw new Error((canais as any)._err);
   const tot = (arr: any[], k: string) => (Array.isArray(arr) ? arr : []).reduce((s: number, r: any) => s + (Number(r[k]) || 0), 0);
+  const qChannel = (source: string, medium: string, group = "") => {
+    const s = String(source || "").toLowerCase(), g = String(group || "").toLowerCase();
+    if (/pinterest/.test(s)) return "pinterest";
+    if (/google/.test(s)) return "google";
+    if (/facebook|instagram|meta/.test(s)) return "meta";
+    if (/tiktok/.test(s)) return "tiktok";
+    if (/youtube/.test(s)) return "youtube";
+    if (/direct/.test(s) || g.includes("direct")) return "direto";
+    if (g.includes("organic")) return "orgânico";
+    return g || s || String(medium || "").toLowerCase() || "outros";
+  };
+  const qRows = (Array.isArray(qualidadeCanais) ? qualidadeCanais : []).map((r: any) => ({
+    channel: qChannel(r.sessionSource, r.sessionMedium, r.sessionDefaultChannelGroup), source: r.sessionSource || "", medium: r.sessionMedium || "", sourceMedium: [r.sessionSource, r.sessionMedium].filter(Boolean).join(" / "), campaign: r.sessionCampaignName || "",
+    sessions: r.sessions || 0, users: r.totalUsers || 0, engagedSessions: r.engagedSessions || 0, engagementRate: r.engagementRate || 0, avgSeconds: r.averageSessionDuration || 0, activeSeconds: r.userEngagementDuration || 0, pagesPerSession: r.screenPageViewsPerSession || 0, conversions: r.keyEvents || 0,
+  }));
+  const qPages = (Array.isArray(qualidadePaginas) ? qualidadePaginas : []).map((r: any) => {
+    const sm = String(r.sessionSourceMedium || ""), parts = sm.split(" / "), source = parts.shift() || "", medium = parts.join(" / ");
+    return { channel: qChannel(source, medium), sourceMedium: sm, page: r.pagePath || "", title: r.pageTitle || "", sessions: r.sessions || 0, users: r.totalUsers || 0, views: r.screenPageViews || 0, avgSeconds: r.averageSessionDuration || 0, activeSeconds: r.userEngagementDuration || 0, engagementRate: r.engagementRate || 0, conversions: r.keyEvents || 0 };
+  });
+  const qKeywords = (Array.isArray(qualidadePalavras) ? qualidadePalavras : []).filter((r: any) => !/^\(not set\)$|^$/i.test(String(r.sessionGoogleAdsKeyword || r.sessionGoogleAdsQuery || ""))).map((r: any) => ({
+    channel: "google", keyword: r.sessionGoogleAdsKeyword || "", query: r.sessionGoogleAdsQuery || "", campaign: r.sessionGoogleAdsCampaignName || "", sessions: r.sessions || 0, engagedSessions: r.engagedSessions || 0, engagementRate: r.engagementRate || 0, avgSeconds: r.averageSessionDuration || 0, activeSeconds: r.userEngagementDuration || 0, pagesPerSession: r.screenPageViewsPerSession || 0, conversions: r.keyEvents || 0,
+  }));
+  const totalSessions = tot(canais as any[], "sessions"), totalEngaged = tot(canais as any[], "engagedSessions");
+  const weighted = (k: string) => totalSessions ? (Array.isArray(canais) ? canais : []).reduce((s: number, r: any) => s + (Number(r[k]) || 0) * (Number(r.sessions) || 0), 0) / totalSessions : 0;
   return { propertyId: prop, periodo: { since: m.since, until: m.until }, canais, paginas, origens, campanhas,
-    total: { receita: tot(canais as any[], "purchaseRevenue"), compras: tot(canais as any[], "transactions"), sessoes: tot(canais as any[], "sessions"), conversoes: tot(canais as any[], "conversions") } };
+    quality: { source: "ga4", channels: qRows, pages: qPages, keywords: qKeywords, total: { sessions: totalSessions, users: tot(canais as any[], "totalUsers"), engagedSessions: totalEngaged, engagementRate: totalSessions ? totalEngaged / totalSessions : 0, avgSeconds: weighted("averageSessionDuration"), activeSeconds: tot(canais as any[], "userEngagementDuration"), pagesPerSession: weighted("screenPageViewsPerSession"), conversions: tot(canais as any[], "keyEvents") } },
+    total: { receita: tot(canais as any[], "purchaseRevenue"), compras: tot(canais as any[], "transactions"), sessoes: totalSessions, conversoes: tot(canais as any[], "conversions") } };
+}
+
+// Fallback universal dos KPIs de qualidade, alimentado pelo pixel próprio depois do consentimento.
+// É intencionalmente agregado em memória sobre a tabela compacta nova — nunca consulta o track_events histórico pesado.
+async function journeyQualityPixel(m: any) {
+  const clientId = String(m.clientId || ""), since = String(m.since || ""), until = String(m.until || "");
+  if (!clientId || !since || !until) throw new Error("clientId, since e until são obrigatórios");
+  const rows = await _sbAll("journey_quality_events", `client_id=eq.${encodeURIComponent(clientId)}&created_at=gte.${encodeURIComponent(since + "T00:00:00Z")}&created_at=lte.${encodeURIComponent(until + "T23:59:59Z")}&select=event_type,session_id,anon_id,channel,source,medium,campaign,term,content,page,title,active_seconds,created_at&order=created_at.asc`, 50000);
+  const sessions: Record<string, any> = {};
+  for (const r of rows) {
+    const key = r.session_id || (r.anon_id ? `${r.anon_id}:${String(r.created_at).slice(0, 10)}` : ""); if (!key) continue;
+    const s = sessions[key] || (sessions[key] = { key, channel: r.channel || "direto", source: r.source || "", medium: r.medium || "", campaign: r.campaign || "", term: r.term || "", activeSeconds: 0, pageviews: 0, pages: new Set<string>() });
+    if (!s.campaign && r.campaign) s.campaign = r.campaign; if (!s.term && r.term) s.term = r.term;
+    if (r.event_type === "pageview") s.pageviews++;
+    if (r.page) s.pages.add(r.page);
+    s.activeSeconds = Math.min(14400, s.activeSeconds + Math.max(0, Number(r.active_seconds) || 0));
+  }
+  const list = Object.values(sessions); const aggregate = (items: any[], keyFn: (s: any) => string) => {
+    const out: Record<string, any> = {};
+    for (const s of items) { const k = keyFn(s); if (!k) continue; const a = out[k] || (out[k] = { sessions: 0, engagedSessions: 0, activeSeconds: 0, pageviews: 0 }); a.sessions++; a.engagedSessions += s.activeSeconds >= 10 || s.pageviews >= 2 ? 1 : 0; a.activeSeconds += s.activeSeconds; a.pageviews += s.pageviews; }
+    return out;
+  };
+  const byChannel = aggregate(list, (s) => [s.channel, s.source, s.medium, s.campaign].join("|"));
+  const channels = Object.entries(byChannel).map(([k, a]: any) => { const [channel, source, medium, campaign] = k.split("|"); return { channel, source, medium, sourceMedium: [source, medium].filter(Boolean).join(" / "), campaign, sessions: a.sessions, users: a.sessions, engagedSessions: a.engagedSessions, engagementRate: a.sessions ? a.engagedSessions / a.sessions : 0, avgSeconds: a.sessions ? a.activeSeconds / a.sessions : 0, activeSeconds: a.activeSeconds, pagesPerSession: a.sessions ? a.pageviews / a.sessions : 0, conversions: 0 }; }).sort((a, b) => b.sessions - a.sessions);
+  const pageAgg: Record<string, any> = {};
+  for (const r of rows) { if (!r.page) continue; const k = [r.channel || "direto", r.source || "", r.medium || "", r.page, r.title || ""].join("|"); const a = pageAgg[k] || (pageAgg[k] = { views: 0, activeSeconds: 0, sessionKeys: new Set<string>() }); if (r.event_type === "pageview") a.views++; a.activeSeconds += Math.max(0, Number(r.active_seconds) || 0); if (r.session_id) a.sessionKeys.add(r.session_id); }
+  const pages = Object.entries(pageAgg).map(([k, a]: any) => { const [channel, source, medium, page, title] = k.split("|"); const n = a.sessionKeys.size || 1; return { channel, sourceMedium: [source, medium].filter(Boolean).join(" / "), page, title, sessions: a.sessionKeys.size, users: a.sessionKeys.size, views: a.views, avgSeconds: a.activeSeconds / n, activeSeconds: a.activeSeconds, engagementRate: 0, conversions: 0 }; }).sort((a, b) => b.views - a.views || b.activeSeconds - a.activeSeconds);
+  const kwAgg = aggregate(list.filter((s: any) => s.term), (s) => [s.term, s.campaign].join("|"));
+  const keywords = Object.entries(kwAgg).map(([k, a]: any) => { const [keyword, campaign] = k.split("|"); return { channel: "google", keyword, query: "", campaign, sessions: a.sessions, engagedSessions: a.engagedSessions, engagementRate: a.sessions ? a.engagedSessions / a.sessions : 0, avgSeconds: a.sessions ? a.activeSeconds / a.sessions : 0, activeSeconds: a.activeSeconds, pagesPerSession: a.sessions ? a.pageviews / a.sessions : 0, conversions: 0 }; }).sort((a, b) => b.sessions - a.sessions);
+  const totalSessions = list.length, activeSeconds = list.reduce((s: number, x: any) => s + x.activeSeconds, 0), engagedSessions = list.filter((s: any) => s.activeSeconds >= 10 || s.pageviews >= 2).length, pageviews = list.reduce((s: number, x: any) => s + x.pageviews, 0);
+  return { source: "pixel", channels, pages, keywords, total: { sessions: totalSessions, users: new Set(list.map((s: any) => s.key.split(":")[0])).size, engagedSessions, engagementRate: totalSessions ? engagedSessions / totalSessions : 0, avgSeconds: totalSessions ? activeSeconds / totalSessions : 0, activeSeconds, pagesPerSession: totalSessions ? pageviews / totalSessions : 0, conversions: 0 }, truncated: rows.length >= 50000 };
 }
 // GA4 por DIA × ORIGEM/MÍDIA × CAMPANHA × CONTEÚDO DO ANÚNCIO — evento purchase (transações) e receita.
 // Alimenta o Banco de Dados como canal "ga4". Retenção de dados do GA4 (2/14 meses) só afeta relatórios de
@@ -5289,7 +5350,7 @@ async function journeyRebuild(m: any) {
   }
 
   // ---- 3) Pixel do site: pageview / clique em link / clique no WhatsApp ----
-  const ev = await _sbAll("track_events", `client_id=eq.${encodeURIComponent(clientId)}&created_at=gte.${since}&select=id,type,session_id,anon_id,utm_source,utm_medium,utm_campaign,utm_content,utm_term,fbclid,gclid,referrer,landing,link_slug,created_at&order=created_at.asc`);
+  const ev = await _sbAll("track_events", `client_id=eq.${encodeURIComponent(clientId)}&type=in.(pageview,wpp_click,link_click,form)&created_at=gte.${since}&select=id,type,session_id,anon_id,utm_source,utm_medium,utm_campaign,utm_content,utm_term,fbclid,gclid,referrer,landing,link_slug,created_at&order=created_at.asc`);
   for (const e of (ev || [])) {
     const ks: string[] = [];
     if (e.anon_id) ks.push("anon:" + e.anon_id);
@@ -5833,6 +5894,10 @@ Deno.serve(async (req) => {
     }
     if (body.ga4Report) {
       const r = await ga4Report(body.ga4Report);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.journeyQualityPixel) {
+      const r = await journeyQualityPixel(body.journeyQualityPixel);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.gscReport) {

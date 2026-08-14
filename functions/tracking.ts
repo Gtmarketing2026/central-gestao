@@ -368,8 +368,15 @@ var sess=sessionStorage.getItem('_alc_s');if(!sess){sess=uid();try{sessionStorag
 var o={utm_source:q('utm_source'),utm_medium:q('utm_medium'),utm_campaign:q('utm_campaign'),utm_content:q('utm_content'),utm_term:q('utm_term'),fbclid:q('fbclid'),gclid:q('gclid')||q('gbraid')||q('wbraid'),campaignid:q('campaignid')||q('campaign_id'),adgroupid:q('adgroupid')||q('adset_id'),adid:q('adid')||q('ad_id'),keyword:q('keyword')||q('utm_term'),matchtype:q('matchtype'),placement:q('placement')||q('network')};
 var has=Object.keys(o).some(function(k){return o[k]});
 try{var st=JSON.parse(localStorage.getItem('_alc_o')||'null');if(has){localStorage.setItem('_alc_o',JSON.stringify(o))}else if(st){o=st}}catch(e){}
-function send(t,x){var b={cid:CID,type:t,anon:anon,sess:sess,ref:document.referrer||'',landing:location.pathname+location.search,ua:navigator.userAgent};for(var k in o)b[k]=o[k];if(x)for(var j in x)b[j]=x[j];var s=JSON.stringify(b);try{if(navigator.sendBeacon){navigator.sendBeacon(BASE+'/collect',s);return}}catch(e){}try{fetch(BASE+'/collect',{method:'POST',body:s,keepalive:true,headers:{'Content-Type':'application/json'}}).catch(function(){})}catch(e){}}
-send('pageview');
+function send(t,x){var b={cid:CID,type:t,anon:anon,sess:sess,ref:document.referrer||'',landing:location.pathname+location.search,page:location.pathname,title:document.title||'',ua:navigator.userAgent};for(var k in o)b[k]=o[k];if(x)for(var j in x)b[j]=x[j];var s=JSON.stringify(b);try{if(navigator.sendBeacon){navigator.sendBeacon(BASE+'/collect',s);return}}catch(e){}try{fetch(BASE+'/collect',{method:'POST',body:s,keepalive:true,headers:{'Content-Type':'application/json'}}).catch(function(){})}catch(e){}}
+var activeStart=document.hidden?0:Date.now(),activeMs=0,lastUrl=location.href;
+function collectActive(){if(activeStart){activeMs+=Math.max(0,Date.now()-activeStart);activeStart=Date.now()}}
+function flushActive(){collectActive();var sec=Math.round(activeMs/1000);if(sec>0)send('engagement',{active_seconds:sec,page:location.pathname,title:document.title||''});activeMs=0;activeStart=document.hidden?0:Date.now()}
+function pageChanged(){if(location.href===lastUrl)return;flushActive();lastUrl=location.href;send('pageview',{page:location.pathname,title:document.title||''})}
+send('pageview',{page:location.pathname,title:document.title||''});
+document.addEventListener('visibilitychange',function(){if(document.hidden){flushActive();activeStart=0}else activeStart=Date.now()});
+window.addEventListener('pagehide',flushActive);setInterval(function(){if(!document.hidden)flushActive()},30000);
+try{var hp=history.pushState,hr=history.replaceState;history.pushState=function(){var r=hp.apply(this,arguments);setTimeout(pageChanged,0);return r};history.replaceState=function(){var r=hr.apply(this,arguments);setTimeout(pageChanged,0);return r};window.addEventListener('popstate',function(){setTimeout(pageChanged,0)})}catch(e){}
 document.addEventListener('click',function(e){var a=e.target&&e.target.closest?e.target.closest('a'):null;if(!a||!a.href)return;if(/wa\\.me|api\\.whatsapp\\.com|whatsapp:/i.test(a.href)){send('wpp_click',{dest:a.href.slice(0,300)});var hasO=o.utm_campaign||o.gclid||o.fbclid||o.utm_source;if(hasO&&a.href.indexOf('[#')===-1){var rid=uid().slice(0,8);try{var u=new URL(a.href);var t=u.searchParams.get('text')||'';u.searchParams.set('text',(t?t+' ':'')+'[#'+rid+']');a.href=u.toString()}catch(_e){a.href=a.href+(a.href.indexOf('?')>-1?'&':'?')+'text='+encodeURIComponent('[#'+rid+']')}var pl=JSON.stringify({ref:rid,cid:CID,utm_source:o.utm_source,utm_medium:o.utm_medium,utm_campaign:o.utm_campaign,utm_content:o.utm_content,utm_term:o.utm_term,gclid:o.gclid,fbclid:o.fbclid});try{if(navigator.sendBeacon){navigator.sendBeacon(BASE+'/wa/ref',pl)}else{fetch(BASE+'/wa/ref',{method:'POST',headers:{'Content-Type':'application/json'},body:pl,keepalive:true}).catch(function(){})}}catch(_e2){}}}},true);
 document.addEventListener('submit',function(e){var f=e.target;if(!f||f.tagName!=='FORM')return;var idv=(f.id||'')+' '+(f.getAttribute('name')||'')+' '+(f.className||'')+' '+(f.action||'');if(/search|busca|pesquisa/i.test(idv))return;send('form',{action:(f.action||'').slice(0,300),id:(f.id||'').slice(0,100)})},true);
 window.ALICIA={send:send,origin:o,anon:anon};
@@ -413,18 +420,34 @@ async function handleCollect(req: Request) {
   if (!b.cid || !b.type) return new Response("bad", { status: 400, headers: cors });
   const cid = await _resolveCid(b.cid);
   if (!cid) return new Response("bad", { status: 400, headers: cors });
+  const activeSeconds = Math.max(0, Math.min(3600, Math.round(Number(b.active_seconds) || 0)));
+  const page = clip(b.page || String(b.landing || "").split("?")[0], 300);
+  const title = clip(b.title, 200);
+  const hasMeta = b.dest || b.campaignid || b.adgroupid || b.adid || b.keyword || b.matchtype || b.placement || activeSeconds || page || title;
   await sbInsert("track_events", {
     id: uid(), client_id: cid, type: clip(b.type, 20), session_id: clip(b.sess, 40), anon_id: clip(b.anon, 40),
     utm_source: clip(b.utm_source, 120), utm_medium: clip(b.utm_medium, 120), utm_campaign: clip(b.utm_campaign, 200),
     utm_content: clip(b.utm_content, 200), utm_term: clip(b.utm_term, 200),
     fbclid: clip(b.fbclid, 300), gclid: clip(b.gclid, 300),
     referrer: clip(b.ref, 300), landing: clip(b.landing, 300), user_agent: clip(b.ua, 300),
-    meta: (b.dest || b.campaignid || b.adgroupid || b.adid || b.keyword || b.matchtype || b.placement) ? {
+    meta: hasMeta ? {
       dest: b.dest ? clip(b.dest, 300) : undefined,
       campaignid: clip(b.campaignid, 40), adgroupid: clip(b.adgroupid, 40), adid: clip(b.adid, 40),
       keyword: clip(b.keyword, 200), matchtype: clip(b.matchtype, 20), placement: clip(b.placement, 60),
+      page, title, active_seconds: activeSeconds || undefined,
     } : null,
   });
+  // Base compacta para os KPIs de qualidade da Jornada. Mantém o track_events legado intacto,
+  // mas evita varrer a tabela histórica grande para calcular tempo e páginas por sessão.
+  if (b.type === "pageview" || b.type === "engagement") {
+    await sbInsert("journey_quality_events", {
+      id: uid(), client_id: cid, event_type: b.type, session_id: clip(b.sess, 40), anon_id: clip(b.anon, 40),
+      channel: _channelOf(b.utm_source || "", b.gclid || "", b.fbclid || ""),
+      source: clip(b.utm_source, 120), medium: clip(b.utm_medium, 120), campaign: clip(b.utm_campaign, 200),
+      term: clip(b.utm_term || b.keyword, 200), content: clip(b.utm_content, 200),
+      page, title, referrer: clip(b.ref, 300), active_seconds: activeSeconds,
+    });
+  }
   return new Response("ok", { headers: { ...cors, "Content-Type": "text/plain" } });
 }
 

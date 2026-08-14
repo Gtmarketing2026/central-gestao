@@ -3829,7 +3829,7 @@ async function cLoadGsaEmail(){
 }
 function cCopyGsa(btn){const t=(document.getElementById('cGsaEmail')||{}).textContent||'';if(!t)return;navigator.clipboard.writeText(t).then(()=>{const o=btn.textContent;btn.textContent='copiado ✓';setTimeout(()=>btn.textContent=o,1400);}).catch(()=>{});}
 /* =================== JORNADA DO LEAD (multi-toque) =================== */
-let _jrnClientId='',_jrnDays=90,_jrnRaw=null,_jrnSel=null,_jrnQ='',_jrnFCh='',_jrnFSt='';
+let _jrnClientId='',_jrnDays=90,_jrnRaw=null,_jrnSel=null,_jrnQ='',_jrnFCh='',_jrnFSt='',_jrnQualityCache=null,_jrnQualityCh='',_jrnQualityCampaign='';
 const JRN_ICON={ad_click:'📣',link_click:'🔗',pageview:'🌐',wpp_click:'💬',form:'📝',message_in:'💬',message_out:'↩️',stage:'🎯',purchase:'🛒',checkout:'🧾',deal:'🤝'};
 const JRN_CHCOL={meta:'#60a5fa',google:'#34d399',whatsapp:'#25d366',email:'#f0c040',organico:'#a78bfa',direto:'#94a3b8',referral:'#fb923c',rd:'#f0c040'};
 function _jrnCh(c){return JRN_CHCOL[String(c||'').toLowerCase()]||'#94a3b8';}
@@ -3841,7 +3841,7 @@ async function loadJornada(clientId){
   const rb=document.getElementById('jrnRange');
   if(rb)rb.innerHTML=[30,90,365].map(d=>`<button class="btn sm ${_jrnDays===d?'primary':'ghost'}" onclick="jrnSetDays(${d})">${d===365?'1 ano':d+' dias'}</button>`).join('');
   if(!c){body.innerHTML='<div class="empty">Selecione um cliente na sidebar.</div>';return}
-  _jrnClientId=c.id;_jrnSel=null;
+  _jrnClientId=c.id;_jrnSel=null;_jrnQualityCache=null;_jrnQualityCh='';_jrnQualityCampaign='';
   body.innerHTML='<div class="empty">Carregando jornada…</div>';
   try{
     const since=daysAgoISO(_jrnDays);
@@ -3951,7 +3951,7 @@ function jrnBuild(){
 function jrnRender(){
   const body=document.getElementById('jrnBody');if(!body||!_jrnRaw)return;
   const L=jrnBuild();
-  if(!L.length){body.innerHTML=`<div class="empty" style="padding:26px">Nenhuma jornada no período.<br><span style="font-size:12px;color:var(--faint)">Clique em <b>🔄 Atualizar jornada</b> pra processar as fontes deste cliente (WhatsApp, RD Station, pixel).</span></div>`;return;}
+  if(!L.length){body.innerHTML=`<div id="jrnGaBox" style="margin-bottom:16px"></div><div class="empty" style="padding:26px">Nenhuma jornada individual no período.<br><span style="font-size:12px;color:var(--faint)">A qualidade de navegação ainda pode aparecer acima pelo GA4 ou pixel. Para ligar visitantes a leads, clique em <b>🔄 Atualizar jornada</b>.</span></div>`;jrnLoadAnalytics();return;}
   // ---- KPIs ----
   const total=L.length, comConv=L.filter(x=>x.converteu).length;
   const multi=L.filter(x=>x.canais.length>1).length;
@@ -4052,23 +4052,58 @@ function jrnRender(){
   body.innerHTML=kpis+atrib+caminhos+`<div id="jrnGaBox" style="margin-bottom:16px"></div>`+linkedNotice+lista;
   jrnLoadAnalytics();
 }
+function _jrnTime(sec){sec=Math.max(0,Math.round(Number(sec)||0));if(sec<60)return sec+'s';const m=Math.floor(sec/60),s=sec%60;return m+'min'+(s?' '+s+'s':'');}
+function _jrnPageIntent(page,title){const s=((page||'')+' '+(title||'')).toLowerCase();if(/aluno|login|entrar|area[-_ /]?do[-_ /]?aluno|portal/.test(s))return 'Área do aluno';if(/checkout|carrinho|compr|pagamento|produto|oferta|inscri/.test(s))return 'Compra / inscrição';if(/blog|artigo|conteudo|noticia/.test(s))return 'Conteúdo';if(/contato|whatsapp|fale[-_ /]?conosco/.test(s))return 'Contato';return 'Outras páginas';}
+function jrnQualityRender(){
+  const el=document.getElementById('jrnQualityPanel');if(!el||!_jrnQualityCache)return;
+  const ga=_jrnQualityCache.ga&&_jrnQualityCache.ga.quality,px=_jrnQualityCache.pixel;
+  const q=(ga&&ga.total&&ga.total.sessions)?ga:px;
+  if(!q||!q.total||!q.total.sessions){el.innerHTML=`<div style="background:var(--surface);border:1px dashed var(--border);border-radius:14px;padding:14px 16px;font-size:12px;color:var(--muted)"><b>⏱ Qualidade da navegação</b><div style="margin-top:4px">Ainda não há sessões mensuradas neste período. Com GA4 conectado, o histórico aparece automaticamente. Pelo pixel próprio, tempo ativo e páginas por sessão começam a ser coletados a partir desta atualização, sempre após o consentimento do visitante.</div></div>`;return;}
+  const channels=q.channels||[],pages=q.pages||[],keywords=q.keywords||[];
+  const chs=[...new Set(channels.map(r=>String(r.channel||'outros')).concat(pages.map(r=>String(r.channel||'outros'))))].sort();
+  if(_jrnQualityCh&&!chs.includes(_jrnQualityCh))_jrnQualityCh='';
+  const cf=_jrnQualityCh?channels.filter(r=>r.channel===_jrnQualityCh):channels;
+  const pf=_jrnQualityCh?pages.filter(r=>r.channel===_jrnQualityCh):pages;
+  const kf=(!_jrnQualityCh||_jrnQualityCh==='google')?keywords:[];
+  const sess=cf.reduce((s,r)=>s+(+r.sessions||0),0),eng=cf.reduce((s,r)=>s+(+r.engagedSessions||0),0);
+  const weighted=k=>sess?cf.reduce((s,r)=>s+(+r[k]||0)*(+r.sessions||0),0)/sess:0;
+  const avg=weighted('avgSeconds'),pps=weighted('pagesPerSession'),conv=cf.reduce((s,r)=>s+(+r.conversions||0),0),er=sess?eng/sess:0;
+  const card=(l,v,sub,cor)=>`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:10px 13px;min-width:130px;flex:1"><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">${l}</div><div style="font-size:19px;font-weight:800;margin-top:2px${cor?';color:'+cor:''}">${v}</div><div style="font-size:10px;color:var(--faint);margin-top:2px">${sub}</div></div>`;
+  const intent={};pf.forEach(r=>{const k=_jrnPageIntent(r.page,r.title);intent[k]=(intent[k]||0)+(+r.views||+r.sessions||0)});const intentRows=Object.entries(intent).sort((a,b)=>b[1]-a[1]),intentMax=Math.max(1,...intentRows.map(x=>x[1]));
+  const escAttr=s=>_jrnEsc(s).replace(/"/g,'&quot;');
+  const th=s=>`<th style="text-align:left;padding:7px 8px;border-bottom:1px solid var(--border);font-size:9px;text-transform:uppercase;color:var(--muted);white-space:nowrap">${s}</th>`;
+  const originRows=cf.slice().sort((a,b)=>(b.sessions||0)-(a.sessions||0)).slice(0,20);
+  el.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px;border-top:2px solid #f0c040">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><div><div style="font-size:12px;font-weight:800;color:#f0c040">⏱ Qualidade da navegação</div><div style="font-size:10.5px;color:var(--faint);margin-top:2px">Tempo ativo, profundidade e destino dos visitantes · fonte: <b>${q.source==='ga4'?'Google Analytics 4':'pixel próprio'}</b></div></div><select onchange="_jrnQualityCh=this.value;jrnQualityRender()" style="width:auto;min-width:180px;font-size:11.5px"><option value="">Todos os canais</option>${chs.map(ch=>`<option value="${escAttr(ch)}" ${_jrnQualityCh===ch?'selected':''}>${_jrnEsc(ch)}</option>`).join('')}</select></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">${card('Sessões',Math.round(sess).toLocaleString('pt-BR'),'visitas no período')}${card('Tempo médio',_jrnTime(avg),'por sessão ativa','#f0c040')}${card('Taxa engajada',(er*100).toFixed(1)+'%','10s+ ou 2 páginas','#34d399')}${card('Páginas / sessão',pps.toFixed(2),'profundidade média')}${conv?card('Conversões',Math.round(conv).toLocaleString('pt-BR'),'eventos-chave do GA4','#a78bfa'):''}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:14px">
+      <div style="overflow-x:auto"><div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Qualidade por origem e campanha</div><table style="width:100%;border-collapse:collapse"><tr>${th('Canal')}${th('Origem / mídia')}${th('Campanha')}${th('Sessões')}${th('Tempo')}${th('Engaj.')}${th('Pág./sess.')}</tr>${originRows.map(r=>`<tr><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px;text-transform:capitalize"><b>${_jrnEsc(r.channel)}</b></td><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:10.5px;color:var(--muted)">${_jrnEsc(r.sourceMedium||'—')}</td><td title="${escAttr(r.campaign||'')}" style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:10.5px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_jrnEsc(r.campaign||'—')}</td><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px;font-weight:700">${Math.round(r.sessions||0).toLocaleString('pt-BR')}</td><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px;color:#f0c040">${_jrnTime(r.avgSeconds)}</td><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px">${((r.engagementRate||0)*100).toFixed(0)}%</td><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px">${(+r.pagesPerSession||0).toFixed(1)}</td></tr>`).join('')}</table></div>
+      <div><div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Para onde foram</div>${intentRows.slice(0,6).map(([k,v])=>`<div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:11px"><span>${_jrnEsc(k)}</span><b>${Math.round(v).toLocaleString('pt-BR')}</b></div><div style="height:6px;background:var(--surface2);border-radius:4px;margin-top:3px;overflow:hidden"><div style="height:100%;width:${Math.max(3,v/intentMax*100)}%;background:#f0c040"></div></div></div>`).join('')||'<span style="font-size:11px;color:var(--faint)">Sem páginas no filtro.</span>'}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
+      <div style="overflow-x:auto"><div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Páginas mais acessadas ${_jrnQualityCh?'por '+_jrnEsc(_jrnQualityCh):''}</div><table style="width:100%;border-collapse:collapse"><tr>${th('Página / aba do site')}${th('Destino')}${th('Origem')}${th('Views')}${th('Tempo')}</tr>${pf.slice(0,15).map(r=>`<tr><td title="${escAttr(r.page)}" style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:10.5px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b>${_jrnEsc(r.title||r.page||'—')}</b><div style="font-size:9px;color:var(--faint)">${_jrnEsc(r.page||'')}</div></td><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:10px">${_jrnEsc(_jrnPageIntent(r.page,r.title))}</td><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:10px;color:var(--muted)">${_jrnEsc(r.sourceMedium||r.channel||'—')}</td><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px;font-weight:700">${Math.round(r.views||0).toLocaleString('pt-BR')}</td><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px;color:#f0c040">${_jrnTime(r.avgSeconds)}</td></tr>`).join('')}</table></div>
+      <div style="overflow-x:auto"><div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">🔎 Palavras-chave e buscas do Google</div>${kf.length?`<table style="width:100%;border-collapse:collapse"><tr>${th('Palavra / busca')}${th('Sessões')}${th('Tempo')}${th('Engaj.')}</tr>${kf.slice(0,15).map(r=>`<tr><td title="${escAttr(r.campaign||'')}" style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:10.5px;max-width:250px"><b>${_jrnEsc(r.query||r.keyword||'—')}</b>${r.query&&r.keyword&&r.query!==r.keyword?`<div style="font-size:9px;color:var(--faint)">palavra: ${_jrnEsc(r.keyword)}</div>`:''}</td><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px;font-weight:700">${Math.round(r.sessions||0)}</td><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px;color:#f0c040">${_jrnTime(r.avgSeconds)}</td><td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px">${((r.engagementRate||0)*100).toFixed(0)}%</td></tr>`).join('')}</table>`:`<div style="font-size:11px;color:var(--faint);padding:10px 0">${_jrnQualityCh&&_jrnQualityCh!=='google'?'Selecione Google para ver as palavras-chave.':'Nenhuma palavra-chave identificada no período.'}</div>`}</div>
+    </div>${q.truncated?'<div style="font-size:10px;color:#f0c040;margin-top:8px">Volume alto: a leitura do pixel foi limitada às 50 mil ocorrências mais recentes.</div>':''}
+  </div>`;
+}
 // GA4 + Search Console: camada agregada (valida o que o pixel não capturou)
 async function jrnLoadAnalytics(){
   const box=document.getElementById('jrnGaBox');if(!box)return;
   const c=DB.clients.find(x=>x.id===_jrnClientId);if(!c)return;
   const temGa=!!c.ga4PropertyId, temGsc=!!c.gscSiteUrl;
-  if(!temGa&&!temGsc){box.innerHTML=`<div style="background:var(--surface);border:1px dashed var(--border);border-radius:14px;padding:12px 16px;font-size:12px;color:var(--muted)">📈 <b>Analytics não conectado</b> — informe o <b>ID da propriedade GA4</b> e/ou o <b>site do Search Console</b> no cadastro deste cliente (aba Relatórios) pra cruzar a jornada com o tráfego agregado. <button class="btn sm ghost" style="font-size:11px" onclick="openClientConfig('${c.id}')">Abrir cadastro</button></div>`;return;}
   box.innerHTML='<div style="font-size:12px;color:var(--faint);padding:8px 2px">📈 Carregando Analytics…</div>';
   const since=daysAgoISO(_jrnDays),until=today();
-  const [ga,gs]=await Promise.all([
+  const [ga,gs,px]=await Promise.all([
     temGa?sb.functions.invoke('dynamic-responder',{body:{ga4Report:{propertyId:c.ga4PropertyId,since,until}}}).then(r=>r.data&&r.data.data||{_err:(r.error&&r.error.message)||(r.data&&r.data.error)}).catch(e=>({_err:e.message||String(e)})):Promise.resolve(null),
-    temGsc?sb.functions.invoke('dynamic-responder',{body:{gscReport:{siteUrl:c.gscSiteUrl,since,until}}}).then(r=>r.data&&r.data.data||{_err:(r.error&&r.error.message)||(r.data&&r.data.error)}).catch(e=>({_err:e.message||String(e)})):Promise.resolve(null)
+    temGsc?sb.functions.invoke('dynamic-responder',{body:{gscReport:{siteUrl:c.gscSiteUrl,since,until}}}).then(r=>r.data&&r.data.data||{_err:(r.error&&r.error.message)||(r.data&&r.data.error)}).catch(e=>({_err:e.message||String(e)})):Promise.resolve(null),
+    sb.functions.invoke('dynamic-responder',{body:{journeyQualityPixel:{clientId:c.id,since,until}}}).then(r=>r.data&&r.data.data||null).catch(()=>null)
   ]);
   const tbl=(tit,rows,cols)=>rows&&rows.length?`<div style="flex:1;min-width:260px">
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px">${tit}</div>
     <table style="width:100%;border-collapse:collapse">${rows.slice(0,8).map(r=>`<tr><td style="padding:4px 6px;font-size:11.5px;border-bottom:1px solid rgba(255,255,255,.05);max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_jrnEsc(cols.k(r))}</td><td style="padding:4px 6px;text-align:right;font-size:11.5px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.05)">${cols.v(r)}</td></tr>`).join('')}</table></div>`:'';
   const err=e=>`<div style="font-size:11.5px;color:#f87171;padding:6px 0">⚠ ${_jrnEsc(e)}</div>`;
-  let h='';
+  _jrnQualityCache={ga:ga&&!ga._err?ga:null,pixel:px};
+  let h='<div id="jrnQualityPanel"></div>';
   const _R=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{maximumFractionDigits:0});
   const _N=v=>Math.round(Number(v)||0).toLocaleString('pt-BR');
   if(ga){
@@ -4097,7 +4132,8 @@ async function jrnLoadAnalytics(){
       ${tbl('Termos buscados',gs.termos,{k:r=>r.chave,v:r=>r.cliques+' cl. · pos '+r.posicao})}
       ${tbl('Páginas de entrada',gs.paginas,{k:r=>r.chave,v:r=>r.cliques+' cl.'})}
     </div>`}</div>`;
-  box.innerHTML=h;
+  if(!temGa&&!temGsc)h+=`<div style="background:var(--surface);border:1px dashed var(--border);border-radius:14px;padding:12px 16px;font-size:12px;color:var(--muted)">📈 <b>Analytics não conectado</b> — a qualidade acima usa o pixel próprio. Informe o <b>ID da propriedade GA4</b> no cadastro para recuperar também o histórico anterior e métricas completas. <button class="btn sm ghost" style="font-size:11px" onclick="openClientConfig('${c.id}')">Abrir cadastro</button></div>`;
+  box.innerHTML=h;jrnQualityRender();
 }
 // linha do tempo completa de um lead
 function jrnOpen(pid){
