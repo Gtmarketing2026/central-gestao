@@ -5019,7 +5019,7 @@ async function ga4Report(m: any) {
     });
   };
   const [canais, paginas, origens, campanhas, qualidadeCanais, qualidadePaginas, qualidadePalavras] = await Promise.all([
-    run(["sessionDefaultChannelGroup"], ["sessions", "totalUsers", "conversions", "purchaseRevenue", "transactions", "engagedSessions", "engagementRate", "averageSessionDuration", "userEngagementDuration", "screenPageViewsPerSession", "keyEvents"], 30, "sessions").catch((e) => ({ _err: String(e.message || e) } as any)),
+    run(["sessionDefaultChannelGroup"], ["sessions", "totalUsers", "conversions", "purchaseRevenue", "transactions", "engagedSessions", "averageSessionDuration", "userEngagementDuration", "screenPageViewsPerSession", "keyEvents"], 30, "sessions").catch((e) => ({ _err: String(e.message || e) } as any)),
     run(["pagePath"], ["screenPageViews", "totalUsers"], 25, "screenPageViews").catch(() => []),
     run(["sessionSource", "sessionMedium"], ["sessions", "conversions", "purchaseRevenue", "transactions"], 25, "sessions").catch(() => []),
     // campanha com RECEITA e COMPRAS — é o que liga o GA4 à jornada/atribuição
