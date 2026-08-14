@@ -139,6 +139,8 @@ revoke insert,update,delete on public.app_users,public.app_user_clients,public.a
 
 -- Restringe as tabelas principais por cliente. Service role continua com bypass para webhooks e crons.
 drop policy if exists auth on public.clients;
+drop policy if exists clients_read_scope on public.clients;
+drop policy if exists clients_write_scope on public.clients;
 create policy clients_read_scope on public.clients for select to authenticated
 using (public.app_has_aal2() and public.app_can_access_client(id));
 create policy clients_write_scope on public.clients for all to authenticated
@@ -179,4 +181,3 @@ drop policy if exists account_config_master on public.account_config;
 create policy account_config_master on public.account_config for all to authenticated
 using (public.app_is_master() and public.app_has_aal2())
 with check (public.app_is_master() and public.app_has_aal2());
-
