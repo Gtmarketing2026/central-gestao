@@ -1535,6 +1535,76 @@ async function googleAdsInsights(g: any) {
       };
     }
   }
+  // COBERTURA PARCIAL: campanha de Video (YouTube) atribui so uma fatia do custo no nivel de anuncio —
+  // ex: R$516 na campanha, R$19 somando os anuncios. As sinteses acima so cobrem campanha SEM nenhuma linha;
+  // aqui entra a linha "(restante no nivel da campanha)" com a DIFERENCA, pra soma sempre bater com o gerenciador.
+  if (g.byAd && g.byCampaign) {
+    const sums: Record<string, any> = {};
+    for (const a of ads) { if (!a.campaignId) continue; const s = sums[a.campaignId] ||= { spend: 0, impressions: 0, clicks: 0, purchases: 0, revenue: 0, videoViews: 0, engajamentos: 0 }; s.spend += a.spend || 0; s.impressions += a.impressions || 0; s.clicks += a.clicks || 0; s.purchases += a.purchases || 0; s.revenue += a.revenue || 0; s.videoViews += a.videoViews || 0; s.engajamentos += a.engajamentos || 0; }
+    for (const c of Object.values(byCamp) as any[]) {
+      if (!(c.spend > 0) || !c.campaignId) continue;
+      const s = sums[c.campaignId]; if (!s || !(s.spend > 0)) continue; // sem nenhuma linha: a sintese de campanha inteira ja cobriu
+      const diff = c.spend - s.spend;
+      if (diff <= Math.max(0.05, c.spend * 0.005)) continue; // diferenca de arredondamento: ignora
+      const dImp = Math.max(0, (c.impressions || 0) - s.impressions), dClk = Math.max(0, (c.clicks || 0) - s.clicks);
+      ads.push({
+        adId: "gcr" + c.campaignId, adName: "(restante no nível da campanha — não atribuído por anúncio)",
+        campaign: c.campaign, campaignId: c.campaignId, adset: "", adsetId: null,
+        account: c.account, thumbnail: null, _google: true, _campaignLevel: true, objetivo: c.objetivo,
+        spend: +diff.toFixed(2), impressions: dImp, clicks: dClk, reach: 0, frequency: 0,
+        ctr: dImp ? (dClk / dImp) * 100 : 0, cpc: dClk ? diff / dClk : 0, cpm: dImp ? (diff / dImp) * 1000 : 0,
+        purchases: Math.max(0, (c.purchases || 0) - s.purchases), revenue: Math.max(0, +(((c.revenue || 0) - s.revenue)).toFixed(2)),
+        roas: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0,
+        videoViews: Math.max(0, (c.videoViews || 0) - s.videoViews), engajamentos: Math.max(0, (c.engajamentos || 0) - s.engajamentos),
+        convActions: undefined, cpa: 0,
+      });
+    }
+  }
+  // Mesmo remendo pro nivel conjunto x dia (alimenta channel_metrics_daily): remainder POR DATA.
+  if (g.byAdset && g.byCampaign && g.daily) {
+    const sumByCampDate: Record<string, Record<string, any>> = {};
+    for (const as of Object.values(byAdset) as any[]) {
+      if (!as.campaignId) continue;
+      const m = sumByCampDate[as.campaignId] ||= {};
+      for (const r of (as.records || [])) { const d = m[r.date] ||= { spend: 0, impressions: 0, clicks: 0, sales: 0, revenue: 0, videoViews: 0, engajamentos: 0 }; d.spend += r.spend || 0; d.impressions += r.impressions || 0; d.clicks += r.clicks || 0; d.sales += r.sales || 0; d.revenue += r.revenue || 0; d.videoViews += r.videoViews || 0; d.engajamentos += r.engajamentos || 0; }
+    }
+    for (const c of Object.values(byCamp) as any[]) {
+      if (!(c.spend > 0) || !c.campaignId) continue;
+      const m = sumByCampDate[c.campaignId]; if (!m) continue; // sem nenhuma linha de conjunto: sintese de campanha inteira ja cobriu
+      const recs: any[] = []; let extra = 0;
+      for (const r of (c.records || [])) {
+        const s = m[r.date] || { spend: 0, impressions: 0, clicks: 0, sales: 0, revenue: 0, videoViews: 0, engajamentos: 0 };
+        const dspend = (r.spend || 0) - s.spend;
+        if (dspend > 0.01) { recs.push({ date: r.date, spend: +dspend.toFixed(2), sales: Math.max(0, (r.sales || 0) - s.sales), revenue: Math.max(0, +(((r.revenue || 0) - s.revenue)).toFixed(2)), clicks: Math.max(0, (r.clicks || 0) - s.clicks), impressions: Math.max(0, (r.impressions || 0) - s.impressions), reach: 0, leads: 0, conversas: 0, videoViews: Math.max(0, (r.videoViews || 0) - s.videoViews), engajamentos: Math.max(0, (r.engajamentos || 0) - s.engajamentos) }); extra += dspend; }
+      }
+      if (recs.length && extra > Math.max(0.05, c.spend * 0.005)) {
+        const label = c.campaign + " › (restante no nível da campanha)";
+        if (!byAdset[label]) byAdset[label] = { campaign: c.campaign, campaignId: c.campaignId, adset: "(restante no nível da campanha)", spend: +extra.toFixed(2), records: recs };
+      }
+    }
+  }
+  // E pro nivel anuncio x dia (schema midia): remainder POR DATA com id sintetico estavel (nao duplica no upsert).
+  if (g.byAd && g.daily && g.byCampaign) {
+    const spendByCampDate: Record<string, Record<string, number>> = {};
+    for (const ad of Object.values(byAdDaily) as any[]) {
+      if (!ad.campaignId) continue;
+      const m = spendByCampDate[ad.campaignId] ||= {};
+      for (const r of (ad.records || [])) m[r.date] = (m[r.date] || 0) + (r.spend || 0);
+    }
+    for (const c of Object.values(byCamp) as any[]) {
+      if (!(c.spend > 0) || !c.campaignId) continue;
+      const m = spendByCampDate[c.campaignId]; if (!m) continue; // sem nenhuma linha: sintese pmax_ ja cobriu
+      const recs: any[] = [];
+      for (const r of (c.records || [])) {
+        const dspend = (r.spend || 0) - (m[r.date] || 0);
+        if (dspend > 0.01) recs.push({ date: r.date, spend: +dspend.toFixed(2), sales: 0, revenue: 0, clicks: 0, impressions: 0, reach: 0, frequency: 0, leads: 0, conversas: 0, videoViews: 0, engajamentos: 0 });
+      }
+      if (recs.length) {
+        const adId = "resto_" + c.campaignId;
+        byAdDaily[adId] = { adId, adName: "(restante no nível da campanha)", campaign: c.campaign, campaignId: c.campaignId, adset: "(restante no nível da campanha)", adsetId: "grp_" + adId, account: c.account, accountId: c.accountId, objetivo: c.objetivo, records: recs };
+      }
+    }
+  }
   ads.sort((a: any, b: any) => b.spend - a.spend);
   return { total, campaigns, adsets: Object.values(byAdset), adsDaily: Object.values(byAdDaily), ads, accounts, accountErrors, period: { since, until } };
 }
