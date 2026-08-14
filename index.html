@@ -475,8 +475,8 @@
   </header>
 
   <div id="updateBanner">
-    <span style="font-size:14px;color:#0a0906;font-weight:600">🎉 Nova versão disponível!</span>
-    <button class="btn sm" style="background:#0a0906;color:var(--accent);border-color:#0a0906" onclick="location.reload(true)">Recarregar agora</button>
+    <span id="updateBannerText" style="font-size:14px;color:#0a0906;font-weight:600">🎉 Nova versão disponível! Atualização automática em instantes.</span>
+    <button class="btn sm" style="background:#0a0906;color:var(--accent);border-color:#0a0906" onclick="applyAppUpdate(false)">Atualizar agora</button>
   </div>
 
   <div id="migrationBanner">
@@ -1839,12 +1839,14 @@
 </div>
 
 <script>
-const APP_VERSION = '1.6';
+const APP_VERSION = '1.7';
 const APP_URL = location.origin + location.pathname.replace(/[^/]*$/, ''); // relativo ao domínio atual (funciona no github.io e no domínio próprio)
 
 const SUPA_URL = 'https://mocrfqmdjwvyhqvdpimm.supabase.co';
 const SUPA_KEY = 'sb_publishable_gWzVyEm8hT0_CH16UO8UqA_kkcbfo14';
-const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY,{
+  auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
+});
 
 const DB = {clients:[], tasks:[], finance:[], shows:[], team:[], creditors:[], wallet:[]};
 let _accessProfile=null,_accessClientIds=[],_accessUsers=[],_mfaFactor=null,_mfaPasswordReady=false,_mfaCurrentAal='aal1',_mfaStarting=false,_passwordRecoveryMode=/type=recovery/i.test(location.hash+location.search);
@@ -2099,24 +2101,44 @@ const mapShow = r => ({id:r.id,client:r.client||'',name:r.name||'',date:r.date||
 const dbShow = o => ({id:o.id,client:o.client||null,name:o.name||'',date:o.date||'',val:+o.val||0,state:o.state||'ativo',payments:o.payments||[],budget:+o.budget||0,budget_stages:o.budgetStages||[],obs:o.obs||''});
 
 /* ---- UPDATE CHECK ---- */
-async function checkUpdate(){
+let _updateRemoteVersion='',_updateReloadTimer=null;
+function _updateBusy(){
+  const a=document.activeElement;
+  if(a&&(['INPUT','TEXTAREA','SELECT'].includes(a.tagName)||a.isContentEditable))return true;
+  return [...document.querySelectorAll('.modal-bg.open')].some(x=>getComputedStyle(x).display!=='none')||!!document.getElementById('pubOverlay')||!!document.getElementById('reunOverlay');
+}
+function applyAppUpdate(auto){
+  clearTimeout(_updateReloadTimer);_updateReloadTimer=null;
+  if(auto&&_updateBusy()){
+    const t=document.getElementById('updateBannerText');if(t)t.textContent='🎉 Nova versão pronta. Ela será aplicada assim que você terminar o que está fazendo.';
+    _updateReloadTimer=setTimeout(()=>applyAppUpdate(true),30000);return;
+  }
+  const u=new URL(location.href);u.searchParams.set('_appv',_updateRemoteVersion||Date.now());
+  location.replace(u.toString());
+}
+function _scheduleAppUpdate(remote){
+  _updateRemoteVersion=remote||String(Date.now());
+  document.getElementById('updateBanner').style.display='flex';
+  clearTimeout(_updateReloadTimer);
+  _updateReloadTimer=setTimeout(()=>applyAppUpdate(true),12000);
+}
+async function checkUpdate(silent=false){
   const btn=document.getElementById('updateBtn');
-  btn.textContent='⟳ Verificando...';btn.disabled=true;
+  if(!silent){btn.textContent='⟳ Verificando...';btn.disabled=true;}
   try{
     const r=await fetch(APP_URL+'?v='+Date.now(),{cache:'no-store'});
     const txt=await r.text();
     const m=txt.match(/APP_VERSION\s*=\s*'([^']+)'/);
     const remote=m?m[1]:null;
     if(remote&&remote!==APP_VERSION){
-      document.getElementById('updateBanner').style.display='flex';
+      _scheduleAppUpdate(remote);
       btn.textContent='⟳ Nova versão!';
     }else{
-      btn.textContent='⟳ Atualizado ✓';
-      setTimeout(()=>{btn.textContent='⟳ Atualizar';btn.disabled=false;},2000);
+      if(!silent){btn.textContent='⟳ Atualizado ✓';setTimeout(()=>{btn.textContent='⟳ Atualizar';btn.disabled=false;},2000);}
       return;
     }
-  }catch(e){btn.textContent='⟳ Atualizar';}
-  btn.disabled=false;
+  }catch(e){if(!silent)btn.textContent='⟳ Atualizar';}
+  if(!silent)btn.disabled=false;
 }
 
 /* ---- AUTH ---- */
@@ -2169,19 +2191,23 @@ async function _startMfa(){
   }catch(e){_mfaErr(e)}finally{_mfaStarting=false}
 }
 async function mfaRestartEnrollment(btn){if(btn){btn.disabled=true;btn.textContent='Gerando…';}try{const {data,error}=await sb.auth.mfa.listFactors();if(error)throw error;const factors=[...new Map([...((data&&data.totp)||[]),...((data&&data.all)||[])].map(f=>[f.id,f])).values()];await _mfaDropPending(factors);_mfaFactor=null;await _startMfa();}catch(e){if(btn){btn.disabled=false;btn.textContent='Gerar novo QR Code';}_mfaErr(e)}}
-async function _afterMfa(){
+async function _afterMfa(verifiedSession){
+  // Garante que o token promovido a AAL2 fique salvo antes de qualquer recarga/atualização da página.
+  if(verifiedSession&&verifiedSession.access_token&&verifiedSession.refresh_token){
+    const {error}=await sb.auth.setSession({access_token:verifiedSession.access_token,refresh_token:verifiedSession.refresh_token});if(error)throw error;
+  }
   if(_accessProfile&&_accessProfile.status==='invited'){await _accessCall({op:'activate_self'});_accessProfile.status='active';}
   _mfaCurrentAal='aal2';
   document.getElementById('mfaOverlay').style.display='none';applyAccessUI();showApp();await loadAll();
 }
-async function mfaVerifyEnrollment(){const code=(document.getElementById('mfaCode').value||'').replace(/\D/g,''),btn=document.getElementById('mfaVerifyBtn');if(code.length!==6){_mfaErr(new Error('Informe os 6 dígitos.'));return}btn.disabled=true;btn.textContent='Verificando…';try{const {data:c,error:ce}=await sb.auth.mfa.challenge({factorId:_mfaFactor.id});if(ce)throw ce;const {error}=await sb.auth.mfa.verify({factorId:_mfaFactor.id,challengeId:c.id,code});if(error)throw error;await _afterMfa();}catch(e){btn.disabled=false;btn.textContent='Ativar e entrar';_mfaErr(e)}}
-async function mfaVerifyExisting(){const code=(document.getElementById('mfaCode').value||'').replace(/\D/g,''),btn=document.getElementById('mfaVerifyBtn');if(code.length!==6){_mfaErr(new Error('Informe os 6 dígitos.'));return}btn.disabled=true;btn.textContent='Verificando…';try{const {data:c,error:ce}=await sb.auth.mfa.challenge({factorId:_mfaFactor.id});if(ce)throw ce;const {error}=await sb.auth.mfa.verify({factorId:_mfaFactor.id,challengeId:c.id,code});if(error)throw error;await _afterMfa();}catch(e){btn.disabled=false;btn.textContent='Confirmar código';_mfaErr(e)}}
+async function mfaVerifyEnrollment(){const code=(document.getElementById('mfaCode').value||'').replace(/\D/g,''),btn=document.getElementById('mfaVerifyBtn');if(code.length!==6){_mfaErr(new Error('Informe os 6 dígitos.'));return}btn.disabled=true;btn.textContent='Verificando…';try{const {data:c,error:ce}=await sb.auth.mfa.challenge({factorId:_mfaFactor.id});if(ce)throw ce;const {data:v,error}=await sb.auth.mfa.verify({factorId:_mfaFactor.id,challengeId:c.id,code});if(error)throw error;await _afterMfa(v&&v.session);}catch(e){btn.disabled=false;btn.textContent='Ativar e entrar';_mfaErr(e)}}
+async function mfaVerifyExisting(){const code=(document.getElementById('mfaCode').value||'').replace(/\D/g,''),btn=document.getElementById('mfaVerifyBtn');if(code.length!==6){_mfaErr(new Error('Informe os 6 dígitos.'));return}btn.disabled=true;btn.textContent='Verificando…';try{const {data:c,error:ce}=await sb.auth.mfa.challenge({factorId:_mfaFactor.id});if(ce)throw ce;const {data:v,error}=await sb.auth.mfa.verify({factorId:_mfaFactor.id,challengeId:c.id,code});if(error)throw error;await _afterMfa(v&&v.session);}catch(e){btn.disabled=false;btn.textContent='Confirmar código';_mfaErr(e)}}
 async function finishAuth(session){
   try{
     const a=await _accessCall({op:'me'});_accessProfile=a.profile;_accessClientIds=a.clientIds||[];
     if(_accessProfile.status==='inactive')throw new Error('Este usuário está desativado.');
     if(_accessProfile.status==='invited'&&!_mfaPasswordReady){_showMfa('Crie sua senha','Este é seu primeiro acesso. Crie uma senha exclusiva; em seguida você ativará o autenticador de dois fatores.',`<div class="form-row"><label>Nova senha</label><div style="display:flex;gap:6px"><input id="mfaNewPassword" type="password" autocomplete="new-password" placeholder="Mínimo de 10 caracteres"><button type="button" class="btn ghost" style="padding:7px 10px;flex:none" onclick="togglePasswordField('mfaNewPassword',this)">👁</button></div></div><div class="form-row"><label>Confirmar senha</label><div style="display:flex;gap:6px"><input id="mfaNewPassword2" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')_setupInvitedPassword()"><button type="button" class="btn ghost" style="padding:7px 10px;flex:none" onclick="togglePasswordField('mfaNewPassword2',this)">👁</button></div></div><div style="font-size:10.5px;color:var(--faint);margin:-3px 0 10px">Mínimo de 10 caracteres, com pelo menos uma letra e um número.</div><button id="mfaPasswordBtn" class="btn primary" style="width:100%;justify-content:center" onclick="_setupInvitedPassword()">Salvar senha e continuar</button>`);return;}
-    const {data:aal}=await sb.auth.mfa.getAuthenticatorAssuranceLevel();_mfaCurrentAal=(aal&&aal.currentLevel)||'aal1';
+    const {data:aal,error:aalError}=await sb.auth.mfa.getAuthenticatorAssuranceLevel(session.access_token);if(aalError)throw aalError;_mfaCurrentAal=(aal&&aal.currentLevel)||'aal1';
     if(_accessProfile.mfa_required!==false&&aal.currentLevel!=='aal2'){await _startMfa();return;}
     applyAccessUI();showApp();await loadAll();
   }catch(e){await sb.auth.signOut();showLogin();document.getElementById('loginError').textContent=(e&&e.message)||String(e);}
@@ -13306,6 +13332,11 @@ sb.auth.onAuthStateChange((event)=>{
 });
 restoreNavGroups();restoreSidebarState();
 checkAuth();
+// Verifica versões novas sozinho. Ao voltar para a aba, confere imediatamente;
+// em uso contínuo, repete a cada 5 minutos sem interferir em formulários abertos.
+setTimeout(()=>checkUpdate(true),15000);
+setInterval(()=>checkUpdate(true),5*60*1000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkUpdate(true)});
 </script>
 <!-- ALERTS POPUP -->
 <div id="alertsPopupBg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;align-items:center;justify-content:center">
