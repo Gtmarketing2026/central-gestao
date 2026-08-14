@@ -2034,7 +2034,7 @@ function nextMonthlyDate(dateStr){
   return d.toISOString().slice(0,10);
 }
 
-const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,youtubeConfig:r.youtube_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||'',instagramAccounts:Array.isArray(r.instagram_accounts)?r.instagram_accounts:[],instagramAccountsExcluded:Array.isArray(r.instagram_accounts_excluded)?r.instagram_accounts_excluded:[],pixelBannerProprio:!!r.pixel_banner_proprio,isSelf:!!r.is_self});
+const mapClient = r => ({id:r.id,name:r.name,seg:r.seg||'',status:r.status||'Ativo',plat:r.plat||'',fee:+r.fee||0,day:r.day||null,report:r.report||'',notes:r.notes||'',billing:r.billing||'mensal',payRule:r.pay_rule||'',payDelay:r.pay_delay!=null?r.pay_delay:null,category:r.category||'mensal',customType:r.custom_type||'',budget:+r.budget||0,budgetChannels:r.budget_channels||[],budgetCampaigns:Array.isArray(r.budget_campaigns)?r.budget_campaigns:[],usesBalance:r.uses_balance||false,balanceInit:+r.balance_init||0,temp:r.temp||'',tempSince:r.temp_since||'',activeChannels:r.active_channels||[],reportWeekly:r.report_weekly||false,reportWeeklyDay:r.report_weekly_day||'',reportSheetUrl:r.report_sheet_url||'',reportTabs:r.report_tabs||'',reportOrdersSheetUrl:r.report_orders_sheet_url||'',reportOrdersTab:r.report_orders_tab||'',reportOrdersMode:r.report_orders_mode||'sheet',metaAccountIds:(r.meta_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),googleAccountIds:(r.google_account_id||'').split(',').map(s=>s.trim()).filter(Boolean),reportTemplateId:r.report_template_id||'',reportTemplateIds:Array.isArray(r.report_template_ids)?r.report_template_ids:null,conversionSource:r.conversion_source||'',dna:r.dna||null,benchmarkMetas:r.benchmark_metas||null,reportFocos:Array.isArray(r.report_focos)?r.report_focos:[],dashFunnel:Array.isArray(r.dash_funnel)?r.dash_funnel:null,reportFunnel:Array.isArray(r.report_funnel)?r.report_funnel:null,dashKpis:Array.isArray(r.dash_kpis)?r.dash_kpis:null,crmConfig:r.crm_config||null,rdConfig:r.rd_config||null,nuvemshopConfig:r.nuvemshop_config||null,tiktokConfig:r.tiktok_config||null,pinterestConfig:r.pinterest_config||null,youtubeConfig:r.youtube_config||null,reportLayout:r.report_layout||null,siteUrl:r.site_url||'',ga4PropertyId:r.ga4_property_id||'',gscSiteUrl:r.gsc_site_url||'',whatsapp:r.whatsapp||'',minBalance:+r.min_balance||0,pixelId:r.pixel_id||'',instagramAccounts:Array.isArray(r.instagram_accounts)?r.instagram_accounts:[],instagramAccountsExcluded:Array.isArray(r.instagram_accounts_excluded)?r.instagram_accounts_excluded:[],pixelBannerProprio:!!r.pixel_banner_proprio,isSelf:!!r.is_self});
 const dbClient = o => ({id:o.id,name:o.name,seg:o.seg||'',status:o.status||'Ativo',plat:o.plat||'',fee:+o.fee||0,day:o.day||null,report:o.report||'',notes:o.notes||'',billing:o.billing||'mensal',pay_rule:o.payRule||'',pay_delay:o.payDelay!=null?+o.payDelay:null,category:o.category||'mensal',custom_type:o.customType||'',budget:+o.budget||0,budget_channels:o.budgetChannels||[],budget_campaigns:o.budgetCampaigns||[],uses_balance:o.usesBalance||false,balance_init:o.balanceInit||0,temp:o.temp||'',temp_since:o.tempSince||'',active_channels:o.activeChannels||[],report_weekly:o.reportWeekly||false,report_weekly_day:o.reportWeeklyDay||'',report_sheet_url:o.reportSheetUrl||null,report_tabs:o.reportTabs||null,report_orders_sheet_url:o.reportOrdersSheetUrl||null,report_orders_tab:o.reportOrdersTab||null,report_orders_mode:o.reportOrdersMode||'sheet',meta_account_id:(o.metaAccountIds||[]).join(',')||null,google_account_id:(o.googleAccountIds||[]).join(',')||null,report_template_id:o.reportTemplateId||null,report_template_ids:(o.reportTemplateIds&&o.reportTemplateIds.length)?o.reportTemplateIds:null,site_url:o.siteUrl||null,ga4_property_id:o.ga4PropertyId||null,gsc_site_url:o.gscSiteUrl||null,whatsapp:o.whatsapp||null,pixel_id:o.pixelId||null,conversion_source:o.conversionSource||null,benchmark_metas:o.benchmarkMetas||null,report_focos:(o.reportFocos&&o.reportFocos.length)?o.reportFocos:null});
 const mapTask = r => ({id:r.id,name:r.name,client:r.client||'',owner:r.owner||'',status:r.status||'todo',due:r.due||'',prio:r.prio||'media',repeat:r.repeat||'',notes:r.notes||'',link:r.link||'',channels:r.channels||[],urgent:r.urgent||false,checklist:r.checklist||[],comments:r.comments||[],reviewRequested:r.review_requested||false,reviewer:r.reviewer||''});
 const dbTask = o => ({id:o.id,name:o.name,client:o.client||null,owner:o.owner||'',status:o.status||'todo',due:o.due||'',prio:o.prio||'media',repeat:o.repeat||'',notes:o.notes||'',link:o.link||'',channels:o.channels||[],urgent:o.urgent||false,checklist:o.checklist||[],comments:o.comments||[],review_requested:o.reviewRequested||false,reviewer:o.reviewer||null});
@@ -3520,7 +3520,9 @@ function _crmFiltered(){
     return true;
   });
 }
-function crmStages(){return (_acctCfg&&Array.isArray(_acctCfg.crm_stages)&&_acctCfg.crm_stages.length)?_acctCfg.crm_stages:CRM_STAGES;}
+function _crmClient(){const inst=_crmInsts.find(i=>i.id===_crmInstId);return DB.clients.find(c=>c.id===(inst&&inst.client_id))||DB.clients.find(c=>c.id===activeClientId)||null;}
+function _crmClientCfg(){return (_crmClient()&&_crmClient().crmConfig)||{};}
+function crmStages(){const cfg=_crmClientCfg();return Array.isArray(cfg.stages)&&cfg.stages.length?cfg.stages:CRM_STAGES;}
 function renderCrm(){
   const list=_crmFiltered();
   document.getElementById('crmCount').textContent=(list.length===_crmConvs.length)?`${list.length} conversa${list.length===1?'':'s'} no funil`:`${list.length} de ${_crmConvs.length} conversas`;
@@ -3699,7 +3701,7 @@ async function openCrmConv(id){
   if(!cv.ai_stage&&_crmMsgs.some(m=>m.direction==='in')){crmExtractLead(id);}
 }
 function crmCloseThread(){_crmActive=null;document.getElementById('crmDrawer').innerHTML='';renderCrm();}
-function crmFields(){return (_acctCfg&&Array.isArray(_acctCfg.crm_fields)&&_acctCfg.crm_fields.length)?_acctCfg.crm_fields:[
+function crmFields(){const cfg=_crmClientCfg();return Array.isArray(cfg.fields)&&cfg.fields.length?cfg.fields:[
   {key:'nome',label:'Nome',type:'texto',hint:'Nome próprio que o lead usou'},
   {key:'email',label:'Email',type:'texto',hint:''},
   {key:'produto',label:'Produto/Serviço de Interesse',type:'texto',hint:''},
@@ -4381,7 +4383,7 @@ async function crmCapiHistory(){
 }
 /* ===== Configurar CRM: etapas do funil + campos do lead ===== */
 let _crmCfgStages=[],_crmCfgFields=[],_crmCfgTab='etapas',_crmCfgMinConf=70;
-function crmConfigOpen(){_crmCfgStages=crmStages().map(s=>({...s}));_crmCfgFields=crmFields().map(f=>({...f}));_crmCfgMinConf=(_acctCfg&&_acctCfg.crm_min_confidence!=null)?_acctCfg.crm_min_confidence:70;_crmCfgTab='etapas';crmCfgRender();}
+function crmConfigOpen(){const cfg=_crmClientCfg();_crmCfgStages=crmStages().map(s=>({...s}));_crmCfgFields=crmFields().map(f=>({...f}));_crmCfgMinConf=cfg.min_confidence!=null?Number(cfg.min_confidence):70;_crmCfgTab='etapas';crmCfgRender();}
 function crmCfgClose(){const o=document.getElementById('crmCfgOverlay');if(o)o.remove();}
 function crmCfgTab(t){_crmCfgTab=t;crmCfgRender();}
 function crmCfgStageAdd(){_crmCfgStages.push({key:'s'+Math.random().toString(36).slice(2,8),label:'Nova etapa',color:'#94a3b8',event:''});crmCfgRender();}
@@ -4392,7 +4394,10 @@ function crmCfgFieldDel(i){_crmCfgFields.splice(i,1);crmCfgRender();}
 async function crmCfgSave(){
   _crmCfgStages=_crmCfgStages.filter(s=>(s.label||'').trim());_crmCfgFields=_crmCfgFields.filter(f=>(f.label||'').trim());
   _crmCfgFields.forEach(f=>{if(!f.key)f.key=(f.label||'campo').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')||('f'+Math.random().toString(36).slice(2,6));});
-  await saveAccountConfig({crm_stages:_crmCfgStages,crm_fields:_crmCfgFields,crm_min_confidence:Number(_crmCfgMinConf)});
+  const c=_crmClient();if(!c){alert('Selecione um cliente antes de salvar a configuração do CRM.');return;}
+  const crmConfig={stages:_crmCfgStages,fields:_crmCfgFields,min_confidence:Number(_crmCfgMinConf)};
+  const {error}=await sb.from('clients').update({crm_config:crmConfig}).eq('id',c.id);if(error){alert('Erro ao salvar a configuração: '+error.message);return;}
+  c.crmConfig=crmConfig;
   crmCfgClose();
   if(document.getElementById('crm').classList.contains('active'))loadCrm();
 }
@@ -4426,7 +4431,7 @@ function crmCfgRender(){
   let ov=document.getElementById('crmCfgOverlay');if(!ov){ov=document.createElement('div');ov.id='crmCfgOverlay';document.body.appendChild(ov);}
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
   ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;width:min(580px,94vw);max-height:88vh;display:flex;flex-direction:column">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0;font-size:17px">⚙️ Configurar CRM</h3><button class="btn sm ghost" onclick="crmCfgClose()">✕</button></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div><h3 style="margin:0;font-size:17px">⚙️ Configurar CRM</h3><div style="font-size:11px;color:var(--accent);margin-top:3px">Configuração exclusiva de ${((_crmClient()||{}).name||'cliente').replace(/</g,'&lt;')}</div></div><button class="btn sm ghost" onclick="crmCfgClose()">✕</button></div>
     <div style="display:flex;gap:6px;margin-bottom:14px">${tabBtn('etapas','Etapas do Funil')}${tabBtn('campos','Campos do Lead')}${tabBtn('confianca','Confiança IA')}</div>
     <div style="flex:1;overflow-y:auto">${bodyH}</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn ghost" onclick="crmCfgClose()">Cancelar</button><button class="btn primary" onclick="crmCfgSave()">💾 Salvar</button></div>
