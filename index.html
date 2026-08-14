@@ -1839,7 +1839,7 @@
 </div>
 
 <script>
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.8';
 const APP_URL = location.origin + location.pathname.replace(/[^/]*$/, ''); // relativo ao domínio atual (funciona no github.io e no domínio próprio)
 
 const SUPA_URL = 'https://mocrfqmdjwvyhqvdpimm.supabase.co';
@@ -2143,8 +2143,15 @@ async function checkUpdate(silent=false){
 
 /* ---- AUTH ---- */
 async function _accessCall(payload){
-  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{accessControl:payload}});
-  if(error)throw error;const r=(data&&data.data)||data||{};if(r.error)throw new Error(r.error);return r;
+  const {data:{session},error:sessionError}=await sb.auth.getSession();
+  if(sessionError||!session?.access_token)throw new Error('Sua sessão expirou. Entre novamente.');
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{accessControl:payload},headers:{Authorization:`Bearer ${session.access_token}`}});
+  if(error){
+    let msg='Não foi possível carregar seu acesso agora.';
+    try{const d=await error.context.json();msg=d?.error||d?.message||msg}catch(_e){}
+    throw new Error(msg);
+  }
+  const r=(data&&data.data)||data||{};if(r.error)throw new Error(r.error);return r;
 }
 function accessIsMaster(){return _accessProfile&&_accessProfile.role==='master'&&_accessProfile.protected===true;}
 function accessIsAdmin(){return _accessProfile&&['master','admin'].includes(_accessProfile.role);}
@@ -2210,7 +2217,14 @@ async function finishAuth(session){
     const {data:aal,error:aalError}=await sb.auth.mfa.getAuthenticatorAssuranceLevel(session.access_token);if(aalError)throw aalError;_mfaCurrentAal=(aal&&aal.currentLevel)||'aal1';
     if(_accessProfile.mfa_required!==false&&aal.currentLevel!=='aal2'){await _startMfa();return;}
     applyAccessUI();showApp();await loadAll();
-  }catch(e){await sb.auth.signOut();showLogin();document.getElementById('loginError').textContent=(e&&e.message)||String(e);}
+  }catch(e){
+    const msg=(e&&e.message)||String(e),hard=/sessão (inválida|expirou)|não foi cadastrado|usuário está desativado/i.test(msg);
+    if(hard)await sb.auth.signOut();
+    showLogin();
+    const el=document.getElementById('loginError');
+    if(hard)el.textContent=msg;
+    else el.innerHTML=`${msg}<br><button class="btn sm ghost" style="margin-top:7px" onclick="checkAuth()">Tentar carregar novamente</button>`;
+  }
 }
 async function checkAuth(){
   const {data:{session}}=await sb.auth.getSession();
