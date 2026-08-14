@@ -4603,6 +4603,22 @@ async function waHandler(w: any) {
   if (!inst) throw new Error("Instância WhatsApp não encontrada.");
   const host = inst.uaz_host, token = inst.uaz_token, clientId = inst.client_id || null;
   const clientFilter = clientId ? "eq." + encodeURIComponent(clientId) : "is.null";
+  if (w.op === "importLeads") {
+    if (!clientId) throw new Error("Selecione o CRM de um cliente para importar leads.");
+    const input = Array.isArray(w.leads) ? w.leads.slice(0, 5000) : [];
+    if (!input.length) throw new Error("CSV sem leads válidos.");
+    const cfg = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=crm_config&limit=1`))[0]?.crm_config || {};
+    const stages = (Array.isArray(cfg.stages) && cfg.stages.length) ? cfg.stages : CRM_DEFAULT_STAGES;
+    const normStage = (v: any) => { const q = String(v || "").trim().toLowerCase(); const found = stages.find((s: any) => String(s.key || "").toLowerCase() === q || String(s.label || "").trim().toLowerCase() === q); return found?.key || stages[0]?.key || "sem"; };
+    const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
+    const clean = input.map((x: any) => { const phone = String(x.phone || "").replace(/[^0-9]/g, ""); const email = String(x.email || "").trim().toLowerCase(); const chat = phone.length >= 8 ? phone : (email ? `email_${hash(email)}` : ""); let entered = new Date(x.date || ""), last = new Date(x.lastDate || x.date || ""); if (isNaN(entered.getTime())) entered = new Date(); if (isNaN(last.getTime())) last = entered; const originText = String(x.source || "").trim(), relevance = String(x.relevance || "").toLowerCase(); const fields: any = {}; if (email) fields.email = email; if (x.product) fields.produto = String(x.product).slice(0, 500); if (x.value) fields.valor = String(x.value).slice(0, 120); if (x.saleStatus) fields.status_venda = String(x.saleStatus).slice(0, 160); if (x.adUrl) fields.url_anuncio = String(x.adUrl).slice(0, 1000); return { chat, phone, email, name: String(x.name || phone || email || "Lead importado").slice(0, 160), stage: normStage(x.stage), entered: entered.toISOString(), at: last.toISOString(), fields, msgCount: Math.max(0, Number(x.messages) || 0), responseTime: Math.max(0, Number(x.responseTime) || 0), numErrado: /wrong|numero.*err|n[uú]mero.*err/i.test(relevance), irrelevante: /irrelevant|irrelevante/i.test(relevance), origin_type: /meta|google|ads|an[uú]ncio|tr[aá]fego|paid/i.test(originText) || x.campaign || x.ctwa ? "anuncio" : "organico", origin: { channel: originText.toLowerCase(), campaign: String(x.campaign || "").slice(0, 500), adset: String(x.adset || "").slice(0, 500), ad: String(x.ad || "").slice(0, 500), ctwa_clid: String(x.ctwa || "").slice(0, 1000), source_url: String(x.adUrl || "").slice(0, 1000), imported_from: "csv" } }; }).filter((x: any) => x.chat);
+    const unique = new Map<string, any>(); clean.forEach((x: any) => { if (!unique.has(x.chat)) unique.set(x.chat, x); }); const rows = [...unique.values()];
+    const existing = new Set<string>();
+    for (let i = 0; i < rows.length; i += 200) { const ids = rows.slice(i, i + 200).map((x: any) => encodeURIComponent(x.chat)); const found = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&chat_id=in.(${ids.join(",")})&select=chat_id`); (found || []).forEach((x: any) => existing.add(String(x.chat_id))); }
+    const fresh = rows.filter((x: any) => !existing.has(x.chat)).map((x: any) => ({ id: _wuid(), client_id: clientId, chat_id: x.chat, name: x.name, stage: x.stage, fields: { ...x.fields, _csv_entrada: x.entered, _csv_mensagens: x.msgCount, _csv_tempo_resposta_s: x.responseTime }, last_text: "Lead importado via CSV", last_at: x.at, unread: 0, origin_type: x.origin_type, origin: x.origin, num_errado: x.numErrado, irrelevante: x.irrelevante, irrelevante_motivo: x.irrelevante ? "Marcado como irrelevante no CSV importado" : null }));
+    for (let i = 0; i < fresh.length; i += 250) await sbPost("wa_conversations", fresh.slice(i, i + 250) as any);
+    return { added: fresh.length, duplicates: rows.length - fresh.length + (clean.length - rows.length), invalid: input.length - clean.length };
+  }
   if (w.op === "importHistory") {
     const phone = String(w.phone || "").replace(/[^0-9]/g, "");
     const input = Array.isArray(w.messages) ? w.messages.slice(0, 10000) : [];
