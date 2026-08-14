@@ -1946,14 +1946,15 @@ function _briefingElegivel(funil: string | null, a: any): boolean {
   return (a.impressions || 0) >= 2000; // funil nao resolvido ainda: usa o piso mais permissivo, LLM decide o funil depois
 }
 async function _briefingMetaThumbs(adIds: string[]) {
-  const out: Record<string, string> = {}, token = await _metaUserToken();
+  const out: Record<string, { thumb?: string; ig?: string }> = {}, token = await _metaUserToken();
   if (!token) return out;
   for (let i = 0; i < adIds.length; i += 50) {
     const ids = adIds.slice(i, i + 50).filter(Boolean); if (!ids.length) continue;
     try {
-      // image_url primeiro (resolucao cheia) e thumbnail_width/height=512 pro fallback — o padrao do Graph e 64px, pequeno demais pros cards grandes do ranking
-      const r = await fetch(`https://graph.facebook.com/v21.0/?ids=${ids.join(",")}&fields=creative{thumbnail_url,image_url}&thumbnail_width=512&thumbnail_height=512&access_token=${token}`), j = await r.json();
-      for (const id of ids) { const cr = j[id]?.creative, thumb = cr?.image_url || cr?.thumbnail_url; if (thumb) out[id] = thumb; }
+      // image_url primeiro (resolucao cheia) e thumbnail_width/height=512 pro fallback — o padrao do Graph e 64px, pequeno demais pros cards grandes do ranking.
+      // instagram_permalink_url = link do proprio post/anuncio no Instagram (quando existe) — abre o criativo em qualidade cheia.
+      const r = await fetch(`https://graph.facebook.com/v21.0/?ids=${ids.join(",")}&fields=creative{thumbnail_url,image_url,instagram_permalink_url}&thumbnail_width=512&thumbnail_height=512&access_token=${token}`), j = await r.json();
+      for (const id of ids) { const cr = j[id]?.creative; if (!cr) continue; const thumb = cr.image_url || cr.thumbnail_url; out[id] = { thumb: thumb || undefined, ig: cr.instagram_permalink_url || undefined }; }
     } catch (_e) { /* card continua com link e KPIs */ }
   }
   return out;
@@ -1990,7 +1991,7 @@ async function _briefingCriativos(clientId: string, since: string, until: string
     };
   });
   const missingMeta = criativos.filter((x: any) => x.canal === "Meta" && (x.elegivel || x.spend > 0) && !x.thumbnail && x.adId).map((x: any) => x.adId);
-  if (missingMeta.length) { const extra = await _briefingMetaThumbs(missingMeta); for (const x of criativos) if (!x.thumbnail && extra[x.adId]) x.thumbnail = extra[x.adId]; }
+  if (missingMeta.length) { const extra = await _briefingMetaThumbs(missingMeta); for (const x of criativos) { const e = extra[x.adId]; if (!e) continue; if (!x.thumbnail && e.thumb) x.thumbnail = e.thumb; if (e.ig) (x as any).igUrl = e.ig; } }
   const total = criativos.length;
   const pctInferido = total ? Math.round((inferidos / total) * 1000) / 10 : 0;
   return { criativos, total, pctInferido, erros: [(mRes as any).error, (gRes as any).error].filter(Boolean) };

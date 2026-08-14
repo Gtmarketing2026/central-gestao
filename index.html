@@ -6419,12 +6419,22 @@ function _brSortFunil(arr,funil){
   return a;
 }
 function brSetFundoSort(s){_brFundoSort=s;brRenderRanking();}
+// Zoom no hover: mostra o criativo INTEIRO (sem corte) num painel flutuante no lado oposto ao mouse
+function brThumbZoom(ev,url){
+  let z=document.getElementById('brZoom');
+  if(!z){z=document.createElement('div');z.id='brZoom';document.body.appendChild(z);}
+  const esquerda=ev.clientX>window.innerWidth/2; // mouse a direita -> zoom a esquerda (nao cobre o card)
+  z.style.cssText=`position:fixed;z-index:99999;pointer-events:none;top:50%;transform:translateY(-50%);${esquerda?'left:26px':'right:26px'};max-width:44vw;max-height:88vh;border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 14px 44px rgba(0,0,0,.65);background:#000`;
+  z.innerHTML=`<img src="${String(url).replace(/"/g,'&quot;')}" referrerpolicy="no-referrer" style="display:block;max-width:44vw;max-height:88vh;object-fit:contain">`;
+}
+function brThumbZoomHide(){const z=document.getElementById('brZoom');if(z)z.remove();}
 function _brKpi(l,v){return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:2px 0"><span style="color:var(--faint)">${l}</span><b>${v}</b></div>`;}
 function _brCardRanking(x,pos,funil,pior){
   const money=v=>'R$'+(+v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
   const medal=pos===1?['🏆 1º','#f0c040','#0a0906']:pos===2?['🥈 2º','#c0c8d4','#0a0906']:pos===3?['🥉 3º','#d49a6a','#0a0906']:pior?['📉 '+pos+'º · entre os piores','#f87171','#0a0906']:(pos>0?[pos+'º','rgba(15,15,15,.78)','#e8e8e8']:null);
+  const thumbUrl=x.thumbnail?_brEsc(x.thumbnail).replace(/"/g,'&quot;'):'';
   const thumb=x.thumbnail
-    ?`<img src="${_brEsc(x.thumbnail)}" referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover" onerror="this.outerHTML='<div style=&quot;display:flex;align-items:center;justify-content:center;height:100%;font-size:34px&quot;>${x.canal==='Google'?'🔎':'🖼'}</div>'">`
+    ?`<img src="${thumbUrl}" referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in" onmouseenter="brThumbZoom(event,this.src)" onmouseleave="brThumbZoomHide()" onerror="this.outerHTML='<div style=&quot;display:flex;align-items:center;justify-content:center;height:100%;font-size:34px&quot;>${x.canal==='Google'?'🔎':'🖼'}</div>'">`
     :`<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:34px;color:var(--faint)">${x.canal==='Google'?'🔎':'🖼'}</div>`;
   const aproxAlcance=(x._partes||1)>1&&x.resultadoLabel==='alcance'; // alcance somado entre publicos e aproximado (pode repetir pessoa)
   let kpis=_brKpi('Investimento',money(x.spend))+_brKpi(x.resultadoLabel,(aproxAlcance?'~':'')+(x.resultadoValor||0).toLocaleString('pt-BR'))+_brKpi('Custo/'+x.resultadoLabel,x.custoPorResultado!=null?money(x.custoPorResultado):'—');
@@ -6450,6 +6460,7 @@ function _brCardRanking(x,pos,funil,pior){
       <div id="brCardAn_${_brEsc(x.codigo)}">${anHtml}</div>
       <div style="display:flex;gap:6px;margin-top:9px">
         ${an?'':`<button class="btn sm ghost" style="flex:1" onclick="brCardAnalise('${_brEsc(x.codigo)}',this)">🧠 Fortes e fracos</button>`}
+        ${x.igUrl?`<a class="btn sm ghost" href="${_brEsc(x.igUrl)}" target="_blank" rel="noopener" title="Ver o criativo no Instagram (qualidade cheia)">📷</a>`:''}
         <a class="btn sm ghost" href="${_brEsc(x.link)}" target="_blank" rel="noopener" title="Abrir no gerenciador de anúncios">↗</a>
       </div>
     </div>
@@ -6489,6 +6500,7 @@ function _brAggregate(rows){
     a.spend=+(a.spend+x.spend).toFixed(2);a.impressions+=x.impressions||0;a.clicks+=x.clicks||0;a.reach+=x.reach||0;
     a.resultadoValor+=x.resultadoValor||0;a.compras=(a.compras||0)+(x.compras||0);a.receita=+((a.receita||0)+(x.receita||0)).toFixed(2);a.leads=(a.leads||0)+(x.leads||0);a.videoViews=(a.videoViews||0)+(x.videoViews||0);
     if(!a.thumbnail&&x.thumbnail)a.thumbnail=x.thumbnail;
+    if(!a.igUrl&&x.igUrl)a.igUrl=x.igUrl;
     a.elegivel=a.elegivel||x.elegivel;
   });
   return Object.values(by).map(a=>{
