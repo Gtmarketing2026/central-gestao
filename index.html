@@ -6455,7 +6455,7 @@ function _brCardRanking(x,pos,funil,pior){
     </div>
     <div style="padding:11px 12px">
       <div style="font-size:12px;font-weight:700;line-height:1.35;margin-bottom:2px" title="${_brEsc(x.nome)}">${_brEsc(String(x.nome).slice(0,70))}</div>
-      <div style="font-size:10.5px;color:var(--faint);margin-bottom:7px" title="${_brEsc(x.campanha)}${x._conjuntos&&x._conjuntos.length?'\nPúblicos: '+_brEsc(x._conjuntos.join(', ')):''}">${_brEsc(String(x.campanha).slice(0,55))}${x._conjuntos&&x._conjuntos.length>1?` · <b style="color:var(--accent)">${x._conjuntos.length} públicos</b>`:''}${x.funilOrigem&&x.funilOrigem!=='objetivo+nome'?` · <span title="Como a etapa do funil foi identificada">${_brEsc(x.funilOrigem)}</span>`:''}</div>
+      <div style="font-size:10.5px;color:var(--faint);margin-bottom:7px" title="${x._campanhas&&x._campanhas.length>1?'Campanhas:\n'+_brEsc(x._campanhas.join('\n')):_brEsc(x.campanha)}${x._conjuntos&&x._conjuntos.length?'\nPúblicos: '+_brEsc(x._conjuntos.join(', ')):''}">${x._campanhas&&x._campanhas.length>1?`<b style="color:var(--accent)">${x._campanhas.length} campanhas</b>`:_brEsc(String(x.campanha).slice(0,55))}${x._conjuntos&&x._conjuntos.length>1?` · <b style="color:var(--accent)">${x._conjuntos.length} públicos</b>`:''}${x.funilOrigem&&x.funilOrigem!=='objetivo+nome'?` · <span title="Como a etapa do funil foi identificada">${_brEsc(x.funilOrigem)}</span>`:''}</div>
       ${kpis}
       <div id="brCardAn_${_brEsc(x.codigo)}">${anHtml}</div>
       <div style="display:flex;gap:6px;margin-top:9px">
@@ -6488,15 +6488,18 @@ function _brCampOptsHtml(){
   return list.length?list.map(c=>{const esc=_brEsc(c).replace(/"/g,'&quot;');return `<label style="display:flex;gap:6px;align-items:center;padding:3px 4px;font-size:12px;cursor:pointer"><input type="checkbox" ${_brCampSel.includes(c)?'checked':''} data-v="${esc}" onchange="brToggleCampSel(this.getAttribute('data-v'))" style="width:auto;flex:none">${_brEsc(String(c).slice(0,90))}</label>`;}).join(''):'<div style="font-size:11px;color:var(--faint);padding:4px">nenhuma campanha com esse termo</div>';
 }
 function brCampSearchInput(v){_brCampSearch=v;const box=document.getElementById('brCampOpts');if(box)box.innerHTML=_brCampOptsHtml();}
-// Mesmo criativo rodando em varios publicos (conjuntos) da mesma campanha vira UM card com os numeros somados.
-// So separa por conjunto quando o filtro de publico esta ativo. Alcance somado entre publicos e aproximado
-// (pode contar a mesma pessoa 2x) — o card marca com "~".
+// Mesmo criativo com MESMO OBJETIVO vira UM card com os numeros somados — mesmo quando roda em campanhas
+// diferentes (tem conta que separa o publico por campanha: "[ENEM] - ABERTO" / "[ENEM] - INTERESSES").
+// Objetivo diferente separa sempre (compras e leads nao se somam). Granular so ao filtrar campanha/publico.
+// Alcance somado entre publicos e aproximado (pode contar a mesma pessoa 2x) — o card marca com "~".
 function _brAggregate(rows){
   const by={};
   rows.forEach(x=>{
-    const k=x.canal+'|'+x.campanha+'|'+x.nome;
-    if(!by[k]){by[k]={...x,_partes:1,_conjuntos:x.conjunto?[x.conjunto]:[]};return;}
-    const a=by[k];a._partes++;if(x.conjunto&&!a._conjuntos.includes(x.conjunto))a._conjuntos.push(x.conjunto);
+    const k=x.canal+'|'+x.funil+'|'+(x.objetivo||'')+'|'+x.nome;
+    if(!by[k]){by[k]={...x,_partes:1,_conjuntos:x.conjunto?[x.conjunto]:[],_campanhas:x.campanha?[x.campanha]:[]};return;}
+    const a=by[k];a._partes++;
+    if(x.conjunto&&!a._conjuntos.includes(x.conjunto))a._conjuntos.push(x.conjunto);
+    if(x.campanha&&!a._campanhas.includes(x.campanha))a._campanhas.push(x.campanha);
     a.spend=+(a.spend+x.spend).toFixed(2);a.impressions+=x.impressions||0;a.clicks+=x.clicks||0;a.reach+=x.reach||0;
     a.resultadoValor+=x.resultadoValor||0;a.compras=(a.compras||0)+(x.compras||0);a.receita=+((a.receita||0)+(x.receita||0)).toFixed(2);a.leads=(a.leads||0)+(x.leads||0);a.videoViews=(a.videoViews||0)+(x.videoViews||0);
     if(!a.thumbnail&&x.thumbnail)a.thumbnail=x.thumbnail;
