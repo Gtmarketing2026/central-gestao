@@ -1985,7 +1985,7 @@ async function _briefingCriativos(clientId: string, since: string, until: string
       spend: Math.round((a.spend || 0) * 100) / 100, impressions: a.impressions || 0, clicks: a.clicks || 0,
       reach: a.reach || 0, frequency: +(a.frequency || 0).toFixed(2), ctr: +(a.ctr || 0).toFixed(2), cpm: +(a.cpm || 0).toFixed(2),
       resultadoLabel: r.label, resultadoValor: Math.round(r.valor), custoPorResultado: r.custo != null ? Math.round(r.custo * 100) / 100 : null,
-      compras: Math.round(a.purchases || 0), receita: Math.round((a.revenue || 0) * 100) / 100,
+      compras: Math.round(a.purchases || 0), receita: Math.round((a.revenue || 0) * 100) / 100, leads: Math.round(a.leads || 0),
       videoViews: a.videoViews || 0,
     };
   });

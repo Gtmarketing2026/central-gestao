@@ -6349,7 +6349,7 @@ async function brRunAnalise(){
       if(error)throw error;
       const r=(data&&data.data)||{};
       if(r.error)throw new Error(r.error);
-      _brRank=r;_brCardAn={};_brFunilFilter='';_brCanalFilter='';_brCampFilter='';
+      _brRank=r;_brCardAn={};_brFunilFilter='';_brCanalFilter='';_brObjFilter='';_brCampSel=[];_brConjFilter='';_brCampPanelOpen=false;_brCampSearch='';
       brRenderRanking();
     }catch(e){out.innerHTML=`<div class="empty">Erro ao analisar: ${_brEsc(e.message||e)}</div>`;}
     finally{btn.disabled=false;btn.textContent='Montar ranking de criativos do período';}
@@ -6391,6 +6391,7 @@ function _brSortFunil(arr,funil){
   const a=[...arr];
   if(funil==='Fundo'){
     if(_brFundoSort==='faturamento')a.sort((x,y)=>(y.receita||0)-(x.receita||0)||(y.compras||0)-(x.compras||0));
+    else if(_brFundoSort==='leads')a.sort((x,y)=>(y.leads||0)-(x.leads||0)||((x.custoPorResultado==null?1e15:x.custoPorResultado)-(y.custoPorResultado==null?1e15:y.custoPorResultado)));
     else a.sort((x,y)=>(y.compras||0)-(x.compras||0)||(y.receita||0)-(x.receita||0));
   }else{
     // Topo/Meio: menor custo pelo resultado DO OBJETIVO daquele anuncio; sem custo (0 resultado) vai pro fim
@@ -6411,8 +6412,9 @@ function _brCardRanking(x,pos,funil,pior){
   const thumb=x.thumbnail
     ?`<img src="${_brEsc(x.thumbnail)}" referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover" onerror="this.outerHTML='<div style=&quot;display:flex;align-items:center;justify-content:center;height:100%;font-size:34px&quot;>${x.canal==='Google'?'🔎':'🖼'}</div>'">`
     :`<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:34px;color:var(--faint)">${x.canal==='Google'?'🔎':'🖼'}</div>`;
-  let kpis=_brKpi('Investimento',money(x.spend))+_brKpi(x.resultadoLabel,(x.resultadoValor||0).toLocaleString('pt-BR'))+_brKpi('Custo/'+x.resultadoLabel,x.custoPorResultado!=null?money(x.custoPorResultado):'—');
-  if(funil==='Fundo'){const roas=x.spend>0?(x.receita||0)/x.spend:0;kpis+=_brKpi('Receita',money(x.receita))+_brKpi('ROAS',roas?roas.toFixed(2).replace('.',',')+'x':'—');}
+  const aproxAlcance=(x._partes||1)>1&&x.resultadoLabel==='alcance'; // alcance somado entre publicos e aproximado (pode repetir pessoa)
+  let kpis=_brKpi('Investimento',money(x.spend))+_brKpi(x.resultadoLabel,(aproxAlcance?'~':'')+(x.resultadoValor||0).toLocaleString('pt-BR'))+_brKpi('Custo/'+x.resultadoLabel,x.custoPorResultado!=null?money(x.custoPorResultado):'—');
+  if(funil==='Fundo'){const roas=x.spend>0?(x.receita||0)/x.spend:0;kpis+=_brKpi('Receita',money(x.receita))+_brKpi('ROAS',roas?roas.toFixed(2).replace('.',',')+'x':'—');if(x.leads)kpis+=_brKpi('Leads',(x.leads||0).toLocaleString('pt-BR'));}
   else kpis+=_brKpi('CTR',(x.ctr||0).toFixed(2).replace('.',',')+'%')+_brKpi('CPM',money(x.cpm));
   const an=_brCardAn[x.codigo];
   const anHtml=an?`<div style="border-top:1px dashed var(--border);margin-top:8px;padding-top:8px;font-size:11.5px">
@@ -6429,7 +6431,7 @@ function _brCardRanking(x,pos,funil,pior){
     </div>
     <div style="padding:11px 12px">
       <div style="font-size:12px;font-weight:700;line-height:1.35;margin-bottom:2px" title="${_brEsc(x.nome)}">${_brEsc(String(x.nome).slice(0,70))}</div>
-      <div style="font-size:10.5px;color:var(--faint);margin-bottom:7px" title="${_brEsc(x.campanha)}">${_brEsc(String(x.campanha).slice(0,55))}${x.funilOrigem&&x.funilOrigem!=='objetivo+nome'?` · <span title="Como a etapa do funil foi identificada">${_brEsc(x.funilOrigem)}</span>`:''}</div>
+      <div style="font-size:10.5px;color:var(--faint);margin-bottom:7px" title="${_brEsc(x.campanha)}${x._conjuntos&&x._conjuntos.length?'\nPúblicos: '+_brEsc(x._conjuntos.join(', ')):''}">${_brEsc(String(x.campanha).slice(0,55))}${x._conjuntos&&x._conjuntos.length>1?` · <b style="color:var(--accent)">${x._conjuntos.length} públicos</b>`:''}${x.funilOrigem&&x.funilOrigem!=='objetivo+nome'?` · <span title="Como a etapa do funil foi identificada">${_brEsc(x.funilOrigem)}</span>`:''}</div>
       ${kpis}
       <div id="brCardAn_${_brEsc(x.codigo)}">${anHtml}</div>
       <div style="display:flex;gap:6px;margin-top:9px">
@@ -6439,31 +6441,95 @@ function _brCardRanking(x,pos,funil,pior){
     </div>
   </div>`;
 }
-let _brFunilFilter='',_brCanalFilter='',_brCampFilter='';
-function brSetRankFilter(k,v){if(k==='funil')_brFunilFilter=v;if(k==='canal')_brCanalFilter=v;if(k==='camp')_brCampFilter=v;brRenderRanking();}
+let _brFunilFilter='',_brCanalFilter='',_brObjFilter='',_brCampSel=[],_brConjFilter='',_brRankView=[];
+let _brCampPanelOpen=false,_brCampSearch='',_brCampOptsBase=[];
+function brSetRankFilter(k,v){
+  if(k==='funil')_brFunilFilter=v;
+  if(k==='canal'){ // trocar o canal poda as campanhas selecionadas que nao existem nele
+    _brCanalFilter=v;
+    const disp=new Set(((_brRank&&_brRank.criativos)||[]).filter(x=>!v||x.canal===v).map(x=>x.campanha));
+    _brCampSel=_brCampSel.filter(c=>disp.has(c));_brConjFilter='';
+  }
+  if(k==='obj')_brObjFilter=v;
+  if(k==='conj')_brConjFilter=v;
+  brRenderRanking();
+}
+function brCampPanelToggle(){_brCampPanelOpen=!_brCampPanelOpen;if(!_brCampPanelOpen)_brCampSearch='';brRenderRanking();}
+function brToggleCampSel(name){const i=_brCampSel.indexOf(name);if(i>=0)_brCampSel.splice(i,1);else _brCampSel.push(name);_brConjFilter='';brRenderRanking();}
+function brCampSelClear(){_brCampSel=[];_brConjFilter='';brRenderRanking();}
+function _brCampOptsHtml(){
+  const q=_brCampSearch.trim().toLowerCase();
+  const list=q?_brCampOptsBase.filter(c=>c.toLowerCase().includes(q)):_brCampOptsBase;
+  return list.length?list.map(c=>{const esc=_brEsc(c).replace(/"/g,'&quot;');return `<label style="display:flex;gap:6px;align-items:center;padding:3px 4px;font-size:12px;cursor:pointer"><input type="checkbox" ${_brCampSel.includes(c)?'checked':''} data-v="${esc}" onchange="brToggleCampSel(this.getAttribute('data-v'))" style="width:auto;flex:none">${_brEsc(String(c).slice(0,90))}</label>`;}).join(''):'<div style="font-size:11px;color:var(--faint);padding:4px">nenhuma campanha com esse termo</div>';
+}
+function brCampSearchInput(v){_brCampSearch=v;const box=document.getElementById('brCampOpts');if(box)box.innerHTML=_brCampOptsHtml();}
+// Mesmo criativo rodando em varios publicos (conjuntos) da mesma campanha vira UM card com os numeros somados.
+// So separa por conjunto quando o filtro de publico esta ativo. Alcance somado entre publicos e aproximado
+// (pode contar a mesma pessoa 2x) — o card marca com "~".
+function _brAggregate(rows){
+  const by={};
+  rows.forEach(x=>{
+    const k=x.canal+'|'+x.campanha+'|'+x.nome;
+    if(!by[k]){by[k]={...x,_partes:1,_conjuntos:x.conjunto?[x.conjunto]:[]};return;}
+    const a=by[k];a._partes++;if(x.conjunto&&!a._conjuntos.includes(x.conjunto))a._conjuntos.push(x.conjunto);
+    a.spend=+(a.spend+x.spend).toFixed(2);a.impressions+=x.impressions||0;a.clicks+=x.clicks||0;a.reach+=x.reach||0;
+    a.resultadoValor+=x.resultadoValor||0;a.compras=(a.compras||0)+(x.compras||0);a.receita=+((a.receita||0)+(x.receita||0)).toFixed(2);a.leads=(a.leads||0)+(x.leads||0);a.videoViews=(a.videoViews||0)+(x.videoViews||0);
+    if(!a.thumbnail&&x.thumbnail)a.thumbnail=x.thumbnail;
+    a.elegivel=a.elegivel||x.elegivel;
+  });
+  return Object.values(by).map(a=>{
+    if(a._partes>1){ // KPIs derivados recalculados sobre a soma
+      a.ctr=a.impressions?+(a.clicks/a.impressions*100).toFixed(2):0;
+      a.cpm=a.impressions?+(a.spend/a.impressions*1000).toFixed(2):0;
+      a.custoPorResultado=a.resultadoValor?+(a.spend/a.resultadoValor).toFixed(2):null;
+      a.frequency=a.reach?+(a.impressions/a.reach).toFixed(2):a.frequency;
+    }
+    return a;
+  });
+}
 function brRenderRanking(){
   const out=document.getElementById('brOut');if(!out||!_brRank)return;
   const all=(_brRank.criativos||[]).filter(x=>(x.spend||0)>0);
   if(!all.length){out.innerHTML='<div class="empty">Nenhum anúncio com investimento no período/filtros.</div>';return;}
   // barra de filtros instantâneos (agem sobre o que já foi carregado, sem nova busca)
   const pill=(k,v,label,cur)=>`<button class="btn sm ${cur===v?'primary':'ghost'}" onclick="brSetRankFilter('${k}','${v}')">${label}</button>`;
-  const campanhas=[...new Set(all.map(x=>x.campanha).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt'));
   const canais=[...new Set(all.map(x=>x.canal))];
+  const baseCanal=all.filter(x=>(!_brCanalFilter||x.canal===_brCanalFilter)&&(!_brFunilFilter||x.funil===_brFunilFilter));
+  _brCampOptsBase=[...new Set(baseCanal.map(x=>x.campanha).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt'));
+  const objetivos=[...new Set(baseCanal.map(x=>x.objetivo).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt'));
+  const opt=(v,cur,label)=>`<option value="${_brEsc(v).replace(/"/g,'&quot;')}" ${cur===v?'selected':''}>${_brEsc(String(label||v).slice(0,80))}</option>`;
   const filtros=`<div class="card" style="margin-bottom:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:10px 14px">
       <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap"><span style="font-size:10px;color:var(--faint);text-transform:uppercase">Funil</span>
         ${pill('funil','','Todos',_brFunilFilter)}${['Topo','Meio','Fundo'].map(f=>pill('funil',f,f,_brFunilFilter)).join('')}</div>
       ${canais.length>1?`<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap"><span style="font-size:10px;color:var(--faint);text-transform:uppercase">Canal</span>
         ${pill('canal','','Todos',_brCanalFilter)}${canais.map(c=>pill('canal',c,c,_brCanalFilter)).join('')}</div>`:''}
-      <div style="display:flex;gap:5px;align-items:center;flex:1;min-width:220px"><span style="font-size:10px;color:var(--faint);text-transform:uppercase">Campanha</span>
-        <select style="flex:1;font-size:12px" onchange="brSetRankFilter('camp',this.value)">
-          <option value="">Todas as campanhas</option>
-          ${campanhas.map(c=>`<option value="${_brEsc(c).replace(/"/g,'&quot;')}" ${_brCampFilter===c?'selected':''}>${_brEsc(String(c).slice(0,80))}</option>`).join('')}
+      <div style="display:flex;gap:5px;align-items:center;min-width:190px"><span style="font-size:10px;color:var(--faint);text-transform:uppercase" title="Objetivo da campanha (ex: só venda, só cadastro)">Objetivo</span>
+        <select style="flex:1;font-size:12px" onchange="brSetRankFilter('obj',this.value)">
+          <option value="">Todos</option>
+          ${objetivos.map(o=>opt(o,_brObjFilter)).join('')}
+        </select></div>
+      <div style="position:relative">
+        <button class="btn sm ${_brCampSel.length?'primary':'ghost'}" onclick="brCampPanelToggle()">Campanhas: ${_brCampSel.length?_brCampSel.length+' sel.':'todas'} ▾</button>
+        ${_brCampPanelOpen?`<div style="position:absolute;z-index:60;top:110%;left:0;width:min(480px,92vw);max-height:340px;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px;box-shadow:0 8px 24px rgba(0,0,0,.45)">
+          <input placeholder="🔎 Buscar campanha…" value="${_brEsc(_brCampSearch).replace(/"/g,'&quot;')}" oninput="brCampSearchInput(this.value)" style="width:100%;font-size:12px;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;padding:0 2px 6px"><a onclick="brCampSelClear()" style="font-size:11px;color:var(--accent);cursor:pointer">limpar</a><a onclick="brCampPanelToggle()" style="font-size:11px;color:var(--muted);cursor:pointer">✓ aplicar</a></div>
+          <div id="brCampOpts">${_brCampOptsHtml()}</div>
+        </div>`:''}
+      </div>
+      <div style="display:flex;gap:5px;align-items:center;flex:1;min-width:220px"><span style="font-size:10px;color:var(--faint);text-transform:uppercase" title="Escolhendo um público, os criativos aparecem separados por conjunto em vez de somados">Público</span>
+        <select style="flex:1;font-size:12px" onchange="brSetRankFilter('conj',this.value)">
+          <option value="">Todos (criativos somados)</option>
+          ${[...new Set(baseCanal.filter(x=>!_brCampSel.length||_brCampSel.includes(x.campanha)).map(x=>x.conjunto).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt')).map(c=>opt(c,_brConjFilter)).join('')}
         </select></div>
     </div>`;
   let list=all;
   if(_brFunilFilter)list=list.filter(x=>x.funil===_brFunilFilter);
   if(_brCanalFilter)list=list.filter(x=>x.canal===_brCanalFilter);
-  if(_brCampFilter)list=list.filter(x=>x.campanha===_brCampFilter);
+  if(_brObjFilter)list=list.filter(x=>x.objetivo===_brObjFilter);
+  if(_brCampSel.length)list=list.filter(x=>_brCampSel.includes(x.campanha));
+  if(_brConjFilter)list=list.filter(x=>x.conjunto===_brConjFilter);
+  else list=_brAggregate(list); // visao geral: mesmo criativo em varios publicos vira um card so
+  _brRankView=list; // referencia pro botao de analise achar o card certo (agregado ou nao)
   if(!list.length){out.innerHTML=filtros+'<div class="empty">Nenhum criativo com esses filtros.</div>';return;}
   const ordem=['Topo','Meio','Fundo'];
   const byF={};list.forEach(x=>{const f=ordem.includes(x.funil)?x.funil:'Sem etapa identificada';(byF[f]=byF[f]||[]).push(x);});
@@ -6473,9 +6539,10 @@ function brRenderRanking(){
     const resto=byF[f].filter(x=>!x.elegivel);
     // "entre os piores": rabo do ranking do funil (2 últimos com 5+ elegíveis; 1 último com 3-4)
     const nPior=eleg.length>=5?2:eleg.length>=3?1:0;
-    const fundoSort=f==='Fundo'?`<div style="display:flex;gap:6px">
+    const fundoSort=f==='Fundo'?`<div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn sm ${_brFundoSort==='vendas'?'primary':'ghost'}" onclick="brSetFundoSort('vendas')">🛒 Mais vendas</button>
         <button class="btn sm ${_brFundoSort==='faturamento'?'primary':'ghost'}" onclick="brSetFundoSort('faturamento')">💰 Mais faturamento</button>
+        <button class="btn sm ${_brFundoSort==='leads'?'primary':'ghost'}" onclick="brSetFundoSort('leads')">🧲 Mais leads</button>
       </div>`:'';
     return `<div style="margin-bottom:26px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
@@ -6494,8 +6561,10 @@ function brRenderRanking(){
   out.innerHTML=filtros+(avisos.length?`<div class="card" style="margin-bottom:14px;font-size:12px;color:#f0c040">${avisos.map(_brEsc).join('<br>')}</div>`:'')+secs;
 }
 async function brCardAnalise(codigo,btn){
-  const x=(_brRank&&_brRank.criativos||[]).find(z=>z.codigo===codigo);if(!x)return;
-  const pares=(_brRank.criativos||[]).filter(z=>z.funil===x.funil&&z.codigo!==codigo&&z.elegivel)
+  // busca na LISTA RENDERIZADA (_brRankView): se a visao esta somada por publicos, a IA analisa os numeros somados
+  const base=_brRankView.length?_brRankView:((_brRank&&_brRank.criativos)||[]);
+  const x=base.find(z=>z.codigo===codigo);if(!x)return;
+  const pares=base.filter(z=>z.funil===x.funil&&z.codigo!==codigo&&z.elegivel)
     .sort((a,b)=>(b.spend||0)-(a.spend||0)).slice(0,8)
     .map(z=>({codigo:z.codigo,nome:z.nome,campanha:z.campanha,spend:z.spend,resultadoLabel:z.resultadoLabel,resultadoValor:z.resultadoValor,custoPorResultado:z.custoPorResultado,ctr:z.ctr,cpm:z.cpm}));
   btn.disabled=true;btn.textContent='🧠 Analisando…';
