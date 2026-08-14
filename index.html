@@ -6323,7 +6323,7 @@ async function brRunAnalise(){
       if(error)throw error;
       const r=(data&&data.data)||{};
       if(r.error)throw new Error(r.error);
-      _brRank=r;_brCardAn={};
+      _brRank=r;_brCardAn={};_brFunilFilter='';_brCanalFilter='';_brCampFilter='';
       brRenderRanking();
     }catch(e){out.innerHTML=`<div class="empty">Erro ao analisar: ${_brEsc(e.message||e)}</div>`;}
     finally{btn.disabled=false;btn.textContent='Montar ranking de criativos do período';}
@@ -6379,9 +6379,9 @@ function _brSortFunil(arr,funil){
 }
 function brSetFundoSort(s){_brFundoSort=s;brRenderRanking();}
 function _brKpi(l,v){return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:2px 0"><span style="color:var(--faint)">${l}</span><b>${v}</b></div>`;}
-function _brCardRanking(x,pos,funil){
+function _brCardRanking(x,pos,funil,pior){
   const money=v=>'R$'+(+v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const medal=pos===1?['🏆 1º','#f0c040']:pos===2?['🥈 2º','#c0c8d4']:pos===3?['🥉 3º','#d49a6a']:null;
+  const medal=pos===1?['🏆 1º','#f0c040','#0a0906']:pos===2?['🥈 2º','#c0c8d4','#0a0906']:pos===3?['🥉 3º','#d49a6a','#0a0906']:pior?['📉 '+pos+'º · entre os piores','#f87171','#0a0906']:(pos>0?[pos+'º','rgba(15,15,15,.78)','#e8e8e8']:null);
   const thumb=x.thumbnail
     ?`<img src="${_brEsc(x.thumbnail)}" referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover" onerror="this.outerHTML='<div style=&quot;display:flex;align-items:center;justify-content:center;height:100%;font-size:34px&quot;>${x.canal==='Google'?'🔎':'🖼'}</div>'">`
     :`<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:34px;color:var(--faint)">${x.canal==='Google'?'🔎':'🖼'}</div>`;
@@ -6397,7 +6397,7 @@ function _brCardRanking(x,pos,funil){
   return `<div class="card" style="padding:0;overflow:hidden;${x.elegivel?'':'opacity:.55'}">
     <div style="height:210px;background:#0b0b0b;position:relative">
       ${thumb}
-      ${medal?`<span style="position:absolute;top:8px;left:8px;background:${medal[1]};color:#0a0906;font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px">${medal[0]}</span>`:''}
+      ${medal?`<span style="position:absolute;top:8px;left:8px;background:${medal[1]};color:${medal[2]};font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px">${medal[0]}</span>`:''}
       <span class="badge" style="position:absolute;top:8px;right:8px">${x.canal}</span>
       ${x.elegivel?'':'<span class="badge" style="position:absolute;bottom:8px;left:8px" title="Volume abaixo do piso do funil — fica fora do ranking">em leitura</span>'}
     </div>
@@ -6413,16 +6413,40 @@ function _brCardRanking(x,pos,funil){
     </div>
   </div>`;
 }
+let _brFunilFilter='',_brCanalFilter='',_brCampFilter='';
+function brSetRankFilter(k,v){if(k==='funil')_brFunilFilter=v;if(k==='canal')_brCanalFilter=v;if(k==='camp')_brCampFilter=v;brRenderRanking();}
 function brRenderRanking(){
   const out=document.getElementById('brOut');if(!out||!_brRank)return;
-  const list=(_brRank.criativos||[]).filter(x=>(x.spend||0)>0);
-  if(!list.length){out.innerHTML='<div class="empty">Nenhum anúncio com investimento no período/filtros.</div>';return;}
+  const all=(_brRank.criativos||[]).filter(x=>(x.spend||0)>0);
+  if(!all.length){out.innerHTML='<div class="empty">Nenhum anúncio com investimento no período/filtros.</div>';return;}
+  // barra de filtros instantâneos (agem sobre o que já foi carregado, sem nova busca)
+  const pill=(k,v,label,cur)=>`<button class="btn sm ${cur===v?'primary':'ghost'}" onclick="brSetRankFilter('${k}','${v}')">${label}</button>`;
+  const campanhas=[...new Set(all.map(x=>x.campanha).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt'));
+  const canais=[...new Set(all.map(x=>x.canal))];
+  const filtros=`<div class="card" style="margin-bottom:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:10px 14px">
+      <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap"><span style="font-size:10px;color:var(--faint);text-transform:uppercase">Funil</span>
+        ${pill('funil','','Todos',_brFunilFilter)}${['Topo','Meio','Fundo'].map(f=>pill('funil',f,f,_brFunilFilter)).join('')}</div>
+      ${canais.length>1?`<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap"><span style="font-size:10px;color:var(--faint);text-transform:uppercase">Canal</span>
+        ${pill('canal','','Todos',_brCanalFilter)}${canais.map(c=>pill('canal',c,c,_brCanalFilter)).join('')}</div>`:''}
+      <div style="display:flex;gap:5px;align-items:center;flex:1;min-width:220px"><span style="font-size:10px;color:var(--faint);text-transform:uppercase">Campanha</span>
+        <select style="flex:1;font-size:12px" onchange="brSetRankFilter('camp',this.value)">
+          <option value="">Todas as campanhas</option>
+          ${campanhas.map(c=>`<option value="${_brEsc(c).replace(/"/g,'&quot;')}" ${_brCampFilter===c?'selected':''}>${_brEsc(String(c).slice(0,80))}</option>`).join('')}
+        </select></div>
+    </div>`;
+  let list=all;
+  if(_brFunilFilter)list=list.filter(x=>x.funil===_brFunilFilter);
+  if(_brCanalFilter)list=list.filter(x=>x.canal===_brCanalFilter);
+  if(_brCampFilter)list=list.filter(x=>x.campanha===_brCampFilter);
+  if(!list.length){out.innerHTML=filtros+'<div class="empty">Nenhum criativo com esses filtros.</div>';return;}
   const ordem=['Topo','Meio','Fundo'];
   const byF={};list.forEach(x=>{const f=ordem.includes(x.funil)?x.funil:'Sem etapa identificada';(byF[f]=byF[f]||[]).push(x);});
   const cor=f=>brFunilBadgeColor(f==='Sem etapa identificada'?'':f);
   const secs=[...ordem,'Sem etapa identificada'].filter(f=>byF[f]&&byF[f].length).map(f=>{
     const eleg=_brSortFunil(byF[f].filter(x=>x.elegivel),f);
     const resto=byF[f].filter(x=>!x.elegivel);
+    // "entre os piores": rabo do ranking do funil (2 últimos com 5+ elegíveis; 1 último com 3-4)
+    const nPior=eleg.length>=5?2:eleg.length>=3?1:0;
     const fundoSort=f==='Fundo'?`<div style="display:flex;gap:6px">
         <button class="btn sm ${_brFundoSort==='vendas'?'primary':'ghost'}" onclick="brSetFundoSort('vendas')">🛒 Mais vendas</button>
         <button class="btn sm ${_brFundoSort==='faturamento'?'primary':'ghost'}" onclick="brSetFundoSort('faturamento')">💰 Mais faturamento</button>
@@ -6430,18 +6454,18 @@ function brRenderRanking(){
     return `<div style="margin-bottom:26px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         <h3 style="margin:0;font-size:15px;color:${cor(f)}">● ${f}</h3>
-        <span class="badge">${byF[f].length} criativo${byF[f].length!==1?'s':''}</span>
+        <span class="badge">${byF[f].length} criativo${byF[f].length!==1?'s':''} — todos os patrocinados, do melhor pro pior</span>
         <div style="flex:1"></div>${fundoSort}
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px">
-        ${eleg.map((x,i)=>_brCardRanking(x,i+1,f)).join('')}${resto.map(x=>_brCardRanking(x,0,f)).join('')}
+        ${eleg.map((x,i)=>_brCardRanking(x,i+1,f,nPior>0&&i>=eleg.length-nPior)).join('')}${resto.map(x=>_brCardRanking(x,0,f,false)).join('')}
       </div>
     </div>`;
   }).join('');
   const avisos=[];
   if(_brRank.pctInferido>30)avisos.push(`⚠ ${_brRank.pctInferido}% dos criativos sem objetivo claro — a etapa foi inferida pelo nome, confira antes de decidir.`);
   (_brRank.erros||[]).forEach(e=>avisos.push('⚠ '+e));
-  out.innerHTML=(avisos.length?`<div class="card" style="margin-bottom:14px;font-size:12px;color:#f0c040">${avisos.map(_brEsc).join('<br>')}</div>`:'')+secs;
+  out.innerHTML=filtros+(avisos.length?`<div class="card" style="margin-bottom:14px;font-size:12px;color:#f0c040">${avisos.map(_brEsc).join('<br>')}</div>`:'')+secs;
 }
 async function brCardAnalise(codigo,btn){
   const x=(_brRank&&_brRank.criativos||[]).find(z=>z.codigo===codigo);if(!x)return;
