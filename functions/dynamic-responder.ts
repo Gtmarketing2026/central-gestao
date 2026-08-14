@@ -82,8 +82,10 @@ function _iaProvider() {
 }
 async function callOpenAI(body: any) {
   const p = _iaProvider();
+  const telemetry = body?._telemetry || {};
   const modelo = body.model || "gpt-4o-mini";
   const payload: any = { temperature: 0.6, max_tokens: 1000, ...body, model: p.mapa ? (p.mapa[modelo] || "gemini-3.5-flash") : modelo };
+  delete payload._telemetry;
   if (p.mapa) { // Gemini gasta parte do orçamento "pensando" — dá folga e pede raciocínio curto pra resposta não vir truncada
     payload.max_tokens = Math.max(1200, (payload.max_tokens || 1000) * 3);
     payload.reasoning_effort = "low";
@@ -103,6 +105,10 @@ async function callOpenAI(body: any) {
     }
   }
   if (!t.ok) throw new Error(t.erro || `Erro na API da ${p.nome}`);
+  try {
+    const u = t.json?.usage || {};
+    await sbPost("system_usage_events", { client_id: telemetry.clientId || null, service_key: p.nome.toLowerCase(), action: String(telemetry.action || "ai_request").slice(0, 80), input_units: Number(u.prompt_tokens || u.input_tokens || 0), output_units: Number(u.completion_tokens || u.output_tokens || 0), quantity: 1, meta: { model: t.json?.model || payload.model } });
+  } catch (_e) { /* telemetria nunca interrompe a IA */ }
   return t.json;
 }
 
@@ -332,7 +338,7 @@ RESUMO PARA CLIENTE (quando pedirem resumo/relatorio pro cliente): escreva PRONT
   const actions: any[] = [];
   let answer = "";
   for (let it = 0; it < 6; it++) {
-    const json = await callOpenAI({ model: "gpt-4o", messages, tools: allTools, tool_choice: "auto", max_tokens: 2000, temperature: 0.4 });
+    const json = await callOpenAI({ model: "gpt-4o", messages, tools: allTools, tool_choice: "auto", max_tokens: 2000, temperature: 0.4, _telemetry: { clientId: a.clientId || null, action: "andreia_system" } });
     const msg = json.choices?.[0]?.message || {};
     if (!Array.isArray(msg.tool_calls) || !msg.tool_calls.length) { answer = String(msg.content || ""); break; }
     messages.push(msg);
@@ -2644,7 +2650,7 @@ async function waExtract(convId: string, autoApply = false) {
   if (cv.origin_type === "anuncio" && (_o.title || _o.body || _o.campaign || _o.ad)) adCtx = `\n\nESTE LEAD VEIO DE UM ANÚNCIO. O que foi anunciado: "${String(_o.title || "").slice(0, 120)}${_o.body ? " — " + String(_o.body).slice(0, 200) : ""}"${_o.campaign ? ` (campanha: ${_o.campaign})` : ""}. Se o interesse do lead bate com esse anúncio, ele é RELEVANTE — o cliente está pagando justamente para atrair essas pessoas.`;
   const sys = `Você é um SDR que lê uma conversa de WhatsApp entre o LEAD e o ATENDENTE. Faça: (1) extraia os campos do lead — só o que aparece claramente, NÃO invente; para tipo 'valor' devolva o valor TOTAL do negócio, só o número: se o pagamento for parcelado (ex.: "entrada de 590 + 2 boletos de 590 cada"), SOME entrada e todas as parcelas pra chegar no total (590+590+590=1770) — NUNCA devolva só a entrada ou só uma parcela isolada; se depois a conversa trouxer um valor total mais atualizado/diferente, use o mais recente; (2) CLASSIFIQUE a etapa do funil usando as descrições ESPECÍFICAS DESTE CLIENTE, com 'confidence' 0-100; (3) 'numeroErrado'=true SÓ se ficar CLARO que o número está errado (a pessoa diz que não é quem procuramos, mandou errado, não conhece, pediu pra parar); (4) 'irrelevante'=true quando a conversa NÃO tem intenção de cumprir nenhum dos objetivos descritos no funil deste cliente, considerando DNA, histórico, anúncio e contexto. As descrições das ETAPAS DO FUNIL fornecidas na mensagem seguinte são a autoridade máxima para diferenciar Lead novo, MQL, SQL e demais etapas; nunca substitua esses critérios por uma definição genérica de mercado. Considere também objetivos alternativos legítimos, como recrutamento, currículos, suporte, distribuição e reconhecimento, quando estiverem previstos no anúncio, DNA ou nas regras do cliente. REGRAS CRÍTICAS de relevância: NUNCA marque irrelevante um contato que demonstra interesse no que foi ANUNCIADO. NUNCA use o segmento sozinho pra decidir. ${hasDna ? "" : "Não há dados suficientes do negócio, então "}na dúvida, ou faltando contexto, deixe irrelevante=FALSE. REGRA DE VENDA: só escolha uma etapa de compra/venda quando houver a confirmação exigida na descrição daquela etapa; menção à palavra venda, encaminhamento ao comercial ou envio de orçamento não comprovam fechamento. Responda SOMENTE JSON.`;
   const content = `CAMPOS A EXTRAIR:\n${spec}\n\nETAPAS DO FUNIL (escolha UMA key):\n${stageSpec}${dnaCtx}${adCtx}\n\nCONVERSA:\n${transcript}\n\nResponda JSON: {"fields":{"<key>":"<valor>"}, "stage":"<key entre: ${keys}>", "confidence":<0-100>, "stageWhy":"<explique em 1-2 frases POR QUE essa etapa, citando o que o lead fez/disse>", "evidencia":"<a FRASE do lead (copiada da conversa) que mais prova essa classificação>", "numeroErrado":<bool>, "irrelevante":<bool>, "irrelevanteMotivo":"<curto se irrelevante>"}`;
-  const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content }], response_format: { type: "json_object" }, max_tokens: 800, temperature: 0.2 });
+  const j = await callOpenAI({ model: "gpt-4o-mini", messages: [{ role: "system", content: sys }, { role: "user", content }], response_format: { type: "json_object" }, max_tokens: 800, temperature: 0.2, _telemetry: { clientId: cv.client_id || null, action: "crm_classification" } });
   let parsed: any = {}; try { parsed = JSON.parse(j.choices[0].message.content || "{}"); } catch { parsed = {}; }
   const jobInquiry = /curr[ií]cul|vaga de emprego|oportunidade de emprego|quero trabalhar|trabalhar com voc[eê]s|est[aã]o contratando|falar com (o )?rh/i.test(transcript);
   const allowsJobGoal = /recrut|curr[ií]cul|vaga|emprego|trabalhar|rh/i.test(`${stageSpec}\n${dnaCtx}\n${adCtx}`);
@@ -4495,7 +4501,7 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
   const agentModel = "gpt-4o"; // conversacional de verdade (segue o histórico e o estado do processo); também lê imagem/PDF
   let clientId = (sess && sess.client_id) || null;
   for (let it = 0; it < 6; it++) {
-    const j = await callOpenAI({ model: agentModel, messages, tools: WA_TOOLS, tool_choice: "auto", max_tokens: 900, temperature: 0.3 });
+    const j = await callOpenAI({ model: agentModel, messages, tools: WA_TOOLS, tool_choice: "auto", max_tokens: 900, temperature: 0.3, _telemetry: { clientId, action: "andreia_whatsapp" } });
     const msg = j.choices[0].message;
     if (msg.tool_calls && msg.tool_calls.length) {
       messages.push(msg);
