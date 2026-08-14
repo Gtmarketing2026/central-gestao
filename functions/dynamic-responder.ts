@@ -3796,6 +3796,101 @@ async function sbDeleteD(table: string, query: string) {
   const r = await fetch(`${_SB_URL}/rest/v1/${table}?${query}`, { method: "DELETE", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
   if (!r.ok) throw new Error(`DB delete ${table}: ${await r.text()}`);
 }
+
+// ===== YouTube de eventos =====================================================
+// Cada cliente tem o proprio refresh token no cofre. As consultas abaixo usam
+// somente escopos de leitura e sempre filtram um unico video do canal conectado.
+async function _youtubeClientToken(clientId: string): Promise<string> {
+  const refresh = await _loadSecureCredential(`youtube_refresh_token:${clientId}`);
+  const cid = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") || "";
+  const secret = Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET") || "";
+  if (!refresh) throw new Error("Conecte o YouTube deste cliente antes de abrir o Evento ao Vivo.");
+  if (!cid || !secret) throw new Error("OAuth do Google ainda nao esta configurado no servidor.");
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: cid, client_secret: secret, refresh_token: refresh, grant_type: "refresh_token" }),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.access_token) throw new Error(`YouTube: ${j.error_description || j.error || "nao foi possivel renovar a conexao"}`);
+  return j.access_token;
+}
+async function _ytJson(url: string, token: string) {
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const j = await r.json();
+  if (!r.ok || j?.error) throw new Error(`YouTube: ${j?.error?.message || `HTTP ${r.status}`}`);
+  return j;
+}
+function _ytRows(j: any) {
+  const heads = (j?.columnHeaders || []).map((x: any) => x.name);
+  return (j?.rows || []).map((row: any[]) => Object.fromEntries(heads.map((h: string, i: number) => [h, row[i]])));
+}
+async function _ytReport(token: string, input: { since: string; until: string; metrics: string; dimensions?: string; filters?: string; sort?: string; maxResults?: number }) {
+  const q: any = { ids: "channel==MINE", startDate: input.since, endDate: input.until, metrics: input.metrics };
+  if (input.dimensions) q.dimensions = input.dimensions;
+  if (input.filters) q.filters = input.filters;
+  if (input.sort) q.sort = input.sort;
+  if (input.maxResults) q.maxResults = String(input.maxResults);
+  return _ytRows(await _ytJson(`https://youtubeanalytics.googleapis.com/v2/reports?${new URLSearchParams(q)}`, token));
+}
+function _ytIsoSeconds(s: string) {
+  const m = String(s || "").match(/^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
+  return m ? (Number(m[1]) * 86400 + Number(m[2]) * 3600 + Number(m[3]) * 60 + Number(m[4])) : 0;
+}
+async function _youtubeVideos(clientId: string) {
+  const token = await _youtubeClientToken(clientId);
+  const ch = await _ytJson("https://www.googleapis.com/youtube/v3/channels?part=snippet,contentDetails&mine=true", token);
+  const channel = ch.items?.[0];
+  if (!channel) throw new Error("A conta conectada nao possui um canal do YouTube.");
+  const uploads = channel.contentDetails?.relatedPlaylists?.uploads;
+  if (!uploads) throw new Error("Nao consegui localizar os videos enviados deste canal.");
+  const pl = await _ytJson(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${encodeURIComponent(uploads)}&maxResults=50`, token);
+  const ids = (pl.items || []).map((x: any) => x.contentDetails?.videoId).filter(Boolean);
+  if (!ids.length) return { channel: { id: channel.id, title: channel.snippet?.title || "YouTube" }, videos: [] };
+  const vd = await _ytJson(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics,liveStreamingDetails&id=${encodeURIComponent(ids.join(","))}`, token);
+  const videos = (vd.items || []).map((v: any) => ({
+    id: v.id, title: v.snippet?.title || v.id, publishedAt: v.snippet?.publishedAt || "",
+    thumbnail: v.snippet?.thumbnails?.high?.url || v.snippet?.thumbnails?.medium?.url || v.snippet?.thumbnails?.default?.url || "",
+    durationSeconds: _ytIsoSeconds(v.contentDetails?.duration || ""), viewsPublic: Number(v.statistics?.viewCount) || 0,
+    likesPublic: Number(v.statistics?.likeCount) || 0, commentsPublic: Number(v.statistics?.commentCount) || 0,
+    actualStartTime: v.liveStreamingDetails?.actualStartTime || "", actualEndTime: v.liveStreamingDetails?.actualEndTime || "",
+    scheduledStartTime: v.liveStreamingDetails?.scheduledStartTime || "", isLiveEvent: !!v.liveStreamingDetails,
+    url: `https://www.youtube.com/watch?v=${v.id}`,
+  })).sort((a: any, b: any) => String(b.actualStartTime || b.publishedAt).localeCompare(String(a.actualStartTime || a.publishedAt)));
+  return { channel: { id: channel.id, title: channel.snippet?.title || "YouTube", thumbnail: channel.snippet?.thumbnails?.default?.url || "" }, videos };
+}
+async function _youtubeLiveReport(input: any) {
+  const clientId = String(input.clientId || ""), videoId = String(input.videoId || "").trim();
+  const since = String(input.since || ""), until = String(input.until || "");
+  if (!clientId || !videoId || !since || !until) throw new Error("Cliente, video e periodo sao obrigatorios.");
+  const token = await _youtubeClientToken(clientId), filter = `video==${videoId}`, warnings: string[] = [];
+  const safe = async (label: string, fn: () => Promise<any[]>) => { try { return await fn(); } catch (e) { warnings.push(`${label}: ${String((e as any)?.message || e)}`); return []; } };
+  const videoJ = await _ytJson(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics,liveStreamingDetails&id=${encodeURIComponent(videoId)}`, token);
+  const v = videoJ.items?.[0]; if (!v) throw new Error("Video nao encontrado no canal conectado.");
+  const video = { id: v.id, title: v.snippet?.title || v.id, thumbnail: v.snippet?.thumbnails?.high?.url || v.snippet?.thumbnails?.medium?.url || "", durationSeconds: _ytIsoSeconds(v.contentDetails?.duration || ""), actualStartTime: v.liveStreamingDetails?.actualStartTime || "", actualEndTime: v.liveStreamingDetails?.actualEndTime || "", url: `https://www.youtube.com/watch?v=${v.id}` };
+  const summaryMetrics = "views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost,likes,comments,shares";
+  const summaryRows = await safe("indicadores", () => _ytReport(token, { since, until, metrics: summaryMetrics, filters: filter }));
+  const concurrentRows = await safe("audiencia simultanea", () => _ytReport(token, { since, until, metrics: "averageConcurrentViewers,peakConcurrentViewers", filters: filter }));
+  const daily = await safe("evolucao diaria", () => _ytReport(token, { since, until, metrics: summaryMetrics, dimensions: "day", filters: filter, sort: "day" }));
+  const traffic = await safe("fontes de trafego", () => _ytReport(token, { since, until, metrics: "views,estimatedMinutesWatched", dimensions: "insightTrafficSourceType", filters: filter, sort: "-views", maxResults: 25 }));
+  const external = await safe("sites externos", () => _ytReport(token, { since, until, metrics: "views,estimatedMinutesWatched", dimensions: "insightTrafficSourceDetail", filters: `${filter};insightTrafficSourceType==EXT_URL`, sort: "-views", maxResults: 25 }));
+  const search = await safe("termos de busca", () => _ytReport(token, { since, until, metrics: "views,estimatedMinutesWatched", dimensions: "insightTrafficSourceDetail", filters: `${filter};insightTrafficSourceType==YT_SEARCH`, sort: "-views", maxResults: 25 }));
+  const devices = await safe("dispositivos", () => _ytReport(token, { since, until, metrics: "views,estimatedMinutesWatched", dimensions: "deviceType", filters: filter, sort: "-estimatedMinutesWatched" }));
+  const retention = await safe("retencao", () => _ytReport(token, { since, until, metrics: "audienceWatchRatio,relativeRetentionPerformance", dimensions: "elapsedVideoTimeRatio", filters: filter }));
+  const summary: any = { ...(summaryRows[0] || {}), ...(concurrentRows[0] || {}) };
+  summary.reactions = (Number(summary.likes) || 0) + (Number(summary.comments) || 0) + (Number(summary.shares) || 0);
+  summary.watchHours = (Number(summary.estimatedMinutesWatched) || 0) / 60;
+  const at30 = retention.reduce((best: any, x: any) => Math.abs(Number(x.elapsedVideoTimeRatio) - .3) < Math.abs(Number(best?.elapsedVideoTimeRatio ?? 99) - .3) ? x : best, null);
+  summary.retention30 = at30 ? Number(at30.audienceWatchRatio) * 100 : null;
+  const compare: any[] = [];
+  for (const date of [input.compareDate1, input.compareDate2].filter(Boolean)) {
+    const a = await safe(`comparativo ${date}`, () => _ytReport(token, { since, until: String(date), metrics: summaryMetrics, filters: filter }));
+    const c = await safe(`simultaneos ${date}`, () => _ytReport(token, { since, until: String(date), metrics: "averageConcurrentViewers,peakConcurrentViewers", filters: filter }));
+    const row: any = { date, ...(a[0] || {}), ...(c[0] || {}) };
+    row.reactions = (Number(row.likes) || 0) + (Number(row.comments) || 0) + (Number(row.shares) || 0); row.watchHours = (Number(row.estimatedMinutesWatched) || 0) / 60;
+    compare.push(row);
+  }
+  return { video, period: { since, until }, summary, daily, traffic, external, search, devices, retention, compare, warnings, unavailable: { impressions: "A consulta imediata do YouTube Analytics nao fornece impressoes de thumbnail; esse dado exige o fluxo de relatorios em lote.", liveChatMessages: "A API oficial nao disponibiliza o historico completo do chat depois que a live termina.", uniqueViewers: "Pode nao ser disponibilizado para todas as contas e combinacoes de dimensoes." } };
+}
 function _minerPick(row: any, keys: string[]) { for (const k of keys) if (row?.[k] != null && row[k] !== "") return row[k]; return null; }
 async function _minerAnalyzePayload(item: any, client: any) {
   const instruction = `Você é o núcleo semântico do Minerador de Criativos. Analise esta referência para ${client?.name || "o cliente"}. DNA: ${JSON.stringify(client?.dna || {}).slice(0, 8000)}. Legenda: ${String(item.caption || "").slice(0, 10000)}.
@@ -3839,6 +3934,30 @@ async function _minerApifyCapture(url: string, limit: number) {
 }
 async function eventReports(input: any) {
   const op = String(input?.op || "list"), clientId = String(input?.clientId || "").trim();
+  if (op === "youtubeVideos") {
+    if (!clientId) throw new Error("Selecione um cliente.");
+    return await _youtubeVideos(clientId);
+  }
+  if (op === "youtubeLive") {
+    if (!clientId) throw new Error("Selecione um cliente.");
+    return await _youtubeLiveReport(input);
+  }
+  if (op === "saveYoutubeSelection") {
+    if (!clientId) throw new Error("Selecione um cliente.");
+    const editionId = String(input.editionId || ""), videoId = String(input.videoId || "").trim();
+    const edition = (await sbGet("event_editions", `id=eq.${encodeURIComponent(editionId)}&client_id=eq.${encodeURIComponent(clientId)}&select=config&limit=1`))[0];
+    if (!edition) throw new Error("Evento nao encontrado para este cliente.");
+    await sbPatchD("event_editions", `id=eq.${encodeURIComponent(editionId)}&client_id=eq.${encodeURIComponent(clientId)}`, { config: { ...(edition.config || {}), youtube_video_id: videoId, youtube_video_title: String(input.videoTitle || "").slice(0, 300) }, updated_at: new Date().toISOString() });
+    return { ok: true };
+  }
+  if (op === "analyzeSection") {
+    if (!clientId) throw new Error("Selecione um cliente.");
+    const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,dna&limit=1`))[0];
+    if (!c) throw new Error("Cliente nao encontrado.");
+    const section = String(input.section || "secao do evento").slice(0, 100);
+    const prompt = `Voce e AndreIA, consultora senior de eventos e YouTube. Analise SOMENTE os dados reais da secao \"${section}\" para o cliente ${c.name}. Diferencie fato, hipotese e dado indisponivel. Nao invente metricas e nao diga que publico ou nicho esta errado; proponha investigacoes quando houver mais de uma explicacao. Seja consultiva, direta e sem prazos. Retorne apenas JSON valido: {"resumo":"2 a 4 frases","destaques":["..."],"atencoes":[{"ponto":"...","evidencia":"...","investigacao":"..."}],"acoes":["passo pratico sem prazo"]}.\nDNA DO CLIENTE: ${JSON.stringify(c.dna || {}).slice(0, 7000)}\nDADOS DA SECAO: ${JSON.stringify(input.data || {}).slice(0, 30000)}`;
+    return { analysis: await _callOpenAIJson([{ role: "user", content: prompt }]) };
+  }
   if (op === "list") {
     const cq = clientId ? `client_id=eq.${encodeURIComponent(clientId)}&` : "";
     const projects = await sbGet("event_projects", `${cq}select=*&order=created_at.desc&limit=300`);
@@ -6069,6 +6188,42 @@ async function securityAuditTick() {
   await sbPatchD("account_config", "id=eq.main", { data: { ...cfg, security_audit_issues: current, security_audit_last_run: new Date().toISOString() } });
   return { total: current.length, novos: novos.length, resolvidos: resolvidos.length };
 }
+// ===== AGENTE DE SAUDE DO SISTEMA (diario, apos as sincronizacoes) =====
+// Junta seguranca + instabilidade + erros numa fotografia unica: falhas de cron, taxa de erro das chamadas
+// internas (teria pego o apagao do guard em minutos), frescor dos canais e contas de midia paradas.
+// Resultado fica em account_config.data.health_report (painel geral le de la); sino so quando surge problema NOVO.
+async function systemHealthTick() {
+  const r = await fetch(`${_SB_URL}/rest/v1/rpc/system_health_snapshot`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json" }, body: "{}" });
+  if (!r.ok) throw new Error("system_health_snapshot falhou: HTTP " + r.status);
+  const snap: any = await r.json();
+  const hoje = new Date().toISOString().slice(0, 10);
+  const ontem = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  type Check = { key: string; sev: "alta" | "media" | "baixa"; msg: string };
+  const checks: Check[] = [];
+  for (const f of (snap.cron_falhas_24h || [])) checks.push({ key: `cron:${f.job}`, sev: "alta", msg: `Automação "${f.job}" falhou ${f.falhas}x nas últimas 24h` });
+  const errs = (snap.http_erros_24h || []).reduce((s: number, e: any) => s + (e.qtd || 0), 0);
+  const tot = snap.http_total_24h || 0;
+  if (tot >= 20 && errs / tot > 0.2) checks.push({ key: `http:taxa:${hoje}`, sev: "alta", msg: `${Math.round((errs / tot) * 100)}% das chamadas internas com erro nas últimas 24h (${errs} de ${tot}) — ${(snap.http_erros_24h || []).map((e: any) => `HTTP ${e.status}: ${e.qtd}`).join(", ")}` });
+  else if (errs >= 30) checks.push({ key: `http:volume:${hoje}`, sev: "media", msg: `${errs} chamadas internas com erro nas últimas 24h (${(snap.http_erros_24h || []).map((e: any) => `HTTP ${e.status}: ${e.qtd}`).join(", ")})` });
+  for (const c of (snap.sync_canais || [])) if (c.ultima_data && c.ultima_data < ontem) checks.push({ key: `sync:${c.canal}`, sev: "media", msg: `Canal ${c.canal} sem dado novo desde ${c.ultima_data} (a sincronização diária pode estar falhando)` });
+  const paradas = snap.contas_midia_paradas || [];
+  if (paradas.length) checks.push({ key: `midia:paradas`, sev: "baixa", msg: `${paradas.length} conta(s) de mídia sem dado novo há 3+ dias (pode ser pausa proposital): ${paradas.slice(0, 6).map((p: any) => `${p.cliente} (${p.plataforma}, ${p.ultima_data})`).join("; ")}${paradas.length > 6 ? "…" : ""}` });
+  for (const s of (snap.seguranca_eventos_24h || [])) if (s.tipo === "unauthorized_internal_route" && s.qtd > 0) checks.push({ key: `sec:unauthorized`, sev: "media", msg: `${s.qtd} tentativa(s) de acesso a rota interna sem credencial nas últimas 24h` });
+  // problemas da auditoria de seguranca do banco (ja rodada as 05:00) entram no mesmo painel
+  const cfg = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
+  for (const k of (cfg.security_audit_issues || [])) checks.push({ key: `audit:${k}`, sev: "alta", msg: `Auditoria de segurança do banco: ${k}` });
+  const status = checks.some((c) => c.sev === "alta") ? "critico" : checks.length ? "atencao" : "ok";
+  const prevKeys: string[] = (cfg.health_report?.checks || []).filter((c: any) => c.sev === "alta").map((c: any) => c.key);
+  const novosAltos = checks.filter((c) => c.sev === "alta" && !prevKeys.includes(c.key));
+  if (novosAltos.length) {
+    const team = await sbGet("team", "select=id");
+    const title = `🩺 Saúde do sistema: ${novosAltos.length} problema(s) novo(s)`;
+    const detail = novosAltos.map((c) => `• ${c.msg}`).join("\n");
+    for (const t of (team || [])) { try { await sbPost("notifications", { id: _wuid(), to_team: t.id, from_team: "sistema", task_id: null, task_name: title, comment_text: detail.slice(0, 1500), read: false, type: "health_alert" }); } catch (_e) { /* */ } }
+  }
+  await sbPatchD("account_config", "id=eq.main", { data: { ...cfg, health_report: { gerado_em: new Date().toISOString(), status, checks, resumo: { erros_http_24h: errs, chamadas_24h: tot, seguranca_24h: snap.seguranca_eventos_24h || [], sync_canais: snap.sync_canais || [] } } } });
+  return { status, problemas: checks.length, novosAlertas: novosAltos.length };
+}
 async function waMeetingRemindersTick() {
   const autos = await sbGet("andreia_automations", "enabled=eq.true&tipo=eq.lembrete_reuniao&select=*");
   if (!autos.length) return { skip: "nenhum lembrete de reunião ativo" };
@@ -6159,6 +6314,10 @@ Deno.serve(async (req) => {
     }
     if (body.securityAuditTick) {
       const r = await securityAuditTick();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.systemHealthTick) {
+      const r = await systemHealthTick();
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.crmAndreia) {

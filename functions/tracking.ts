@@ -1020,7 +1020,7 @@ Deno.serve(async (req) => {
   // Tudo abaixo desta lista executa leitura ou alteração administrativa com service_role.
   // A função continua pública apenas para pixel/webhooks/callbacks, mas essas rotas exigem
   // uma sessão real do Supabase ou o segredo exclusivo dos cron jobs.
-  const internalPrefixes = ["/oauth/", "/calendar/", "/google/auth", "/google/status", "/google/disconnect", "/automations/", "/wa/connectivity", "/wa/resolve-origins", "/wa/agency-poll", "/journey/orders-tick", "/metrics/tick", "/meta/", "/instagram/", "/security/audit"];
+  const internalPrefixes = ["/oauth/", "/calendar/", "/google/auth", "/google/status", "/google/disconnect", "/automations/", "/wa/connectivity", "/wa/resolve-origins", "/wa/agency-poll", "/journey/orders-tick", "/metrics/tick", "/meta/", "/instagram/", "/security/audit", "/health/"];
   if (internalPrefixes.some((x) => p.startsWith(x))) {
     const denied = await _requireInternal(req); if (denied) return denied;
   }
@@ -1119,6 +1119,16 @@ Deno.serve(async (req) => {
     } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
   }
 
+  // /health/tick -> agente de saúde: segurança + instabilidade + erros num relatório só (painel geral lê de
+  // account_config.data.health_report). Chamado pelo cron diário, depois das sincronizações.
+  if (p === "/health/tick") {
+    try {
+      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ systemHealthTick: true }) });
+      const t = await r.text();
+      return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
+    } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
+  }
+
   // GET /wa/connect/<instanceId> -> JSON com qrcode/paircode/status (usado pela página pública de conexão)
   // POST /wa/webhook/<instanceId>  -> ingere eventos do uazapi (mensagens/conexão) da instância
   const mWa = p.match(/^\/wa\/webhook\/([^/]+)$/);
@@ -1132,6 +1142,10 @@ Deno.serve(async (req) => {
     }
     if (req.method !== "POST") return new Response("wa webhook ok", { headers: { ...cors, "Content-Type": "text/plain" } });
     const guard = _publicGuard(req, "wawh", 180, 2097152); if (guard) return guard;
+    // Instancia inexistente/removida: descarta em silencio (200) SEM registrar como ataque — o Meta reentrega
+    // webhook de cadastro abandonado por dias (1000+/dia) e isso afogava o alerta de seguranca com falso positivo.
+    const instRow = (await sbSelect("wa_instances", `id=eq.${encodeURIComponent(mWa[1])}&select=id&limit=1`))[0];
+    if (!instRow) return new Response("ok", { headers: { ...cors, "Content-Type": "text/plain" } });
     const raw = await req.text();
     if (!(await _cloudWebhookValid(mWa[1], raw, req.headers.get("x-hub-signature-256") || ""))) { _securityBg(_securityLog(req, "invalid_webhook_signature", mWa[1])); return new Response("assinatura invalida", { status: 401, headers: { "Content-Type": "text/plain", "Cache-Control": "no-store" } }); }
     return handleWaWebhook(mWa[1], new Request(req.url, { method: "POST", headers: req.headers, body: raw }));
