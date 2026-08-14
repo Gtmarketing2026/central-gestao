@@ -226,6 +226,32 @@
   *::-webkit-scrollbar-thumb{background:linear-gradient(180deg,#8c6500,#d6a917);border:2px solid #0d0d0b;border-radius:999px;min-height:32px}
   *::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#d6a917,#ffd52a);box-shadow:0 0 8px rgba(255,213,42,.38)}
   *::-webkit-scrollbar-corner{background:#0d0d0b}
+  /* ===== Relatório universal da AndréIA ===== */
+  .ai-report{width:100%;white-space:normal;background:#11110f;border:1px solid rgba(214,169,23,.24);border-radius:15px;overflow:hidden;color:#f7f4ea;box-shadow:0 14px 34px rgba(0,0,0,.2)}
+  .ai-report-top{padding:22px 24px 18px;background:linear-gradient(135deg,rgba(255,213,42,.09),rgba(255,213,42,.015));border-bottom:1px solid rgba(214,169,23,.22)}
+  .ai-report-eyebrow{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:#d6a917;font-weight:800}
+  .ai-report-top h3{font-size:22px;line-height:1.18;letter-spacing:-.025em;margin:7px 0 5px;color:#fff}
+  .ai-report-meta{font-size:11.5px;color:#9e9b91;line-height:1.5}
+  .ai-report-body{padding:18px 24px 24px}
+  .ai-report-body>h1,.ai-report-body>h2{font-size:12px;line-height:1.3;letter-spacing:.12em;text-transform:uppercase;color:#aaa79c;font-weight:800;margin:26px 0 11px;padding-bottom:8px;border-bottom:1px solid rgba(214,169,23,.17)}
+  .ai-report-body>h1:first-child,.ai-report-body>h2:first-child{margin-top:2px}
+  .ai-report-body h3{font-size:15px;margin:18px 0 5px;color:#fff;letter-spacing:-.01em}
+  .ai-report-body h4{font-size:11px;margin:15px 0 5px;color:#d6a917;text-transform:uppercase;letter-spacing:.08em}
+  .ai-report-body p{font-size:13.5px;line-height:1.68;margin:8px 0;color:#c9c6bd}
+  .ai-report-body strong{color:#fff}.ai-report-body em{color:#e1bd4c}.ai-report-body code{background:#24231e;border:1px solid rgba(214,169,23,.15);padding:1px 5px;border-radius:5px}
+  .ai-report-body ul{margin:8px 0 14px;padding-left:20px}.ai-report-body ul li{font-size:13.5px;line-height:1.62;margin:5px 0;color:#c9c6bd}
+  .ai-report-body ol{list-style:none;counter-reset:aiAction;padding:0;margin:10px 0;display:grid;gap:9px}
+  .ai-report-body ol>li{counter-increment:aiAction;position:relative;padding:13px 15px 13px 47px;background:#171713;border:1px solid rgba(214,169,23,.17);border-radius:11px;color:#d3d0c7;font-size:13.5px;line-height:1.6}
+  .ai-report-body ol>li:before{content:counter(aiAction);position:absolute;left:13px;top:13px;width:24px;height:24px;border-radius:7px;background:#d6a917;color:#090907;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;box-shadow:0 0 13px rgba(255,213,42,.22)}
+  .ai-report-body table{width:100%;border-collapse:collapse;margin:12px 0 16px;font-size:12.5px;font-variant-numeric:tabular-nums;display:block;overflow-x:auto}
+  .ai-report-body thead,.ai-report-body tbody{display:table;width:100%;table-layout:auto}
+  .ai-report-body th,.ai-report-body td{text-align:right;padding:9px 10px;border-bottom:1px solid rgba(214,169,23,.13);white-space:nowrap}
+  .ai-report-body th:first-child,.ai-report-body td:first-child{text-align:left}
+  .ai-report-body th{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#aaa79c;background:#181712}
+  .ai-report-body tr:last-child td{border-bottom:none}.ai-report-body hr{border:0;border-top:1px solid rgba(214,169,23,.16);margin:20px 0}
+  .ai-report-scope{margin:0 24px 4px;padding:10px 12px;background:#171713;border:1px solid rgba(214,169,23,.15);border-left:3px solid #d6a917;border-radius:9px;color:#aaa79c;font-size:11px}
+  .ai-report-actions{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap;margin-top:7px}
+  @media(max-width:640px){.ai-report-top{padding:18px}.ai-report-body{padding:15px 18px 20px}.ai-report-top h3{font-size:19px}.ai-report-scope{margin:0 18px 3px}}
   /* ===== Layout v2 · estrutura global ===== */
   .main{max-width:1360px;padding:20px 26px 72px}
   .main.wide{padding-left:22px;padding-right:22px}
@@ -3355,19 +3381,22 @@ function crmCapaOpenCase(id){const cv=(_crmConvs||[]).find(x=>x.id===id);if(cv){
 function crmAndreiaMessageHTML(m,idx){
   if(m.role==='user')return `<div style="display:flex;justify-content:flex-end;margin:12px 0"><div style="width:auto;max-width:88%;padding:10px 13px;border:1px solid transparent;border-radius:14px;line-height:1.5;background:var(--accent);color:#111">${_crmAiEsc(m.text)}</div></div>`;
   const action=m.action&&!m.actionDone?`<div style="margin-top:8px;padding:11px 12px;border:1px solid var(--accent);border-radius:11px;background:rgba(212,165,32,.08);display:flex;justify-content:space-between;align-items:center;gap:10px"><span style="font-size:12px;color:var(--muted)">A ação só será executada depois da sua confirmação.</span><button class="btn sm primary" onclick="crmAndreiaConfirmAction(${idx},this)">✓ Confirmar ação</button></div>`:m.actionDone?`<div style="margin-top:7px;font-size:11px;color:#34d399">✓ Ação executada no sistema</div>`:'';
-  const capa=m.capa?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px">${(m.capa.cases||[]).map((x,i)=>`<button class="btn sm ghost" onclick="crmCapaOpenCase('${x.conversationId}')">💬 Abrir caso ${i+1}</button>`).join('')}<button class="btn sm primary" onclick="crmCapaImprove(${idx})">✅ Criar plano e tarefas</button></div>`:'';const reportTools=m.action?'':`<div style="display:flex;justify-content:flex-end;gap:6px;margin-top:6px"><button class="btn sm ghost" style="font-size:11px" onclick="crmAndreiaComplement(${idx})">➕ Complementar relatório</button><button class="btn sm ghost" style="font-size:11px" onclick="crmAndreiaExportPDF(${idx})">📄 Baixar relatório atual</button></div>`;
-  return `<div style="display:flex;justify-content:flex-start;margin:12px 0"><div style="width:100%;max-width:100%"><div class="crm-ai-answer" style="width:100%;padding:16px 18px;border:1px solid var(--border);border-radius:14px;line-height:1.5;background:var(--surface2);color:var(--text)">${typeof _mdToDocHtml==='function'?_mdToDocHtml(m.text):_crmAiEsc(m.text)}</div>${action}${capa}${reportTools}</div></div>`;
+  const capa=m.capa?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px">${(m.capa.cases||[]).map((x,i)=>`<button class="btn sm ghost" onclick="crmCapaOpenCase('${x.conversationId}')">💬 Abrir caso ${i+1}</button>`).join('')}<button class="btn sm primary" onclick="crmCapaImprove(${idx})">✅ Criar plano e tarefas</button></div>`:'';const reportTools=m.action?'':`<div class="ai-report-actions"><button class="btn sm ghost" style="font-size:11px" onclick="crmAndreiaComplement(${idx})">➕ Complementar</button><button class="btn sm ghost" style="font-size:11px" onclick="crmAndreiaOpenReport(${idx})">👁 Abrir relatório</button><button class="btn sm ghost" style="font-size:11px" onclick="crmAndreiaExportHTML(${idx})">🌐 HTML</button><button class="btn sm ghost" style="font-size:11px" onclick="crmAndreiaExportPDF(${idx})">📄 PDF</button></div>`;
+  const c=DB.clients.find(x=>x.id===_crmAiClient),answer=_isAIReportText(m.text)?_aiReportInline(m.text,{client:c?c.name:'',scope:m.scopeText||'',eyebrow:'Análise de CRM · AndréIA'}):`<div class="crm-ai-answer" style="width:100%;padding:16px 18px;border:1px solid var(--border);border-radius:14px;line-height:1.5;background:var(--surface2);color:var(--text)">${typeof _mdToDocHtml==='function'?_mdToDocHtml(m.text):_crmAiEsc(m.text)}</div>`;
+  return `<div style="display:flex;justify-content:flex-start;margin:12px 0"><div style="width:100%;max-width:100%">${answer}${action}${capa}${reportTools}</div></div>`;
 }
 async function crmAndreiaConfirmAction(idx,btn){const m=_crmAiHistory[idx];if(!m||!m.action||m.actionDone)return;if(btn){btn.disabled=true;btn.textContent='Executando…';}try{const ctx=crmAndreiaContext();const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{crmAndreiaAction:{clientId:ctx.clientId,action:m.action}}});if(error)throw error;const r=(data&&data.data)||data||{};m.actionDone=true;_crmAiHistory.push({role:'assistant',text:r.message||'Ação executada no sistema.'});crmAndreiaRender();if(typeof loadTasks==='function')loadTasks();}catch(e){if(btn){btn.disabled=false;btn.textContent='Tentar novamente';}alert('Não consegui executar: '+(e.message||e));}}
 function crmAndreiaComplement(idx){const m=_crmAiHistory[idx];if(!m||m.role!=='assistant')return;_crmAiComplementIdx=m.reportRoot!=null?m.reportRoot:idx;const bar=document.getElementById('crmAiComplementBar'),inp=document.getElementById('crmAiInput'),btn=document.getElementById('crmAiSend');if(bar)bar.style.display='flex';if(inp){inp.value='';inp.placeholder='O que você quer acrescentar a este relatório?';inp.focus();}if(btn)btn.textContent='Acrescentar';}
 function crmAndreiaCancelComplement(){_crmAiComplementIdx=-1;const bar=document.getElementById('crmAiComplementBar'),inp=document.getElementById('crmAiInput'),btn=document.getElementById('crmAiSend');if(bar)bar.style.display='none';if(inp)inp.placeholder='Pergunte qualquer coisa sobre este CRM…';if(btn)btn.textContent='Enviar';}
+function _crmAndreiaReportData(idx){
+  const clicked=_crmAiHistory[idx];if(!clicked||clicked.role!=='assistant')return null;const root=clicked.reportRoot!=null?clicked.reportRoot:idx,m=_crmAiHistory[root]||clicked,text=m.reportText||m.text;if(!text)return null;
+  const c=DB.clients.find(x=>x.id===_crmAiClient),parts=_aiReportParts(text,{client:c?c.name:'',scope:m.scopeText||''}),h={title:_aiDocEsc(parts.title),client:_aiDocEsc(parts.client),date:_aiDocEsc(parts.date)},scope=m.scopeText?`<div style="margin:0 0 18px;padding:10px 12px;border:1px solid #e3e1dc;border-left:3px solid #b18413;border-radius:8px;color:#68665f;font-size:11px"><b>Escopo analisado:</b> ${_crmAiEsc(m.scopeText)}</div>`:'';
+  return {html:_docWrap('analise',h,scope+_mdToDocHtml(parts.body)),title:parts.title};
+}
+function crmAndreiaOpenReport(idx){const r=_crmAndreiaReportData(idx);if(r)_aiReportOpenHTML(r.html,false)}
+function crmAndreiaExportHTML(idx){const r=_crmAndreiaReportData(idx);if(r)_aiReportDownloadHTML(r.html,r.title)}
 function crmAndreiaExportPDF(idx){
-  const clicked=_crmAiHistory[idx];if(!clicked||clicked.role!=='assistant')return;const root=clicked.reportRoot!=null?clicked.reportRoot:idx,m=_crmAiHistory[root]||clicked,text=m.reportText||m.text;if(!text)return;
-  const c=DB.clients.find(x=>x.id===_crmAiClient);const heading=(text.match(/^#{1,3}\s+(.+)$/m)||[])[1]||'Diagnóstico do CRM';
-  const h={title:String(heading).replace(/</g,'&lt;'),client:c?String(c.name).replace(/</g,'&lt;'):'',date:new Date().toLocaleDateString('pt-BR')};
-  const scope=m.scopeText?`<div style="margin:0 0 18px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;color:#64748b;font-size:11px"><b>Escopo analisado:</b> ${_crmAiEsc(m.scopeText)}</div>`:'';
-  const html=_docWrap('executivo',h,scope+_mdToDocHtml(text));const w=window.open('','_blank');if(!w){alert('Permita pop-ups para gerar o PDF.');return;}
-  w.document.write(html+'<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print()},350)}</scr'+'ipt>');w.document.close();
+  const r=_crmAndreiaReportData(idx);if(r)_aiReportOpenHTML(r.html,true);
 }
 function crmAndreiaRender(){
   const el=document.getElementById('crmAiMessages');if(!el)return;
@@ -6320,12 +6349,13 @@ function brRenderAnalise(r,curadoria,curadoriaErro){
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px"><b style="font-size:13.5px">${_brEsc(p.afirmacao)}</b><span style="font-family:monospace;font-size:10.5px;font-weight:700;background:var(--accent-soft,rgba(240,192,64,.14));color:var(--accent);padding:2px 8px;border-radius:5px">${_brEsc(p.pecas)} peças${p.hipotese?' · hipótese':''}</span></div>
       <div style="font-size:13px;color:var(--muted)">${_brEsc(p.evidencia)}</div>
     </div>`).join('')}`:'';
-  out.innerHTML=`${aviso}
+  const client=DB.clients.find(x=>x.id===_brClientId);
+  out.innerHTML=`<article class="ai-report"><header class="ai-report-top"><div class="ai-report-eyebrow">Análise de criativos · AndréIA</div><h3>${_brEsc(client?client.name:'Criativos')}</h3><div class="ai-report-meta">Desempenho por período e etapa do funil · ${new Date().toLocaleDateString('pt-BR')}</div></header><div class="ai-report-body">${aviso}
     <div class="card" style="margin-bottom:16px;border-left:3px solid var(--accent)">${_brEsc(r.leitura)}</div>
     ${emLeitura}
     ${funis}
     ${padroes}
-    ${brCuradoriaHTML(curadoria,curadoriaErro)}
+    ${brCuradoriaHTML(curadoria,curadoriaErro)}</div></article>
     <div class="card" style="margin-top:20px;padding:18px;display:${_brMode==='generator'?'block':'none'}">
       <h3 style="margin:0 0 4px;font-size:15px">Gerar solicitação de criativos</h3>
       <div style="font-size:12px;color:var(--faint);margin-bottom:14px">A AndréIA transforma a análise${curadoria?' e a curadoria':''} em fichas prontas para produção.</div>
@@ -9864,7 +9894,7 @@ function evtOpenNew(){if(!activeClientId){alert('Selecione um cliente na barra l
 async function evtCreate(){try{await _evtCall({op:'create',clientId:activeClientId,name:document.getElementById('evtName').value,editionName:document.getElementById('evtEdition').value,year:+document.getElementById('evtYear').value,eventDate:document.getElementById('evtDate').value||null,captureStart:document.getElementById('evtCapStart').value||null,captureEnd:document.getElementById('evtCapEnd').value||null,salesStart:document.getElementById('evtSalesStart').value||null,salesEnd:document.getElementById('evtSalesEnd').value||null});document.getElementById('evtModal').style.display='none';await loadEventos();}catch(e){alert('Erro ao salvar: '+(e.message||e));}}
 function _evtChannelsHTML(m){const labels={meta:'Meta Ads',google:'Google Ads',ga4:'Google Analytics',tiktok:'TikTok Ads',pinterest:'Pinterest Ads'},rows=Object.entries((m||{}).channels||{});if(!rows.length)return '<div class="empty">Sem dados de mídia no período.</div>';return `<div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Canal</th><th>Investimento</th><th>Impressões</th><th>Cliques</th><th>CTR</th><th>Leads</th><th>Conversas</th><th>Vendas</th><th>Receita</th><th>ROAS</th></tr></thead><tbody>${rows.map(([k,x])=>`<tr><td><b>${labels[k]||_evtEsc(k)}</b></td><td>${fmt(x.spend||0)}</td><td>${Math.round(x.impressions||0).toLocaleString('pt-BR')}</td><td>${Math.round(x.clicks||0).toLocaleString('pt-BR')}</td><td>${(x.ctr||0).toFixed(2)}%</td><td>${Math.round(x.leads||0)}</td><td>${Math.round(x.conversas||0)}</td><td>${Math.round(x.purchases||0)}</td><td>${fmt(x.revenue||0)}</td><td>${(x.roas||0).toFixed(2)}x</td></tr>`).join('')}</tbody></table></div>`;}
 function _evtCampaignsHTML(m){const rows=((m||{}).campaigns||[]).slice(0,20);return rows.length?`<div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Canal</th><th>Campanha / origem</th><th>Investimento</th><th>Cliques</th><th>Leads</th><th>Conversas</th><th>Vendas</th><th>Receita</th><th>Custo/resultado</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${_evtEsc(x.channel)}</td><td><b>${_evtEsc(x.campaign||x.source_medium||'(sem campanha)')}</b></td><td>${fmt(x.spend||0)}</td><td>${Math.round(x.clicks||0)}</td><td>${Math.round(x.leads||0)}</td><td>${Math.round(x.conversas||0)}</td><td>${Math.round(x.purchases||0)}</td><td>${fmt(x.revenue||0)}</td><td>${x.cpa?fmt(x.cpa):'—'}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Sem campanhas consolidadas.</div>';}
-function _evtAnalysisHTML(a){if(!a)return '<div class="empty">Clique em “Gerar análise” para a AndréIA interpretar o evento.</div>';const list=(arr,fn)=>arr&&arr.length?arr.map(fn).join(''):'<div class="hint">Sem apontamentos.</div>';return `<div class="card"><h3 style="margin-top:0;color:var(--accent)">Diagnóstico executivo</h3><p style="line-height:1.7">${_evtEsc(a.resumo)}</p><h4>Destaques</h4><ul>${list(a.destaques,x=>`<li>${_evtEsc(x)}</li>`)}</ul><h4>Gargalos e melhoria</h4>${list(a.gargalos,x=>`<div style="padding:11px 0;border-top:1px solid var(--border)"><b>${_evtEsc(x.ponto)}</b><div class="hint" style="margin-top:4px">Evidência: ${_evtEsc(x.evidencia)}</div><div style="margin-top:5px;color:#34d399">Ação: ${_evtEsc(x.acao)}</div></div>`)}<h4>Leitura por canal</h4>${list(a.canais,x=>`<div style="margin:7px 0"><b>${_evtEsc(x.canal)}:</b> ${_evtEsc(x.leitura)}</div>`)}<h4>Projeções</h4><ul>${list(a.projecoes,x=>`<li>${_evtEsc(x)}</li>`)}</ul><h4>Próximos passos</h4><ol>${list(a.proximos_passos,x=>`<li>${_evtEsc(x)}</li>`)}</ol></div>`;}
+function _evtAnalysisHTML(a){if(!a)return '<div class="empty">Clique em “Gerar análise” para a AndréIA interpretar o evento.</div>';const list=(arr,fn)=>arr&&arr.length?arr.map(fn).join(''):'<div class="hint">Sem apontamentos.</div>',c=DB.clients.find(x=>x.id===activeClientId);return `<article class="ai-report"><header class="ai-report-top"><div class="ai-report-eyebrow">Análise de evento · AndréIA</div><h3>${_evtEsc(c?c.name:'Relatório do evento')}</h3><div class="ai-report-meta">Diagnóstico executivo · ${new Date().toLocaleDateString('pt-BR')}</div></header><div class="ai-report-body"><h2>Diagnóstico executivo</h2><p>${_evtEsc(a.resumo)}</p><h2>Destaques</h2><ul>${list(a.destaques,x=>`<li>${_evtEsc(x)}</li>`)}</ul><h2>Gargalos e oportunidades</h2>${list(a.gargalos,x=>`<div style="padding:12px 14px;margin:8px 0;background:#171713;border:1px solid rgba(214,169,23,.16);border-left:3px solid #d6a917;border-radius:10px"><h3>${_evtEsc(x.ponto)}</h3><p><b>Evidência:</b> ${_evtEsc(x.evidencia)}</p><p style="color:#52d68b"><b>Ação:</b> ${_evtEsc(x.acao)}</p></div>`)}<h2>Leitura por canal</h2>${list(a.canais,x=>`<p><b>${_evtEsc(x.canal)}:</b> ${_evtEsc(x.leitura)}</p>`)}<h2>Projeções</h2><ul>${list(a.projecoes,x=>`<li>${_evtEsc(x)}</li>`)}</ul><h2>Plano de ação</h2><ol>${list(a.proximos_passos,x=>`<li>${_evtEsc(x)}</li>`)}</ol></div></article>`;}
 function _evtOpenEditionBase(id){const e=(_evtData.editions||[]).find(x=>x.id===id);if(!e)return;_evtAnalysis=null;const p=(_evtData.projects||[]).find(x=>x.id===e.project_id)||{},s=(_evtData.snapshots||[]).find(x=>x.edition_id===id),m=s&&s.metrics||{},vers=(_evtData.versions||[]).filter(x=>x.edition_id===id),commerce=m.commerce||{};document.getElementById('evtDash').innerHTML=`<div id="evtReport"><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px"><div><div class="hint">${_evtEsc(p.name)}</div><h2 style="margin:2px 0">${_evtEsc(e.name)}</h2><div class="hint">${e.event_date?dateBR(e.event_date):'data não definida'} · ${vers.length} versão(ões)${s?' · atualizado '+new Date(s.collected_at).toLocaleString('pt-BR'):''}</div></div><div class="rt-no-print" style="display:flex;gap:7px;flex-wrap:wrap"><button class="btn sm ghost" onclick="renderEventos()">Voltar</button><button class="btn sm ghost" onclick="evtYouTube('${e.client_id}')">YouTube</button><button class="btn sm ghost" onclick="evtPrint()">Exportar PDF</button><button class="btn sm primary" onclick="evtCollect('${id}')">Atualizar dados</button></div></div>${s?`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">${_evtCard('Investimento',fmt(_evtMetric(m,'spend')))}${_evtCard('Leads',_evtMetric(m,'leads').toLocaleString('pt-BR'),(m.rd&&m.rd.total?m.rd.total+' conversões RD':''))}${_evtCard('Vendas',Math.max(_evtMetric(m,'purchases'),commerce.purchases||0).toLocaleString('pt-BR'),'mídia + jornada')}${_evtCard('Receita',fmt(Math.max(_evtMetric(m,'revenue'),commerce.revenue||0)))}${_evtCard('ROAS',_evtMetric(m,'roas').toFixed(2)+'x')}</div><h3>Desempenho por canal</h3>${_evtChannelsHTML(m)}<h3 style="margin-top:18px">Campanhas e origens</h3>${_evtCampaignsHTML(m)}<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">${_evtCard('Conversões RD',(m.rd&&m.rd.total||0).toLocaleString('pt-BR'))}${_evtCard('Conversas CRM',(m.crm&&m.crm.total||0).toLocaleString('pt-BR'))}${_evtCard('Vendas na jornada',(commerce.purchases||0).toLocaleString('pt-BR'))}${_evtCard('Receita na jornada',fmt(commerce.revenue||0))}</div>`:'<div class="card" style="margin-bottom:14px">Ainda não há fotografia consolidada. Clique em <b>Atualizar dados</b>.</div>'}<div class="card rt-no-print"><h3 style="margin-top:0">Orientações para a AndréIA</h3><textarea id="evtInstructions" rows="4" placeholder="Ex.: compare a captação com o evento anterior, considere vendas até 7 dias após a live e destaque os criativos de fundo de funil."></textarea><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button class="btn ghost" onclick="evtAnalyze('${id}','${s?s.id:''}')">Gerar análise</button><button class="btn primary" onclick="evtSaveVersion('${id}','${s?s.id:''}')">Salvar nova versão</button></div></div><div id="evtAnalysis">${_evtAnalysisHTML(null)}</div>${vers.length?`<div class="card rt-no-print" style="margin-top:14px"><h3 style="margin-top:0">Versões salvas</h3>${vers.map(v=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border)"><span><b>v${v.version_no}</b> · ${_evtEsc(v.title)}<div class="hint">${new Date(v.created_at).toLocaleString('pt-BR')}</div></span><span class="pill gray">${_evtEsc(v.status)}</span></div>`).join('')}</div>`:''}</div>`;}
 async function evtYouTube(clientId){cfgMenuOpen(clientId,'midia');setTimeout(()=>{const b=document.getElementById('cYouTubeBlock');if(b){b.classList.add('open');b.scrollIntoView({behavior:'smooth',block:'center'});}},120);}
 async function _evtCallRawYT(payload){const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{youtubeOAuth:payload}});if(error)throw error;return (data&&data.data)||{};}
@@ -11365,6 +11395,8 @@ function renderAnalysisChat(){
   if(!dirs.length){el.innerHTML='';return}
   el.innerHTML='<div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--rtm);margin-bottom:6px">Ajustes que você pediu</div>'+dirs.map(m=>`<div style="display:inline-block;background:rgba(109,40,217,.18);border:1px solid var(--rbrb);color:#c4b5fd;border-radius:8px;padding:4px 10px;font-size:11.5px;margin:0 6px 6px 0">${m.text}</div>`).join('');
 }
+function _rtRenderAnalysisPreview(){const ta=document.getElementById('rtAnalysisText'),el=document.getElementById('rtAnalysisPreview');if(!el)return;const c=DB.clients.find(x=>x.id===currentAnalysisCtx.clientId),text=(ta&&ta.value||'').trim();el.innerHTML=text?_aiReportInline(text,{client:c?c.name:'',eyebrow:'Análise de performance · AndréIA'}):'<div class="empty">Gere uma análise para visualizar o relatório.</div>'}
+function rtAnalysisDownloadHTML(){const ta=document.getElementById('rtAnalysisText'),text=(ta&&ta.value||'').trim();if(!text)return;const c=DB.clients.find(x=>x.id===currentAnalysisCtx.clientId),p=_aiReportParts(text,{client:c?c.name:''}),html=_docWrap('analise',{title:_aiDocEsc(p.title),client:_aiDocEsc(p.client),date:_aiDocEsc(p.date)},_mdToDocHtml(p.body));_aiReportDownloadHTML(html,p.title)}
 async function callAnalysisAI(){
   const styleExamples=await loadStyleExamples(currentAnalysisCtx.clientId,currentAnalysisCtx.month);
   const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{analysis:currentTemplateMetrics,chat:currentAnalysisChat,styleExamples}});
@@ -11381,6 +11413,7 @@ async function generateAIAnalysis(){
     const text=await callAnalysisAI();
     currentAnalysisChat=[{role:'assistant',text}];
     document.getElementById('rtAnalysisText').value=text;
+    _rtRenderAnalysisPreview();
     renderAnalysisChat();
   }catch(e){alert('Erro ao gerar análise: '+e.message)}
   btn.textContent='🤖 Gerar / Refazer com IA';btn.disabled=false;
@@ -11403,6 +11436,7 @@ async function sendAnalysisDirective(){
     const text=await callAnalysisAI();
     currentAnalysisChat.push({role:'assistant',text});
     document.getElementById('rtAnalysisText').value=text;
+    _rtRenderAnalysisPreview();
     inp.value='';
   }catch(e){alert('Erro: '+e.message);currentAnalysisChat.pop()}
   btn.textContent='Enviar';btn.disabled=false;inp.disabled=false;
@@ -11417,7 +11451,7 @@ function exportReportHTML(){
   if(ta){const div=document.createElement('div');div.style.cssText='white-space:pre-wrap;font-size:13px;line-height:1.7;color:#f8fafc;background:#0e0e1c;border:1px solid rgba(109,40,217,.18);border-radius:12px;padding:14px';div.textContent=ta.value||'';ta.parentNode.replaceChild(div,ta);}
   clone.querySelectorAll('.rt-no-print').forEach(el=>el.remove());
   let css='';
-  for(const sheet of document.styleSheets){let rules;try{rules=sheet.cssRules}catch(e){continue}if(!rules)continue;for(const rule of rules){const sel=rule.selectorText||'';if(sel&&/\.rt-/.test(sel))css+=rule.cssText+'\n';}}
+  for(const sheet of document.styleSheets){let rules;try{rules=sheet.cssRules}catch(e){continue}if(!rules)continue;for(const rule of rules){const sel=rule.selectorText||'';if(sel&&/\.(rt-|ai-report)/.test(sel))css+=rule.cssText+'\n';}}
   const clientName=(document.getElementById('crClientSelect')&&document.getElementById('crClientSelect').selectedOptions[0]?document.getElementById('crClientSelect').selectedOptions[0].textContent:'Relatório');
   const rng=tplRangeBounds();
   const title=`${clientName} — ${dateBR(rng.since)} a ${dateBR(rng.until)}`;
@@ -11644,8 +11678,32 @@ function _mdToDocHtml(t){
   flushTable();closeList();
   return html;
 }
+function _aiDocEsc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function _aiReportParts(text,opts){
+  const raw=String(text||'').trim(),o=opts||{},heading=(raw.match(/^\s*#{1,3}\s+(.+)$/m)||[])[1]||'';
+  let body=raw;if(heading)body=body.replace(/^\s*#{1,3}\s+.+(?:\r?\n|$)/m,'').trim();
+  const fallback=(raw.split(/\r?\n/).find(x=>x.trim())||'Análise AndréIA').replace(/^[-#*\s]+/,'').replace(/\*\*/g,'').trim();
+  return {title:o.title||heading||fallback.slice(0,110)||'Análise AndréIA',client:o.client||'',scope:o.scope||'',date:o.date||new Date().toLocaleDateString('pt-BR'),body:body||raw,eyebrow:o.eyebrow||'Análise estratégica · AndréIA'};
+}
+function _isAIReportText(text){const t=String(text||'');return t.length>420||/^#{1,3}\s+/m.test(t)||/\|[^\n]+\|/.test(t)||/(diagnóstico|resumo executivo|plano de ação|projeç|gargalo|desempenho por canal)/i.test(t)}
+function _aiReportInline(text,opts){
+  const p=_aiReportParts(text,opts);return `<article class="ai-report"><header class="ai-report-top"><div class="ai-report-eyebrow">${_aiDocEsc(p.eyebrow)}</div><h3>${_aiDocEsc(p.client||p.title)}</h3><div class="ai-report-meta">${p.client?_aiDocEsc(p.title)+' · ':''}${_aiDocEsc(p.date)}</div></header>${p.scope?`<div class="ai-report-scope"><b>Escopo analisado:</b> ${_aiDocEsc(p.scope)}</div>`:''}<div class="ai-report-body">${_mdToDocHtml(p.body)}</div></article>`;
+}
+function _aiReportFileName(v){return String(v||'analise-andreia').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'analise-andreia'}
+function _aiReportDownloadHTML(html,title){const blob=new Blob(['﻿'+html],{type:'text/html;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=_aiReportFileName(title)+'.html';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1800)}
+function _aiReportOpenHTML(html,print){const w=window.open('','_blank');if(!w){alert('Permita pop-ups para abrir o relatório.');return;}w.document.write(html+(print?'<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print()},350)}</scr'+'ipt>':''));w.document.close()}
 // layouts (temas) com a identidade GT — servem tanto pra PDF quanto pra Word
 const DOC_LAYOUTS={
+  analise:{label:'Relatório profissional — recomendado',css:`
+    :root{color-scheme:light;--surface-0:#f5f4f1;--surface-1:#fcfcfb;--surface-2:#f0efec;--border:#e3e1dc;--text-primary:#0b0b0b;--text-secondary:#52514e;--text-muted:#7a7873;--good:#008300;--warning:#b87800;--serious:#d53f46;--accent:#b18413}
+    *{box-sizing:border-box}body{margin:0;background:var(--surface-0);color:var(--text-primary);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .doc{max-width:960px;margin:0 auto;padding:32px 20px 64px}.doc-hd{background:var(--surface-1);border:1px solid var(--border);border-radius:14px;padding:26px 28px;margin-bottom:22px}.doc-hd .brand{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700}.doc-hd h1{font-size:27px;line-height:1.2;margin:8px 0 6px;letter-spacing:-.02em}.doc-hd .meta{color:var(--text-secondary);font-size:14px}
+    .doc-body h1,.doc-body h2{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);font-weight:700;margin:34px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)}.doc-body h3{font-size:16px;margin:18px 0 5px;letter-spacing:-.01em}.doc-body h4{font-size:12px;margin:16px 0 4px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent)}
+    .doc-body p{margin:7px 0 11px;color:var(--text-secondary);font-size:14px}.doc-body strong{color:var(--text-primary)}.doc-body code{background:var(--surface-2);padding:1px 5px;border-radius:4px}.doc-body ul{margin:8px 0 14px;padding-left:21px}.doc-body li{font-size:14px;line-height:1.65;margin:4px 0;color:var(--text-secondary)}
+    .doc-body ol{list-style:none;counter-reset:a;padding:0;margin:10px 0;display:grid;gap:12px}.doc-body ol>li{counter-increment:a;background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:18px 20px 18px 56px;position:relative}.doc-body ol>li:before{content:counter(a);position:absolute;left:18px;top:18px;width:26px;height:26px;border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+    .doc-body table{width:100%;border-collapse:collapse;margin:14px 0 18px;font-size:13px;font-variant-numeric:tabular-nums}.doc-body th,.doc-body td{text-align:right;padding:10px;border-bottom:1px solid var(--border)}.doc-body th:first-child,.doc-body td:first-child{text-align:left}.doc-body th{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted)}.doc-body tbody tr:last-child td{border-bottom:none}.doc-body hr{border:none;border-top:1px solid var(--border);margin:22px 0}
+    .doc-ft{margin-top:38px;padding-top:16px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);text-align:center}@media(max-width:640px){.doc{padding:16px 10px 40px}.doc-hd{padding:20px}.doc-body{padding:0 4px}}@media print{:root{color-scheme:light}.doc{max-width:none;padding:0}.doc-hd{break-inside:avoid}.doc-body h1,.doc-body h2{break-after:avoid}.doc-body table,.doc-body ol>li{break-inside:avoid}}
+  `},
   executivo:{label:'Executivo (claro) — recomendado p/ cliente',css:`
     *{box-sizing:border-box}body{margin:0;background:#f4f4f6;font-family:'Segoe UI',system-ui,sans-serif;color:#1c1c22;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .doc{max-width:760px;margin:0 auto;background:#fff}
@@ -11692,10 +11750,14 @@ const DOC_LAYOUTS={
 };
 function _docWrap(layout,h,inner){
   const L=DOC_LAYOUTS[layout]||DOC_LAYOUTS.executivo;
+  if(layout==='analise'){
+    const headline=h.client||h.title,kicker=h.client?h.title:'Análise estratégica · AndréIA';
+    return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${h.title}</title><style>${L.css}</style></head><body><div class="doc"><header class="doc-hd"><div class="brand">${kicker}</div><h1>${headline}</h1><div class="meta">${h.date}</div></header><main class="doc-body">${inner}</main><footer class="doc-ft">${headline} · Análise gerada pela AndréIA · ${h.date}</footer></div></body></html>`;
+  }
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${h.title}</title><style>${L.css}</style></head><body>
   <div class="doc"><header class="doc-hd">${h.client?`<div class="brand">${h.client}</div>`:''}<h1>${h.title}</h1><div class="meta">${h.date}</div></header>
   <main class="doc-body">${inner}</main>
-  <footer class="doc-ft">Gerado por AndréIA · GT Marketing · ${h.date}</footer></div></body></html>`;
+  <footer class="doc-ft">${h.client?h.client+' · ':''}Análise gerada pela AndréIA · ${h.date}</footer></div></body></html>`;
 }
 function andreiaExportOpen(idx){
   const m=agentActiveChat&&agentActiveChat.messages[idx];if(!m||!m.text)return;
@@ -11706,11 +11768,12 @@ function andreiaExportOpen(idx){
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
   ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;width:min(460px,92vw)">
     <h3 style="margin:0 0 4px;font-size:17px">📄 Montar documento</h3>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:15px">Escolha o layout (identidade GT) e o formato. O conteúdo é a resposta da AndréIA.</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:15px">Escolha o formato. O relatório profissional segue o mesmo padrão visual em HTML, PDF e Word.</div>
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:7px">Layout</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px">${opts}</div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn ghost" onclick="andreiaExportClose()">Cancelar</button>
+      <button class="btn" onclick="andreiaExportBuild('html')">🌐 HTML</button>
       <button class="btn" onclick="andreiaExportBuild('word')">📝 Word (.doc)</button>
       <button class="btn primary" onclick="andreiaExportBuild('pdf')">📄 PDF</button>
     </div></div>`;
@@ -11726,13 +11789,14 @@ function andreiaExportBuild(fmt){
   const h={title:rawTitle.replace(/</g,'&lt;'),client:c?c.name.replace(/</g,'&lt;'):'',date:new Date().toLocaleDateString('pt-BR')};
   const html=_docWrap(layout,h,_mdToDocHtml(m.text));
   andreiaExportClose();
-  const fname=(rawTitle.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'documento');
-  if(fmt==='word'){
+  const fname=_aiReportFileName(rawTitle);
+  if(fmt==='html'){
+    _aiReportDownloadHTML(html,fname);
+  }else if(fmt==='word'){
     const blob=new Blob(['﻿'+html],{type:'application/msword'});
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname+'.doc';document.body.appendChild(a);a.click();a.remove();
   }else{
-    const w=window.open('','_blank');if(!w){alert('Permita pop-ups pra gerar o PDF.');return;}
-    w.document.write(html+'<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print()},350)}</scr'+'ipt>');w.document.close();
+    _aiReportOpenHTML(html,true);
   }
 }
 function renderAgentChat(){
@@ -11742,8 +11806,9 @@ function renderAgentChat(){
   el.innerHTML=msgs.map((m,idx)=>{
     if(m.role==='user')return`<div style="align-self:flex-end;max-width:80%;background:var(--accent);color:#0a0906;border-radius:14px 14px 4px 14px;padding:10px 14px;font-size:13px;font-weight:500;white-space:pre-wrap">${m.text.replace(/</g,'&lt;')}</div>`;
     if(m.role==='typing')return`<div style="align-self:flex-start;color:var(--muted);font-size:13px;padding:6px 4px">AndréIA pensando...</div>`;
-    const txt=m.text?`<div style="align-self:flex-start;max-width:88%;background:var(--surface2);border:1px solid var(--border);border-radius:14px 14px 14px 4px;padding:12px 14px;font-size:13px;line-height:1.65;white-space:pre-wrap">${mdLite(m.text)}</div>`:'';
-    const tools=(m.text&&m.text.length>60)?`<div style="align-self:flex-start;margin:2px 0 4px 6px"><button class="btn sm ghost" style="font-size:11px;padding:3px 10px" onclick="andreiaExportOpen(${idx})">📄 Baixar como documento</button></div>`:'';
+    const c=DB.clients.find(x=>x.id===(agentActiveChat&&agentActiveChat.client_id)),report=_isAIReportText(m.text);
+    const txt=m.text?(report?`<div style="align-self:flex-start;width:min(920px,96%);max-width:96%">${_aiReportInline(m.text,{client:c?c.name:'',eyebrow:'Análise estratégica · AndréIA'})}</div>`:`<div style="align-self:flex-start;max-width:88%;background:var(--surface2);border:1px solid var(--border);border-radius:14px 14px 14px 4px;padding:12px 14px;font-size:13px;line-height:1.65;white-space:pre-wrap">${mdLite(m.text)}</div>`):'';
+    const tools=(m.text&&m.text.length>60)?`<div style="align-self:flex-start;margin:2px 0 4px 6px"><button class="btn sm ghost" style="font-size:11px;padding:3px 10px" onclick="andreiaExportOpen(${idx})">📄 Abrir ou baixar relatório</button></div>`:'';
     const acts=(m.actions||[]).map((a,ai)=>agentActionCardHTML(a,idx,ai)).join('');
     return txt+tools+acts;
   }).join('');
@@ -12531,7 +12596,8 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
       </div>`;
   const secAnalise=`<div class="rt-sec">
         <div class="rt-sec-hdr"><div class="rt-sec-num">✎</div><div class="rt-sec-title">Análise do Gestor</div><div class="rt-sec-ln"></div></div>
-        <textarea id="rtAnalysisText" rows="6" style="width:100%;background:var(--rbg2);border:1px solid var(--rbr);border-radius:12px;padding:14px;color:var(--rt1);font-family:inherit;font-size:13px;line-height:1.7" placeholder="Clique em &quot;Gerar / Refazer com IA&quot; ou escreva aqui a leitura do mês...">${analysis?analysis.text||'':''}</textarea>
+        <div id="rtAnalysisPreview">${analysis&&analysis.text?_aiReportInline(analysis.text,{client:c.name,eyebrow:'Análise de performance · AndréIA'}):'<div class="empty">Gere uma análise para visualizar o relatório.</div>'}</div>
+        <details class="rt-no-print" style="margin-top:10px"><summary class="btn sm ghost" style="display:inline-flex">✎ Editar texto da análise</summary><textarea id="rtAnalysisText" rows="8" oninput="_rtRenderAnalysisPreview()" style="width:100%;margin-top:9px;background:var(--rbg2);border:1px solid var(--rbr);border-radius:12px;padding:14px;color:var(--rt1);font-family:inherit;font-size:13px;line-height:1.7" placeholder="Clique em &quot;Gerar / Refazer com IA&quot; ou escreva aqui a leitura do mês...">${analysis?analysis.text||'':''}</textarea></details>
         <div id="rtAnalysisChat" class="rt-no-print" style="margin-top:10px"></div>
         <div class="rt-no-print" style="display:flex;gap:8px;margin-top:8px">
           <input id="rtAnalysisDirective" placeholder="Peça um ajuste à IA... ex: mais curto, foca no ROAS, tom mais direto" style="flex:1;background:var(--rbg2);border:1px solid var(--rbr);border-radius:10px;padding:9px 12px;color:var(--rt1);font-family:inherit;font-size:12.5px" onkeydown="if(event.key==='Enter'){event.preventDefault();sendAnalysisDirective()}">
@@ -12540,6 +12606,7 @@ async function renderClientTemplate(c,month,dataByTab,adTabs,checkoutCount,metaC
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:10px" class="rt-no-print">
           <span style="font-size:11px;color:var(--rtm)">💡 A IA aprende seu estilo com as análises que você salva. Quanto mais usar, mais parecida com a sua fica.</span>
           <div style="display:flex;gap:8px">
+            <button class="btn sm ghost" onclick="rtAnalysisDownloadHTML()">🌐 Baixar HTML</button>
             <button id="rtAiBtn" class="btn sm ghost" onclick="generateAIAnalysis()">🤖 Gerar / Refazer com IA</button>
             <button id="rtAnalysisSaveBtn" class="btn sm primary" onclick="saveReportAnalysis('${c.id}','${month}')">Salvar análise</button>
           </div>
