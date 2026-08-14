@@ -3765,6 +3765,185 @@ async function eventReports(input: any) {
   throw new Error("Operação de evento inválida.");
 }
 
+type AccessActor = { user: any; profile: any; aal: string };
+function _jwtPayload(authorization: string) {
+  try {
+    const token = String(authorization || "").replace(/^Bearer\s+/i, "");
+    const raw = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(raw.padEnd(Math.ceil(raw.length / 4) * 4, "=")));
+  } catch (_e) { return {}; }
+}
+async function _accessActor(authorization: string, requireAal2 = false): Promise<AccessActor> {
+  if (!authorization) throw new Error("Sessão obrigatória.");
+  const ur = await fetch(`${_SB_URL}/auth/v1/user`, { headers: { apikey: _SB_KEY, Authorization: authorization } });
+  const user = ur.ok ? await ur.json() : null;
+  if (!user?.id) throw new Error("Sessão inválida ou expirada.");
+  const rows = await sbGet("app_users", `user_id=eq.${encodeURIComponent(user.id)}&select=*&limit=1`);
+  const profile = rows[0];
+  if (!profile) throw new Error("Este login ainda não foi cadastrado em Usuários e acessos.");
+  if (profile.status === "inactive") throw new Error("Este usuário está desativado. Fale com o usuário master.");
+  const aal = String(_jwtPayload(authorization)?.aal || "aal1");
+  if (requireAal2 && profile.mfa_required !== false && aal !== "aal2") throw new Error("Confirme o código de autenticação em duas etapas para continuar.");
+  return { user, profile, aal };
+}
+function _isMaster(a: AccessActor) { return a.profile?.role === "master" && a.profile?.protected === true; }
+async function _auditAccess(actorId: string, targetId: string | null, action: string, before: any, after: any) {
+  await fetch(`${_SB_URL}/rest/v1/app_access_audit`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ actor_user_id: actorId, target_user_id: targetId, action, before_data: before || null, after_data: after || null }) });
+}
+async function _replaceUserClients(userId: string, clientIds: string[]) {
+  await fetch(`${_SB_URL}/rest/v1/app_user_clients?user_id=eq.${encodeURIComponent(userId)}`, { method: "DELETE", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
+  const rows = [...new Set((clientIds || []).map(String).filter(Boolean))].map(client_id => ({ user_id: userId, client_id }));
+  if (rows.length) {
+    const r = await fetch(`${_SB_URL}/rest/v1/app_user_clients`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify(rows) });
+    if (!r.ok) throw new Error("Não consegui salvar os clientes permitidos.");
+  }
+}
+function _safePermissions(v: any) {
+  const menus = Array.isArray(v?.menus) ? [...new Set(v.menus.map(String))].slice(0, 100) : [];
+  const actions = Array.isArray(v?.actions) ? [...new Set(v.actions.map(String))].slice(0, 100) : [];
+  return { menus, actions };
+}
+async function accessControl(input: any, authorization: string) {
+  const op = String(input?.op || "me");
+  const actor = await _accessActor(authorization, op !== "me");
+  if (op === "me") {
+    const clients = await sbGet("app_user_clients", `user_id=eq.${encodeURIComponent(actor.user.id)}&select=client_id`);
+    return { profile: actor.profile, clientIds: clients.map((x: any) => x.client_id), aal: actor.aal };
+  }
+  if (op === "activate_self") {
+    if (actor.aal !== "aal2") throw new Error("Conclua o 2FA antes de ativar o acesso.");
+    if (actor.profile.status === "invited") {
+      await fetch(`${_SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(actor.user.id)}`, { method: "PATCH", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ status: "active", updated_at: new Date().toISOString() }) });
+    }
+    return { ok: true };
+  }
+  const canAdminUsers = _isMaster(actor) || actor.profile?.role === "admin";
+  if (!canAdminUsers) throw new Error("Somente master ou administrador podem administrar usuários.");
+  if (op === "list") {
+    const users = await sbGet("app_users", "select=*&order=created_at.asc");
+    const links = await sbGet("app_user_clients", "select=user_id,client_id");
+    const ar = await fetch(`${_SB_URL}/auth/v1/admin/users?per_page=1000`, { headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
+    const authUsers = ar.ok ? ((await ar.json()).users || []) : [];
+    return { users: users.map((u: any) => ({ ...u, clientIds: links.filter((x: any) => x.user_id === u.user_id).map((x: any) => x.client_id), mfaEnrolled: !!authUsers.find((x: any) => x.id === u.user_id)?.factors?.some((f: any) => f.status === "verified") })) };
+  }
+  if (op === "invite") {
+    const email = String(input.email || "").trim().toLowerCase(), name = String(input.name || "").trim();
+    if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error("Informe um e-mail válido.");
+    const role = _isMaster(actor) && input.role === "admin" ? "admin" : "gestor";
+    const redirect = "https://app.gt-marketing.app.br";
+    const ir = await fetch(`${_SB_URL}/auth/v1/invite?redirect_to=${encodeURIComponent(redirect)}`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ email, data: { name } }) });
+    const ij = await ir.json();
+    if (!ir.ok && !/already|registered|exists/i.test(String(ij?.msg || ij?.message || ""))) throw new Error(ij?.msg || ij?.message || "Não consegui enviar o convite.");
+    let userId = ij?.id;
+    if (!userId) {
+      const lr = await fetch(`${_SB_URL}/auth/v1/admin/users?per_page=1000`, { headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}` } });
+      const list = lr.ok ? ((await lr.json()).users || []) : [];
+      userId = list.find((x: any) => String(x.email || "").toLowerCase() === email)?.id;
+    }
+    if (!userId) throw new Error("O login foi convidado, mas ainda não consegui vinculá-lo ao perfil. Tente atualizar em instantes.");
+    const row = { user_id: userId, email, name: name || email.split("@")[0], role, status: "invited", all_clients: !!input.allClients, permissions: _safePermissions(input.permissions), mfa_required: true, protected: false, created_by: actor.user.id, updated_at: new Date().toISOString() };
+    const sr = await fetch(`${_SB_URL}/rest/v1/app_users?on_conflict=user_id`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(row) });
+    if (!sr.ok) throw new Error("Convite enviado, mas não consegui salvar o perfil de acesso.");
+    await _replaceUserClients(userId, input.clientIds || []);
+    await _auditAccess(actor.user.id, userId, "user_invited", null, row);
+    return { ok: true, invited: ir.ok, user: (await sr.json())[0] };
+  }
+  const userId = String(input.userId || "");
+  const current = (await sbGet("app_users", `user_id=eq.${encodeURIComponent(userId)}&select=*&limit=1`))[0];
+  if (!current) throw new Error("Usuário não encontrado.");
+  if (current.protected) throw new Error("O usuário master protegido não pode ser alterado ou excluído.");
+  if (!_isMaster(actor) && current.role !== "gestor") throw new Error("Administradores só podem gerenciar usuários gestores.");
+  if (op === "update") {
+    const role = _isMaster(actor) && input.role === "admin" ? "admin" : "gestor";
+    const status = ["active", "inactive", "invited"].includes(input.status) ? input.status : current.status;
+    const patch = { name: String(input.name || current.name).trim(), role, status, all_clients: !!input.allClients, permissions: _safePermissions(input.permissions), mfa_required: true, updated_at: new Date().toISOString() };
+    const r = await fetch(`${_SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(userId)}`, { method: "PATCH", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "return=representation" }, body: JSON.stringify(patch) });
+    if (!r.ok) throw new Error("Não consegui atualizar o usuário.");
+    await _replaceUserClients(userId, input.clientIds || []);
+    await _auditAccess(actor.user.id, userId, "user_updated", current, { ...current, ...patch });
+    return { ok: true, user: (await r.json())[0] };
+  }
+  if (op === "deactivate") {
+    await fetch(`${_SB_URL}/rest/v1/app_users?user_id=eq.${encodeURIComponent(userId)}`, { method: "PATCH", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ status: "inactive", updated_at: new Date().toISOString() }) });
+    await _auditAccess(actor.user.id, userId, "user_deactivated", current, { ...current, status: "inactive" });
+    return { ok: true };
+  }
+  throw new Error("Operação de acesso não reconhecida.");
+}
+
+function _sanitizedAccountConfig(data: any) {
+  return { agency_client_active: !!data?.agency_client_active, crm_show_agency: !!data?.crm_show_agency, bd_views: data?.bd_views || [], andreia_wa: data?.andreia_wa ? { group_jid: data.andreia_wa.group_jid || "", group_name: data.andreia_wa.group_name || "", allowed: data.andreia_wa.allowed || [] } : {} };
+}
+async function accountConfigAccess(input: any, authorization: string) {
+  const actor = await _accessActor(authorization, true);
+  const rows = await sbGet("account_config", "id=eq.main&select=data&limit=1"), current = rows[0]?.data || {};
+  if (String(input?.op || "read") === "read") return { data: _isMaster(actor) ? current : _sanitizedAccountConfig(current), full: _isMaster(actor) };
+  const patch = input?.patch && typeof input.patch === "object" ? input.patch : {};
+  const allowed = _isMaster(actor) ? Object.keys(patch) : ["bd_views"].filter(k => Object.prototype.hasOwnProperty.call(patch, k));
+  if (!allowed.length) throw new Error("Você não tem permissão para alterar esta configuração global.");
+  const clean: any = {}; allowed.forEach(k => clean[k] = patch[k]);
+  const next = { ...current, ...clean };
+  const r = await fetch(`${_SB_URL}/rest/v1/account_config?on_conflict=id`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ id: "main", data: next, updated_at: new Date().toISOString() }) });
+  if (!r.ok) throw new Error("Não consegui salvar a configuração.");
+  await _auditAccess(actor.user.id, actor.user.id, "account_config_updated", null, { keys: allowed });
+  return { ok: true, data: _isMaster(actor) ? next : _sanitizedAccountConfig(next) };
+}
+function _accessArray(profile: any, kind: "menus" | "actions") { const v = profile?.permissions?.[kind]; return Array.isArray(v) ? v.map(String) : []; }
+function _actorHas(actor: AccessActor, kind: "menus" | "actions", code: string) { if (["master", "admin"].includes(actor.profile?.role)) return true; const a = _accessArray(actor.profile, kind); return a.includes("*") || a.includes(code); }
+async function _actorClientIds(actor: AccessActor) { if (["master", "admin"].includes(actor.profile?.role) || actor.profile?.all_clients) return null; return (await sbGet("app_user_clients", `user_id=eq.${encodeURIComponent(actor.user.id)}&select=client_id`)).map((x: any) => String(x.client_id)); }
+function _bodyClientIds(v: any, out = new Set<string>(), depth = 0) {
+  if (!v || typeof v !== "object" || depth > 3) return out;
+  for (const [k, x] of Object.entries(v)) {
+    if ((k === "clientId" || k === "client_id") && typeof x === "string" && x) out.add(x);
+    else if (typeof x === "object") _bodyClientIds(x, out, depth + 1);
+  }
+  return out;
+}
+function _bodyAccountIds(v: any) {
+  const out = new Set<string>();
+  const walk = (x: any, depth = 0) => { if (x == null || depth > 3) return; if (Array.isArray(x)) { x.forEach(y => walk(y, depth + 1)); return; } if (typeof x !== "object") return; for (const [k, y] of Object.entries(x)) { if (/^(accountId|account_id)$/.test(k) && y) out.add(String(y).replace(/\D/g, "")); else if (k === "accounts" && Array.isArray(y)) y.forEach((a: any) => out.add(String(a?.id || a).replace(/\D/g, ""))); else if (typeof y === "object") walk(y, depth + 1); } };
+  walk(v); return [...out].filter(Boolean);
+}
+function _firstBodyKey(body: any) { return Object.keys(body || {}).find(k => body[k] !== undefined) || ""; }
+function _menuForOperation(key: string) {
+  if (/^crm|^wa/i.test(key)) return "crm";
+  if (/^briefing|creativeMiner/i.test(key)) return "briefing";
+  if (/^event/i.test(key)) return "eventos";
+  if (/^journey|ga4|gsc/i.test(key)) return "jornada";
+  if (/^meta|^google|^tiktok|^pinterest|channelMetrics/i.test(key)) return /Audience|CreateCustom/i.test(key) ? "publicos" : "campanhas";
+  if (/^agent$/i.test(key)) return "iagestora";
+  return "";
+}
+async function _guardUserRequest(body: any, authorization: string) {
+  const jwt = _jwtPayload(authorization);
+  if (jwt?.role === "service_role") return;
+  const actor = await _accessActor(authorization, true);
+  if (actor.profile.status !== "active") throw new Error("Conclua a ativação do seu acesso antes de usar o sistema.");
+  if (["master", "admin"].includes(actor.profile.role)) return;
+  const key = _firstBodyKey(body), menu = _menuForOperation(key);
+  if (menu && !_actorHas(actor, "menus", menu)) throw new Error(`Seu usuário não tem acesso ao menu ${menu}.`);
+  const writes: Record<string, string> = {
+    metaAction: "campaign.manage", metaCloneCampaign: "campaign.manage", metaCreateAudiences: "campaign.manage", metaCreateCustomList: "campaign.manage", metaCreateSavedAudience: "campaign.manage",
+    googleBudget: "campaign.manage", googleTermAction: "campaign.manage", googleKeywordAction: "campaign.manage", googleCreateCustomAudience: "campaign.manage",
+    crmAndreiaAction: "crm.write", crmCapaAudit: "crm.write", briefingAprovar: "data.write",
+  };
+  let required = writes[key] || "";
+  if (key === "wa" && /send|remove|capi|import|reprocess|poll/i.test(String(body.wa?.op || ""))) required = "crm.write";
+  if (required && !_actorHas(actor, "actions", required)) throw new Error("Seu usuário pode consultar, mas não tem permissão para executar esta alteração.");
+  const allowed = await _actorClientIds(actor); if (allowed === null) return;
+  const requested = [..._bodyClientIds(body)];
+  if (requested.some(id => !allowed.includes(id))) throw new Error("Este usuário não tem acesso ao cliente solicitado.");
+  const accountIds = _bodyAccountIds(body);
+  if (accountIds.length) {
+    const clients = await sbGet("clients", "select=id,meta_account_id,google_account_id");
+    for (const aid of accountIds) {
+      const owner = clients.find((c: any) => [c.meta_account_id, c.google_account_id].some((v: any) => String(v || "").split(/[,;\s]+/).map((z: string) => z.replace(/\D/g, "")).includes(aid)));
+      if (!owner || !allowed.includes(String(owner.id))) throw new Error("A conta de anúncios solicitada não pertence a um cliente permitido para este usuário.");
+    }
+  }
+  if (key === "agent" && !requested.length && !actor.profile.all_clients) throw new Error("Selecione um cliente permitido para conversar com a AndréIA.");
+}
+
 async function creativeMiner(input: any) {
   const op = String(input?.op || "list"), clientId = String(input?.clientId || "").trim();
   if (!clientId) throw new Error("Selecione um cliente.");
@@ -5738,6 +5917,15 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
     const body = await req.json();
+    if (body.accessControl) {
+      const r = await accessControl(body.accessControl, req.headers.get("Authorization") || "");
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.accountConfigAccess) {
+      const r = await accountConfigAccess(body.accountConfigAccess, req.headers.get("Authorization") || "");
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    await _guardUserRequest(body, req.headers.get("Authorization") || "");
     if (body.wa) {
       const r = await waHandler(body.wa);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

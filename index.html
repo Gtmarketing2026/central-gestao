@@ -324,6 +324,18 @@
   </div>
 </div>
 
+<!-- SENHA INICIAL + AUTENTICAÇÃO EM DUAS ETAPAS -->
+<div id="mfaOverlay" style="display:none;position:fixed;inset:0;background:rgba(5,5,4,.94);align-items:center;justify-content:center;z-index:1001;padding:18px">
+  <div class="login-box" style="width:min(460px,94vw)">
+    <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.08em;text-transform:uppercase">Segurança da conta</div>
+    <h2 id="mfaTitle" style="margin:7px 0 8px">Autenticação em duas etapas</h2>
+    <div id="mfaDesc" style="font-size:12.5px;color:var(--muted);line-height:1.55;margin-bottom:14px"></div>
+    <div id="mfaBody"></div>
+    <div id="mfaError" style="font-size:12px;color:var(--red);min-height:18px;margin-top:8px"></div>
+    <button class="btn sm ghost" style="margin-top:10px" onclick="doLogout()">Sair desta conta</button>
+  </div>
+</div>
+
 <!-- APP -->
 <div id="appWrapper" style="display:none">
 <div class="app">
@@ -1799,6 +1811,7 @@ const SUPA_KEY = 'sb_publishable_gWzVyEm8hT0_CH16UO8UqA_kkcbfo14';
 const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
 const DB = {clients:[], tasks:[], finance:[], shows:[], team:[], creditors:[], wallet:[]};
+let _accessProfile=null,_accessClientIds=[],_accessUsers=[],_mfaFactor=null,_mfaPasswordReady=false;
 
 const fmt = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
 // Converte o campo "Valor" do lead (texto livre, ex.: "R$ 1.500,00") em número. Usado pra somar faturamento por etapa do CRM.
@@ -2071,12 +2084,64 @@ async function checkUpdate(){
 }
 
 /* ---- AUTH ---- */
+async function _accessCall(payload){
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{accessControl:payload}});
+  if(error)throw error;const r=(data&&data.data)||data||{};if(r.error)throw new Error(r.error);return r;
+}
+function accessIsMaster(){return _accessProfile&&_accessProfile.role==='master'&&_accessProfile.protected===true;}
+function accessIsAdmin(){return _accessProfile&&['master','admin'].includes(_accessProfile.role);}
+function accessHas(kind,code){if(!_accessProfile)return false;if(accessIsMaster()||_accessProfile.role==='admin')return true;const arr=((_accessProfile.permissions||{})[kind]||[]);return arr.includes('*')||arr.includes(code);}
+function accessCanMenu(id){return accessHas('menus',id);}
+function accessCanAction(id){return accessHas('actions',id);}
+function accessCanClient(id){return !!(_accessProfile&&(accessIsAdmin()||_accessProfile.all_clients||_accessClientIds.includes(id)));}
+function _accessRoleLabel(r){return r==='master'?'Master':r==='admin'?'Administrador':'Gestor';}
+function applyAccessUI(){
+  document.querySelectorAll('.tab[data-tab]').forEach(el=>{const id=el.dataset.tab;el.style.display=accessCanMenu(id)?'':'none';});
+  document.querySelectorAll('[data-access-menu]').forEach(el=>el.style.display=accessCanMenu(el.dataset.accessMenu)?'':'none');
+  document.querySelectorAll('.tab:not([data-tab])').forEach(el=>{const oc=el.getAttribute('onclick')||'';let id='';if(oc.includes("'financeiro'"))id='financeiro';else if(oc.includes("'configuracoes'"))id='configuracoes';else if(oc.includes('sbCampSource'))id='campanhas';else if(oc.includes('sbCfg'))id='clients';if(id)el.style.display=accessCanMenu(id)?'':'none';});
+  document.querySelectorAll('[data-master-only]').forEach(el=>el.style.display=accessIsMaster()?'':'none');
+  document.querySelectorAll('.nav-sec').forEach(sec=>{const visible=[...sec.children].some(x=>x.style.display!=='none');sec.style.display=visible?'':'none';const g=sec.previousElementSibling;if(g&&g.classList.contains('nav-group'))g.style.display=visible?'':'none';});
+  const lbl=document.getElementById('userLabel');if(lbl&&_accessProfile)lbl.textContent=`${_accessProfile.name||_accessProfile.email} · ${_accessRoleLabel(_accessProfile.role)}`;
+}
+function _showMfa(title,desc,html){const o=document.getElementById('mfaOverlay');o.style.display='flex';document.getElementById('mfaTitle').textContent=title;document.getElementById('mfaDesc').innerHTML=desc;document.getElementById('mfaBody').innerHTML=html;document.getElementById('mfaError').textContent='';document.getElementById('loginOverlay').style.display='none';document.getElementById('appWrapper').style.display='none';}
+function _mfaErr(e){document.getElementById('mfaError').textContent=(e&&e.message)||String(e);}
+async function _setupInvitedPassword(){
+  const p=document.getElementById('mfaNewPassword').value,p2=document.getElementById('mfaNewPassword2').value,btn=document.getElementById('mfaPasswordBtn');
+  if(p.length<10){_mfaErr(new Error('Use pelo menos 10 caracteres.'));return}if(p!==p2){_mfaErr(new Error('As senhas não conferem.'));return}
+  btn.disabled=true;btn.textContent='Salvando…';const {error}=await sb.auth.updateUser({password:p});if(error){btn.disabled=false;btn.textContent='Salvar senha e continuar';_mfaErr(error);return}_mfaPasswordReady=true;await _startMfa();
+}
+async function _startMfa(){
+  try{
+    const {data:lf,error:le}=await sb.auth.mfa.listFactors();if(le)throw le;
+    const verified=[...(lf&&lf.totp||[])].find(f=>f.status==='verified');
+    if(verified){_mfaFactor=verified;_showMfa('Confirme seu acesso','Digite o código de 6 dígitos do seu aplicativo autenticador.',`<div class="form-row"><label>Código de segurança</label><input id="mfaCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000" onkeydown="if(event.key==='Enter')mfaVerifyExisting()"></div><button id="mfaVerifyBtn" class="btn primary" style="width:100%;justify-content:center" onclick="mfaVerifyExisting()">Confirmar código</button>`);setTimeout(()=>document.getElementById('mfaCode')?.focus(),50);return;
+    }
+    const {data,error}=await sb.auth.mfa.enroll({factorType:'totp',friendlyName:'Central de Gestão'});if(error)throw error;_mfaFactor=data;
+    _showMfa('Ative a proteção em duas etapas','No Google Authenticator, Microsoft Authenticator ou Authy, leia o QR Code. Depois informe o código exibido.',`<div style="display:flex;justify-content:center;background:#fff;border-radius:12px;padding:12px;margin-bottom:12px"><img src="${data.totp.qr_code}" alt="QR Code do autenticador" style="width:190px;height:190px"></div><details style="font-size:11px;color:var(--muted);margin-bottom:12px"><summary style="cursor:pointer">Não consigo ler o QR Code</summary><code style="display:block;word-break:break-all;margin-top:7px">${data.totp.secret}</code></details><div class="form-row"><label>Código de 6 dígitos</label><input id="mfaCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000" onkeydown="if(event.key==='Enter')mfaVerifyEnrollment()"></div><button id="mfaVerifyBtn" class="btn primary" style="width:100%;justify-content:center" onclick="mfaVerifyEnrollment()">Ativar e entrar</button>`);setTimeout(()=>document.getElementById('mfaCode')?.focus(),50);
+  }catch(e){_mfaErr(e)}
+}
+async function _afterMfa(){
+  if(_accessProfile&&_accessProfile.status==='invited'){await _accessCall({op:'activate_self'});_accessProfile.status='active';}
+  document.getElementById('mfaOverlay').style.display='none';applyAccessUI();showApp();await loadAll();
+}
+async function mfaVerifyEnrollment(){const code=(document.getElementById('mfaCode').value||'').replace(/\D/g,''),btn=document.getElementById('mfaVerifyBtn');if(code.length!==6){_mfaErr(new Error('Informe os 6 dígitos.'));return}btn.disabled=true;btn.textContent='Verificando…';try{const {data:c,error:ce}=await sb.auth.mfa.challenge({factorId:_mfaFactor.id});if(ce)throw ce;const {error}=await sb.auth.mfa.verify({factorId:_mfaFactor.id,challengeId:c.id,code});if(error)throw error;await _afterMfa();}catch(e){btn.disabled=false;btn.textContent='Ativar e entrar';_mfaErr(e)}}
+async function mfaVerifyExisting(){const code=(document.getElementById('mfaCode').value||'').replace(/\D/g,''),btn=document.getElementById('mfaVerifyBtn');if(code.length!==6){_mfaErr(new Error('Informe os 6 dígitos.'));return}btn.disabled=true;btn.textContent='Verificando…';try{const {data:c,error:ce}=await sb.auth.mfa.challenge({factorId:_mfaFactor.id});if(ce)throw ce;const {error}=await sb.auth.mfa.verify({factorId:_mfaFactor.id,challengeId:c.id,code});if(error)throw error;await _afterMfa();}catch(e){btn.disabled=false;btn.textContent='Confirmar código';_mfaErr(e)}}
+async function finishAuth(session){
+  try{
+    const a=await _accessCall({op:'me'});_accessProfile=a.profile;_accessClientIds=a.clientIds||[];
+    if(_accessProfile.status==='inactive')throw new Error('Este usuário está desativado.');
+    if(_accessProfile.status==='invited'&&!_mfaPasswordReady){_showMfa('Crie sua senha','Este é seu primeiro acesso. Crie uma senha exclusiva; em seguida você ativará o autenticador de dois fatores.',`<div class="form-row"><label>Nova senha</label><input id="mfaNewPassword" type="password" autocomplete="new-password" placeholder="Mínimo de 10 caracteres"></div><div class="form-row"><label>Confirmar senha</label><input id="mfaNewPassword2" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')_setupInvitedPassword()"></div><button id="mfaPasswordBtn" class="btn primary" style="width:100%;justify-content:center" onclick="_setupInvitedPassword()">Salvar senha e continuar</button>`);return;}
+    const {data:aal}=await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+    if(_accessProfile.mfa_required!==false&&aal.currentLevel!=='aal2'){await _startMfa();return;}
+    applyAccessUI();showApp();await loadAll();
+  }catch(e){await sb.auth.signOut();showLogin();document.getElementById('loginError').textContent=(e&&e.message)||String(e);}
+}
 async function checkAuth(){
   const {data:{session}}=await sb.auth.getSession();
-  if(session){showApp(session.user.email);await loadAll();}
+  if(session)await finishAuth(session);
   else showLogin();
 }
-function showLogin(){document.getElementById('loginOverlay').style.display='flex';document.getElementById('appWrapper').style.display='none';}
+function showLogin(){document.getElementById('loginOverlay').style.display='flex';document.getElementById('mfaOverlay').style.display='none';document.getElementById('appWrapper').style.display='none';}
 function showApp(email){document.getElementById('loginOverlay').style.display='none';document.getElementById('appWrapper').style.display='block';if(email)document.getElementById('userLabel').textContent=email;}
 async function doLogin(){
   const email=document.getElementById('loginEmail').value.trim(),password=document.getElementById('loginPassword').value;
@@ -2086,10 +2151,11 @@ async function doLogin(){
   const {data,error}=await sb.auth.signInWithPassword({email,password});
   btn.textContent='Entrar';btn.disabled=false;
   if(error){errEl.textContent='Email ou senha incorretos.';return}
-  showApp(data.user.email);await loadAll();
+  await finishAuth(data.session);
 }
 async function doLogout(){
   await sb.auth.signOut();
+  _accessProfile=null;_accessClientIds=[];_accessUsers=[];_mfaFactor=null;_mfaPasswordReady=false;
   DB.clients=[];DB.tasks=[];DB.finance=[];DB.shows=[];DB.team=[];DB.notifications=[];DB.reportTemplates=[];
   if(realtimeChannel){sb.removeChannel(realtimeChannel);realtimeChannel=null;}
   if(notifChannel){sb.removeChannel(notifChannel);notifChannel=null;}
@@ -2290,6 +2356,7 @@ function showComingSoon(title,desc){
   p.classList.add('active');
 }
 function goToTab(tabId){
+  if(_accessProfile&&!accessCanMenu(tabId)){alert('Seu usuário não tem acesso a este menu.');return;}
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
   const tab=document.querySelector(`.tab[data-tab="${tabId}"]`);
@@ -4589,9 +4656,7 @@ async function agencyClientToggle(ativar){
     }else{
       DB.clients=DB.clients.filter(c=>!c.isSelf);
     }
-    const {error:e3}=await sb.from('account_config').update({data:{..._acctCfg,agency_client_active:ativar}}).eq('id','main');
-    if(e3)throw e3;
-    _acctCfg={..._acctCfg,agency_client_active:ativar};
+    await saveAccountConfig({agency_client_active:ativar});
     fillSidebarClient();renderAll();loadConfiguracoes();
   }catch(e){alert('Erro: '+(e.message||e));}
 }
@@ -4632,14 +4697,16 @@ async function ga4DiscoverVincular(clientId,propertyId,btn){
 let _acctCfg=null;
 async function loadAccountConfig(){
   if(_acctCfg)return _acctCfg;
-  const {data}=await sb.from('account_config').select('data').eq('id','main').maybeSingle();
-  _acctCfg=(data&&data.data)||{};
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{accountConfigAccess:{op:'read'}}});
+  if(error)throw error;const r=(data&&data.data)||data||{};
+  _acctCfg=r.data||{};
   return _acctCfg;
 }
 async function saveAccountConfig(patch){
   const cur=await loadAccountConfig();
-  _acctCfg={...cur,...patch};
-  await sb.from('account_config').upsert({id:'main',data:_acctCfg,updated_at:new Date().toISOString()});
+  const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{accountConfigAccess:{op:'save',patch}}});
+  if(error)throw error;const r=(data&&data.data)||data||{};
+  _acctCfg=r.data||{...cur,...patch};
 }
 /* ===== Google Agenda (iCal) → tarefas ===== */
 async function gcalSave(){const v=(document.getElementById('gcalUrl').value||'').trim();await saveAccountConfig({calendar_ics:v});const m=document.getElementById('gcalMsg');if(m)m.textContent=v?'✓ Link salvo. Clique em "Sincronizar agora".':'Link removido.';}
@@ -4679,14 +4746,36 @@ function integCard(id,icon,name,desc,rightHtml,bodyHtml){
     ${bodyHtml?`<div id="integBody_${id}" style="margin-top:12px">${bodyHtml}</div>`:''}
   </div>`;
 }
+const ACCESS_MENU_CATALOG=[['iagestora','AndréIA'],['operacional','Visão Geral'],['tasks','Tarefas'],['crm','CRM'],['jornada','Jornada'],['raiox','Diagnóstico'],['campanhas','Campanhas'],['publicos','Públicos'],['clients','Clientes'],['reunioes','Reuniões'],['relatorios','Relatórios'],['eventos','Eventos'],['social','Social'],['briefing','Criativos e Briefing'],['rastreamento','Pixel e Links'],['whatsapp','WhatsApp'],['bancodados','Banco de Dados'],['modelos','Templates'],['financeiro','Financeiro']];
+const ACCESS_ACTION_CATALOG=[['data.write','Criar e editar dados dos clientes'],['clients.write','Cadastrar e editar clientes'],['campaign.manage','Alterar campanhas e públicos'],['crm.write','Mover, classificar e responder no CRM'],['task.write','Criar e concluir tarefas'],['reports.export','Gerar e baixar relatórios'],['finance.read','Visualizar financeiro'],['finance.write','Alterar financeiro'],['global.write','Alterar cadastros globais']];
+const ACCESS_GESTOR_DEFAULT={menus:['iagestora','operacional','tasks','crm','jornada','raiox','campanhas','publicos','relatorios','briefing'],actions:['data.write','campaign.manage','crm.write','task.write','reports.export']};
+function _accessEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function accessUsersCardHTML(){return `<div class="card" style="margin-bottom:18px;border-color:rgba(255,213,42,.35)"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap"><div><div style="font-size:11px;color:var(--accent);font-weight:800;text-transform:uppercase;letter-spacing:.08em">Segurança e equipe</div><h3 style="margin:5px 0 4px">Usuários e acessos</h3><div style="font-size:12px;color:var(--muted)">Login individual, 2FA obrigatório e acesso limitado por cliente, menu e ação.</div></div>${accessIsAdmin()?'<button class="btn sm primary" onclick="accessUserOpen()">+ Convidar usuário</button>':''}</div><div id="accessUsersList" style="margin-top:14px"><div class="empty">Carregando usuários…</div></div></div>`;}
+async function loadAccessUsers(){
+  const el=document.getElementById('accessUsersList');if(!el)return;
+  if(!accessIsAdmin()){el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0"><div><b>${_accessEsc(_accessProfile.name||_accessProfile.email)}</b><div style="font-size:11px;color:var(--muted)">${_accessRoleLabel(_accessProfile.role)} · 2FA obrigatório</div></div>${integStatusPill('ok','Acesso protegido')}</div>`;return;}
+  try{const r=await _accessCall({op:'list'});_accessUsers=r.users||[];el.innerHTML=_accessUsers.map(u=>{const locked=u.protected||(!accessIsMaster()&&u.role!=='gestor');return `<div style="display:grid;grid-template-columns:minmax(180px,1.4fr) 120px minmax(160px,1fr) auto;gap:10px;align-items:center;padding:11px 4px;border-top:1px solid var(--border)"><div><b>${_accessEsc(u.name||u.email)}</b><div style="font-size:11px;color:var(--faint)">${_accessEsc(u.email)}</div></div><div><span class="pill">${_accessRoleLabel(u.role)}</span></div><div style="font-size:11px;color:var(--muted)">${u.all_clients?'Todos os clientes':`${(u.clientIds||[]).length} cliente(s)`} · ${u.mfaEnrolled?'2FA ativo':'2FA pendente'} · ${u.status==='inactive'?'desativado':u.status==='invited'?'convidado':'ativo'}</div><button class="btn sm ghost" ${locked?'disabled title="Nível protegido"':''} onclick="accessUserOpen('${u.user_id}')">${locked?'Protegido':'Editar'}</button></div>`}).join('')||'<div class="empty">Nenhum usuário cadastrado.</div>';}catch(e){el.innerHTML='<div style="color:var(--red)">'+_accessEsc(e.message||e)+'</div>';}
+}
+function accessUserOpen(userId){
+  const u=userId?_accessUsers.find(x=>x.user_id===userId):null,def=ACCESS_GESTOR_DEFAULT,p=u&&u.permissions||def,role=u&&u.role||'gestor',all=u?!!u.all_clients:false,selClients=new Set(u&&u.clientIds||[]),menus=new Set(p.menus||[]),actions=new Set(p.actions||[]);
+  let ov=document.getElementById('accessUserOverlay');if(ov)ov.remove();ov=document.createElement('div');ov.id='accessUserOverlay';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;z-index:10020;padding:16px';
+  ov.innerHTML=`<div class="card" style="width:min(900px,97vw);max-height:92vh;overflow:auto;padding:22px"><div style="display:flex;justify-content:space-between;gap:10px"><div><h3 style="margin:0">${u?'Editar usuário':'Convidar usuário'}</h3><div style="font-size:11px;color:var(--muted);margin-top:4px">O convite é enviado por e-mail. No primeiro acesso a pessoa cria a senha e ativa o 2FA.</div></div><button class="btn sm ghost" onclick="document.getElementById('accessUserOverlay').remove()">✕</button></div><input type="hidden" id="acuId" value="${u?u.user_id:''}"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px"><div class="form-row"><label>Nome</label><input id="acuName" value="${_accessEsc(u&&u.name||'')}"></div><div class="form-row"><label>E-mail de login</label><input id="acuEmail" type="email" value="${_accessEsc(u&&u.email||'')}" ${u?'disabled':''}></div><div class="form-row"><label>Nível</label><select id="acuRole" onchange="accessRoleToggle()"><option value="gestor" ${role==='gestor'?'selected':''}>Gestor — acesso personalizado</option>${accessIsMaster()?`<option value="admin" ${role==='admin'?'selected':''}>Administrador — todo o sistema, sem decisões master</option>`:''}</select></div>${u?`<div class="form-row"><label>Status</label><select id="acuStatus"><option value="active" ${u.status==='active'?'selected':''}>Ativo</option><option value="inactive" ${u.status==='inactive'?'selected':''}>Desativado</option><option value="invited" ${u.status==='invited'?'selected':''}>Convite pendente</option></select></div>`:'<input type="hidden" id="acuStatus" value="invited">'}</div><div id="acuScope"><label style="display:flex;gap:8px;align-items:center;margin:8px 0 12px"><input id="acuAll" type="checkbox" ${all?'checked':''} onchange="document.getElementById('acuClients').style.opacity=this.checked?'.45':'1'"> Acesso a todos os clientes</label><div style="font-size:11px;color:var(--accent);font-weight:700;margin-bottom:7px">CLIENTES PERMITIDOS</div><div id="acuClients" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px;opacity:${all?'.45':'1'}">${DB.clients.map(c=>`<label class="pill" style="display:flex;gap:6px;align-items:center"><input class="acuClient" type="checkbox" value="${c.id}" ${selClients.has(c.id)?'checked':''}> ${_accessEsc(c.name)}</label>`).join('')}</div><div style="font-size:11px;color:var(--accent);font-weight:700;margin:16px 0 7px">MENUS</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px">${ACCESS_MENU_CATALOG.map(([k,l])=>`<label class="pill" style="display:flex;gap:6px;align-items:center"><input class="acuMenu" type="checkbox" value="${k}" ${menus.has(k)||menus.has('*')?'checked':''}> ${l}</label>`).join('')}</div><div style="font-size:11px;color:var(--accent);font-weight:700;margin:16px 0 7px">O QUE PODE FAZER</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px">${ACCESS_ACTION_CATALOG.map(([k,l])=>`<label class="pill" style="display:flex;gap:6px;align-items:center"><input class="acuAction" type="checkbox" value="${k}" ${actions.has(k)||actions.has('*')?'checked':''}> ${l}</label>`).join('')}</div></div><div id="acuMsg" style="font-size:12px;min-height:18px;margin-top:12px"></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button class="btn ghost" onclick="document.getElementById('accessUserOverlay').remove()">Cancelar</button><button id="acuSave" class="btn primary" onclick="accessUserSave()">${u?'Salvar acesso':'Enviar convite'}</button></div></div>`;
+  document.body.appendChild(ov);accessRoleToggle();
+}
+function accessRoleToggle(){const role=document.getElementById('acuRole').value,scope=document.getElementById('acuScope');if(scope)scope.style.display=role==='admin'?'none':'';}
+async function accessUserSave(){
+  const id=document.getElementById('acuId').value,role=document.getElementById('acuRole').value,btn=document.getElementById('acuSave'),msg=document.getElementById('acuMsg'),payload={op:id?'update':'invite',userId:id,name:document.getElementById('acuName').value.trim(),email:document.getElementById('acuEmail').value.trim(),role,status:document.getElementById('acuStatus').value,allClients:role==='admin'?true:document.getElementById('acuAll').checked,clientIds:role==='admin'?[]:[...document.querySelectorAll('.acuClient:checked')].map(x=>x.value),permissions:role==='admin'?{menus:['*'],actions:['*']}:{menus:[...document.querySelectorAll('.acuMenu:checked')].map(x=>x.value),actions:[...document.querySelectorAll('.acuAction:checked')].map(x=>x.value)}};
+  if(!payload.name||(!id&&!payload.email)){msg.style.color='var(--red)';msg.textContent='Preencha nome e e-mail.';return}btn.disabled=true;btn.textContent='Salvando…';try{await _accessCall(payload);document.getElementById('accessUserOverlay').remove();await loadAccessUsers();}catch(e){btn.disabled=false;btn.textContent=id?'Salvar acesso':'Enviar convite';msg.style.color='var(--red)';msg.textContent=e.message||String(e);}
+}
 async function loadConfiguracoes(){
   const body=document.getElementById('configBody');if(!body)return;
   await loadAccountConfig();
+  if(!accessIsMaster()){body.innerHTML=accessUsersCardHTML()+`<div class="card"><h3 style="margin-top:0">Configurações protegidas</h3><div style="font-size:12px;color:var(--muted);line-height:1.55">As credenciais globais, segurança e integrações da agência ficam disponíveis somente para o usuário master. Suas permissões de clientes, menus e ações são aplicadas automaticamente.</div></div>`;loadAccessUsers();return;}
   const rd=_acctCfg.rd_station||{};
   const tk=_acctCfg.tiktok_ads||{};
   const pt=_acctCfg.pinterest_ads||{};
   const agAtiva=!!_acctCfg.agency_client_active;
-  body.innerHTML=`
+  body.innerHTML=accessUsersCardHTML()+`
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;margin:4px 0 12px">📈 Aquisição</div>
     ${integCard('agencyClient','🏢','Agência como cliente','Faz a própria agência (GT Marketing) aparecer como cliente no seletor — reaproveita o CRM Kanban e o WhatsApp pra vendas da própria agência, sem misturar com clientes de verdade.',
       agAtiva?integStatusPill('ok','✓ Ativo'):integStatusPill('off','Inativo'),
@@ -4776,6 +4865,7 @@ async function loadConfiguracoes(){
   // status ao vivo Meta + Google
   checkIntegMeta();checkIntegGoogle();gcalCheckConn();
   checkIntegApify();
+  loadAccessUsers();
 }
 /* ===== Banco de Dados (histórico diário por canal — CSV / Power BI) ===== */
 let _bdSince='',_bdUntil='',_bdClient='',_bdChannel='',_bdObjetivo='';
