@@ -1,6 +1,11 @@
 import { google } from "npm:googleapis@144";
 import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
 
+// SEGURANÇA DE DEPLOY: manter verify_jwt=false nesta função. O projeto usa as novas
+// chaves publicáveis/assinaturas do Supabase; a validação antiga do gateway pode rejeitar
+// sessões AAL2 válidas. Toda rota é autenticada dentro do handler por accessControl,
+// accountConfigAccess ou _guardUserRequest (incluindo perfil, AAL2, permissões e cliente).
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
