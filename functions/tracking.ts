@@ -266,6 +266,26 @@ async function handleGoogleOAuthCallback(url: URL) {
   }
 }
 
+async function handleYouTubeCallback(url: URL) {
+  const code = url.searchParams.get("code") || "", state = url.searchParams.get("state") || "";
+  if (!code) return page("Autorização não concluída", "O Google não devolveu o código de autorização.", false);
+  let clientId = "";
+  try { const raw = await _decryptCredential(state); const p = raw.split(":"); if (p[0] !== "youtube_oauth" || Math.abs(Date.now() - Number(p[2] || 0)) > 15 * 60e3) throw new Error(); clientId = p[1]; } catch (_e) { return page("Link expirado", "Volte à Central e conecte o YouTube novamente.", false); }
+  const cid = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID"), secret = Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET");
+  if (!cid || !secret) return page("Configuração incompleta", "Credenciais OAuth do Google ausentes.", false);
+  const redirect = `${SB_URL}/functions/v1/tracking/youtube/callback`;
+  try {
+    const tr = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: cid, client_secret: secret, code, redirect_uri: redirect, grant_type: "authorization_code" }) });
+    const tj = await tr.json(); if (!tr.ok || !tj.refresh_token) return page("Quase lá", "O Google não devolveu acesso permanente. Remova a autorização anterior da conta Google e tente novamente.", false);
+    const cr = await fetch("https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true", { headers: { Authorization: `Bearer ${tj.access_token}` } }); const cj = await cr.json(); const ch = cj.items?.[0];
+    if (!ch) return page("Canal não encontrado", "Essa conta Google não administra um canal do YouTube.", false);
+    const cipher = await _encryptCredential(tj.refresh_token);
+    await fetch(`${SB_URL}/rest/v1/secure_credentials?on_conflict=id`, { method: "POST", headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ id: `youtube_refresh_token:${clientId}`, secret_cipher: cipher, updated_at: new Date().toISOString() }) });
+    await sbPatch("clients", `id=eq.${encodeURIComponent(clientId)}`, { youtube_config: { channel_id: ch.id, title: ch.snippet?.title || "", thumbnail: ch.snippet?.thumbnails?.default?.url || "", connected_at: new Date().toISOString() } });
+    return page("YouTube conectado!", `Canal ${ch.snippet?.title || ch.id} vinculado. Você já pode fechar esta janela e atualizar a Central.`, true);
+  } catch (e) { return page("Erro ao conectar", String((e as any)?.message || e), false); }
+}
+
 // OAuth do TikTok Ads: recebe ?auth_code (TikTok não usa "code") + state=clientId, troca por access_token e guarda no cliente.
 // TikTok não expira o access_token (fica válido até o usuário revogar) — não tem refresh_token nesse fluxo.
 async function handleTikTokCallback(url: URL) {
@@ -962,6 +982,7 @@ Deno.serve(async (req) => {
   if (p === "/nuvemshop/callback") return handleNuvemshopCallback(url);
 
   if (p === "/google/oauth/callback") return handleGoogleOAuthCallback(url);
+  if (p === "/youtube/callback") return handleYouTubeCallback(url);
 
   if (p === "/tiktok/callback") return handleTikTokCallback(url);
   if (p === "/pinterest/callback") return handlePinterestCallback(url);

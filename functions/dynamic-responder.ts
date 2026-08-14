@@ -4879,6 +4879,17 @@ async function googleOAuthDisconnect(authorization: string) {
   await sbPatchD("account_config", "id=eq.main", { data: acc });
   return { ok: true };
 }
+async function youtubeOAuth(input: any, authorization: string) {
+  if (!authorization) throw new Error("Sessão obrigatória.");
+  const ur = await fetch(`${_SB_URL}/auth/v1/user`, { headers: { apikey: _SB_KEY, Authorization: authorization } }); if (!ur.ok) throw new Error("Sessão inválida.");
+  const clientId = String(input?.clientId || ""); if (!clientId) throw new Error("Cliente obrigatório.");
+  if (input.op === "status") { const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=youtube_config&limit=1`))[0]; return { connected: !!c?.youtube_config?.channel_id, config: c?.youtube_config || {}, redirectUri: `${_SB_URL}/functions/v1/tracking/youtube/callback` }; }
+  if (input.op === "disconnect") { await sbDeleteD("secure_credentials", `id=eq.${encodeURIComponent(`youtube_refresh_token:${clientId}`)}`); await sbPatchD("clients", `id=eq.${encodeURIComponent(clientId)}`, { youtube_config: {} }); return { ok: true }; }
+  const cid = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID"); if (!cid) throw new Error("GOOGLE_OAUTH_CLIENT_ID não configurado.");
+  const state = await _encryptCredential(`youtube_oauth:${clientId}:${Date.now()}:${crypto.randomUUID()}`), redirect = `${_SB_URL}/functions/v1/tracking/youtube/callback`;
+  const scope = ["https://www.googleapis.com/auth/youtube.readonly", "https://www.googleapis.com/auth/yt-analytics.readonly", "openid", "email"].join(" ");
+  return { url: `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({ client_id: cid, redirect_uri: redirect, response_type: "code", access_type: "offline", prompt: "consent", scope, state })}`, redirectUri: redirect };
+}
 function _normName(s: string): string { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim(); }
 function _nameScore(a: string, b: string): number {
   const na = _normName(a), nb = _normName(b);
@@ -5897,6 +5908,10 @@ Deno.serve(async (req) => {
     }
     if (body.googleOAuthStart) {
       const r = await googleOAuthStart(req.headers.get("Authorization") || "");
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.youtubeOAuth) {
+      const r = await youtubeOAuth(body.youtubeOAuth, req.headers.get("Authorization") || "");
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.googleOAuthDisconnect) {
