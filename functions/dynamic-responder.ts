@@ -595,6 +595,8 @@ async function metaAdsInsights(m: any) {
             map[as.campaign_id] = { ...ob, tipo: "video", rotulo: "Vídeo / Distribuição", metrica: "custo por ThruPlay/view, CPM" };
           } else if (opt === "REACH" && ob.tipo === "engajamento") {
             map[as.campaign_id] = { ...ob, tipo: "alcance", rotulo: "Alcance / Distribuição", metrica: "CPM, alcance, frequência" };
+          } else if (opt === "VISIT_INSTAGRAM_PROFILE") {
+            map[as.campaign_id] = { ...ob, tipo: "perfil", rotulo: "Visitas ao perfil (Instagram)", metrica: "seguidores ganhos, custo por seguidor" };
           }
         }
         aurl = j.paging?.next || null;
@@ -641,6 +643,9 @@ async function metaAdsInsights(m: any) {
       // ThruPlay é o "Resultado" das campanhas de vídeo — vem em campo PRÓPRIO (não no array actions). Fallback: 3s (video_view) / 30s.
       videoViews: Number((row.video_thruplay_watched_actions && row.video_thruplay_watched_actions[0] && row.video_thruplay_watched_actions[0].value) || 0) || pickOne(row.actions, ["video_view"]) || Number((row.video_30_sec_watched_actions && row.video_30_sec_watched_actions[0] && row.video_30_sec_watched_actions[0].value) || 0),
       engajamentos: pickOne(row.actions, ["post_engagement"]),
+      // seguidores ganhos (campanha de visita ao perfil do Instagram) — nomes candidatos em ordem de prioridade;
+      // se o Meta nao reportar follow nessa conta, fica 0 e o card mostra o resultado sem inventar numero
+      seguidores: pickOne(row.actions, ["onsite_conversion.ig_follow", "ig_follow", "follow", "onsite_conversion.follow"]),
     };
   }
   const totAgg: any = { spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0 };
@@ -721,7 +726,7 @@ async function metaAdsInsights(m: any) {
         spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: s.reach, frequency: s.frequency,
         ctr: s.ctr, cpc: s.cpc, cpm: s.cpm, purchases: s.purchases, revenue: s.revenue, roas: s.roas,
         leads: s.leads, addToCart: s.addToCart, initiateCheckout: s.initiateCheckout,
-        conversas: s.conversas, videoViews: s.videoViews, engajamentos: s.engajamentos,
+        conversas: s.conversas, videoViews: s.videoViews, engajamentos: s.engajamentos, seguidores: (s as any).seguidores || 0,
         cpa: s.purchases ? s.spend / s.purchases : 0,
       });
     }
@@ -1913,7 +1918,7 @@ function _briefingResolveFunil(campanha: string, adset: string): string | null {
 // o nome so confirma ou desempata quando o objetivo nao resolve. Pedido da gestora: nomenclatura
 // nem sempre identifica a etapa, entao o objetivo manda e o nome cruza.
 const _FUNIL_POR_OBJETIVO: Record<string, string> = {
-  alcance: "Topo", video: "Topo",
+  alcance: "Topo", video: "Topo", perfil: "Topo",
   trafego: "Meio", engajamento: "Meio",
   leads: "Fundo", mensagens: "Fundo", conversao: "Fundo", app: "Fundo",
 };
@@ -1935,6 +1940,7 @@ function _briefingResultado(a: any): { label: string; valor: number; custo: numb
   if (tipo === "engajamento") return { label: "engajamentos", valor: a.engajamentos || 0, custo: a.engajamentos ? spend / a.engajamentos : null };
   if (tipo === "mensagens") return { label: "conversas", valor: a.conversas || 0, custo: a.conversas ? spend / a.conversas : null };
   if (tipo === "video") return { label: "views (ThruPlay)", valor: a.videoViews || 0, custo: a.videoViews ? spend / a.videoViews : null };
+  if (tipo === "perfil") return { label: "seguidores", valor: a.seguidores || 0, custo: a.seguidores ? spend / a.seguidores : null };
   if (tipo === "alcance") return { label: "alcance", valor: a.reach || 0, custo: a.reach ? spend / a.reach : null };
   return { label: "compras", valor: a.purchases || 0, custo: a.purchases ? spend / a.purchases : null }; // conversao/app/default
 }
@@ -1951,9 +1957,11 @@ async function _briefingMetaThumbs(adIds: string[]) {
   for (let i = 0; i < adIds.length; i += 50) {
     const ids = adIds.slice(i, i + 50).filter(Boolean); if (!ids.length) continue;
     try {
-      // image_url primeiro (resolucao cheia) e thumbnail_width/height=512 pro fallback — o padrao do Graph e 64px, pequeno demais pros cards grandes do ranking.
-      // instagram_permalink_url = link do proprio post/anuncio no Instagram (quando existe) — abre o criativo em qualidade cheia.
-      const r = await fetch(`https://graph.facebook.com/v21.0/?ids=${ids.join(",")}&fields=creative{thumbnail_url,image_url,instagram_permalink_url}&thumbnail_width=512&thumbnail_height=512&access_token=${token}`), j = await r.json();
+      // image_url primeiro (resolucao cheia); thumbnail em 512px pro fallback (video/carrossel so tem thumbnail).
+      // O modificador de tamanho vai GRUDADO no campo expandido — creative.thumbnail_width(512){...} — como query
+      // param solto ele e ignorado e o Graph devolve o padrao de 64px (borrao no zoom).
+      // instagram_permalink_url = link do proprio post/anuncio no Instagram (quando existe).
+      const r = await fetch(`https://graph.facebook.com/v21.0/?ids=${ids.join(",")}&fields=creative.thumbnail_width(512).thumbnail_height(512){thumbnail_url,image_url,instagram_permalink_url}&access_token=${token}`), j = await r.json();
       for (const id of ids) { const cr = j[id]?.creative; if (!cr) continue; const thumb = cr.image_url || cr.thumbnail_url; out[id] = { thumb: thumb || undefined, ig: cr.instagram_permalink_url || undefined }; }
     } catch (_e) { /* card continua com link e KPIs */ }
   }
@@ -1987,7 +1995,7 @@ async function _briefingCriativos(clientId: string, since: string, until: string
       reach: a.reach || 0, frequency: +(a.frequency || 0).toFixed(2), ctr: +(a.ctr || 0).toFixed(2), cpm: +(a.cpm || 0).toFixed(2),
       resultadoLabel: r.label, resultadoValor: Math.round(r.valor), custoPorResultado: r.custo != null ? Math.round(r.custo * 100) / 100 : null,
       compras: Math.round(a.purchases || 0), receita: Math.round((a.revenue || 0) * 100) / 100, leads: Math.round(a.leads || 0),
-      videoViews: a.videoViews || 0,
+      seguidores: Math.round(a.seguidores || 0), videoViews: a.videoViews || 0,
     };
   });
   const missingMeta = criativos.filter((x: any) => x.canal === "Meta" && (x.elegivel || x.spend > 0) && !x.thumbnail && x.adId).map((x: any) => x.adId);

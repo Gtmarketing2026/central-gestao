@@ -6501,7 +6501,7 @@ function _brAggregate(rows){
     if(x.conjunto&&!a._conjuntos.includes(x.conjunto))a._conjuntos.push(x.conjunto);
     if(x.campanha&&!a._campanhas.includes(x.campanha))a._campanhas.push(x.campanha);
     a.spend=+(a.spend+x.spend).toFixed(2);a.impressions+=x.impressions||0;a.clicks+=x.clicks||0;a.reach+=x.reach||0;
-    a.resultadoValor+=x.resultadoValor||0;a.compras=(a.compras||0)+(x.compras||0);a.receita=+((a.receita||0)+(x.receita||0)).toFixed(2);a.leads=(a.leads||0)+(x.leads||0);a.videoViews=(a.videoViews||0)+(x.videoViews||0);
+    a.resultadoValor+=x.resultadoValor||0;a.compras=(a.compras||0)+(x.compras||0);a.receita=+((a.receita||0)+(x.receita||0)).toFixed(2);a.leads=(a.leads||0)+(x.leads||0);a.seguidores=(a.seguidores||0)+(x.seguidores||0);a.videoViews=(a.videoViews||0)+(x.videoViews||0);
     if(!a.thumbnail&&x.thumbnail)a.thumbnail=x.thumbnail;
     if(!a.igUrl&&x.igUrl)a.igUrl=x.igUrl;
     a.elegivel=a.elegivel||x.elegivel;
@@ -6527,9 +6527,10 @@ function brRenderRanking(){
   _brCampOptsBase=[...new Set(baseCanal.map(x=>x.campanha).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt'));
   const objetivos=[...new Set(baseCanal.map(x=>x.objetivo).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt'));
   const opt=(v,cur,label)=>`<option value="${_brEsc(v).replace(/"/g,'&quot;')}" ${cur===v?'selected':''}>${_brEsc(String(label||v).slice(0,80))}</option>`;
+  const cntF={};_brAggregate(all.filter(x=>!_brCanalFilter||x.canal===_brCanalFilter)).forEach(x=>{if(['Topo','Meio','Fundo'].includes(x.funil))cntF[x.funil]=(cntF[x.funil]||0)+1;});
   const filtros=`<div class="card" style="margin-bottom:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:10px 14px">
       <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap"><span style="font-size:10px;color:var(--faint);text-transform:uppercase">Funil</span>
-        ${pill('funil','','Todos',_brFunilFilter)}${['Topo','Meio','Fundo'].map(f=>pill('funil',f,f,_brFunilFilter)).join('')}</div>
+        ${pill('funil','','Todos',_brFunilFilter)}${['Topo','Meio','Fundo'].map(f=>cntF[f]?pill('funil',f,`${f} (${cntF[f]})`,_brFunilFilter):`<button class="btn sm ghost" disabled style="opacity:.4" title="Nenhum criativo dessa etapa no período">${f} (0)</button>`).join('')}</div>
       ${canais.length>1?`<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap"><span style="font-size:10px;color:var(--faint);text-transform:uppercase">Canal</span>
         ${pill('canal','','Todos',_brCanalFilter)}${canais.map(c=>pill('canal',c,c,_brCanalFilter)).join('')}</div>`:''}
       <div style="display:flex;gap:5px;align-items:center;min-width:190px"><span style="font-size:10px;color:var(--faint);text-transform:uppercase" title="Objetivo da campanha (ex: só venda, só cadastro)">Objetivo</span>
@@ -6559,7 +6560,13 @@ function brRenderRanking(){
   if(_brConjFilter)list=list.filter(x=>x.conjunto===_brConjFilter);
   else list=_brAggregate(list); // visao geral: mesmo criativo em varios publicos vira um card so
   _brRankView=list; // referencia pro botao de analise achar o card certo (agregado ou nao)
-  if(!list.length){out.innerHTML=filtros+'<div class="empty">Nenhum criativo com esses filtros.</div>';return;}
+  if(!list.length){ // vazio legitimo (ex: cliente sem campanhas de Meio) — mostra o que EXISTE pra nao parecer travado
+    const disp=all.filter(x=>!_brCanalFilter||x.canal===_brCanalFilter);
+    const cnt={};disp.forEach(x=>{const f=['Topo','Meio','Fundo'].includes(x.funil)?x.funil:'sem etapa';cnt[f]=(cnt[f]||0)+1;});
+    const resumo=['Topo','Meio','Fundo','sem etapa'].filter(f=>cnt[f]).map(f=>`${f}: ${cnt[f]}`).join(' · ');
+    out.innerHTML=filtros+`<div class="empty">Nenhum criativo com esses filtros.<br><span style="font-size:11.5px;color:var(--faint)">${resumo?`O período tem${_brCanalFilter?' no '+_brCanalFilter:''} — ${resumo}. Clique em outra etapa ou em "Todos".`:'Nenhum criativo patrocinado no período.'}</span></div>`;
+    return;
+  }
   const ordem=['Topo','Meio','Fundo'];
   const byF={};list.forEach(x=>{const f=ordem.includes(x.funil)?x.funil:'Sem etapa identificada';(byF[f]=byF[f]||[]).push(x);});
   const cor=f=>brFunilBadgeColor(f==='Sem etapa identificada'?'':f);
