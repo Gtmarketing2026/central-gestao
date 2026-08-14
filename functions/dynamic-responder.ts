@@ -3869,22 +3869,33 @@ async function eventReports(input: any) {
     const since = String(input.since || ""), until = String(input.until || ""); if (!since || !until) throw new Error("Período obrigatório.");
     const media = await _sbAll("channel_metrics_daily", `client_id=eq.${encodeURIComponent(clientId)}&date=gte.${since}&date=lte.${until}&select=channel,campaign,source_medium`);
     const rd = await _sbAll("rd_conversions", `client_id=eq.${encodeURIComponent(clientId)}&converted_at=gte.${since}T00:00:00Z&converted_at=lte.${until}T23:59:59Z&select=event_identifier`);
-    const campaigns = [...new Map((media || []).map((x: any) => { const name = String(x.campaign || x.source_medium || "").trim(); return [`${x.channel}|${name}`, { key: `${x.channel}|${name}`, channel: x.channel, name }]; }).filter((x: any) => x[1].name)).values()].sort((a: any, b: any) => a.name.localeCompare(b.name));
+    // Campanha é filtro de MÍDIA. GA4 é a fonte independente de conversões/receita e
+    // nunca deve aparecer aqui nem ser removido quando uma campanha paga é selecionada.
+    const paidMedia = (media || []).filter((x: any) => String(x.channel || "").toLowerCase() !== "ga4");
+    const campaigns = [...new Map(paidMedia.map((x: any) => { const name = String(x.campaign || "").trim(); return [`${x.channel}|${name}`, { key: `${x.channel}|${name}`, channel: x.channel, name }]; }).filter((x: any) => x[1].name)).values()].sort((a: any, b: any) => a.name.localeCompare(b.name));
     const rdEvents = [...new Set((rd || []).map((x: any) => String(x.event_identifier || "").trim()).filter(Boolean))].sort();
-    return { campaigns, rdEvents };
+    return { campaigns, rdEvents, ga4Available: (media || []).some((x: any) => String(x.channel || "").toLowerCase() === "ga4") };
   }
   if (op === "snapshot") {
     const editionId = String(input.editionId || ""), since = String(input.since || ""), until = String(input.until || "");
     if (!editionId || !since || !until) throw new Error("Edição e período são obrigatórios.");
     let rows = await _sbAll("channel_metrics_daily", `client_id=eq.${encodeURIComponent(clientId)}&date=gte.${since}&date=lte.${until}&select=channel,source_medium,campaign,adset,ad_content,spend,impressions,clicks,reach,purchases,revenue,leads,conversas,video_views,engajamentos`);
     const selectedCampaigns = Array.isArray(input.campaigns) ? input.campaigns.map(String) : [];
-    if (selectedCampaigns.length) { const set = new Set(selectedCampaigns); rows = rows.filter((r: any) => set.has(`${r.channel}|${String(r.campaign || r.source_medium || "").trim()}`)); }
+    if (selectedCampaigns.length) { const set = new Set(selectedCampaigns); rows = rows.filter((r: any) => String(r.channel || "").toLowerCase() === "ga4" || set.has(`${r.channel}|${String(r.campaign || "").trim()}`)); }
     const empty = () => ({ spend: 0, impressions: 0, clicks: 0, reach: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, video_views: 0, engajamentos: 0 });
     const total: any = empty(), channels: Record<string, any> = {}, campaignMap: Record<string, any> = {};
     for (const r of rows || []) { const c = channels[r.channel] || (channels[r.channel] = empty()); for (const k of Object.keys(total)) { const v = Number(r[k]) || 0; c[k] += v; total[k] += v; }
       const ck = `${r.channel}|${r.campaign || r.source_medium || "(sem campanha)"}`; const cp = campaignMap[ck] || (campaignMap[ck] = { channel: r.channel, campaign: r.campaign || "", source_medium: r.source_medium || "", spend: 0, impressions: 0, clicks: 0, purchases: 0, revenue: 0, leads: 0, conversas: 0, video_views: 0 });
       for (const k of ["spend", "impressions", "clicks", "purchases", "revenue", "leads", "conversas", "video_views"]) cp[k] += Number(r[k]) || 0;
     }
+    // Evita somar a mesma venda no gerenciador e no Analytics. Mídia fornece entrega/custo;
+    // quando GA4 existe, ele é a fonte de verdade para vendas e faturamento do período.
+    const paidTotal: any = empty();
+    for (const [key, c] of Object.entries(channels)) if (String(key).toLowerCase() !== "ga4") for (const k of Object.keys(paidTotal)) paidTotal[k] += Number((c as any)[k]) || 0;
+    const ga4 = channels.ga4;
+    total.spend = paidTotal.spend; total.impressions = paidTotal.impressions; total.clicks = paidTotal.clicks; total.reach = paidTotal.reach;
+    total.leads = paidTotal.leads; total.conversas = paidTotal.conversas; total.video_views = paidTotal.video_views; total.engajamentos = paidTotal.engajamentos;
+    if (ga4 && (Number(ga4.purchases) || Number(ga4.revenue))) { total.purchases = Number(ga4.purchases) || 0; total.revenue = Number(ga4.revenue) || 0; }
     total.ctr = total.impressions ? total.clicks / total.impressions * 100 : 0; total.cpm = total.impressions ? total.spend / total.impressions * 1000 : 0; total.roas = total.spend ? total.revenue / total.spend : 0;
     Object.values(channels).forEach((c: any) => { c.ctr = c.impressions ? c.clicks / c.impressions * 100 : 0; c.cpm = c.impressions ? c.spend / c.impressions * 1000 : 0; c.roas = c.spend ? c.revenue / c.spend : 0; });
     let rd = await _sbAll("rd_conversions", `client_id=eq.${encodeURIComponent(clientId)}&converted_at=gte.${since}T00:00:00Z&converted_at=lte.${until}T23:59:59Z&select=event_identifier,source,medium,campaign`);
