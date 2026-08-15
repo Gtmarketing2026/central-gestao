@@ -105,17 +105,23 @@ async function callOpenAI(body: any) {
   const modelo = body.model || "gpt-4o-mini";
   const payload: any = { temperature: 0.6, max_tokens: 1000, ...body, model: p.mapa ? (p.mapa[modelo] || "gemini-3.5-flash") : modelo };
   delete payload._telemetry;
+  const maxOriginal = payload.max_tokens || 1000;
   if (p.mapa) { // Gemini gasta parte do orçamento "pensando" — dá folga e pede raciocínio curto pra resposta não vir truncada
-    payload.max_tokens = Math.max(1200, (payload.max_tokens || 1000) * 3);
+    payload.max_tokens = Math.max(1200, maxOriginal * 3);
     payload.reasoning_effort = "low";
   }
   const tentar = async (mod: string, prov = p) => {
-    const r = await fetch(prov.url, { method: "POST", headers: { "Authorization": `Bearer ${prov.key}`, "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, model: mod }) });
+    const corpo: any = { ...payload, model: mod };
+    // os ajustes acima sao do Gemini: a OpenAI rejeita reasoning_effort nos modelos comuns (400) e faria
+    // o plano B falhar calado, deixando o sistema sem IA mesmo com chave paga configurada.
+    if (!prov.mapa) { delete corpo.reasoning_effort; corpo.max_tokens = maxOriginal; }
+    const r = await fetch(prov.url, { method: "POST", headers: { "Authorization": `Bearer ${prov.key}`, "Content-Type": "application/json" }, body: JSON.stringify(corpo) });
     const j = await r.json();
     const jj = Array.isArray(j) ? j[0] : j;
     return { ok: r.ok && !jj?.error, json: jj, erro: jj?.error?.message || (r.ok ? "" : `HTTP ${r.status}`) };
   };
   let t = await tentar(payload.model);
+  let usado = p; // provedor que REALMENTE respondeu — é ele que vai pra telemetria de custo
   const semCota = (e: string) => /high demand|overload|unavailable|RESOURCE_EXHAUSTED|quota|503|429/i.test(e || "");
   // modelo sobrecarregado/limite: tenta os alternativos antes de desistir
   if (!t.ok && p.mapa && semCota(t.erro)) {
@@ -128,12 +134,12 @@ async function callOpenAI(body: any) {
   // para. Se houver chave da OpenAI configurada, ela assume em vez de devolver erro.
   if (!t.ok && p.mapa && semCota(t.erro)) {
     const alt = _iaProviderOpenAI();
-    if (alt) { const t2 = await tentar(modelo, alt); if (t2.ok) t = t2; }
+    if (alt) { const t2 = await tentar(modelo, alt); if (t2.ok) { t = t2; usado = alt; } }
   }
   if (!t.ok) throw new Error(_iaErroHumano(t.erro, p.nome));
   try {
     const u = t.json?.usage || {};
-    await sbPost("system_usage_events", { client_id: telemetry.clientId || null, service_key: p.nome.toLowerCase(), action: String(telemetry.action || "ai_request").slice(0, 80), input_units: Number(u.prompt_tokens || u.input_tokens || 0), output_units: Number(u.completion_tokens || u.output_tokens || 0), quantity: 1, meta: { model: t.json?.model || payload.model } });
+    await sbPost("system_usage_events", { client_id: telemetry.clientId || null, service_key: usado.nome.toLowerCase(), action: String(telemetry.action || "ai_request").slice(0, 80), input_units: Number(u.prompt_tokens || u.input_tokens || 0), output_units: Number(u.completion_tokens || u.output_tokens || 0), quantity: 1, meta: { model: t.json?.model || payload.model } });
   } catch (_e) { /* telemetria nunca interrompe a IA */ }
   return t.json;
 }
