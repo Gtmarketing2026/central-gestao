@@ -6732,7 +6732,9 @@ Deno.serve(async (req) => {
     if (body.dnaExtract) {
       let text = body.dnaExtract.text || "";
       if (!text && body.dnaExtract.url) text = await fetchUrlText(body.dnaExtract.url);
-      if (!text && body.dnaExtract.clientId) text = await _dnaGatherFromAccount(body.dnaExtract.clientId);
+      // coleta com problema (banco lento, conta fora do ar) nao pode virar 500 seco: cai na mensagem
+      // explicativa logo abaixo, que diz o que fazer.
+      if (!text && body.dnaExtract.clientId) text = await _dnaGatherFromAccount(body.dnaExtract.clientId).catch(() => "");
       if (!text || text.replace(/\s/g, "").length < 60) return new Response(JSON.stringify({ error: "Sem informação suficiente na conta pra montar o DNA. Preencha o site do cliente, tenha anúncios ativos, ou cole um material (PDF/texto)." }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const r = await extractDna(text, body.dnaExtract.direcionamento || "");
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

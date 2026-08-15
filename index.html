@@ -10804,7 +10804,7 @@ function dnaFonteHTML(){
   <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">${[['auto','🤖 Automático (conta)'],['pdf','PDF'],['site','Site / LP'],['texto','Texto']].map(([k,l])=>`<button type="button" class="btn sm ${st===k?'primary':'ghost'}" onclick="dnaSourceType='${k}';renderDnaBody()">${l}</button>`).join('')}</div>
   ${src}
   <div class="form-row"><label>Direcionamento (opcional)</label><textarea id="dnaDir" rows="2" placeholder="Ex: tom premium; foco na persona gestante; produto principal é o enxoval sob medida"></textarea></div>
-  <button type="button" class="btn primary" onclick="generateDna()">✨ Gerar DNA com IA</button>
+  <button type="button" class="btn primary" id="dnaGenBtn" onclick="generateDna()">✨ Gerar DNA com IA</button>
   <span id="dnaGenMsg" style="font-size:12px;color:var(--muted);margin-left:10px"></span>`;
 }
 async function generateDna(){
@@ -10819,7 +10819,7 @@ async function generateDna(){
     // Cronômetro na tela: em cliente com muita conta vinculada a montagem automática passa de 1 minuto
     // (na Curso Fernanda Pessoa: 64s). O texto antigo prometia "~20s" e dava a impressão de ter travado,
     // aí o gestor fechava a janela e perdia o DNA gerado.
-    const btn=document.querySelector('#dnaBody button.primary');if(btn){btn.disabled=true;btn.textContent='Gerando…'}
+    const btn=document.getElementById('dnaGenBtn');if(btn){btn.disabled=true;btn.textContent='Gerando…'}
     const t0=Date.now(),base=dnaSourceType==='auto'?'🤖 Juntando site + anúncios + termos e montando o DNA':'✨ A IA está montando o DNA';
     const tick=setInterval(()=>{msg.textContent=`${base}… ${Math.round((Date.now()-t0)/1000)}s (pode passar de 1 min — NÃO feche esta janela)`},1000);
     msg.textContent=base+'… (pode passar de 1 min — NÃO feche esta janela)';
@@ -10831,7 +10831,22 @@ async function generateDna(){
       dnaTab='identidade';renderDnaTabs();renderDnaBody();
       document.getElementById('dnaSaveMsg').textContent='✓ DNA gerado pela IA — revise as abas e clique em Salvar DNA (ele ainda NÃO está salvo).';
     }finally{clearInterval(tick);}
-  }catch(e){msg.textContent='Erro: '+(e.message||e);const b=document.querySelector('#dnaBody button.primary');if(b){b.disabled=false;b.textContent='✨ Gerar DNA com IA'}}
+  }catch(e){msg.textContent='Erro: '+(await fnErroDetalhe(e));const b=document.getElementById('dnaGenBtn');if(b){b.disabled=false;b.textContent='✨ Gerar DNA com IA'}}
+}
+// "Edge Function returned a non-2xx status code" não diz nada pra quem está usando: o motivo real vem no
+// corpo da resposta, que o supabase-js guarda em error.context.
+async function fnErroDetalhe(e){
+  try{
+    const ctx=e&&e.context;
+    if(ctx&&typeof ctx.text==='function'){
+      const t=await ctx.text();
+      let m=t;try{const j=JSON.parse(t);m=j.error||j.message||t}catch(_){}
+      if(ctx.status===504||/timeout/i.test(m||''))return 'a montagem passou do tempo limite do servidor. Tente de novo — se insistir, gere por Site/LP, PDF ou Texto.';
+      if(ctx.status>=500)return m?String(m).slice(0,220):`o servidor falhou (${ctx.status}). Costuma ser instabilidade momentânea — tente de novo em 1 minuto.`;
+      if(m)return String(m).slice(0,220);
+    }
+  }catch(_){}
+  return (e&&e.message)||String(e);
 }
 function dnaIdentidadeHTML(){const i=dnaDraft.identidade;
   const f=(lbl,key,rows)=>`<div class="form-row"><label>${lbl}</label>${rows?`<textarea rows="${rows}" oninput="dnaDraft.identidade.${key}=this.value">${dnaEsc(i[key])}</textarea>`:`<input value="${dnaAttr(i[key])}" oninput="dnaDraft.identidade.${key}=this.value">`}</div>`;
