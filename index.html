@@ -2370,6 +2370,8 @@ async function loadAll(){
   setFinSub(finSub);
   renderWhoAmI();loadNotifications();
   renderAll();setupRealtime();loadHealthCard();
+  negocioLembrete();                                   // avisa às 11h se a base de vendas ainda é de ontem
+  setInterval(negocioLembrete,30*60*1000);             // e confere de novo a cada 30 min com o sistema aberto
   setTimeout(showAlertsPopup, 600);
   setTimeout(checkBudgetAlerts, 1800); // tetos de investimento (cache 6h)
   setTimeout(checkAccountHealth, 2600); // saúde das contas de anúncio: banimento/restrição/cancelamento (cache 1h)
@@ -11123,6 +11125,46 @@ function setReportSub(v){
    Vem de client_business_snapshot: LTV, permanência, base de alunos e séries. É análise de NEGÓCIO, separada
    do operacional de mídia — por isso aba própria, e escondida pra quem não tem esse dado. */
 let _negocio=null,_negCharts={};
+/* ---- Lembrete diário de atualizar a base (11h) ----
+   A base de vendas é atualizada à mão, então o sistema não sabe sozinho quando ela mudou. A partir das 11h,
+   se o retrato ainda for de ontem (ou mais velho), lembra uma vez por dia. Some assim que a base é atualizada. */
+const NEG_HORA_LEMBRETE=11;
+async function negocioLembrete(){
+  try{
+    const hoje=today();
+    if(localStorage.getItem('negLembreteVisto')===hoje)return;      // já avisou (ou foi dispensado) hoje
+    if(new Date().getHours()<NEG_HORA_LEMBRETE)return;
+    const {data}=await sb.from('client_business_snapshot').select('client_id,gerado_em').order('gerado_em',{ascending:true});
+    const pend=(data||[]).filter(x=>String(x.gerado_em||'').slice(0,10)<hoje);
+    if(!pend.length)return;
+    const nomes=pend.map(x=>(DB.clients.find(c=>c.id===x.client_id)||{}).name||x.client_id);
+    const dias=Math.max(0,Math.round((new Date(hoje)-new Date(String(pend[0].gerado_em).slice(0,10)))/864e5));
+    let ov=document.getElementById('negLembreteModal');
+    if(!ov){ov=document.createElement('div');ov.id='negLembreteModal';ov.className='modal-bg';document.body.appendChild(ov);}
+    ov.classList.add('open');
+    ov.innerHTML=`<div class="modal" style="max-width:520px">
+      <h3 style="margin:0 0 6px">⏰ Atualizar a base de vendas</h3>
+      <div class="hint" style="margin-bottom:14px">A base de ${nomes.map(n=>`<b>${String(n).replace(/</g,'&lt;')}</b>`).join(', ')} está com o retrato de ${dias===1?'ontem':`${dias} dias atrás`}. Depois de atualizar a planilha no Excel, suba o arquivo pra o painel acompanhar.</div>
+      <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--muted);line-height:1.6">
+        1. Confirme que a planilha do OneDrive já sincronizou<br>
+        2. Clique em <b>Atualizar base de vendas</b> na aba Negócio<br>
+        3. Escolha o arquivo — leva 1 a 2 minutos
+      </div>
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="negocioLembreteFechar(false)">Deixar pra depois</button>
+        <button class="btn primary" onclick="negocioLembreteFechar(true)">Ir para a base agora</button>
+      </div></div>`;
+  }catch(e){/* lembrete nunca pode atrapalhar o uso do sistema */}
+}
+function negocioLembreteFechar(ir){
+  localStorage.setItem('negLembreteVisto',today());
+  const ov=document.getElementById('negLembreteModal');if(ov)ov.classList.remove('open');
+  if(ir){
+    const alvo=(DB.clients.find(c=>c.name&&/fernanda/i.test(c.name))||{}).id;
+    if(alvo&&!activeClientId)selectSidebarClient(alvo);
+    goToTab('relatorios');setTimeout(()=>{setReportSub('negocio');const b=document.getElementById('negUpFile');if(b)b.click();},400);
+  }
+}
 /* ---- Subir a base de vendas (.xlsx) pela tela ----
    O arquivo tem ~50MB e 435 mil linhas: o navegador lê e resume AQUI, e só o retrato (poucos KB) vai pro banco.
    Subir o arquivo inteiro estouraria o tempo da função no servidor. Enquanto não houver integração com a
