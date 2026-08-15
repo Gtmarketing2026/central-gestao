@@ -3726,12 +3726,44 @@ const WA_TABLES: Record<string, string> = {
   wallet: "carteira (client, type, description, val, date)",
   checkout_events: "checkouts (client_id, event_date)",
   notifications: "notificações internas da equipe (to_team, task_name, comment_text, read, type, created_at)",
+  // Aberto em 15/08: a AndréIA enxergava só 15 tabelas e ficava sem resposta sobre metade do sistema.
+  // Fora daqui ficam SÓ credenciais e controle de acesso (secure_credentials, app_users, app_access_audit,
+  // security_events, account_config) — dado de negócio ela vê tudo.
+  team: "equipe da agência (id, name) — use pra resolver o responsável de tarefas",
+  shows: "shows/eventos vendidos (client, name, date, val, status, payments jsonb) — aba Shows",
+  event_projects: "projetos de evento/lançamento (client_id, nome, status)",
+  event_editions: "edições de um evento (project_id, nome, data_inicio, data_fim, janela do evento)",
+  event_snapshots: "números consolidados por edição de evento (edition_id, dados jsonb)",
+  sales_snapshots: "venda consolidada por período/janela (client_id, date, revenue, orders) — aba Vendas",
+  channel_metrics_daily: "métricas por canal e por DIA (client_id, channel=meta|google|ga4, date, spend, impressions, clicks, purchases, revenue, leads, campaign, adset, ad_content) — histórico do banco de mídia",
+  calendar_events: "reuniões do Google Agenda já sincronizadas (client_id, title, start_at, end_at)",
+  briefing: "briefings criativos (client_id, status, objetivo, funil, canais, created_at)",
+  briefing_analise: "etapa 1 do briefing: leitura de performance (briefing_id, leitura, funis_json, padroes_json)",
+  briefing_curadoria: "etapa 2: curadoria do orgânico que pode virar recorte (briefing_id, candidatos jsonb)",
+  briefing_ficha: "etapa 3: fichas de criativo pra produção (briefing_id, titulo, roteiro, formato, status)",
+  crm_capa_audits: "auditorias de Qualidade do Atendimento (client_id, stage, audited, average_score, aggregate jsonb, created_at)",
+  crm_capa_cases: "casos avaliados na Qualidade do Atendimento (audit_id, conversation_id, score, diagnosis, break_point, recommended_message)",
+  raiox: "Diagnóstico (Raio-X) salvo por cliente (client_id, since, until, data jsonb, generated_at)",
+  lead_people: "pessoas/leads identificados na jornada (client_id, nome, email, telefone, first_seen, last_seen)",
+  lead_touchpoints: "toques da jornada do lead: cada clique/visita/conversa até a venda (client_id, person_id, channel, source, campaign, ad, occurred_at, kind)",
+  wa_journey: "log auditável de mudança de etapa no CRM (conversation_id, de, para, motivo, evidencia, quem, created_at)",
+  journey_quality_events: "eventos de qualidade da jornada (client_id, tipo, detalhe, created_at)",
+  creative_miner_items: "garimpo de criativos (client_id, plataforma, titulo, url, status)",
+  report_templates: "modelos de relatório (id, name, objectiveType, metrics jsonb)",
+  report_layouts: "layouts de relatório por cliente (client_id, layout jsonb)",
+  agent_knowledge: "materiais de conhecimento do cliente que a AndréIA usa (client_id, title, content)",
+  andreia_memory: "memória da AndréIA (client_id, tema, conteudo, created_at)",
+  andreia_automations: "avisos automáticos configurados no grupo do WhatsApp (titulo, tipo, hora, enabled, last_run)",
+  wa_instances: "instâncias de WhatsApp conectadas (client_id, name, phone, status, connected_at) — pra saber se o WhatsApp do cliente está no ar",
+  system_usage_events: "consumo do sistema por serviço (service_key, action, input_units, output_units, occurred_at) — custo de IA e APIs",
+  system_cost_services: "catálogo de custo dos serviços (service_key, nome, preço)",
 };
 const WA_TOOLS = [
   { type: "function", function: { name: "consultar_banco", description: "Consulta SOMENTE LEITURA de qualquer tabela do sistema pra buscar dados reais (cliente, financeiro, tarefas, conversas do CRM, RD, pedidos etc). SEMPRE use antes de responder sobre dados guardados.", parameters: { type: "object", properties: { tabela: { type: "string", enum: Object.keys(WA_TABLES) }, colunas: { type: "string", description: "colunas separadas por vírgula ou '*'" }, filtro: { type: "string", description: "filtro no formato PostgREST, ex: 'client=eq.<id>&status=eq.pendente'; datas: 'due=gte.2026-07-01&due=lte.2026-07-31'; texto: 'description=ilike.*fee*'. Vazio = sem filtro." }, ordenar: { type: "string", description: "ex: 'created_at.desc' ou 'due.asc'" }, limite: { type: "integer" } }, required: ["tabela"] } } },
   { type: "function", function: { name: "meta_insights", description: "Métricas de Meta Ads AO VIVO de UM cliente no período. Retorna consolidado + campanhas (KPIs pelo objetivo). Use nivel='campanha' (PADRÃO) pro resumo; só use nivel='conjunto' ou 'anuncio' quando pedirem EXPLICITAMENTE pra detalhar conjuntos/anúncios de uma campanha.", parameters: { type: "object", properties: { cliente: { type: "string", description: "nome do cliente" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" }, nivel: { type: "string", enum: ["campanha", "conjunto", "anuncio"], description: "profundidade do detalhamento. PADRÃO 'campanha'. Só desça se o usuário pedir." } }, required: ["cliente"] } } },
   { type: "function", function: { name: "google_insights", description: "Métricas de Google Ads AO VIVO de UM cliente no período.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "meta_saldo", description: "Saldo pré-pago (pix/boleto) restante nas contas de anúncio Meta Ads de UM cliente. Use quando pedirem 'saldo', 'saldo restante', 'saldo da carteira' ou similar.", parameters: { type: "object", properties: { cliente: { type: "string" } }, required: ["cliente"] } } },
+  { type: "function", function: { name: "instagram_organico", description: "Posts do INSTAGRAM ORGÂNICO de UM cliente (aba Social), já ranqueados do melhor pro pior por engajamento e alcance, com legenda, formato (reel/carrossel/imagem), data, link e métricas. USE quando pedirem curadoria/seleção dos MELHORES CRIATIVOS ou POSTS, o que performou no feed, ideias do que impulsionar, melhor formato ou melhor dia de publicação. É o conteúdo do PERFIL (orgânico) — não confunda com anúncio, que vem de meta_insights.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer", description: "30, 60 ou 90 (padrão 90)" }, quantidade: { type: "integer", description: "quantos posts trazer no ranking (padrão 10)" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "google_keywords", description: "Palavras-chave e termos de busca do Google Ads de UM cliente no período (por palavra: gasto, cliques, conversões, CPC). USE isto quando perguntarem 'como está cada palavra-chave', keywords, termos de busca ou o que as pessoas pesquisaram.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" } }, required: ["cliente"] } } },
   { type: "function", function: { name: "resumo_todos_clientes", description: "Resumo de TODOS os clientes no período (gasto + métrica do objetivo, Meta/Google separados). Use quando pedirem panorama/todos os clientes.", parameters: { type: "object", properties: { dias: { type: "integer" } } } } },
   { type: "function", function: { name: "relatorio_cliente", description: "Gera um RELATÓRIO VISUAL e limpo de UM cliente PRONTO PRA ENVIAR AO CLIENTE (investimento, resultados pelo objetivo, alcance e uma análise). Use quando pedirem 'relatório do [cliente]', 'manda o relatório pro cliente', 'relatório pra enviar'. Envie o campo 'relatorio' EXATAMENTE como vier.", parameters: { type: "object", properties: { cliente: { type: "string" }, dias: { type: "integer", description: "7, 30 ou 90 (padrão 7)" } }, required: ["cliente"] } } },
@@ -4873,6 +4905,38 @@ async function waExecTool(name: string, args: any, clients: any[]) {
   if (name === "resumo_todos_clientes") { const msgs = await waAgentAllClientsSummary(Number(args.dias) || 7); return { texto: msgs.join("\n\n") }; }
   if (name === "meta_insights") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const r = await waMetaResumo(c.id, Number(args.dias) || 7, args.nivel || "campanha"); return { _cid: c.id, ...r }; }
   if (name === "meta_saldo") { const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" }; const r = await waMetaSaldo(c.id); return { _cid: c.id, ...r }; }
+  // Curadoria dos melhores posts do perfil (aba Social). A AndréIA não enxergava o orgânico: perguntavam
+  // "quais os melhores criativos" e ela só tinha dado de anúncio pago pra responder.
+  if (name === "instagram_organico") {
+    const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" };
+    const dias = Number(args.dias) || 90, qtd = Math.min(25, Math.max(3, Number(args.quantidade) || 10));
+    const r: any = await instagramOrganicContent({ clientId: c.id, days: dias }).catch((e: any) => ({ erro: String(e?.message || e) }));
+    if (r && r.erro) return { cliente: c.name, dias, erro: r.erro };
+    const posts = (r.posts || []).filter((p: any) => p.eng != null || p.reach);
+    if (!posts.length) return { cliente: c.name, dias, aviso: "sem posts orgânicos no período (ou o Instagram deste cliente não está conectado na Configuração do Cliente)" };
+    const fmt = (p: any) => p.tipo === "VIDEO" ? "reel/vídeo" : p.tipo === "CAROUSEL_ALBUM" ? "carrossel" : "imagem";
+    const medEng = +(posts.reduce((s: number, p: any) => s + (p.eng || 0), 0) / posts.length).toFixed(2);
+    // melhor formato e melhor dia da semana: é o que embasa a recomendação de "o que impulsionar/repetir"
+    const porFormato: Record<string, { n: number; eng: number }> = {}, porDia: Record<string, { n: number; eng: number }> = {};
+    const DIAS = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+    for (const p of posts) {
+      const f = fmt(p); (porFormato[f] ||= { n: 0, eng: 0 }); porFormato[f].n++; porFormato[f].eng += p.eng || 0;
+      const d = DIAS[new Date(p.data).getDay()]; (porDia[d] ||= { n: 0, eng: 0 }); porDia[d].n++; porDia[d].eng += p.eng || 0;
+    }
+    const media = (o: Record<string, { n: number; eng: number }>) => Object.entries(o).map(([k, v]) => ({ chave: k, posts: v.n, engMedio: +(v.eng / v.n).toFixed(2) })).sort((a, b) => b.engMedio - a.engMedio);
+    return {
+      _cid: c.id, cliente: c.name, perfis: r.perfis, dias, totalPosts: posts.length, engajamentoMedioPct: medEng,
+      nota: "ranking do ORGÂNICO (perfil), do melhor pro pior por engajamento. eng% = (curtidas+comentários+salvamentos+compartilhamentos) ÷ alcance. 'destaque' marca quem passou de 1,5x a média do período.",
+      porFormato: media(porFormato), porDiaDaSemana: media(porDia),
+      melhores: posts.slice(0, qtd).map((p: any, i: number) => ({
+        posicao: i + 1, formato: fmt(p), data: String(p.data || "").slice(0, 10), engPct: p.eng, alcance: p.reach,
+        curtidas: p.likes, comentarios: p.comments, salvamentos: p.saved, compartilhamentos: p.shares, views: p.views,
+        destaque: !!(p.eng && medEng && p.eng >= medEng * 1.5), link: p.permalink,
+        legenda: String(p.caption || "").replace(/\s+/g, " ").slice(0, 220),
+      })),
+      erros: r.erros && r.erros.length ? r.erros : undefined,
+    };
+  }
   if (name === "google_insights") {
     const c = _waResolveClient(args.cliente, clients); if (!c) return { erro: "cliente não encontrado" };
     const gIds = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean); if (!gIds.length) return { cliente: c.name, aviso: "cliente sem Google Ads vinculado" };
