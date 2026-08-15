@@ -8609,7 +8609,9 @@ function renderClients(){
     const saldo=c.usesBalance?calcBalance(c.id):null;
     const balanceTxt=saldo!==null?`<div style="font-weight:700;color:${saldo>=0?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div><button class="btn sm ghost" style="margin-top:4px;font-size:11px" onclick="openWalletModal('${c.id}')">💰 Movimentar</button>`:'—';
     const reportBtn=c.reportSheetUrl?`<button class="btn sm ghost" onclick="selectReportClient('${c.id}')" title="Ver relatório de anúncios">📊 Relatório</button>`:'';
-    return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td class="row-actions">${reportBtn}${cfgMenuBtn(c.id)}<button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
+    // pausar/reativar em 1 clique: cliente parado nao precisa passar pelo modal de edicao inteiro
+    const pauseBtn=c.status==='Encerrado'?'':`<button class="btn sm ghost" title="${c.status==='Pausado'?'Reativar cliente':'Pausar cliente'}" onclick="toggleClientPause('${c.id}')">${c.status==='Pausado'?'▶':'⏸'}</button>`;
+    return`<tr><td><strong>${c.name}</strong> ${tempBadge(c.temp)}${c.notes?`<br><span style="font-size:11px;color:var(--faint)">${c.notes}</span>`:''}</td><td style="color:var(--muted)">${c.plat||'—'}</td><td><span class="pill ${sp}">${c.status}</span></td><td><span class="pill ${catP}">${catL}</span></td><td><span class="pill ${bp}">${bl}</span></td><td>${valTxt}</td><td>${budgetTxt}</td><td>${balanceTxt}</td><td class="row-actions">${reportBtn}${pauseBtn}${cfgMenuBtn(c.id)}<button class="btn sm ghost danger" onclick="delClient('${c.id}')">✕</button></td></tr>`;
   }).join('')+'</tbody>'+archFoot;
 }
 function showPays(s){if(s.payments&&s.payments.length)return s.payments;return [{id:s.id+'_p',date:s.date,val:s.val,status:s.status||'pendente',_virtual:1}]}
@@ -9467,6 +9469,21 @@ async function _maybeDeleteClientTasks(clientId,clientName){
   if(!confirm(`Existem ${tarefas.length} tarefa(s) vinculada(s) a "${clientName}".\n\nDeseja excluir todas as tarefas deste cliente também?`))return;
   await sb.from('tasks').delete().eq('client',clientId);
   DB.tasks=DB.tasks.filter(t=>t.client!==clientId);
+}
+// Pausar/reativar direto na lista. Só mexe na coluna status — nenhum outro dado do cliente é tocado.
+async function toggleClientPause(id){
+  const c=DB.clients.find(x=>x.id===id);if(!c)return;
+  const pausar=c.status!=='Pausado';
+  const msg=pausar
+    ?`Pausar "${c.name}"?\n\nEle sai da conta de clientes ativos (MRR, cobrança automática do mês, alertas e relatórios) e fica na lista com o selo Pausado. Dá pra reativar a qualquer momento neste mesmo botão.`
+    :`Reativar "${c.name}"?\n\nEle volta a contar como cliente ativo.`;
+  if(!confirm(msg))return;
+  if(pausar)await _maybeDeleteClientTasks(id,c.name);
+  const st=pausar?'Pausado':'Ativo';
+  const {error}=await sb.from('clients').update({status:st}).eq('id',id);
+  if(error){alert('Não consegui salvar o status: '+error.message);return}
+  c.status=st;
+  renderAll();
 }
 async function delClient(id){
   const c=DB.clients.find(x=>x.id===id);

@@ -6209,7 +6209,9 @@ async function systemHealthTick() {
   else if (errs >= 30) checks.push({ key: `http:volume:${hoje}`, sev: "media", msg: `${errs} chamadas internas com erro nas últimas 24h (${(snap.http_erros_24h || []).map((e: any) => `HTTP ${e.status}: ${e.qtd}`).join(", ")})` });
   for (const c of (snap.sync_canais || [])) if (c.ultima_data && c.ultima_data < ontem) checks.push({ key: `sync:${c.canal}`, sev: "media", msg: `Canal ${c.canal} sem dado novo desde ${c.ultima_data} (a sincronização diária pode estar falhando)` });
   const paradas = snap.contas_midia_paradas || [];
-  if (paradas.length) checks.push({ key: `midia:paradas`, sev: "baixa", msg: `${paradas.length} conta(s) de mídia sem dado novo há 3+ dias (pode ser pausa proposital): ${paradas.slice(0, 6).map((p: any) => `${p.cliente} (${p.plataforma}, ${p.ultima_data})`).join("; ")}${paradas.length > 6 ? "…" : ""}` });
+  // so entram contas que investiram nos ultimos 30 dias (filtro no system_health_snapshot): conta
+  // encerrada ha meses nunca mais tem dado novo e ficava listada pra sempre.
+  if (paradas.length) checks.push({ key: `midia:paradas`, sev: "baixa", msg: `${paradas.length} conta(s) de mídia que estavam rodando sem dado novo há 3+ dias (pode ser pausa proposital): ${paradas.slice(0, 6).map((p: any) => `${p.cliente} (${p.plataforma}, último dado ${p.ultima_data}, ${_fmtR(Number(p.gasto_30d) || 0)} em 30d)`).join("; ")}${paradas.length > 6 ? "…" : ""}` });
   for (const s of (snap.seguranca_eventos_24h || [])) if (s.tipo === "unauthorized_internal_route" && s.qtd > 0) checks.push({ key: `sec:unauthorized`, sev: "media", msg: `${s.qtd} tentativa(s) de acesso a rota interna sem credencial nas últimas 24h` });
   // problemas da auditoria de seguranca do banco (ja rodada as 05:00) entram no mesmo painel
   const cfg = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
