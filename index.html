@@ -10815,14 +10815,22 @@ async function generateDna(){
     else if(dnaSourceType==='site'){url=((document.getElementById('dnaUrl')||{}).value||'').trim();if(!url){msg.textContent='Informe a URL.';return}}
     else if(dnaSourceType==='auto'){}
     else{text=((document.getElementById('dnaText')||{}).value||'').trim();if(!text){msg.textContent='Cole o texto.';return}}
-    msg.textContent=dnaSourceType==='auto'?'🤖 Juntando site + anúncios + termos e montando o DNA (~20s)...':'✨ A IA está montando o DNA (pode levar ~15s)...';
-    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{dnaExtract:{text,url,direcionamento:dir,clientId:dnaSourceType==='auto'?dnaClientId:null}}});
-    if(error)throw error;
-    if(data&&data.error)throw new Error(data.error);
-    dnaDraft=normalizeDna((data&&data.data)||data);
-    dnaTab='identidade';renderDnaTabs();renderDnaBody();
-    document.getElementById('dnaSaveMsg').textContent='✓ DNA gerado pela IA — revise as abas e clique em Salvar DNA.';
-  }catch(e){msg.textContent='Erro: '+(e.message||e);}
+    // Cronômetro na tela: em cliente com muita conta vinculada a montagem automática passa de 1 minuto
+    // (na Curso Fernanda Pessoa: 64s). O texto antigo prometia "~20s" e dava a impressão de ter travado,
+    // aí o gestor fechava a janela e perdia o DNA gerado.
+    const btn=document.querySelector('#dnaBody button.primary');if(btn){btn.disabled=true;btn.textContent='Gerando…'}
+    const t0=Date.now(),base=dnaSourceType==='auto'?'🤖 Juntando site + anúncios + termos e montando o DNA':'✨ A IA está montando o DNA';
+    const tick=setInterval(()=>{msg.textContent=`${base}… ${Math.round((Date.now()-t0)/1000)}s (pode passar de 1 min — NÃO feche esta janela)`},1000);
+    msg.textContent=base+'… (pode passar de 1 min — NÃO feche esta janela)';
+    try{
+      const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{dnaExtract:{text,url,direcionamento:dir,clientId:dnaSourceType==='auto'?dnaClientId:null}}});
+      if(error)throw error;
+      if(data&&data.error)throw new Error(data.error);
+      dnaDraft=normalizeDna((data&&data.data)||data);
+      dnaTab='identidade';renderDnaTabs();renderDnaBody();
+      document.getElementById('dnaSaveMsg').textContent='✓ DNA gerado pela IA — revise as abas e clique em Salvar DNA (ele ainda NÃO está salvo).';
+    }finally{clearInterval(tick);}
+  }catch(e){msg.textContent='Erro: '+(e.message||e);const b=document.querySelector('#dnaBody button.primary');if(b){b.disabled=false;b.textContent='✨ Gerar DNA com IA'}}
 }
 function dnaIdentidadeHTML(){const i=dnaDraft.identidade;
   const f=(lbl,key,rows)=>`<div class="form-row"><label>${lbl}</label>${rows?`<textarea rows="${rows}" oninput="dnaDraft.identidade.${key}=this.value">${dnaEsc(i[key])}</textarea>`:`<input value="${dnaAttr(i[key])}" oninput="dnaDraft.identidade.${key}=this.value">`}</div>`;
