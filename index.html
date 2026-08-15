@@ -10875,7 +10875,7 @@ function dnaLongList(arr,path,add){return (arr||[]).map((v,i)=>`<div style="disp
 function dnaChips(arr,path){return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">${(arr||[]).map((v,i)=>`<span style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 10px;font-size:12px">${dnaEsc(v)} <span style="cursor:pointer;color:var(--faint)" onclick="${path}.splice(${i},1);renderDnaBody()">×</span></span>`).join('')}</div><input placeholder="Digite e tecle Enter" onkeydown="if(event.key==='Enter'){event.preventDefault();const v=this.value.trim();if(v){${path}.push(v);renderDnaBody()}}">`;}
 function dnaFonteHTML(){
   const st=dnaSourceType;
-  const src=st==='auto'?`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--muted)">🤖 A IA monta o DNA sozinha com o que já temos da conta do cliente: <b>site</b> (se cadastrado), <b>copy dos anúncios do Meta</b> e <b>termos de busca do Google</b>. Depois você complementa/ajusta na mão ou pela aba Refinar. Se não houver info suficiente, ela avisa.</div>`
+  const src=st==='auto'?`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--muted)">🤖 A IA monta o DNA sozinha com tudo que já temos do cliente: <b>site</b>, <b>posts do Instagram</b> (a voz da marca no orgânico), <b>copy dos anúncios do Meta</b>, <b>perguntas reais de leads no WhatsApp</b> (viram as objeções), <b>termos de busca do Google Ads</b> e <b>buscas do Search Console</b>. Usa só os canais que o cliente tiver. Depois você complementa/ajusta na mão ou pela aba Refinar.</div>`
     :st==='pdf'?`<div class="form-row"><input type="file" accept="application/pdf" id="dnaPdf"><div style="font-size:11px;color:var(--faint);margin-top:4px">PDF: briefing, questionário ou material institucional (máx 10MB)</div></div>`
     :st==='site'?`<div class="form-row"><label>URL do site / landing page</label><input id="dnaUrl" placeholder="https://..."></div>`
     :`<div class="form-row"><label>Cole o texto</label><textarea id="dnaText" rows="7" placeholder="Cole aqui o briefing, questionário ou material do cliente..."></textarea></div>`;
@@ -10907,9 +10907,11 @@ async function generateDna(){
       const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{dnaExtract:{text,url,direcionamento:dir,clientId:dnaSourceType==='auto'?dnaClientId:null}}});
       if(error)throw error;
       if(data&&data.error)throw new Error(data.error);
-      dnaDraft=normalizeDna((data&&data.data)||data);
+      const bruto=(data&&data.data)||data;
+      dnaDraft=normalizeDna(bruto);
       dnaTab='identidade';renderDnaTabs();renderDnaBody();
-      document.getElementById('dnaSaveMsg').textContent='✓ DNA gerado pela IA — revise as abas e clique em Salvar DNA (ele ainda NÃO está salvo).';
+      const fontes=(bruto&&bruto._fontes)||[];
+      document.getElementById('dnaSaveMsg').textContent='✓ DNA gerado pela IA'+(fontes.length?' com '+fontes.join(', '):'')+' — revise as abas e clique em Salvar DNA (ele ainda NÃO está salvo).';
     }finally{clearInterval(tick);}
   }catch(e){msg.textContent='Erro: '+(await fnErroDetalhe(e));const b=document.getElementById('dnaGenBtn');if(b){b.disabled=false;b.textContent='✨ Gerar DNA com IA'}}
 }

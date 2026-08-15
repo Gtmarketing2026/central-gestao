@@ -2676,7 +2676,7 @@ function _comLimite<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 // (Curso Fernanda Pessoa: 7 contas Meta + a maior conta Google) isso somava ~90s e, com o modelo em cima,
 // estourava o teto de 150s da Edge Function (504). Agora tudo em paralelo e com teto por fonte.
 async function _dnaGatherFromAccount(clientId: string): Promise<string> {
-  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,seg,site_url,meta_account_id,google_account_id`))[0];
+  const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,seg,site_url,meta_account_id,google_account_id,gsc_site_url`))[0];
   if (!c) return "";
   const accs = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean).slice(0, 3);
   const gAccs = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
@@ -2697,17 +2697,52 @@ async function _dnaGatherFromAccount(clientId: string): Promise<string> {
     const br: any = await googleBreakdowns({ accounts: gAccs.map((id: string) => ({ id })), since, until });
     return ((br && br.termos) || []).slice(0, 40).map((t: any) => t.key);
   };
-  const [site, copies, termos] = await Promise.all([
+  // Instagram orgânico: as legendas dos posts são a fonte mais fiel do jeito que a marca fala no dia a dia
+  // (o anúncio é escrito pela agência; o feed é a voz do cliente).
+  const instaLegendas = async () => {
+    const r = await fetch(`${_SB_URL}/rest/v1/dim_conteudo_organico?select=legenda,publicado_em,dim_conta!inner(client_id)&dim_conta.client_id=eq.${encodeURIComponent(clientId)}&order=publicado_em.desc&limit=60`, {
+      headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Accept-Profile": "midia" },
+    });
+    if (!r.ok) return [] as string[];
+    return ((await r.json()) || []).map((x: any) => String(x.legenda || "").trim()).filter((t: string) => t.length > 25);
+  };
+  // Perguntas reais dos leads no WhatsApp: é de onde saem as objeções de verdade, com as palavras deles.
+  // Só mensagens RECEBIDAS e já mascaradas (telefone/e-mail/documento) — mesma máscara usada nas análises do CRM.
+  const perguntasLeads = async () => {
+    const convs = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&select=id,name&order=last_at.desc&limit=40`);
+    if (!convs.length) return [] as string[];
+    const ids = convs.map((x: any) => x.id).slice(0, 40);
+    const msgs = await sbGet("wa_messages", `conversation_id=in.(${ids.map((x: string) => encodeURIComponent(x)).join(",")})&direction=eq.in&select=text&order=ts.desc&limit=200`);
+    const nomes = convs.map((x: any) => x.name || "");
+    const vistos = new Set<string>();
+    return (msgs || []).map((m: any) => _crmAiMaskText(m.text, nomes).trim())
+      .filter((t: string) => { if (t.length < 15 || t.length > 300 || vistos.has(t)) return false; vistos.add(t); return true; }).slice(0, 45);
+  };
+  const gscTermos = async () => {
+    const until = new Date().toISOString().slice(0, 10), since = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+    const g: any = await gscReport({ siteUrl: c.gsc_site_url, since, until });
+    return ((g && g.termos) || []).slice(0, 30).map((t: any) => t.chave).filter(Boolean);
+  };
+  const [site, copies, termos, legendas, perguntas, buscas] = await Promise.all([
     c.site_url ? _comLimite(fetchUrlText(c.site_url), 25000, "") : Promise.resolve(""),
     (token && accs.length) ? _comLimite(metaCopies(), 35000, [] as string[]) : Promise.resolve([] as string[]),
     gAccs.length ? _comLimite(googleTermos(), 35000, [] as string[]) : Promise.resolve([] as string[]),
+    _comLimite(instaLegendas(), 20000, [] as string[]),
+    _comLimite(perguntasLeads(), 20000, [] as string[]),
+    c.gsc_site_url ? _comLimite(gscTermos(), 25000, [] as string[]) : Promise.resolve([] as string[]),
   ]);
   const parts: string[] = [`Negócio: ${c.name}. Segmento: ${c.seg || "-"}.`];
-  if (site) parts.push("=== SITE DO CLIENTE ===\n" + site.slice(0, 6000));
-  if (copies.length) parts.push("=== COPY DOS ANÚNCIOS (Meta) ===\n" + copies.slice(0, 70).join("\n"));
-  if (termos.length) parts.push("=== TERMOS DE BUSCA (Google) ===\n" + termos.join(", "));
+  const fontes: string[] = [];
+  if (site) { parts.push("=== SITE DO CLIENTE ===\n" + site.slice(0, 6000)); fontes.push("site"); }
+  if (legendas.length) { parts.push("=== POSTS DO INSTAGRAM (voz da marca no orgânico) ===\n" + legendas.join("\n---\n").slice(0, 7000)); fontes.push(`${legendas.length} posts do Instagram`); }
+  if (copies.length) { parts.push("=== COPY DOS ANÚNCIOS (Meta) ===\n" + copies.slice(0, 70).join("\n")); fontes.push(`${Math.min(copies.length, 70)} copies do Meta`); }
+  if (perguntas.length) { parts.push("=== PERGUNTAS/DÚVIDAS REAIS DE LEADS NO WHATSAPP (use pra objeções, nas palavras deles) ===\n" + perguntas.join("\n").slice(0, 4000)); fontes.push(`${perguntas.length} perguntas de leads no WhatsApp`); }
+  if (termos.length) { parts.push("=== TERMOS DE BUSCA (Google Ads) ===\n" + termos.join(", ")); fontes.push(`${termos.length} termos do Google Ads`); }
+  if (buscas.length) { parts.push("=== BUSCAS QUE LEVAM AO SITE (Search Console) ===\n" + buscas.join(", ")); fontes.push(`${buscas.length} buscas do Search Console`); }
+  _dnaFontes = fontes; // devolvido junto com o DNA pra tela mostrar de onde a IA tirou
   return parts.join("\n\n");
 }
+let _dnaFontes: string[] = [];
 async function siteAudit(m: any) {
   const url = String(m.url || "").trim();
   if (!url) throw new Error("url obrigatória");
@@ -6787,6 +6822,7 @@ Deno.serve(async (req) => {
       if (!text && body.dnaExtract.clientId) text = await _dnaGatherFromAccount(body.dnaExtract.clientId).catch(() => "");
       if (!text || text.replace(/\s/g, "").length < 60) return new Response(JSON.stringify({ error: "Sem informação suficiente na conta pra montar o DNA. Preencha o site do cliente, tenha anúncios ativos, ou cole um material (PDF/texto)." }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const r = await extractDna(text, body.dnaExtract.direcionamento || "");
+      if (body.dnaExtract.clientId && _dnaFontes.length) r._fontes = _dnaFontes;
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.dnaRefine) {
