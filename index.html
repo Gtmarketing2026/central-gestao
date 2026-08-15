@@ -373,6 +373,9 @@
   .evt-ai-strip{border:1px solid rgba(168,85,247,.35);border-left:4px solid #a855f7;background:linear-gradient(135deg,rgba(168,85,247,.09),rgba(17,19,29,.96));border-radius:11px;padding:14px 16px;color:#d9dcf0;font-size:12px;line-height:1.55;margin-bottom:16px}
   .evt-empty-source{color:#7f89ad;font-style:italic}
   .evt-creative-toolbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:10px 0 16px}.evt-creative-toolbar .btn.active{color:#fff;border-color:#a855f7;background:rgba(168,85,247,.15)}
+  /* uma linha por grupo de filtro (objetivo, destaque, campanha, conjunto, ordenação) */
+  .evt-creative-filtro{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .evt-creative-filtro-lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:800;min-width:74px}
   .evt-creative-grid{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:13px}
   .evt-creative-card{background:#11131d;border:1px solid #2a3044;border-radius:13px;overflow:hidden;display:flex;flex-direction:column;min-width:0;transition:.18s ease}.evt-creative-card:hover{transform:translateY(-2px);border-color:rgba(168,85,247,.65);box-shadow:0 15px 32px rgba(0,0,0,.3)}
   .evt-creative-thumb{width:100%;aspect-ratio:4/5;object-fit:cover;background:#171925;display:block}.evt-creative-no-thumb{width:100%;aspect-ratio:4/5;background:linear-gradient(145deg,#1b1d2a,#10111a);display:flex;align-items:center;justify-content:center;text-align:center;color:#707999;font-size:11px;padding:18px}
@@ -10526,6 +10529,8 @@ function _evtGa4OriginsHTML(m){const rows=((m||{}).campaigns||[]).filter(x=>Stri
 const EVT_CHANNEL_LABELS={meta:'Meta Ads',google:'Google / YouTube',ga4:'Google Analytics',tiktok:'TikTok Ads',pinterest:'Pinterest Ads'};
 let _evtSection='overview';
 let _evtChannelFilter=[],_evtCreatives=[],_evtCreativeSort='all',_evtCreativeCacheKey='',_evtCreativeLoading=false;
+// filtros combináveis da galeria de criativos do evento (objetivo, destaque, campanha, conjunto) + ordenação
+let _evtCrCats=new Set(),_evtCrTags=new Set(),_evtCrCamp=new Set(),_evtCrAdset=new Set(),_evtCrOrd='spend';
 let _evtYT={editionId:'',clientId:'',channel:null,videos:[],videoId:'',mode:'summary',since:'',until:'',date1:'',date2:'',report:null,loading:false,error:'',analyses:{}};
 function _evtNum(n,d=0){return (Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});}
 function _evtNumberCard(label,value,sub,tone=''){return `<div class="evt-number-card ${tone}"><div class="k">${_evtEsc(label)}</div><div class="v">${value}</div><div class="s">${sub||'&nbsp;'}</div></div>`;}
@@ -10566,12 +10571,96 @@ function _evtCampaignPerformanceHTML2(m){
 function _evtOverviewHTML(e,s,m){return `${_evtOverviewNumbers(e,s,m)}${_evtOriginsOverview(m)}${_evtInvestmentOverview(m)}${_evtCampaignPerformanceHTML2(m)}`;}
 function _evtCreativeChannelKey(x){const c=String(x.canal||'').toLowerCase();if(c.includes('meta'))return'meta';if(c.includes('google'))return'google';if(c.includes('pinterest'))return'pinterest';if(c.includes('tiktok'))return'tiktok';return c;}
 function _evtCreativeCategory(x,type){const s=`${x.nome||''} ${x.campanha||''} ${x.conjunto||''}`.toLowerCase();if(type==='cadastro')return /cadastro|capta|inscri|lead/.test(s);if(type==='lembrete')return /lembrete|remarketing|retarget|quente|bofu/.test(s);return true;}
-function _evtCreativeBase(id){const s=(_evtData.snapshots||[]).find(x=>x.edition_id===id),selected=((s&&s.sources&&s.sources.filters&&s.sources.filters.campaigns)||[]),set=new Set(selected);return (_evtCreatives||[]).filter(x=>_evtChannelAllowed(_evtCreativeChannelKey(x))&&(!set.size||set.has(`${_evtCreativeChannelKey(x)}|${String(x.campanha||'').trim()}`)));}
+// O MESMO criativo roda em várias campanhas/conjuntos e vinha como um card por veiculação (AD06 e AD07 eram
+// a mesma peça). Unifica por canal + nome + objetivo, somando as métricas — mesma regra do menu Criativos.
+function _evtCreativeObjetivo(x){
+  if(_evtCreativeCategory(x,'lembrete'))return 'lembrete';
+  if(_evtCreativeCategory(x,'cadastro'))return 'cadastro';
+  if(Number(x.compras))return 'venda';
+  return 'outro';
+}
+const EVT_OBJ_LABEL={cadastro:'Cadastro',lembrete:'Lembrete',venda:'Venda',outro:'Outro'};
+function _evtCreativeUnify(list){
+  const map={};
+  for(const x of list){
+    const obj=_evtCreativeObjetivo(x),canal=_evtCreativeChannelKey(x);
+    const nome=String(x.nome||x.campanha||'Criativo').trim();
+    const k=`${canal}|${obj}|${nome.toLowerCase()}`;
+    if(!map[k]){map[k]={...x,nome,_obj:obj,_pecas:0,_campanhas:new Set(),_conjuntos:new Set(),_codigos:[],spend:0,impressions:0,clicks:0,leads:0,compras:0,receita:0};}
+    const g=map[k];g._pecas++;
+    if(x.campanha)g._campanhas.add(String(x.campanha));
+    if(x.conjunto)g._conjuntos.add(String(x.conjunto));
+    if(x.codigo)g._codigos.push(String(x.codigo));
+    for(const c of ['spend','impressions','clicks','leads','compras','receita'])g[c]+=Number(x[c])||0;
+    if(!g.thumbnail&&x.thumbnail)g.thumbnail=x.thumbnail;
+    if(!g.igUrl&&x.igUrl)g.igUrl=x.igUrl;
+    if(!g.link&&x.link)g.link=x.link;
+  }
+  return Object.values(map).map(g=>{
+    g.ctr=g.impressions?g.clicks/g.impressions*100:0;
+    g.custoPorResultado=g.leads?g.spend/g.leads:0;
+    g.campanhas=[...g._campanhas];g.conjuntos=[...g._conjuntos];
+    g.codigo=g._codigos.length>1?`${g._codigos[0]} +${g._codigos.length-1}`:(g._codigos[0]||'ANÚNCIO');
+    return g;
+  });
+}
+function _evtCreativeBase(id){
+  const s=(_evtData.snapshots||[]).find(x=>x.edition_id===id),selected=((s&&s.sources&&s.sources.filters&&s.sources.filters.campaigns)||[]),set=new Set(selected);
+  const cru=(_evtCreatives||[]).filter(x=>_evtChannelAllowed(_evtCreativeChannelKey(x))
+    &&(!set.size||set.has(`${_evtCreativeChannelKey(x)}|${String(x.campanha||'').trim()}`))
+    &&(!_evtCrCamp.size||_evtCrCamp.has(String(x.campanha||'')))
+    &&(!_evtCrAdset.size||_evtCrAdset.has(String(x.conjunto||''))));
+  return _evtCreativeUnify(cru); // filtra na veiculação, depois soma
+}
+// listas pros seletores (sempre do universo do canal, pra não sumir opção ao filtrar)
+function _evtCreativeUniverso(id){const s=(_evtData.snapshots||[]).find(x=>x.edition_id===id),selected=((s&&s.sources&&s.sources.filters&&s.sources.filters.campaigns)||[]),set=new Set(selected);return (_evtCreatives||[]).filter(x=>_evtChannelAllowed(_evtCreativeChannelKey(x))&&(!set.size||set.has(`${_evtCreativeChannelKey(x)}|${String(x.campanha||'').trim()}`)));}
 function _evtCreativeTags(x,base){const leadRank=[...base].filter(a=>Number(a.leads)>0).sort((a,b)=>Number(b.leads)-Number(a.leads)).slice(0,3),saleRank=[...base].filter(a=>Number(a.compras)>0).sort((a,b)=>Number(b.compras)-Number(a.compras)).slice(0,3),costRank=[...base].filter(a=>Number(a.leads)>0&&Number(a.custoPorResultado)>0).sort((a,b)=>Number(a.custoPorResultado)-Number(b.custoPorResultado)).slice(0,3),tags=[];if(leadRank.includes(x))tags.push(['TOP LEADS','gold']);if(saleRank.includes(x))tags.push(['TOP VENDAS','']);if(costRank.includes(x))tags.push(['MELHOR CUSTO','green']);if(_evtCreativeCategory(x,'cadastro'))tags.push(['CADASTRO','']);if(_evtCreativeCategory(x,'lembrete'))tags.push(['LEMBRETE','']);return tags;}
-function _evtCreativeCard(x,base){const tags=_evtCreativeTags(x,base),cpl=Number(x.leads)?Number(x.spend)/Number(x.leads):null,link=x.igUrl||x.link||'',channel=_evtCreativeChannelKey(x),linkLabel=x.igUrl?'Ver no Instagram':channel==='google'?'Abrir no Google Ads':'Abrir anúncio';return `<article class="evt-creative-card">${x.thumbnail?`<a href="${_evtEsc(link||x.thumbnail)}" target="_blank" rel="noopener"><img class="evt-creative-thumb" src="${_evtEsc(x.thumbnail)}" loading="lazy" referrerpolicy="no-referrer" alt="${_evtEsc(x.nome||x.codigo)}"></a>`:`<div class="evt-creative-no-thumb">Prévia ainda não disponibilizada por ${_evtEsc(EVT_CHANNEL_LABELS[channel]||x.canal||'este canal')}</div>`}<div class="evt-creative-body"><div class="evt-creative-code"><span>${_evtEsc(x.codigo||'ANÚNCIO')}</span><span>${_evtEsc(String(x.canal||'ANÚNCIO').toUpperCase())}</span></div><div class="evt-creative-tags">${tags.map(([t,c])=>`<span class="evt-creative-tag ${c}">${t}</span>`).join('')}</div><div class="evt-creative-title">${_evtEsc(x.nome||x.campanha||'Criativo')}</div><div class="evt-creative-kpis"><div class="evt-creative-kpi"><span>Leads</span><b>${_evtNum(x.leads)}</b></div><div class="evt-creative-kpi"><span>CPL</span><b>${cpl!=null?fmt(cpl):'—'}</b></div><div class="evt-creative-kpi"><span>Investido</span><b>${fmt(x.spend||0)}</b></div><div class="evt-creative-kpi"><span>CTR</span><b>${Number(x.ctr)?Number(x.ctr).toFixed(2).replace('.',',')+'%':'—'}</b></div><div class="evt-creative-kpi"><span>Impressões</span><b>${_evtNum(x.impressions)}</b></div><div class="evt-creative-kpi"><span>Cliques</span><b>${_evtNum(x.clicks)}</b></div></div><div class="evt-creative-sales">Compras atribuídas: <b>${_evtNum(x.compras)}</b>${Number(x.receita)?` · <b>${fmt(x.receita)}</b>`:''}</div>${link?`<a class="evt-creative-link" href="${_evtEsc(link)}" target="_blank" rel="noopener">${linkLabel}</a>`:'<span class="evt-creative-link" style="opacity:.45">Link não disponibilizado</span>'}</div></article>`;}
+function _evtCreativeCard(x,base){const tags=_evtCreativeTags(x,base),cpl=Number(x.leads)?Number(x.spend)/Number(x.leads):null,link=x.igUrl||x.link||'',channel=_evtCreativeChannelKey(x),linkLabel=x.igUrl?'Ver no Instagram':channel==='google'?'Abrir no Google Ads':'Abrir anúncio';return `<article class="evt-creative-card">${x.thumbnail?`<a href="${_evtEsc(link||x.thumbnail)}" target="_blank" rel="noopener"><img class="evt-creative-thumb" src="${_evtEsc(x.thumbnail)}" loading="lazy" referrerpolicy="no-referrer" alt="${_evtEsc(x.nome||x.codigo)}"></a>`:`<div class="evt-creative-no-thumb">Prévia ainda não disponibilizada por ${_evtEsc(EVT_CHANNEL_LABELS[channel]||x.canal||'este canal')}</div>`}<div class="evt-creative-body"><div class="evt-creative-code"><span>${_evtEsc(x.codigo||'ANÚNCIO')}</span><span>${_evtEsc(String(x.canal||'ANÚNCIO').toUpperCase())}</span></div><div class="evt-creative-tags">${tags.map(([t,c])=>`<span class="evt-creative-tag ${c}">${t}</span>`).join('')}</div><div class="evt-creative-title">${_evtEsc(x.nome||x.campanha||'Criativo')}</div>${x._pecas>1?`<div class="hint" style="margin:-4px 0 8px" title="${_evtEsc((x.campanhas||[]).join(' · '))}">Somando ${x._pecas} veiculações · ${x.campanhas.length} campanha(s)${x.conjuntos.length?` · ${x.conjuntos.length} conjunto(s)`:''}</div>`:''}<div class="evt-creative-kpis"><div class="evt-creative-kpi"><span>Leads</span><b>${_evtNum(x.leads)}</b></div><div class="evt-creative-kpi"><span>CPL</span><b>${cpl!=null?fmt(cpl):'—'}</b></div><div class="evt-creative-kpi"><span>Investido</span><b>${fmt(x.spend||0)}</b></div><div class="evt-creative-kpi"><span>CTR</span><b>${Number(x.ctr)?Number(x.ctr).toFixed(2).replace('.',',')+'%':'—'}</b></div><div class="evt-creative-kpi"><span>Impressões</span><b>${_evtNum(x.impressions)}</b></div><div class="evt-creative-kpi"><span>Cliques</span><b>${_evtNum(x.clicks)}</b></div></div><div class="evt-creative-sales">Compras atribuídas: <b>${_evtNum(x.compras)}</b>${Number(x.receita)?` · <b>${fmt(x.receita)}</b>`:''}</div>${link?`<a class="evt-creative-link" href="${_evtEsc(link)}" target="_blank" rel="noopener">${linkLabel}</a>`:'<span class="evt-creative-link" style="opacity:.45">Link não disponibilizado</span>'}</div></article>`;}
 function _evtCreativeTable(list){return `<div class="evt-model-title">Criativos · tabela consolidada</div><div class="evt-overview-table"><table><thead><tr><th>Cód.</th><th>Criativo</th><th>Canal</th><th>Investido</th><th>Impressões</th><th>Cliques</th><th>CTR</th><th>Leads</th><th>CPL</th><th>Compras atrib.</th></tr></thead><tbody>${list.map(x=>{const cpl=Number(x.leads)?Number(x.spend)/Number(x.leads):null;return `<tr><td class="evt-name">${_evtEsc(x.codigo||'—')}</td><td><b>${_evtEsc(x.nome||x.campanha||'Criativo')}</b></td><td>${_evtEsc(x.canal||'—')}</td><td>${fmt(x.spend||0)}</td><td>${_evtNum(x.impressions)}</td><td>${_evtNum(x.clicks)}</td><td>${Number(x.ctr)?Number(x.ctr).toFixed(2).replace('.',',')+'%':'—'}</td><td style="color:#ffd42a;font-weight:800">${_evtNum(x.leads)}</td><td>${cpl!=null?fmt(cpl):'—'}</td><td>${_evtNum(x.compras)}</td></tr>`}).join('')}</tbody></table></div>`;}
-function evtRenderCreativeGallery(id){const el=document.getElementById('evtCreativeGallery');if(!el)return;if(_evtCreativeLoading){el.innerHTML='<div class="empty">Buscando thumbnails e métricas de cada anúncio…</div>';return;}const base=_evtCreativeBase(id);let list=base.filter(x=>_evtCreativeCategory(x,_evtCreativeSort));if(_evtCreativeSort==='leads')list.sort((a,b)=>Number(b.leads)-Number(a.leads));else if(_evtCreativeSort==='cost')list=list.filter(x=>Number(x.leads)>0).sort((a,b)=>(Number(a.spend)/Number(a.leads))-(Number(b.spend)/Number(b.leads)));else if(_evtCreativeSort==='sales')list.sort((a,b)=>Number(b.compras)-Number(a.compras));else list.sort((a,b)=>Number(b.spend)-Number(a.spend));const buttons=[['all','Todos'],['leads','🏆 Mais leads'],['cost','💰 Melhor custo (menor CPL)'],['sales','💎 Mais vendas atribuídas'],['cadastro','Cadastro'],['lembrete','Lembrete']];el.innerHTML=`<div class="evt-model-title">Criativos · galeria filtrável</div><div class="hint">${list.length} peça(s) nos filtros atuais, com KPIs individuais. Use as opções abaixo para reorganizar o desempenho; os selos destacam os campeões de cada categoria.</div><div class="evt-creative-toolbar">${buttons.map(([k,l])=>`<button class="btn sm ghost ${_evtCreativeSort===k?'active':''}" onclick="evtCreativeSetSort('${id}','${k}')">${l}</button>`).join('')}</div>${list.length?`<div class="evt-creative-grid">${list.slice(0,60).map(x=>_evtCreativeCard(x,base)).join('')}</div>${_evtCreativeTable(list)}`:`<div class="empty">Nenhum criativo encontrado. Ajuste canal, campanhas ou o tipo de classificação.</div>`}`;}
-function evtCreativeSetSort(id,sort){_evtCreativeSort=sort;evtRenderCreativeGallery(id);}
+// Antes, um único seletor misturava TIPO (cadastro/lembrete) com ORDENAÇÃO (mais leads/melhor custo/mais
+// vendas) — dava pra escolher só um. Agora são três controles independentes e combináveis.
+function evtCrToggleCat(id,v){const k=decodeURIComponent(v);_evtCrCats.has(k)?_evtCrCats.delete(k):_evtCrCats.add(k);evtRenderCreativeGallery(id);}
+function evtCrToggleTag(id,v){const k=decodeURIComponent(v);_evtCrTags.has(k)?_evtCrTags.delete(k):_evtCrTags.add(k);evtRenderCreativeGallery(id);}
+function evtCrSetOrd(id,k){_evtCrOrd=k;evtRenderCreativeGallery(id);}
+function evtCrToggleCamp(id,v){const n=decodeURIComponent(v);_evtCrCamp.has(n)?_evtCrCamp.delete(n):_evtCrCamp.add(n);_evtCrAdset.clear();evtRenderCreativeGallery(id);}
+function evtCrToggleAdset(id,v){const n=decodeURIComponent(v);_evtCrAdset.has(n)?_evtCrAdset.delete(n):_evtCrAdset.add(n);evtRenderCreativeGallery(id);}
+function evtCrLimpar(id){_evtCrCats.clear();_evtCrTags.clear();_evtCrCamp.clear();_evtCrAdset.clear();_evtCrOrd='spend';evtRenderCreativeGallery(id);}
+function _evtChipBar(titulo,itens,ativos,fn,id){
+  if(!itens.length)return '';
+  return `<div class="evt-creative-filtro"><span class="evt-creative-filtro-lbl">${titulo}</span>${itens.map(([k,l])=>`<button type="button" class="btn sm ${ativos.has(k)?'primary':'ghost'}" onclick="${fn}('${id}','${encodeURIComponent(k)}')">${_evtEsc(l)}</button>`).join('')}</div>`;
+}
+function evtRenderCreativeGallery(id){
+  const el=document.getElementById('evtCreativeGallery');if(!el)return;
+  if(_evtCreativeLoading){el.innerHTML='<div class="empty">Buscando thumbnails e métricas de cada anúncio…</div>';return;}
+  const universo=_evtCreativeUniverso(id);
+  const campanhas=[...new Set(universo.map(x=>String(x.campanha||'')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt'));
+  const conjuntos=[...new Set(universo.filter(x=>!_evtCrCamp.size||_evtCrCamp.has(String(x.campanha||''))).map(x=>String(x.conjunto||'')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt'));
+  const base=_evtCreativeBase(id);
+  let list=base;
+  if(_evtCrCats.size)list=list.filter(x=>_evtCrCats.has(x._obj));
+  if(_evtCrTags.size){const t=x=>_evtCreativeTags(x,base).map(a=>a[0]);list=list.filter(x=>{const meus=t(x);return [..._evtCrTags].every(k=>meus.includes(k));});}
+  if(_evtCrOrd==='leads')list=[...list].sort((a,b)=>Number(b.leads)-Number(a.leads));
+  else if(_evtCrOrd==='cost')list=list.filter(x=>Number(x.leads)>0).sort((a,b)=>(a.spend/a.leads)-(b.spend/b.leads));
+  else if(_evtCrOrd==='sales')list=[...list].sort((a,b)=>Number(b.compras)-Number(a.compras));
+  else if(_evtCrOrd==='receita')list=[...list].sort((a,b)=>Number(b.receita)-Number(a.receita));
+  else list=[...list].sort((a,b)=>Number(b.spend)-Number(a.spend));
+  const unificados=base.filter(x=>x._pecas>1).length;
+  const filtros=(_evtCrCats.size?1:0)+(_evtCrTags.size?1:0)+_evtCrCamp.size+_evtCrAdset.size;
+  el.innerHTML=`<div class="evt-model-title">Criativos · galeria filtrável</div>
+    <div class="hint">${list.length} criativo(s) nos filtros atuais${unificados?` · ${unificados} aparecem em mais de uma campanha/conjunto e estão somados num card só`:''}. Os filtros abaixo se combinam: dá pra ver, por exemplo, só os de <b>Cadastro</b> que também são <b>Melhor custo</b>.</div>
+    <div class="evt-creative-toolbar" style="flex-direction:column;align-items:stretch;gap:8px">
+      ${_evtChipBar('Objetivo',[['cadastro','Cadastro'],['lembrete','Lembrete'],['venda','Venda'],['outro','Outro']].filter(([k])=>base.some(x=>x._obj===k)),_evtCrCats,'evtCrToggleCat',id)}
+      ${_evtChipBar('Destaque',[['TOP LEADS','🏆 Top leads'],['MELHOR CUSTO','💰 Melhor custo'],['TOP VENDAS','💎 Top vendas']],_evtCrTags,'evtCrToggleTag',id)}
+      ${_evtChipBar('Campanha',campanhas.map(c=>[c,c]),_evtCrCamp,'evtCrToggleCamp',id)}
+      ${_evtChipBar('Conjunto',conjuntos.map(c=>[c,c]),_evtCrAdset,'evtCrToggleAdset',id)}
+      <div class="evt-creative-filtro"><span class="evt-creative-filtro-lbl">Ordenar por</span>
+        ${[['spend','Mais investido'],['leads','Mais leads'],['cost','Menor CPL'],['sales','Mais vendas'],['receita','Maior receita']].map(([k,l])=>`<button type="button" class="btn sm ${_evtCrOrd===k?'primary':'ghost'}" onclick="evtCrSetOrd('${id}','${k}')">${l}</button>`).join('')}
+        ${filtros?`<button type="button" class="btn sm ghost" style="margin-left:auto" onclick="evtCrLimpar('${id}')">Limpar filtros (${filtros})</button>`:''}
+      </div>
+    </div>
+    ${list.length?`<div class="evt-creative-grid">${list.slice(0,60).map(x=>_evtCreativeCard(x,base)).join('')}</div>${_evtCreativeTable(list)}`:`<div class="empty">Nenhum criativo com essa combinação de filtros. Use "Limpar filtros" pra voltar.</div>`}`;
+}
+function evtCreativeSetSort(id,sort){_evtCrOrd=sort;evtRenderCreativeGallery(id);}
 const EVT_YT_TRAFFIC={ADVERTISING:'Publicidade no YouTube',ANNOTATION:'Anotações',END_SCREEN:'Tela final',EXT_URL:'Sites e apps externos',HASHTAGS:'Hashtags',LIVE_REDIRECT:'Redirecionamento de live',NO_LINK_EMBEDDED:'Vídeo incorporado',NO_LINK_OTHER:'Direta / não identificada',NOTIFICATION:'Notificações',PLAYLIST:'Playlists',RELATED_VIDEO:'Vídeos sugeridos',SHORTS:'Feed de Shorts',SUBSCRIBER:'Página inicial / inscritos',YT_CHANNEL:'Páginas de canal',YT_OTHER_PAGE:'Outras páginas do YouTube',YT_SEARCH:'Pesquisa do YouTube'};
 const EVT_YT_DEVICE={DESKTOP:'Computador',GAME_CONSOLE:'Console',MOBILE:'Dispositivo móvel',TABLET:'Tablet',TV:'TV',AUTOMOTIVE:'Automotivo',WEARABLE:'Vestível',UNKNOWN_PLATFORM:'Não identificado'};
 const EVT_YT_AUDIENCE={ORGANIC:'Espectadores casuais',AD_INSTREAM:'Vieram de anúncio (in-stream)',AD_INDISPLAY:'Vieram de anúncio (in-display)'};
