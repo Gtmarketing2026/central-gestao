@@ -6248,7 +6248,12 @@ async function systemHealthTick() {
   const tot = snap.http_total_24h || 0;
   if (tot >= 20 && errs / tot > 0.2) checks.push({ key: `http:taxa:${hoje}`, sev: "alta", msg: `${Math.round((errs / tot) * 100)}% das chamadas internas com erro nas últimas 24h (${errs} de ${tot}) — ${(snap.http_erros_24h || []).map((e: any) => `HTTP ${e.status}: ${e.qtd}`).join(", ")}` });
   else if (errs >= 30) checks.push({ key: `http:volume:${hoje}`, sev: "media", msg: `${errs} chamadas internas com erro nas últimas 24h (${(snap.http_erros_24h || []).map((e: any) => `HTTP ${e.status}: ${e.qtd}`).join(", ")})` });
-  for (const c of (snap.sync_canais || [])) if (c.ultima_data && c.ultima_data < ontem) checks.push({ key: `sync:${c.canal}`, sev: "media", msg: `Canal ${c.canal} sem dado novo desde ${c.ultima_data} (a sincronização diária pode estar falhando)` });
+  // O coletor (channel-metrics-daily) roda 04:15 UTC e grava o dia ANTERIOR. Checar contra "ontem" antes disso
+  // acusava canal parado todo dia de madrugada (quem apertasse "Verificar agora" as 23h daqui via alerta falso).
+  // Depois das 05:00 UTC a cobranca volta a ser de ontem; antes disso, so cobra a partir de anteontem.
+  const anteontem = new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10);
+  const limiteSync = new Date().getUTCHours() >= 5 ? ontem : anteontem;
+  for (const c of (snap.sync_canais || [])) if (c.ultima_data && c.ultima_data < limiteSync) checks.push({ key: `sync:${c.canal}`, sev: "media", msg: `Canal ${c.canal} sem dado novo desde ${c.ultima_data} (a sincronização diária pode estar falhando)` });
   const paradas = snap.contas_midia_paradas || [];
   // so entram contas que investiram nos ultimos 30 dias (filtro no system_health_snapshot): conta
   // encerrada ha meses nunca mais tem dado novo e ficava listada pra sempre.

@@ -4,6 +4,11 @@
 --
 -- 14/08/2026: "contas de midia paradas" so considera conta que REALMENTE investiu nos ultimos 30 dias.
 -- Antes, conta antiga sem nenhum investimento ficava listada pra sempre (o dado nunca mais fica "novo").
+--
+-- 15/08/2026: timeout do pg_net nao conta mais como erro interno. Os crons sao disparo-e-esquece: o pg_net
+-- desiste em 5s enquanto a Edge Function segue rodando (o coletor de metricas, por exemplo, gravou por 2m25s
+-- DEPOIS do "timeout"). Isso gerava dezenas de "erros" por dia que nao eram erro nenhum e afogavam o alerta.
+-- Erro de verdade (4xx/5xx, como o apagao do guard) continua contando; os timeouts vao pra http_timeouts_24h.
 create or replace function public.system_health_snapshot()
 returns jsonb
 language sql
@@ -21,8 +26,11 @@ select jsonb_build_object(
     select coalesce(jsonb_agg(jsonb_build_object('status', coalesce(status_code, 0), 'qtd', n) order by n desc), '[]'::jsonb)
     from (select status_code, count(*) n from net._http_response
           where created > now() - interval '24 hours' and (status_code is null or status_code >= 400)
+            and coalesce(error_msg, '') not like 'Timeout of %'  -- disparo-e-esquece, nao e falha
           group by status_code) e
   ),
+  'http_timeouts_24h', (select count(*) from net._http_response
+     where created > now() - interval '24 hours' and status_code is null and coalesce(error_msg,'') like 'Timeout of %'),
   'http_total_24h', (select count(*) from net._http_response where created > now() - interval '24 hours'),
   'seguranca_eventos_24h', (
     select coalesce(jsonb_agg(jsonb_build_object('tipo', kind, 'qtd', n) order by n desc), '[]'::jsonb)
