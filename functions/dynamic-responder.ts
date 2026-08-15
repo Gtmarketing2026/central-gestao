@@ -6200,10 +6200,10 @@ async function _googleCalToken(): Promise<string | null> {
 // Monitor de conectividade: detecta quando um WhatsApp cai → notificação no sino + aviso da AndréIA no grupo.
 function _fmtFone(p: any) { p = String(p || "").replace(/[^0-9]/g, ""); if (!p) return ""; const m = p.match(/^(\d{2})(\d{2})(\d{4,5})(\d{4})$/); return m ? `+${m[1]} (${m[2]}) ${m[3]}-${m[4]}` : p; }
 async function waConnectivityCheck() {
-  const insts = await sbGet("wa_instances", "select=id,name,uaz_host,uaz_token,status,phone,health_fail_count,health_last_alert_at,health_last_ok_at,health_last_recovery_at");
+  const insts = await sbGet("wa_instances", "select=id,name,uaz_host,uaz_token,status,phone,connected_at,health_fail_count,health_last_alert_at,health_last_ok_at,health_last_recovery_at");
   const team = await sbGet("team", "select=id");
   const g: any = await _andreiaGroupInst();
-  const caidos: string[] = [], recuperados: string[] = [], oscilando: string[] = [];
+  const caidos: string[] = [], recuperados: string[] = [], oscilando: string[] = [], nuncaConectaram: string[] = [];
   for (const inst of (insts || [])) {
     if (!inst.uaz_host || !inst.uaz_token) continue;
     let cur: string | null = null;
@@ -6216,6 +6216,10 @@ async function waConnectivityCheck() {
       await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { status: cur, health_fail_count: fails, updated_at: nowIso });
       // Uma falha isolada costuma ser apenas oscilação de sessão/rede. Confirma queda somente na 2ª leitura consecutiva.
       if (fails < 2) { oscilando.push(inst.name || inst.phone || inst.id); continue; }
+      // Instância que NUNCA ficou OK pro monitor não "caiu": é cadastro pendente de leitura do QR. A KWAN acumulou
+      // 458 falhas seguidas, sem um único OK, e gerou 14 avisos de queda. Isso não é alerta, é tarefa de configuração.
+      // (connected_at sozinho não serve: ele é gravado na tentativa de conexão, mesmo quando o QR nunca é lido.)
+      if (!inst.health_last_ok_at && fails >= 10) { nuncaConectaram.push(inst.name || inst.phone || inst.id); continue; }
       const lastAlert = inst.health_last_alert_at ? new Date(inst.health_last_alert_at).getTime() : 0;
       // Cooldown evita repetir o mesmo alerta a cada execução do cron enquanto a sessão continua instável.
       if (lastAlert && now.getTime() - lastAlert < 6 * 3600e3) continue;
@@ -6248,7 +6252,7 @@ async function waConnectivityCheck() {
       }
     }
   }
-  return { checked: (insts || []).length, caidos, recuperados, oscilando };
+  return { checked: (insts || []).length, caidos, recuperados, oscilando, nuncaConectaram };
 }
 // Poll server-side da(s) instancia(s) da AGENCIA (client_id null) que nao tem webhook proprio (o numero da
 // agencia tem o webhook ocupado por outro sistema externo - ver memoria whatsapp-uazapi). Sem isso, a
@@ -6336,6 +6340,12 @@ async function systemHealthTick() {
     const title = `🩺 Saúde do sistema: ${novosAltos.length} problema(s) novo(s)`;
     const detail = novosAltos.map((c) => `• ${c.msg}`).join("\n");
     for (const t of (team || [])) { try { await sbPost("notifications", { id: _wuid(), to_team: t.id, from_team: "sistema", task_id: null, task_name: title, comment_text: detail.slice(0, 1500), read: false, type: "health_alert" }); } catch (_e) { /* */ } }
+    // Regra do grupo do WhatsApp: só falha grave, invasão e segurança — nunca entrega/rotina, que fica no sino.
+    // Problema NOVO de severidade alta (cron caído, erro em massa nas chamadas internas, achado da auditoria) entra aqui.
+    try {
+      const g: any = await _andreiaGroupInst();
+      if (!g.erro) await waCall(g.inst.uaz_host, g.inst.uaz_token, "/send/text", "POST", { number: g.group, text: `🩺 *Falha grave no sistema*\n${WA_DIV}\n${detail}\n\nDetalhes no painel geral → card de saúde.` });
+    } catch (_e) { /* aviso no sino ja foi */ }
   }
   await sbPatchD("account_config", "id=eq.main", { data: { ...cfg, health_report: { gerado_em: new Date().toISOString(), status, checks, resumo: { erros_http_24h: errs, chamadas_24h: tot, seguranca_24h: snap.seguranca_eventos_24h || [], sync_canais: snap.sync_canais || [] } } } });
   return { status, problemas: checks.length, novosAlertas: novosAltos.length };
