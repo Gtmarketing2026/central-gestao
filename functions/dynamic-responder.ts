@@ -993,7 +993,38 @@ async function metaAction(m: any) {
     const j = await post(`${id}/copies`, { deep_copy: "true", status_option: "PAUSED" });
     return { ok: true, detail: `Campanha duplicada (copia PAUSADA): ${m.nome || id}`, copiedId: j.copied_campaign_id || j.id || null };
   }
+  if (m.action === "rename") {
+    const novo = String(m.novoNome || "").trim();
+    if (novo.length < 2) throw new Error("Informe o novo nome (mínimo 2 caracteres).");
+    await post(id, { name: novo });
+    return { ok: true, detail: `Renomeado para "${novo}"` };
+  }
   throw new Error("action invalida");
+}
+// Google Ads: pausar/reativar/renomear campanha. O sistema só sabia mexer em orçamento e palavras-chave —
+// o resto obrigava a abrir o Gerenciador.
+async function googleCampaignAction(m: any) {
+  const cid = String(m.accountId || "").replace(/-/g, ""), campId = String(m.campaignId || "");
+  if (!cid || !campId) throw new Error("Conta e campanha obrigatórias.");
+  const token = await googleAdsAccessToken();
+  const devToken = Deno.env.get("GOOGLE_ADS_DEV_TOKEN"), mcc = String(Deno.env.get("GOOGLE_ADS_MCC_ID") || "").replace(/-/g, "");
+  const update: any = { resourceName: `customers/${cid}/campaigns/${campId}` };
+  const mask: string[] = [];
+  if (m.action === "pause" || m.action === "activate") { update.status = m.action === "pause" ? "PAUSED" : "ENABLED"; mask.push("status"); }
+  else if (m.action === "rename") {
+    const novo = String(m.novoNome || "").trim();
+    if (novo.length < 2) throw new Error("Informe o novo nome (mínimo 2 caracteres).");
+    update.name = novo; mask.push("name");
+  } else throw new Error("action inválida para Google (use pause, activate ou rename).");
+  const r = await fetch(`https://googleads.googleapis.com/${GADS_VER}/customers/${cid}/campaigns:mutate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "developer-token": devToken!, "login-customer-id": mcc, "Content-Type": "application/json" },
+    body: JSON.stringify({ operations: [{ update, updateMask: mask.join(",") }] }),
+  });
+  const j = await r.json();
+  if (j.error || !r.ok) throw new Error(j?.error?.details?.[0]?.errors?.[0]?.message || j?.error?.message || `HTTP ${r.status}`);
+  const acao = m.action === "pause" ? "Pausada" : m.action === "activate" ? "Reativada" : `Renomeada para "${m.novoNome}"`;
+  return { ok: true, detail: `${acao}: ${m.nome || campId}` };
 }
 
 // Clona a ESTRUTURA de uma campanha (campanha + conjuntos, PAUSADOS) pra OUTRA conta de anúncio (outro cliente).
@@ -4422,7 +4453,7 @@ async function _guardUserRequest(body: any, authorization: string) {
   if (menu && !_actorHas(actor, "menus", menu)) throw new Error(`Seu usuário não tem acesso ao menu ${menu}.`);
   const writes: Record<string, string> = {
     metaAction: "campaign.manage", metaCloneCampaign: "campaign.manage", metaCreateAudiences: "campaign.manage", metaCreateCustomList: "campaign.manage", metaCreateSavedAudience: "campaign.manage",
-    googleBudget: "campaign.manage", googleTermAction: "campaign.manage", googleKeywordAction: "campaign.manage", googleCreateCustomAudience: "campaign.manage",
+    googleBudget: "campaign.manage", googleCampaignAction: "campaign.manage", googleTermAction: "campaign.manage", googleKeywordAction: "campaign.manage", googleCreateCustomAudience: "campaign.manage",
     crmAndreiaAction: "crm.write", crmCapaAudit: "crm.write", briefingAprovar: "data.write",
   };
   let required = writes[key] || "";
@@ -6707,6 +6738,10 @@ Deno.serve(async (req) => {
     }
     if (body.googleBudget) {
       const r = await googleUpdateBudget(body.googleBudget);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.googleCampaignAction) {
+      const r = await googleCampaignAction(body.googleCampaignAction);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.googleTermAction) {

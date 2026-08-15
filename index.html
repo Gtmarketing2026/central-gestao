@@ -7818,9 +7818,67 @@ function campRowHTML(name,level,agg,tipo,toggleId,badge,objLevel,objId){
   const budLevel=objLevel==='camp'?'camp':objLevel==='adset'?'adset':null;
   const bud=(objId&&budLevel&&_campBudget[budLevel]&&_campBudget[budLevel][objId])?_campBudget[budLevel][objId]:null;
   const budBtn=bud?`<button onclick="event.stopPropagation();campEditBudget('${budLevel}','${objId}',this)" title="Editar orçamento diário (muda no gerenciador)" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;font-size:11px;padding:1px 6px;flex:none;white-space:nowrap">💰 ${fmt(bud.val)}/dia ✏️</button>`:'';
+  // seleção múltipla só no nível de campanha (é onde as ações em lote fazem sentido)
+  const selId=level===1?(isG?(agg&&agg.campaignId?'g:'+(agg.accountId||'')+':'+agg.campaignId:''):(objId||'')):'';
+  const selBox=selId?`<input type="checkbox" class="campSel" data-sel="${selId}" data-nome="${(name||'').replace(/"/g,'')}" ${_campSel.has(selId)?'checked':''} onclick="event.stopPropagation();campToggleSel('${selId}',this.checked)" title="Selecionar para ação em massa" style="width:auto;flex:none;margin-right:2px">`:'';
+  const renBtn=selId?`<button onclick="event.stopPropagation();campRenomear('${selId}',this)" title="Renomear campanha (muda no gerenciador)" style="background:none;border:none;color:var(--faint);cursor:pointer;font-size:11px;padding:0 2px;flex:none">✏️</button>`:'';
   return `<div ${toggleId?`onclick="toggleCampRow('${toggleId}')" style="cursor:pointer;`:'style="'}display:grid;${campGrid()}align-items:center;border-bottom:1px solid rgba(255,255,255,.05);${bg}">
-    <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px" title="${(name||'').replace(/"/g,'')}">${stBtn}${caret} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${campHL(name)}</span>${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400;flex:none">${badge}</span>`:''}${budBtn}${dupBtn}</div>
+    <div style="padding:8px 6px 8px ${pad}px;font-size:12px;font-weight:${level===1?700:level===2?600:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px" title="${(name||'').replace(/"/g,'')}">${selBox}${stBtn}${caret} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${campHL(name)}</span>${renBtn}${badge?` <span style="font-size:10px;color:var(--accent);font-weight:400;flex:none">${badge}</span>`:''}${budBtn}${dupBtn}</div>
     ${cells}</div>`;
+}
+/* ---- Ações em massa nas campanhas (pausar/reativar) e renomear ---- */
+let _campSel=new Set();
+function campToggleSel(id,on){on?_campSel.add(id):_campSel.delete(id);renderCampBulkBar();}
+function campSelLimpar(){_campSel.clear();document.querySelectorAll('.campSel').forEach(c=>c.checked=false);renderCampBulkBar();}
+function campSelTodas(on){document.querySelectorAll('.campSel').forEach(c=>{c.checked=on;on?_campSel.add(c.dataset.sel):_campSel.delete(c.dataset.sel)});renderCampBulkBar();}
+function _campSelNomes(){const m={};document.querySelectorAll('.campSel').forEach(c=>m[c.dataset.sel]=c.dataset.nome);return [..._campSel].map(id=>m[id]||id);}
+function renderCampBulkBar(){
+  const bar=document.getElementById('campBulkBar');if(!bar)return;
+  const n=_campSel.size,tot=document.querySelectorAll('.campSel').length;
+  if(!tot){bar.style.display='none';return}
+  bar.style.display='';
+  bar.innerHTML=`<div class="card" style="padding:8px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;${n?'border-color:var(--accent)':''}">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin:0;cursor:pointer"><input type="checkbox" ${n&&n===tot?'checked':''} onchange="campSelTodas(this.checked)" style="width:auto">${n?`<b>${n}</b> campanha(s) selecionada(s)`:`Selecionar as ${tot} campanhas da lista`}</label>
+    ${n?`<span style="color:var(--faint)">|</span>
+      <button class="btn sm ghost" onclick="campBulkAcao('pause')">⏸ Pausar</button>
+      <button class="btn sm ghost" onclick="campBulkAcao('activate')">▶ Reativar</button>
+      <button class="btn sm ghost" onclick="campSelLimpar()">Limpar</button>`:''}
+    <span id="campBulkMsg" style="font-size:12px;color:var(--muted);margin-left:auto"></span>
+  </div>`;
+}
+// Ação real na conta do cliente: mostra a lista inteira e pede confirmação antes de tocar em qualquer campanha.
+async function campBulkAcao(acao){
+  const ids=[..._campSel];if(!ids.length)return;
+  const nomes=_campSelNomes(),verbo=acao==='pause'?'PAUSAR':'REATIVAR';
+  if(!confirm(`${verbo} ${ids.length} campanha(s) no gerenciador do cliente?\n\n${nomes.slice(0,12).map(x=>'• '+x).join('\n')}${nomes.length>12?`\n… e mais ${nomes.length-12}`:''}\n\nIsso altera a conta de anúncios de verdade.`))return;
+  const msg=document.getElementById('campBulkMsg');let ok=0,erros=[];
+  for(let i=0;i<ids.length;i++){
+    const id=ids[i],nome=nomes[i];
+    if(msg)msg.textContent=`Aplicando ${i+1}/${ids.length}…`;
+    try{
+      const body=id.startsWith('g:')?{googleCampaignAction:{accountId:id.split(':')[1],campaignId:id.split(':')[2],action:acao,nome}}:{metaAction:{id,action:acao,nivel:'campaign',nome}};
+      const {data,error}=await sb.functions.invoke('dynamic-responder',{body});
+      if(error)throw error;if(data&&data.error)throw new Error(data.error);
+      ok++;
+    }catch(e){erros.push(`${nome}: ${(e.message||e)}`);}
+  }
+  if(msg){msg.style.color=erros.length?'var(--red)':'var(--muted)';msg.textContent=`✓ ${ok} aplicada(s)${erros.length?` · ${erros.length} com erro`:''}`;}
+  if(erros.length)alert('Não consegui em:\n\n'+erros.slice(0,8).join('\n'));
+  campSelLimpar();
+  if(_campClientId)loadCampanhas(_campClientId,_campDays);
+}
+async function campRenomear(id,btn){
+  const atual=(btn&&btn.closest('div')&&btn.closest('div').getAttribute('title'))||'';
+  const novo=prompt('Novo nome da campanha (muda no gerenciador do cliente):',atual);
+  if(novo==null)return;
+  if(String(novo).trim().length<2){alert('Nome muito curto.');return}
+  const old=btn?btn.textContent:'';if(btn){btn.textContent='…';btn.disabled=true;}
+  try{
+    const body=id.startsWith('g:')?{googleCampaignAction:{accountId:id.split(':')[1],campaignId:id.split(':')[2],action:'rename',novoNome:novo.trim(),nome:atual}}:{metaAction:{id,action:'rename',novoNome:novo.trim(),nivel:'campaign',nome:atual}};
+    const {data,error}=await sb.functions.invoke('dynamic-responder',{body});
+    if(error)throw error;if(data&&data.error)throw new Error(data.error);
+    if(_campClientId)loadCampanhas(_campClientId,_campDays);
+  }catch(e){alert('Não consegui renomear: '+(e.message||e));if(btn){btn.textContent=old;btn.disabled=false;}}
 }
 function campAccErrBar(){
   if(!_campAccErrors.length)return '';
@@ -7910,7 +7968,9 @@ function renderCampBody(){
       </div>`;
     }
   }
-  body.innerHTML=campAccErrBar()+assistBar+`<div class="card" style="padding:0;overflow-x:auto">${header}${rows}${pausedBlock}${totRow}${cmpStrip}</div>`;
+  body.innerHTML=campAccErrBar()+assistBar+`<div id="campBulkBar" style="display:none"></div><div class="card" style="padding:0;overflow-x:auto">${header}${rows}${pausedBlock}${totRow}${cmpStrip}</div>`;
+  [..._campSel].forEach(id=>{if(!document.querySelector(`.campSel[data-sel="${id}"]`))_campSel.delete(id)}); // campanha fora da lista sai da seleção
+  renderCampBulkBar();
 }
 function toggleCampRow(id){
   if(event&&event.stopPropagation)event.stopPropagation();
