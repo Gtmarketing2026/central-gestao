@@ -1962,8 +1962,10 @@ const METRIC_CATALOG={
   custoPorEngajamento:{label:'Custo por Engajamento',calc:a=>a.engajamentos?a.spend/a.engajamentos:0,fmt:'money'},
 };
 const FUNNEL_CATALOG={impressoes:{label:'Impressões',calc:a=>a.impressions},alcance:{label:'Alcance',calc:a=>a.reach},videoViews:{label:'Views de Vídeo',calc:a=>a.videoViews},cliques:{label:'Cliques no Link',calc:a=>a.clicks},engajamentos:{label:'Engajamentos',calc:a=>a.engajamentos},conversas:{label:'Conversas',calc:a=>a.conversas},addCarrinho:{label:'Add ao Carrinho',calc:a=>a.addCarrinho},checkout:{label:'Checkout',calc:a=>a.checkout},leads:{label:'Leads',calc:a=>a.leads},compras:{label:'Compras/Vendas',calc:a=>a.compras}};
-// Métricas que o Google Ads não alimenta neste sistema (sempre zero pra esse canal) — não oferecer no seletor quando o Dashboard está em "Google Ads".
-const GOOGLE_METRIC_GAP=new Set(['alcance','frequencia','addCarrinho','checkout','leads','cpl','conversas','custoPorConversa']);
+// Métricas que o Google Ads não alimenta (sempre zero pra esse canal) — nem oferecidas no seletor nem mostradas
+// como card quando o Dashboard está em "Google Ads". O Google não devolve alcance/frequência nessas consultas.
+// Leads e Conversas saíram desta lista: agora vêm da quebra por ação de conversão (Lead, Clicks to call, etc).
+const GOOGLE_METRIC_GAP=new Set(['alcance','frequencia','addCarrinho','checkout']);
 const _dashCatalogOpts=(catalog,taken)=>Object.entries(catalog).filter(([k])=>!taken.includes(k)&&!(_dashSource==='google'&&GOOGLE_METRIC_GAP.has(k)));
 // Modelos-base TRAVADOS, um por objetivo do Meta
 const BASE_TEMPLATES=[
@@ -11323,11 +11325,13 @@ function renderDashFilterBar(){
 let _dashClientId='';
 /* ---- KPIs Principais editáveis (padrão pra todos os clientes; segue objetivo/canal/filtros) ---- */
 function dashKpiKeys(){
-  try{const s=JSON.parse(localStorage.getItem('dashKpis_'+_dashClientId)||'null');if(Array.isArray(s)&&s.length)return s.filter(k=>METRIC_CATALOG[k]);}catch(e){}
+  // no Google, some com o card da métrica que o canal não alimenta em vez de mostrar zero (parece dado faltando)
+  const ok=k=>METRIC_CATALOG[k]&&!(_dashSource==='google'&&GOOGLE_METRIC_GAP.has(k));
+  try{const s=JSON.parse(localStorage.getItem('dashKpis_'+_dashClientId)||'null');if(Array.isArray(s)&&s.length)return s.filter(ok);}catch(e){}
   const c=DB.clients.find(x=>x.id===_dashClientId);
-  if(c&&Array.isArray(c.dashKpis)&&c.dashKpis.length)return c.dashKpis.filter(k=>METRIC_CATALOG[k]);
+  if(c&&Array.isArray(c.dashKpis)&&c.dashKpis.length)return c.dashKpis.filter(ok);
   // padrão = métricas do template ativo do cliente (combinado "Todos" ou o selecionado)
-  return ((_dashTpl&&_dashTpl.metrics)||[]).filter(k=>METRIC_CATALOG[k]);
+  return ((_dashTpl&&_dashTpl.metrics)||[]).filter(ok);
 }
 function _dashKpiApply(keys){localStorage.setItem('dashKpis_'+_dashClientId,JSON.stringify(keys));applyDashFilters();renderDashKpiEditor();}
 function dashKpiMove(i,d){const s=dashKpiKeys();const j=i+d;if(j<0||j>=s.length)return;[s[i],s[j]]=[s[j],s[i]];_dashKpiApply(s);}

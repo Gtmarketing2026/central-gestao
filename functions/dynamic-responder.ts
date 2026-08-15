@@ -1365,6 +1365,11 @@ async function googleAdsInsights(g: any) {
 
   const totAgg: any = { spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0 };
   const totRecByDate: Record<string, any> = {};
+  // Mesmo total, agora somando as CAMPANHAS — e o que o Gerenciador mostra na linha "Total: conta" (conferido
+  // numa conta real: campanhas 94.765.087 impressoes = tela do Google; recurso `customer` dava 96.126.960, ~1,4%
+  // a mais de entrega solta que nao esta em nenhuma campanha atual). O painel usa este; o da conta vai em `_conta`.
+  const campAgg: any = { spend: 0, impressions: 0, clicks: 0, revenue: 0, purchases: 0, leads: 0, conversas: 0, videoViews: 0, engajamentos: 0 };
+  const campRecByDate: Record<string, any> = {};
   const byCamp: Record<string, any> = {};
   const byAdset: Record<string, any> = {};
   const byAdDaily: Record<string, any> = {}; // anuncio x dia (banco de dados de midia — schema `midia`) - so populado quando byAd+daily juntos
@@ -1421,11 +1426,24 @@ async function googleAdsInsights(g: any) {
     for (const row of campRows) {
       const label = row.campaign?.name || "Google Ads";
       const s = gadsShape(row.metrics);
-      if (!byCamp[label]) { const _cb = row.campaign?.id ? convByCamp[String(row.campaign.id)] : null; byCamp[label] = { campaign: label, campaignId: row.campaign?.id ? String(row.campaign.id) : null, account: acc.name || acc.id, accountId: acc.id, objetivo: googleObjetivoConv(row.campaign?.advertisingChannelType, _cb ? { purchases: _cb.purchases, leads: _cb.leads, conversas: _cb.conversas } : null), _google: true, orcamentoDiario: row.campaignBudget?.amountMicros ? +row.campaignBudget.amountMicros / 1e6 : null, budgetResource: row.campaignBudget?.resourceName || null, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: 0, engajamentos: 0, records: [] }; }
+      if (!byCamp[label]) {
+        const _cb = row.campaign?.id ? convByCamp[String(row.campaign.id)] : null;
+        // leads/conversas vem da quebra por ACAO de conversao (total do periodo, nao por linha): setados na criacao
+        // e nunca somados de novo, senao cada dia da campanha multiplicaria o mesmo numero.
+        byCamp[label] = { campaign: label, campaignId: row.campaign?.id ? String(row.campaign.id) : null, account: acc.name || acc.id, accountId: acc.id, objetivo: googleObjetivoConv(row.campaign?.advertisingChannelType, _cb ? { purchases: _cb.purchases, leads: _cb.leads, conversas: _cb.conversas } : null), _google: true, orcamentoDiario: row.campaignBudget?.amountMicros ? +row.campaignBudget.amountMicros / 1e6 : null, budgetResource: row.campaignBudget?.resourceName || null, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: _cb ? _cb.leads : 0, addToCart: 0, initiateCheckout: 0, conversas: _cb ? _cb.conversas : 0, videoViews: 0, engajamentos: 0, records: [] };
+        campAgg.leads += _cb ? _cb.leads : 0; campAgg.conversas += _cb ? _cb.conversas : 0;
+      }
       const c = byCamp[label];
       c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks;
       c.revenue += s.revenue; c.purchases += s.purchases; c.videoViews += s.videoViews; c.engajamentos += s.engajamentos;
-      if (g.daily && row.segments?.date) c.records.push({ date: row.segments.date, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: 0, leads: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos });
+      campAgg.spend += s.spend; campAgg.impressions += s.impressions; campAgg.clicks += s.clicks;
+      campAgg.revenue += s.revenue; campAgg.purchases += s.purchases; campAgg.videoViews += s.videoViews; campAgg.engajamentos += s.engajamentos;
+      if (g.daily && row.segments?.date) {
+        c.records.push({ date: row.segments.date, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: 0, leads: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos });
+        const k = row.segments.date;
+        const rec = campRecByDate[k] || (campRecByDate[k] = { date: k, sales: 0, spend: 0, revenue: 0, clicks: 0, impressions: 0, reach: 0, leads: 0, conversas: 0, videoViews: 0, engajamentos: 0, addToCart: 0, checkout: 0 });
+        rec.sales += Math.round(s.purchases); rec.spend += s.spend; rec.revenue += s.revenue; rec.clicks += s.clicks; rec.impressions += s.impressions; rec.videoViews += s.videoViews; rec.engajamentos += s.engajamentos;
+      }
     }
     for (const row of adRows) {
       const s = gadsShape(row.metrics);
@@ -1440,7 +1458,9 @@ async function googleAdsInsights(g: any) {
         objetivo: googleObjetivoConv(row.campaign?.advertisingChannelType, ab ? { purchases: ab.purchases, leads: ab.leads, conversas: ab.conversas } : null),
         spend: s.spend, impressions: s.impressions, clicks: s.clicks, reach: 0, frequency: 0,
         ctr: s.ctr, cpc: s.cpc, cpm: s.cpm, purchases: s.purchases, revenue: s.revenue, roas: s.roas,
-        leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos,
+        // leads/conversas saem da quebra por acao (Lead, Clicks to call, Conversation started...). Ficavam fixos em
+        // 0 aqui, e como o KPI de Leads do painel e montado a partir destas linhas, o Google nunca mostrava lead.
+        leads: ab ? ab.leads : 0, addToCart: 0, initiateCheckout: 0, conversas: ab ? ab.conversas : 0, videoViews: s.videoViews, engajamentos: s.engajamentos,
         convActions: ab ? _actList(ab.acts) : undefined,
         cpa: s.purchases ? s.spend / s.purchases : 0,
       });
@@ -1472,13 +1492,20 @@ async function googleAdsInsights(g: any) {
       byAdDaily[adId].records.push({ date: row.segments.date, spend: s.spend, sales: s.purchases, revenue: s.revenue, clicks: s.clicks, impressions: s.impressions, reach: 0, frequency: 0, leads: 0, conversas: 0, videoViews: s.videoViews, engajamentos: s.engajamentos });
     }
   }
+  // Total do canal = soma das campanhas quando pedimos a quebra por campanha (e o que o Gerenciador mostra);
+  // sem byCampaign, cai pro total do recurso `customer`.
+  const usaCamp = !!g.byCampaign && campAgg.impressions > 0;
+  const base: any = usaCamp ? campAgg : totAgg;
+  const recs = (usaCamp && Object.keys(campRecByDate).length) ? campRecByDate : totRecByDate;
   const total = {
-    ...totAgg,
-    ctr: totAgg.impressions ? (totAgg.clicks / totAgg.impressions) * 100 : 0,
-    cpc: totAgg.clicks ? totAgg.spend / totAgg.clicks : 0,
-    cpm: totAgg.impressions ? (totAgg.spend / totAgg.impressions) * 1000 : 0,
-    roas: totAgg.spend ? totAgg.revenue / totAgg.spend : 0,
-    records: Object.values(totRecByDate).sort((a: any, b: any) => a.date < b.date ? -1 : 1),
+    ...totAgg, ...base,
+    ctr: base.impressions ? (base.clicks / base.impressions) * 100 : 0,
+    cpc: base.clicks ? base.spend / base.clicks : 0,
+    cpm: base.impressions ? (base.spend / base.impressions) * 1000 : 0,
+    roas: base.spend ? base.revenue / base.spend : 0,
+    records: Object.values(recs).sort((a: any, b: any) => a.date < b.date ? -1 : 1),
+    // total do recurso `customer`: inclui entrega que nao esta presa a nenhuma campanha atual. So pra conferencia.
+    _conta: { spend: totAgg.spend, impressions: totAgg.impressions, clicks: totAgg.clicks, purchases: totAgg.purchases, revenue: totAgg.revenue },
   };
   const campaigns = Object.values(byCamp).map((c: any) => {
     c.ctr = c.impressions ? (c.clicks / c.impressions) * 100 : 0;
@@ -1510,7 +1537,7 @@ async function googleAdsInsights(g: any) {
         spend: c.spend, impressions: c.impressions, clicks: c.clicks, reach: 0, frequency: 0,
         ctr: c.impressions ? (c.clicks / c.impressions) * 100 : 0, cpc: c.clicks ? c.spend / c.clicks : 0, cpm: c.impressions ? (c.spend / c.impressions) * 1000 : 0,
         purchases: c.purchases || 0, revenue: c.revenue, roas: c.spend ? c.revenue / c.spend : 0,
-        leads: 0, addToCart: 0, initiateCheckout: 0, conversas: 0, videoViews: c.videoViews || 0, engajamentos: c.engajamentos || 0,
+        leads: c.leads || 0, addToCart: 0, initiateCheckout: 0, conversas: c.conversas || 0, videoViews: c.videoViews || 0, engajamentos: c.engajamentos || 0,
         convActions: c.convActions, cpa: c.purchases ? c.spend / c.purchases : 0,
       });
     }
