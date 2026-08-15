@@ -854,6 +854,8 @@
     <div class="seg" id="crSubSeg" style="margin-bottom:16px">
       <button class="active" data-sub="dashboard" onclick="setReportSub('dashboard')">📊 Dashboard</button>
       <button data-sub="template" onclick="setReportSub('template')">📋 Template</button>
+      <!-- só aparece pra cliente que tem retrato de negócio (hoje, quem manda a venda geral da empresa) -->
+      <button data-sub="negocio" id="crNegocioTab" style="display:none" onclick="setReportSub('negocio')">🏛 Negócio</button>
     </div>
 
     <div id="crDashboardView">
@@ -878,6 +880,7 @@
       <div class="filterbar" id="crtRangeBar" style="margin-bottom:14px;flex-wrap:wrap;gap:6px"></div>
       <div id="crTemplateBody"><div class="empty">Selecione um cliente com planilha de pedidos configurada.</div></div>
     </div>
+    <div id="crNegocioView" style="display:none"></div>
   </section>
 
   <!-- WHATSAPP: conexão de números + AndréIA -->
@@ -10954,6 +10957,7 @@ function selectReportClient(clientId){
 }
 async function loadClientReport(clientId,forceSheet){
   const myToken=++_tplLoadToken;
+  negocioDisponivel(clientId); // mostra/esconde a aba Negócio conforme o cliente ter retrato ou não
   if(!clientId){
     document.getElementById('crFilterBar').style.display='none';
     document.getElementById('clientReportBody').innerHTML='<div class="empty">👈 Selecione um cliente no seletor da barra lateral pra ver o relatório.</div>';
@@ -11106,9 +11110,83 @@ function setReportSub(v){
   document.querySelectorAll('#crSubSeg [data-sub]').forEach(b=>b.classList.toggle('active',b.dataset.sub===v));
   document.getElementById('crDashboardView').style.display=v==='dashboard'?'block':'none';
   document.getElementById('crTemplateView').style.display=v==='template'?'block':'none';
+  const nv=document.getElementById('crNegocioView');if(nv)nv.style.display=v==='negocio'?'block':'none';
   if(v==='template'){
     loadClientTemplate();
   }
+  if(v==='negocio')renderNegocio();
+}
+/* ================= PAINEL DE NEGÓCIO (só pra cliente que manda a venda geral da empresa) =================
+   Vem de client_business_snapshot: LTV, permanência, base de alunos e séries. É análise de NEGÓCIO, separada
+   do operacional de mídia — por isso aba própria, e escondida pra quem não tem esse dado. */
+let _negocio=null,_negCharts={};
+async function negocioDisponivel(clientId){
+  if(!clientId){const t=document.getElementById('crNegocioTab');if(t)t.style.display='none';return}
+  try{
+    const {data}=await sb.from('client_business_snapshot').select('dados,gerado_em,fonte').eq('client_id',clientId).maybeSingle();
+    _negocio=data||null;
+    const t=document.getElementById('crNegocioTab');if(t)t.style.display=data?'':'none';
+  }catch(e){_negocio=null;}
+}
+function _negCard(rot,val,sub,cor){return `<div class="rt-kpi ${cor||'pu'}"><div class="rt-kpi-lbl">${rot}</div><div class="rt-kpi-val sm">${val}</div><div style="font-size:10.5px;color:var(--faint);margin-top:3px;line-height:1.3">${sub||'&nbsp;'}</div></div>`;}
+function _negDestroy(){Object.values(_negCharts).forEach(c=>{try{c.destroy()}catch(e){}});_negCharts={};}
+function renderNegocio(){
+  const el=document.getElementById('crNegocioView');if(!el)return;
+  if(!_negocio||!_negocio.dados){el.innerHTML='<div class="empty">Este cliente ainda não tem retrato de negócio.</div>';return}
+  const d=_negocio.dados,b=d.base||{},serie=d.serie_mensal||[],top=d.top_produtos||[];
+  const n=x=>Math.round(x||0).toLocaleString('pt-BR');
+  const baseViva=(b.ativos||0)+(b.expirados||0);
+  el.innerHTML=`
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div><h3 style="margin:0">🏛 Visão de negócio</h3><div class="hint">${d.periodo?`${dateBR(d.periodo.de)} a ${dateBR(d.periodo.ate)}`:''} · fonte: ${_evtEsc(_negocio.fonte||'—')} · atualizado ${new Date(_negocio.gerado_em).toLocaleString('pt-BR')}</div></div>
+      </div>
+      <div class="rt-kpi-grid">
+        ${_negCard('LTV médio',fmt(d.ltv_medio),'faturamento total ÷ alunos únicos','gr')}
+        ${_negCard('LTV de quem recompra',fmt(d.ltv_recomprador),`${d.pct_recompra}% da base compra mais de uma vez`,'gr')}
+        ${_negCard('Permanência efetiva',(d.permanencia_media||0).toFixed(1).replace('.',',')+' meses','tempo real com acesso (soma dos períodos comprados)')}
+        ${_negCard('Permanência · recomprador',(d.permanencia_recomprador||0).toFixed(1).replace('.',',')+' meses','quem volta fica quase o dobro')}
+        ${_negCard('Alunos únicos',n(d.alunos),`${n(d.compras)} compras pagas`)}
+        ${_negCard('Faturamento acumulado',fmt(d.faturamento),'desde o início da base')}
+      </div>
+      <div style="margin-top:12px;padding:10px 12px;background:var(--surface2);border-radius:10px;font-size:11.5px;color:var(--muted)">
+        <b>Período de relacionamento: ${(d.relacionamento_medio||0).toFixed(1).replace('.',',')} meses.</b>
+        Tempo entre a primeira e a última compra do aluno. Mostra por quanto tempo ele seguiu comprando da marca —
+        <b>não</b> significa que teve acesso durante todo esse período, e <b>não</b> é o LTV.
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin-top:0">👥 Base de alunos hoje</h3>
+      <div class="rt-kpi-grid">
+        ${_negCard('Ativos',n(b.ativos),baseViva?`${(b.ativos*100/baseViva).toFixed(1).replace('.',',')}% da base`:'','gr')}
+        ${_negCard('Expirados',n(b.expirados),'oportunidade de reativação')}
+        ${_negCard('Expiram em 30 dias',n(b.expira_30d),'renovação com data marcada','gd')}
+        ${_negCard('Expiram em 31–60 dias',n(b.expira_60d),'próxima janela')}
+        ${_negCard('Sem prazo definido',n(b.sem_prazo),'produto sem duração no nome — a definir')}
+        ${_negCard('Compras por crédito',n(d.compras_por_credito),'entram no LTV, não no prazo')}
+      </div>
+      ${b.expira_30d?`<div style="margin-top:12px;padding:10px 12px;background:rgba(255,213,42,.07);border:1px solid rgba(255,213,42,.3);border-radius:10px;font-size:12.5px">
+        💡 <b>${n(b.expira_30d)} alunos expiram em até 30 dias.</b> Pelo LTV de quem recompra (${fmt(d.ltv_recomprador)}), reativar 10% deles representa ${fmt(b.expira_30d*0.1*d.ltv_recomprador)}.</div>`:''}
+    </div>
+
+    <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">📈 Faturamento e vendas por mês</h3><div style="height:300px"><canvas id="negFat"></canvas></div></div>
+    <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">🆕 Alunos novos × recompra</h3><div class="hint" style="margin-bottom:8px">Barra cheia = quem comprou pela primeira vez. A diferença até o total é recompra da base.</div><div style="height:280px"><canvas id="negNovos"></canvas></div></div>
+    <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">🏆 Onde o faturamento se concentra</h3><div style="height:${Math.max(240,top.length*26)}px"><canvas id="negProd"></canvas></div></div>`;
+  _negDestroy();
+  const meses=serie.map(x=>x.mes),eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
+  const ctx=id=>{const c=document.getElementById(id);return c?c.getContext('2d'):null};
+  if(ctx('negFat'))_negCharts.fat=new Chart(ctx('negFat'),{data:{labels:meses,datasets:[
+    {type:'bar',label:'Vendas',data:serie.map(x=>x.vendas),backgroundColor:'rgba(168,85,247,.45)',yAxisID:'y1'},
+    {type:'line',label:'Faturamento',data:serie.map(x=>x.receita),borderColor:'#ffd42a',backgroundColor:'rgba(255,213,42,.1)',tension:.3,fill:true,yAxisID:'y'}]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'#c9c9c1'}},tooltip:{callbacks:{label:c=>c.dataset.label==='Faturamento'?`Faturamento: ${fmt(c.raw)}`:`Vendas: ${Math.round(c.raw).toLocaleString('pt-BR')}`}}},
+    scales:{x:eixo,y:{...eixo,position:'left',ticks:{...eixo.ticks,callback:v=>'R$ '+(v/1e6).toFixed(1)+'mi'}},y1:{...eixo,position:'right',grid:{drawOnChartArea:false}}}}});
+  if(ctx('negNovos'))_negCharts.novos=new Chart(ctx('negNovos'),{type:'bar',data:{labels:meses,datasets:[
+    {label:'Alunos novos',data:serie.map(x=>x.novos),backgroundColor:'rgba(52,211,153,.6)'},
+    {label:'Recompra',data:serie.map(x=>Math.max(0,(x.vendas||0)-(x.novos||0))),backgroundColor:'rgba(255,213,42,.6)'}]},
+    options:{maintainAspectRatio:false,plugins:{legend:{labels:{color:'#c9c9c1'}}},scales:{x:{...eixo,stacked:true},y:{...eixo,stacked:true}}}});
+  if(ctx('negProd'))_negCharts.prod=new Chart(ctx('negProd'),{type:'bar',data:{labels:top.map(p=>p.produto.length>44?p.produto.slice(0,44)+'…':p.produto),datasets:[{label:'Receita',data:top.map(p=>p.receita),backgroundColor:'rgba(168,85,247,.55)'}]},
+    options:{indexAxis:'y',maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)+' · '+(top[c.dataIndex].vendas||0)+' vendas'}}},scales:{x:{...eixo,ticks:{...eixo.ticks,callback:v=>'R$ '+(v/1e6).toFixed(1)+'mi'}},y:{...eixo,ticks:{...eixo.ticks,font:{size:9}}}}}});
 }
 const ORDER_STATUS_GROUPS={
   aprovado:['Pago','Liberado Automaticamente'],
