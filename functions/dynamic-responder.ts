@@ -3876,6 +3876,8 @@ async function _youtubeLiveReport(input: any) {
   const search = await safe("termos de busca", () => _ytReport(token, { since, until, metrics: "views,estimatedMinutesWatched", dimensions: "insightTrafficSourceDetail", filters: `${filter};insightTrafficSourceType==YT_SEARCH`, sort: "-views", maxResults: 25 }));
   const devices = await safe("dispositivos", () => _ytReport(token, { since, until, metrics: "views,estimatedMinutesWatched", dimensions: "deviceType", filters: filter, sort: "-estimatedMinutesWatched" }));
   const retention = await safe("retencao", () => _ytReport(token, { since, until, metrics: "audienceWatchRatio,relativeRetentionPerformance", dimensions: "elapsedVideoTimeRatio", filters: filter }));
+  // comportamento da audiencia (casual / novo / recorrente) — dimensao propria do YouTube Analytics
+  const audience = await safe("comportamento da audiencia", () => _ytReport(token, { since, until, metrics: "views,estimatedMinutesWatched", dimensions: "audienceType", filters: filter, sort: "-views" }));
   const summary: any = { ...(summaryRows[0] || {}), ...(concurrentRows[0] || {}) };
   summary.reactions = (Number(summary.likes) || 0) + (Number(summary.comments) || 0) + (Number(summary.shares) || 0);
   summary.watchHours = (Number(summary.estimatedMinutesWatched) || 0) / 60;
@@ -3889,7 +3891,7 @@ async function _youtubeLiveReport(input: any) {
     row.reactions = (Number(row.likes) || 0) + (Number(row.comments) || 0) + (Number(row.shares) || 0); row.watchHours = (Number(row.estimatedMinutesWatched) || 0) / 60;
     compare.push(row);
   }
-  return { video, period: { since, until }, summary, daily, traffic, external, search, devices, retention, compare, warnings, unavailable: { impressions: "A consulta imediata do YouTube Analytics nao fornece impressoes de thumbnail; esse dado exige o fluxo de relatorios em lote.", liveChatMessages: "A API oficial nao disponibiliza o historico completo do chat depois que a live termina.", uniqueViewers: "Pode nao ser disponibilizado para todas as contas e combinacoes de dimensoes." } };
+  return { video, period: { since, until }, summary, daily, traffic, external, search, devices, retention, audience, compare, warnings, unavailable: { impressions: "A consulta imediata do YouTube Analytics nao fornece impressoes de thumbnail; esse dado exige o fluxo de relatorios em lote.", liveChatMessages: "A API oficial nao disponibiliza o historico completo do chat depois que a live termina.", uniqueViewers: "Pode nao ser disponibilizado para todas as contas e combinacoes de dimensoes." } };
 }
 function _minerPick(row: any, keys: string[]) { for (const k of keys) if (row?.[k] != null && row[k] !== "") return row[k]; return null; }
 async function _minerAnalyzePayload(item: any, client: any) {
