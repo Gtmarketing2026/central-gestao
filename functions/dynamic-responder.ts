@@ -4154,6 +4154,18 @@ async function eventReports(input: any) {
     await sbPost("event_editions", { id, project_id: projectId, client_id: clientId, name, year: Number(input.year) || null, capture_start: input.captureStart || null, capture_end: input.captureEnd || null, event_date: input.eventDate || null, sales_start: input.salesStart || null, sales_end: input.salesEnd || null, config: input.config || {}, created_at: now, updated_at: now });
     return { editionId: id };
   }
+  // Editar as datas da edição (captação, data do evento e JANELA DE VENDAS). Sem isso, uma edição criada com a
+  // janela incompleta ficava sem conserto pela tela — e o card "Faturamento · janela do evento" nunca preenchia.
+  if (op === "updateEdition") {
+    const editionId = String(input.editionId || ""); if (!editionId) throw new Error("Edição obrigatória.");
+    const campos: any = { updated_at: new Date().toISOString() };
+    const mapa: Record<string, string> = { captureStart: "capture_start", captureEnd: "capture_end", eventDate: "event_date", salesStart: "sales_start", salesEnd: "sales_end" };
+    for (const [de, para] of Object.entries(mapa)) if (de in input) campos[para] = input[de] || null;
+    if (input.editionName) campos.name = String(input.editionName).trim();
+    if (input.year != null) campos.year = Number(input.year) || null;
+    const r = await sbPatchD("event_editions", `id=eq.${encodeURIComponent(editionId)}&client_id=eq.${encodeURIComponent(clientId)}`, campos);
+    return { ok: true, editionId, atualizado: campos, _r: r || null };
+  }
   if (op === "filterOptions") {
     const since = String(input.since || ""), until = String(input.until || ""); if (!since || !until) throw new Error("Período obrigatório.");
     const media = await _sbAll("channel_metrics_daily", `client_id=eq.${encodeURIComponent(clientId)}&date=gte.${since}&date=lte.${until}&select=channel,campaign,source_medium`);
