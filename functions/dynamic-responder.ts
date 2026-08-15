@@ -6222,7 +6222,16 @@ async function waConnectivityCheck() {
       const fone = _fmtFone(inst.phone); const quem = inst.name || fone || "instância";
       const title = `🔴 WhatsApp desconectado: ${quem}`;
       const detail = `O número ${fone || "(sem número)"} (${inst.name || "instância"}) caiu (${cur}). Reconecte em Configurações → WhatsApp pra não perder mensagens.`;
-      for (const t of (team || [])) { try { await sbPost("notifications", { id: _wuid(), to_team: t.id, from_team: "sistema", task_id: null, task_name: title, comment_text: detail, read: false, type: "wa_disconnect" }); } catch (_e) { /* */ } }
+      // Enquanto a instância continua caída, o cooldown de 6h fazia o MESMO aviso voltar pro sino pra sempre
+      // (a KWAN, caída desde 11/08, acumulou 14 avisos iguais e afogou o resto). Agora: um aviso por instância
+      // até alguém ler. Depois de lido, se ainda estiver caída, volta a avisar — aí sim como lembrete útil.
+      for (const t of (team || [])) {
+        try {
+          const jaTem = await sbGet("notifications", `to_team=eq.${encodeURIComponent(t.id)}&type=eq.wa_disconnect&read=eq.false&task_name=eq.${encodeURIComponent(title)}&select=id&limit=1`);
+          if (jaTem.length) continue;
+          await sbPost("notifications", { id: _wuid(), to_team: t.id, from_team: "sistema", task_id: null, task_name: title, comment_text: detail, read: false, type: "wa_disconnect" });
+        } catch (_e) { /* */ }
+      }
       if (!g.erro) { try { await waCall(g.inst.uaz_host, g.inst.uaz_token, "/send/text", "POST", { number: g.group, text: `🔴 *WhatsApp desconectado*\n${WA_DIV}\n*${quem}*${fone ? ` (${fone})` : ""} caiu.\nReconecte em Configurações → WhatsApp pra não perder mensagens. 📲` }); } catch (_e) { /* */ } }
       await sbPatchD("wa_instances", `id=eq.${encodeURIComponent(inst.id)}`, { health_last_alert_at: nowIso });
       caidos.push(quem);
