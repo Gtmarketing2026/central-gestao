@@ -4822,11 +4822,24 @@ function setClientsSub(v){
   document.querySelectorAll('[data-csub]').forEach(b=>{const on=b.dataset.csub===v;b.classList.toggle('primary',on);b.classList.toggle('ghost',!on)});
   if(v==='shows')renderShows();else renderClients();
 }
+// Seletor de cliente: ativos direto, inativos (Pausado/Onboarding/Encerrado) escondidos atrás de uma linha
+// que expande a lista dentro do próprio seletor — a lista corrida misturava quem está rodando com quem não está.
+let _sbClientInativos=false;
+function toggleSidebarInativos(){_sbClientInativos=!_sbClientInativos;fillSidebarClient();const s=document.getElementById('sidebarClient');if(s&&s.value==='__toggle__')s.value=activeClientId||'';}
 function fillSidebarClient(){
   const s=document.getElementById('sidebarClient');if(!s)return;
-  const cur=s.value;
-  const vis=DB.clients.filter(c=>c.status!=='Encerrado'||c.id===cur); // encerrados fora do seletor (mantém se for o selecionado)
-  s.innerHTML='<option value="">— selecionar cliente —</option>'+vis.sort((a,b)=>a.name.localeCompare(b.name,'pt')).map(c=>`<option value="${c.id}">${c.isSelf?'🏢 ':''}${c.name.replace(/</g,'&lt;')}</option>`).join('');
+  const cur=s.value&&s.value!=='__toggle__'?s.value:(activeClientId||'');
+  const ordena=a=>a.sort((x,y)=>x.name.localeCompare(y.name,'pt'));
+  const opt=c=>`<option value="${c.id}">${c.isSelf?'🏢 ':''}${c.name.replace(/</g,'&lt;')}${c.status==='Pausado'?' ⏸':''}</option>`;
+  const ativos=ordena(DB.clients.filter(c=>c.status==='Ativo'));
+  const inativos=ordena(DB.clients.filter(c=>c.status!=='Ativo'&&(c.status!=='Encerrado'||c.id===cur)));
+  if(inativos.some(c=>c.id===cur))_sbClientInativos=true; // se o selecionado é inativo, abre já expandido
+  let html='<option value="">— selecionar cliente —</option>'+ativos.map(opt).join('');
+  if(inativos.length){
+    html+=`<option value="__toggle__">${_sbClientInativos?'▴ ocultar inativos':`▾ mostrar inativos (${inativos.length})`}</option>`;
+    if(_sbClientInativos)html+=`<optgroup label="Inativos / pausados">${inativos.map(opt).join('')}</optgroup>`;
+  }
+  s.innerHTML=html;
   s.value=cur;
 }
 let activeClientId='';
@@ -7096,6 +7109,7 @@ async function rastDelLink(id){
   loadRastreamento(_rastClientId);
 }
 function selectSidebarClient(id){
+  if(id==='__toggle__'){toggleSidebarInativos();return}// linha de expandir/recolher: não é cliente
   if(!id)return;
   activeClientId=id;
   const active=((document.querySelector('.tab.active')||{}).dataset||{}).tab||'';
