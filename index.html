@@ -3606,7 +3606,23 @@ async function renderCrmGuide(){
   </div>`;
 }
 function stopCrmPoll(){if(_crmPollTimer){clearInterval(_crmPollTimer);_crmPollTimer=null;}}
-function startCrmPoll(){stopCrmPoll();_crmPollTimer=setInterval(()=>{if(document.getElementById('crm').classList.contains('active'))crmPoll(false);else stopCrmPoll();},20000);}
+// A tela lia o banco só DEPOIS de puxar o provedor, no mesmo try: provedor lento (ou com erro) deixava a lista
+// congelada, mesmo com a mensagem já gravada — o webhook do uazapi entrega em ~6s. Agora são dois ritmos
+// independentes: banco a cada 20s (barato, sempre) e provedor a cada 2 min, em segundo plano.
+let _crmPollCiclo=0;
+function crmPullProvider(){
+  const cur=_crmInsts.find(i=>i.id===_crmInstId);if(!cur||_crmIsManualInst(cur))return;
+  sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,limit:80}}}).catch(()=>{});
+}
+function startCrmPoll(){
+  stopCrmPoll();_crmPollCiclo=0;
+  _crmPollTimer=setInterval(async()=>{
+    if(!document.getElementById('crm').classList.contains('active')){stopCrmPoll();return}
+    _crmPollCiclo++;
+    try{await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id);}catch(e){}
+    if(_crmPollCiclo%6===0)crmPullProvider(); // ~2 min: rede de segurança pro que o webhook tiver perdido
+  },20000);
+}
 function _crmIsManualInst(inst){return !!(inst&&String(inst.provider||'').toLowerCase()==='manual');}
 function _crmConnectionControls(inst,manualOnly){
   const poll=document.getElementById('crmPollBtn'),sel=document.getElementById('crmSyncSel'),manual=manualOnly||_crmIsManualInst(inst);

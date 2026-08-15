@@ -6363,7 +6363,11 @@ async function waConnectivityCheck() {
 async function waAgencyPollTick() {
   const cfg = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
   const andreiaInstId = (cfg.andreia_wa || {}).instance_id || null;
-  const insts = await sbGet("wa_instances", "client_id=is.null&status=eq.connected&select=id,name");
+  // Instâncias da agência: a cada rodada (2 min). Instâncias de CLIENTE: a cada 10 min — elas recebem por
+  // webhook (chega em ~6s), mas se o webhook falha o buraco só era tapado quando alguém abria o CRM na tela;
+  // foi o que deixou um cliente com 3,5 dias de atraso. Aqui é a rede de segurança do lado do servidor.
+  const comClientes = new Date().getUTCMinutes() % 10 === 0;
+  const insts = await sbGet("wa_instances", `${comClientes ? "" : "client_id=is.null&"}status=eq.connected&select=id,name`);
   const alvos = (insts || []).filter((i: any) => i.id !== andreiaInstId);
   const resultados: any[] = [];
   for (const inst of alvos) {
