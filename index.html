@@ -10,6 +10,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- leitura de .xlsx no navegador: a base de vendas tem 50MB e 435 mil linhas — processar aqui evita subir o
+     arquivo inteiro pro servidor, que não aguentaria no tempo de uma Edge Function -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
@@ -11120,6 +11123,109 @@ function setReportSub(v){
    Vem de client_business_snapshot: LTV, permanência, base de alunos e séries. É análise de NEGÓCIO, separada
    do operacional de mídia — por isso aba própria, e escondida pra quem não tem esse dado. */
 let _negocio=null,_negCharts={};
+/* ---- Subir a base de vendas (.xlsx) pela tela ----
+   O arquivo tem ~50MB e 435 mil linhas: o navegador lê e resume AQUI, e só o retrato (poucos KB) vai pro banco.
+   Subir o arquivo inteiro estouraria o tempo da função no servidor. Enquanto não houver integração com a
+   origem das vendas, este é o caminho: a gestora escolhe o arquivo e o painel se atualiza. */
+const NEG_DUR_PADRAO=6; // meses, quando o produto não diz — só afeta produto fora do padrão
+function _negMeses(prod){
+  const p=String(prod||'').toLowerCase();
+  if(/vital[íi]cio|lifetime/.test(p))return -1;      // -1 = não expira
+  if(/cr[ée]dito/.test(p))return 0;                   // crédito não dá prazo (conta só no LTV)
+  const m=p.match(/(\d+)\s*(?:\+\s*\d+\s*)?m[eê]s(?:es)?/); // pega "12 meses" e também "12+2 meses"
+  if(m)return parseInt(m[1],10)+((p.match(/(\d+)\s*\+\s*(\d+)\s*m[eê]s/)||[])[2]?parseInt(p.match(/(\d+)\s*\+\s*(\d+)\s*m[eê]s/)[2],10):0);
+  return null;                                        // sem prazo: fica separado
+}
+function _negNum(v){
+  if(typeof v==='number')return v;
+  const s=String(v||'').replace(/[^\d,.-]/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',','.');
+  const n=parseFloat(s);return isNaN(n)?0:n;
+}
+function _negData(v){
+  if(v instanceof Date)return v;
+  if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(v);return d?new Date(d.y,d.m-1,d.d):null}
+  const m=String(v||'').match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?new Date(+m[3],+m[2]-1,+m[1]):null;
+}
+// separado do upload pra dar pra testar o cálculo sem depender de banco nem de sessão
+async function negocioProcessar(f,aviso){
+  const msg={textContent:''};const setMsg=t=>{if(aviso)aviso(t)};
+  {
+    const buf=await f.arrayBuffer();
+    setMsg('Processando as linhas…');
+    const wb=XLSX.read(buf,{type:'array',cellDates:false});
+    const aba=wb.SheetNames.find(n=>/venda/i.test(n))||wb.SheetNames[0];
+    const linhas=XLSX.utils.sheet_to_json(wb.Sheets[aba],{defval:''});
+    if(!linhas.length)throw new Error('planilha vazia ou sem cabeçalho');
+    const col=(l,...nomes)=>{for(const n of nomes){const k=Object.keys(l).find(x=>x.toLowerCase().trim()===n);if(k)return l[k]}return ''};
+    const alunos={},mesMap={},prodMap={};let creditos=0;
+    for(const l of linhas){
+      if(String(col(l,'status')).trim().toLowerCase()!=='pago')continue;
+      const dt=_negData(col(l,'data'));if(!dt)continue;
+      const mail=String(col(l,'email','e-mail')).trim().toLowerCase();
+      const cpf=String(col(l,'cpf')).replace(/\D/g,'');
+      const chave=cpf.length>=11?'c:'+cpf:(mail?'e:'+mail:null);if(!chave)continue;
+      const prod=String(col(l,'produto')).replace(/\s+/g,' ').trim();
+      const val=_negNum(col(l,'total','valor'));
+      const meses=_negMeses(prod);if(meses===0)creditos++;
+      const mk=dt.toISOString().slice(0,7);
+      (mesMap[mk]=mesMap[mk]||{mes:mk,vendas:0,receita:0,novos:0});mesMap[mk].vendas++;mesMap[mk].receita+=val;
+      if(prod){(prodMap[prod]=prodMap[prod]||{produto:prod,vendas:0,receita:0});prodMap[prod].vendas++;prodMap[prod].receita+=val}
+      const a=alunos[chave]=alunos[chave]||{n:0,tot:0,pri:dt,ult:dt,ivs:[],exp:null,vital:false,semPrazo:false};
+      a.n++;a.tot+=val;if(dt<a.pri)a.pri=dt;if(dt>a.ult)a.ult=dt;
+      if(meses===-1){a.vital=true}
+      else if(meses>0){const fim=new Date(dt);fim.setMonth(fim.getMonth()+meses);a.ivs.push([dt,fim]);if(!a.exp||fim>a.exp)a.exp=fim}
+      else if(meses===null){a.semPrazo=true}
+    }
+    const hoje=new Date();let ativos=0,expirados=0,exp30=0,exp60=0,semPrazo=0;
+    const permT=[],permR=[],relac=[];
+    for(const k in alunos){
+      const a=alunos[k];
+      if(a.ivs.length){
+        const ivs=a.ivs.sort((x,y)=>x[0]-y[0]);let tot=0,ini=ivs[0][0],fim=ivs[0][1];
+        for(let j=1;j<ivs.length;j++){if(ivs[j][0]<=fim){if(ivs[j][1]>fim)fim=ivs[j][1]}else{tot+=fim-ini;ini=ivs[j][0];fim=ivs[j][1]}}
+        tot+=fim-ini;const m=tot/(1000*60*60*24*30.44);permT.push(m);if(a.n>1)permR.push(m);
+      }
+      if(a.n>1)relac.push((a.ult-a.pri)/(1000*60*60*24*30.44));
+      if(a.vital)ativos++;
+      else if(a.exp){if(a.exp>=hoje){ativos++;const dd=(a.exp-hoje)/(1000*60*60*24);if(dd<=30)exp30++;else if(dd<=60)exp60++}else expirados++}
+      else semPrazo++;
+      const pk=a.pri.toISOString().slice(0,7);if(mesMap[pk])mesMap[pk].novos++;
+    }
+    const med=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:0;
+    const chaves=Object.keys(alunos),rec=chaves.filter(k=>alunos[k].n>1);
+    const fat=chaves.reduce((s,k)=>s+alunos[k].tot,0);
+    const dados={gerado_em:new Date().toISOString(),
+      periodo:{de:Object.keys(mesMap).sort()[0]+'-01',ate:hoje.toISOString().slice(0,10)},
+      alunos:chaves.length,compras:chaves.reduce((s,k)=>s+alunos[k].n,0),faturamento:+fat.toFixed(2),
+      ltv_medio:+(fat/chaves.length).toFixed(2),
+      ltv_recomprador:+(rec.reduce((s,k)=>s+alunos[k].tot,0)/(rec.length||1)).toFixed(2),
+      recompradores:rec.length,pct_recompra:+(rec.length*100/chaves.length).toFixed(1),
+      permanencia_media:+med(permT).toFixed(1),permanencia_recomprador:+med(permR).toFixed(1),
+      relacionamento_medio:+med(relac).toFixed(1),
+      base:{ativos,expirados,expira_30d:exp30,expira_60d:exp60,sem_prazo:semPrazo},
+      compras_por_credito:creditos,
+      serie_mensal:Object.values(mesMap).sort((a,b)=>a.mes<b.mes?-1:1).map(m=>({...m,receita:+m.receita.toFixed(2)})),
+      top_produtos:Object.values(prodMap).sort((a,b)=>b.receita-a.receita).slice(0,15).map(p=>({...p,receita:+p.receita.toFixed(2)}))};
+    return dados;
+  }
+}
+async function negocioUpload(input){
+  const f=input.files&&input.files[0];if(!f)return;
+  const msg=document.getElementById('negUpMsg'),cid=activeClientId;
+  if(!cid){msg.textContent='Selecione um cliente antes.';return}
+  msg.style.color='';msg.textContent=`Lendo ${f.name} (${Math.round(f.size/1024/1024)}MB)… pode levar 1 a 2 minutos.`;
+  try{
+    const dados=await negocioProcessar(f,t=>{msg.textContent=t});
+    msg.textContent='Salvando o retrato…';
+    const {error}=await sb.from('client_business_snapshot').upsert({client_id:cid,fonte:f.name,dados,gerado_em:new Date().toISOString()});
+    if(error)throw error;
+    _negocio={gerado_em:new Date().toISOString(),fonte:f.name,dados};
+    document.getElementById('crNegocioTab').style.display='';
+    renderNegocio();
+    const m2=document.getElementById('negUpMsg');if(m2){m2.style.color='var(--accent)';m2.textContent=`✓ ${dados.alunos.toLocaleString('pt-BR')} alunos e ${dados.compras.toLocaleString('pt-BR')} compras pagas processados.`}
+  }catch(e){msg.style.color='var(--red)';msg.textContent='Não consegui ler: '+(e.message||e);}
+  input.value='';
+}
 async function negocioDisponivel(clientId){
   if(!clientId){const t=document.getElementById('crNegocioTab');if(t)t.style.display='none';return}
   try{
@@ -11140,6 +11246,11 @@ function renderNegocio(){
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
         <div><h3 style="margin:0">🏛 Visão de negócio</h3><div class="hint">${d.periodo?`${dateBR(d.periodo.de)} a ${dateBR(d.periodo.ate)}`:''} · fonte: ${_evtEsc(_negocio.fonte||'—')} · atualizado ${new Date(_negocio.gerado_em).toLocaleString('pt-BR')}</div></div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <input type="file" id="negUpFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="negocioUpload(this)">
+          <button class="btn sm ghost" onclick="document.getElementById('negUpFile').click()" title="Sobe a base de vendas e recalcula tudo — o arquivo é lido aqui no navegador, não vai pro servidor">⬆️ Atualizar base de vendas</button>
+          <span id="negUpMsg" style="font-size:11.5px;color:var(--muted)"></span>
+        </div>
       </div>
       <div class="rt-kpi-grid">
         ${_negCard('LTV médio',fmt(d.ltv_medio),'faturamento total ÷ alunos únicos','gr')}
