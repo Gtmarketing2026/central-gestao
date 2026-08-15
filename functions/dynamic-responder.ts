@@ -6163,7 +6163,9 @@ FORMATAÇÃO (padrão dos avisos — siga SEMPRE, deixe visualmente limpo e orga
 }
 async function waAutoText(tipo: string, escopo = "padrao", prompt = "", nivel = "resumido"): Promise<string[]> {
   const escNota = escopo && escopo !== "padrao" ? ` Considere apenas os clientes do escopo "${ESCOPO_LABEL[escopo] || escopo}".` : "";
-  if (tipo === "custom") { const p = String(prompt || "").trim(); if (!p) return []; const t = await waAgentOneShot(p + escNota); return t ? [t] : ["Não consegui montar esse aviso agora."]; }
+  // Aviso que a IA não conseguiu montar (cota estourada, por exemplo) não vira mensagem no grupo: mandar
+  // "Não consegui montar esse aviso agora" só gasta a atenção de quem lê, sem informar nada.
+  if (tipo === "custom") { const p = String(prompt || "").trim(); if (!p) return []; const t = await waAgentOneShot(p + escNota); return t ? [t] : []; }
   if (tipo === "resumo7") return await waAgentAllClientsSummary(7, escopo, nivel);
   if (tipo === "resumo30") return await waAgentAllClientsSummary(30, escopo, nivel);
   if (tipo === "restricoes") return await waAgentAllClientsSummary(7, "com_restricao");
@@ -6341,10 +6343,12 @@ async function systemHealthTick() {
     const detail = novosAltos.map((c) => `• ${c.msg}`).join("\n");
     for (const t of (team || [])) { try { await sbPost("notifications", { id: _wuid(), to_team: t.id, from_team: "sistema", task_id: null, task_name: title, comment_text: detail.slice(0, 1500), read: false, type: "health_alert" }); } catch (_e) { /* */ } }
     // Regra do grupo do WhatsApp: só falha grave, invasão e segurança — nunca entrega/rotina, que fica no sino.
-    // Problema NOVO de severidade alta (cron caído, erro em massa nas chamadas internas, achado da auditoria) entra aqui.
-    try {
+    // Os achados "audit:*" JÁ foram enviados pela rotina de segurança 30 min antes; repetir aqui gerava dois
+    // avisos com o mesmo conteúdo no grupo. No sino eles continuam, porque lá a visão é consolidada.
+    const proWhats = novosAltos.filter((c) => !c.key.startsWith("audit:"));
+    if (proWhats.length) try {
       const g: any = await _andreiaGroupInst();
-      if (!g.erro) await waCall(g.inst.uaz_host, g.inst.uaz_token, "/send/text", "POST", { number: g.group, text: `🩺 *Falha grave no sistema*\n${WA_DIV}\n${detail}\n\nDetalhes no painel geral → card de saúde.` });
+      if (!g.erro) await waCall(g.inst.uaz_host, g.inst.uaz_token, "/send/text", "POST", { number: g.group, text: `🩺 *Falha grave no sistema*\n${WA_DIV}\n${proWhats.map((c) => `• ${c.msg}`).join("\n")}\n\nDetalhes no painel geral → card de saúde.` });
     } catch (_e) { /* aviso no sino ja foi */ }
   }
   await sbPatchD("account_config", "id=eq.main", { data: { ...cfg, health_report: { gerado_em: new Date().toISOString(), status, checks, resumo: { erros_http_24h: errs, chamadas_24h: tot, seguranca_24h: snap.seguranca_eventos_24h || [], sync_canais: snap.sync_canais || [] } } } });

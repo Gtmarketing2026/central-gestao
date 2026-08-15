@@ -52,6 +52,10 @@ as $$
   where n.nspname = 'public'
     and p.prosecdef
     and has_function_privilege('anon', p.oid, 'EXECUTE')
+    -- funcao de TRIGGER nao e chamavel pela API (o Postgres recusa chamada direta) e a permissao do usuario
+    -- nem e checada quando o trigger dispara. Apontar isso era falso positivo — e falso positivo repetido
+    -- ensina a ignorar o alerta de seguranca, que e justamente o que nao pode acontecer.
+    and p.prorettype <> 'trigger'::regtype
 
   union all
 
