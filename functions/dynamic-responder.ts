@@ -78,12 +78,26 @@ const _GEMINI_FALLBACK: Record<string, string[]> = {
   "gemini-3.5-flash-lite": ["gemini-flash-latest", "gemini-3.5-flash"],
   "gemini-3.5-flash": ["gemini-flash-latest", "gemini-3.5-flash-lite"],
 };
+function _iaProviderOpenAI() {
+  const o = Deno.env.get("OPENAI_API_KEY");
+  return o ? { key: o, url: "https://api.openai.com/v1/chat/completions", nome: "OpenAI", mapa: null as any } : null;
+}
 function _iaProvider() {
   const g = Deno.env.get("GEMINI_API_KEY");
   if (g) return { key: g, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", nome: "Gemini", mapa: _GEMINI_MODEL };
-  const o = Deno.env.get("OPENAI_API_KEY");
-  if (o) return { key: o, url: "https://api.openai.com/v1/chat/completions", nome: "OpenAI", mapa: null as any };
+  const o = _iaProviderOpenAI();
+  if (o) return o;
   throw new Error("Nenhuma chave de IA configurada (GEMINI_API_KEY ou OPENAI_API_KEY)");
+}
+// Cota estourada derrubava TODA a IA do sistema de uma vez (DNA, Qualidade do Atendimento, resumos do CRM),
+// e a tela so dizia "non-2xx". Aqui o erro vira uma frase que diz o que fazer.
+function _iaErroHumano(msg: string, provedor: string) {
+  const m = String(msg || "");
+  if (/quota|RESOURCE_EXHAUSTED|billing|rate.?limit|429/i.test(m)) {
+    return `A IA atingiu o limite do plano (cota da chave do ${provedor}). Nada foi perdido — ative o faturamento da chave ou configure uma chave alternativa, e tente de novo.`;
+  }
+  if (/high demand|overload|unavailable|503/i.test(m)) return `A IA do ${provedor} está sobrecarregada agora. Tente de novo em alguns minutos.`;
+  return m || `Erro na API da ${provedor}`;
 }
 async function callOpenAI(body: any) {
   const p = _iaProvider();
@@ -95,21 +109,28 @@ async function callOpenAI(body: any) {
     payload.max_tokens = Math.max(1200, (payload.max_tokens || 1000) * 3);
     payload.reasoning_effort = "low";
   }
-  const tentar = async (mod: string) => {
-    const r = await fetch(p.url, { method: "POST", headers: { "Authorization": `Bearer ${p.key}`, "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, model: mod }) });
+  const tentar = async (mod: string, prov = p) => {
+    const r = await fetch(prov.url, { method: "POST", headers: { "Authorization": `Bearer ${prov.key}`, "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, model: mod }) });
     const j = await r.json();
     const jj = Array.isArray(j) ? j[0] : j;
     return { ok: r.ok && !jj?.error, json: jj, erro: jj?.error?.message || (r.ok ? "" : `HTTP ${r.status}`) };
   };
   let t = await tentar(payload.model);
+  const semCota = (e: string) => /high demand|overload|unavailable|RESOURCE_EXHAUSTED|quota|503|429/i.test(e || "");
   // modelo sobrecarregado/limite: tenta os alternativos antes de desistir
-  if (!t.ok && p.mapa && /high demand|overload|unavailable|RESOURCE_EXHAUSTED|quota|503|429/i.test(t.erro)) {
+  if (!t.ok && p.mapa && semCota(t.erro)) {
     for (const alt of (_GEMINI_FALLBACK[payload.model] || [])) {
       t = await tentar(alt);
       if (t.ok) break;
     }
   }
-  if (!t.ok) throw new Error(t.erro || `Erro na API da ${p.nome}`);
+  // A cota do Gemini é da CHAVE, não do modelo: estourou, os alternativos estouram junto e o sistema inteiro de IA
+  // para. Se houver chave da OpenAI configurada, ela assume em vez de devolver erro.
+  if (!t.ok && p.mapa && semCota(t.erro)) {
+    const alt = _iaProviderOpenAI();
+    if (alt) { const t2 = await tentar(modelo, alt); if (t2.ok) t = t2; }
+  }
+  if (!t.ok) throw new Error(_iaErroHumano(t.erro, p.nome));
   try {
     const u = t.json?.usage || {};
     await sbPost("system_usage_events", { client_id: telemetry.clientId || null, service_key: p.nome.toLowerCase(), action: String(telemetry.action || "ai_request").slice(0, 80), input_units: Number(u.prompt_tokens || u.input_tokens || 0), output_units: Number(u.completion_tokens || u.output_tokens || 0), quantity: 1, meta: { model: t.json?.model || payload.model } });

@@ -803,6 +803,7 @@
       <span style="flex:1"></span>
       <button class="btn sm ghost" onclick="openTeamModal()">⚙ Equipe</button>
     </div>
+    <div id="taskBulkBar" style="display:none;margin-bottom:10px"></div>
     <div id="taskListView" class="card" style="padding:8px"></div>
     <div id="taskKanbanView" style="display:none">
       <div class="kanban" id="kanban"></div>
@@ -1915,6 +1916,26 @@ const SUPA_KEY = 'sb_publishable_gWzVyEm8hT0_CH16UO8UqA_kkcbfo14';
 const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY,{
   auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
 });
+// O supabase-js entrega sempre "Edge Function returned a non-2xx status code" e joga o motivo REAL no
+// error.context (o corpo da resposta). Como dezenas de telas mostram só error.message, o usuário via um erro
+// mudo — inclusive quando a causa era simples ("A IA atingiu o limite do plano"). Enriquecemos uma vez, aqui,
+// e todas as telas passam a mostrar o motivo sem precisar mexer em cada uma.
+{
+  const _invoke=sb.functions.invoke.bind(sb.functions);
+  sb.functions.invoke=async function(...args){
+    const r=await _invoke(...args);
+    const ctx=r&&r.error&&r.error.context;
+    if(ctx&&typeof ctx.clone==='function'&&typeof ctx.text==='function'){
+      try{
+        const txt=await ctx.clone().text();
+        let m='';try{const j=JSON.parse(txt);m=j.error||j.message||'';}catch(_){m=txt&&txt.length<300?txt:'';}
+        if(!m&&ctx.status===504)m='a operação passou do tempo limite do servidor. Tente de novo.';
+        if(m)r.error.message=String(m).slice(0,300);
+      }catch(_){}
+    }
+    return r;
+  };
+}
 
 const DB = {clients:[], tasks:[], finance:[], shows:[], team:[], creditors:[], wallet:[]};
 let _accessProfile=null,_accessClientIds=[],_accessUsers=[],_mfaFactor=null,_mfaPasswordReady=false,_mfaCurrentAal='aal1',_mfaStarting=false,_passwordRecoveryMode=/type=recovery/i.test(location.hash+location.search);
@@ -8791,16 +8812,75 @@ function renderTasks(){
   if(taskFilters.dateTo)base=base.filter(t=>t.due&&t.due<=taskFilters.dateTo);
   const sorted=[...base].sort((a,b)=>{if(a.urgent&&!b.urgent)return -1;if(!a.urgent&&b.urgent)return 1;const dueDiff=(a.due||'9')>(b.due||'9')?1:(a.due||'9')<(b.due||'9')?-1:0;if(dueDiff!==0)return dueDiff;return clientName(a.client).localeCompare(clientName(b.client),'pt')});
   document.querySelectorAll('#taskStyleSeg [data-style]').forEach(b=>b.classList.toggle('active',b.dataset.style===taskListStyle));
+  _taskVisIds=sorted.map(t=>t.id);
+  if(_selTasks.size){[..._selTasks].forEach(id=>{if(!DB.tasks.some(t=>t.id===id))_selTasks.delete(id)})} // tarefa apagada sai da seleção
   if(taskView==='list'){
     const el=document.getElementById('taskListView');
     if(!sorted.length){el.innerHTML='<div class="empty">Nenhuma tarefa com esses filtros.</div>'}
     else if(taskListStyle==='grouped')renderTaskListGrouped(sorted,el);
     else if(taskListStyle==='focus')renderTaskListFocus(sorted,el);
     else renderTaskListCompact(sorted,el);
+    renderTaskBulkBar();
   }else{
+    document.getElementById('taskBulkBar').style.display='none';
     const cols=[['todo','A fazer'],['doing','Em andamento'],['review','Revisão'],['done','Concluído']];
     document.getElementById('kanban').innerHTML=cols.map(([k,lbl])=>{const items=sorted.filter(t=>t.status===k);return`<div class="kanban-col" ondragover="event.preventDefault()" ondrop="dropTask(event,'${k}')"><h4>${lbl}<span>${items.length}</span></h4>${items.map(t=>{const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];return`<div class="kanban-card" draggable="true" ondragstart="dragTask(event,'${t.id}')" onclick="openTaskModal('${t.id}')" style="${t.urgent?'border-left:3px solid #f87171;':''}">${t.urgent?'<span style="font-size:12px">🚩</span> ':''}<div class="client">${ownerName(t.owner)} · ${clientName(t.client)}</div>${t.name}<div class="due"><span class="pill ${pp}" style="font-size:10px">${t.prio}</span> ${t.due?dateBR(t.due):''}</div></div>`}).join('')}</div>`}).join('');
   }
+}
+/* ---- Seleção múltipla de tarefas (edição em massa) ---- */
+let _selTasks=new Set(),_taskVisIds=[];
+function taskSelToggle(id,on){on?_selTasks.add(id):_selTasks.delete(id);renderTaskBulkBar();document.querySelectorAll(`.tsel[data-tid="${id}"]`).forEach(c=>c.checked=on);}
+function taskSelAllVisiveis(on){if(on)_taskVisIds.forEach(i=>_selTasks.add(i));else _selTasks.clear();renderTasks();}
+function taskSelLimpar(){_selTasks.clear();renderTasks();}
+function renderTaskBulkBar(){
+  const bar=document.getElementById('taskBulkBar');if(!bar)return;
+  const n=_selTasks.size,tot=_taskVisIds.length;
+  if(!tot){bar.style.display='none';return}
+  const todosMarcados=n>0&&_taskVisIds.every(i=>_selTasks.has(i));
+  const acoes=n?`
+    <span style="color:var(--faint)">|</span>
+    <select id="tbOwner" style="width:auto;min-width:150px" onchange="taskBulkSet('owner',this.value,this)">
+      <option value="">Definir responsável…</option>${DB.team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}<option value="__none__">— sem responsável —</option>
+    </select>
+    <select id="tbPrio" style="width:auto" onchange="taskBulkSet('prio',this.value,this)">
+      <option value="">Prioridade…</option><option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option>
+    </select>
+    <select id="tbStatus" style="width:auto" onchange="taskBulkSet('status',this.value,this)">
+      <option value="">Status…</option><option value="todo">A fazer</option><option value="doing">Em andamento</option><option value="review">Revisão</option><option value="done">Concluído</option>
+    </select>
+    <input type="date" id="tbDue" style="width:auto" title="Definir prazo" onchange="taskBulkSet('due',this.value,this)">
+    <button class="btn sm ghost danger" onclick="taskBulkExcluir()">✕ Excluir</button>
+    <button class="btn sm ghost" onclick="taskSelLimpar()">Limpar seleção</button>`:'';
+  bar.style.display='';
+  bar.innerHTML=`<div class="card" style="padding:9px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;${n?'border-color:var(--accent)':''}">
+    <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;margin:0">
+      <input type="checkbox" class="checkbox" style="width:auto" ${todosMarcados?'checked':''} onchange="taskSelAllVisiveis(this.checked)">
+      ${n?`<b>${n}</b> selecionada${n>1?'s':''}`:`Selecionar todas as ${tot} tarefas da lista`}
+    </label>
+    ${acoes}
+    <span id="tbMsg" style="font-size:12px;color:var(--muted);margin-left:auto"></span>
+  </div>`;
+}
+// Uma chamada só pro banco, com .select() pra provar que gravou (update barrado por RLS volta sem erro e sem linha).
+async function taskBulkSet(campo,valor,el){
+  if(valor===''||!_selTasks.size){if(el)el.value='';return}
+  const ids=[..._selTasks],msg=document.getElementById('tbMsg');
+  const val=valor==='__none__'?'':valor;
+  const rotulo={owner:'responsável',prio:'prioridade',status:'status',due:'prazo'}[campo];
+  if(msg)msg.textContent='Salvando…';
+  const {data,error}=await sb.from('tasks').update({[campo]:campo==='owner'?(val||null):val}).in('id',ids).select('id');
+  if(error){if(msg){msg.style.color='var(--red)';msg.textContent='Erro: '+(error.message||error)}if(el)el.value='';return}
+  if(!data||!data.length){if(msg){msg.style.color='var(--red)';msg.textContent='Nada foi gravado — o banco recusou a alteração.'}if(el)el.value='';return}
+  DB.tasks.forEach(t=>{if(_selTasks.has(t.id))t[campo]=campo==='owner'?val:val});
+  renderAll();
+  const m2=document.getElementById('tbMsg');if(m2){m2.style.color='var(--muted)';m2.textContent=`✓ ${rotulo} atualizado em ${data.length} tarefa${data.length>1?'s':''}.`}
+}
+async function taskBulkExcluir(){
+  const ids=[..._selTasks];if(!ids.length)return;
+  if(!confirm(`Excluir ${ids.length} tarefa${ids.length>1?'s':''}?\n\nEssa ação não tem desfazer.`))return;
+  const {error}=await sb.from('tasks').delete().in('id',ids);
+  if(error){alert('Erro ao excluir: '+(error.message||error));return}
+  DB.tasks=DB.tasks.filter(t=>!_selTasks.has(t.id));_selTasks.clear();renderAll();
 }
 function taskRowHTML(t){const done=t.status==='done',d=daysUntil(t.due);let dp='gray',dt=t.due?dateBR(t.due):'';if(!done&&d!==null){if(d<0){dp='red';dt='atrasada'}else if(d<=2){dp='amber';dt=d===0?'hoje':dt}}const pp={alta:'red',media:'amber',baixa:'gray'}[t.prio];const chTags=(t.channels&&t.channels.length)?t.channels.map(c=>`<span class="ch-tag sel" style="padding:1px 7px;font-size:10px">${channelLabel(c)}</span>`).join(''):'';
 const extras=(t.repeat?`<span class="pill blue" style="font-size:10px" title="Repete ${repeatLabel(t.repeat)}">↻ ${repeatLabel(t.repeat)}</span>`:'')+( t.notes?'<span style="color:var(--faint)" title="Tem observações">📝</span>':'')+(t.link?'<span style="color:var(--faint)" title="Tem link">📎</span>':'')+chTags;
@@ -8811,7 +8891,7 @@ const ownerClr=ownerColor(t.owner);
 const cl=t.checklist||[];const clDone=cl.filter(ci=>ci.done).length;
 const clBadge=cl.length?`<span class="pill ${clDone===cl.length?'green':'gray'}" style="white-space:nowrap;cursor:pointer" title="Ver checklist" onclick="openTaskModal('${t.id}')">☑ ${clDone}/${cl.length}</span>`:'';
 const reviewBadge=t.reviewRequested&&!done?`<span class="pill blue" style="white-space:nowrap;cursor:pointer" title="Revisão solicitada para ${ownerName(t.reviewer)}" onclick="openTaskModal('${t.id}')">🔍 revisar: ${ownerName(t.reviewer)}</span>`:'';
-return`<div class="task-item ${done?'done':''}" style="border-left-color:${stripe}"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')" title="Concluir"></div><div class="task-avatar" title="${ownerName(t.owner)}" style="background:${ownerClr}26;color:${ownerClr}">${initial}</div><span class="task-name" title="${t.name}">${t.name}</span><span class="task-meta"><span style="color:var(--accent);font-weight:600;white-space:nowrap">${clientName(t.client)}</span><span class="pill ${pp}" style="padding:2px 8px">${t.prio}</span><span class="task-hover">${extras}</span>${clBadge}${reviewBadge}${dt?`<span class="pill ${dp}" style="white-space:nowrap">${dt}</span>`:''}</span>${urgBtn}<span class="task-hover"><button class="btn sm ghost" onclick="openTaskModal('${t.id}')" title="Editar">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')" title="Excluir">✕</button></span></div>`}
+return`<div class="task-item ${done?'done':''}" style="border-left-color:${stripe}"><input type="checkbox" class="checkbox tsel" data-tid="${t.id}" ${_selTasks.has(t.id)?'checked':''} onclick="event.stopPropagation();taskSelToggle('${t.id}',this.checked)" title="Selecionar para edição em massa" style="width:auto;flex:none;margin-right:2px"><div class="task-check ${done?'checked':''}" onclick="toggleTask('${t.id}')" title="Concluir"></div><div class="task-avatar" title="${ownerName(t.owner)}" style="background:${ownerClr}26;color:${ownerClr}">${initial}</div><span class="task-name" title="${t.name}">${t.name}</span><span class="task-meta"><span style="color:var(--accent);font-weight:600;white-space:nowrap">${clientName(t.client)}</span><span class="pill ${pp}" style="padding:2px 8px">${t.prio}</span><span class="task-hover">${extras}</span>${clBadge}${reviewBadge}${dt?`<span class="pill ${dp}" style="white-space:nowrap">${dt}</span>`:''}</span>${urgBtn}<span class="task-hover"><button class="btn sm ghost" onclick="openTaskModal('${t.id}')" title="Editar">✎</button><button class="btn sm ghost danger" onclick="delTask('${t.id}')" title="Excluir">✕</button></span></div>`}
 function renderTaskListCompact(sorted,el){
   const pend=sorted.filter(t=>t.status!=='done');
   const done=sorted.filter(t=>t.status==='done');
