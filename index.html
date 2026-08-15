@@ -349,6 +349,8 @@
   .evt-filter-actions{display:flex;gap:6px;align-items:center;margin-top:7px;flex-wrap:wrap}
   .evt-filter-list{overflow:auto;padding:6px 8px 9px;scrollbar-width:thin;scrollbar-color:var(--accent) #0d0d0b}
   .evt-filter-option{display:grid!important;grid-template-columns:17px minmax(0,1fr);gap:9px;align-items:start;padding:8px!important;margin:0;border-radius:8px;cursor:pointer}
+  /* o !important acima vencia o display:none inline do JS: a busca contava certo e a lista continuava inteira na tela */
+  .evt-filter-option.evt-oculto{display:none!important}
   .evt-filter-option:hover{background:rgba(255,213,42,.055)}
   .evt-filter-option input[type=checkbox]{appearance:auto!important;width:15px!important;height:15px!important;min-width:15px!important;margin:2px 0 0!important;padding:0!important;box-shadow:none!important;accent-color:var(--accent)}
   .evt-filter-option b{display:inline-block;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-right:5px}
@@ -10874,7 +10876,7 @@ function evtFilterCampaignOptions(q){
     if(channelOk)tot++;
     const alvo=_evtNorm(el.dataset.search||'');
     const ok=channelOk&&termos.every(t=>alvo.includes(t));
-    el.style.display=ok?'grid':'none';if(ok)vis++;
+    el.classList.toggle('evt-oculto',!ok);if(ok)vis++;
   });
   const hint=document.getElementById('evtCampSearchHint');
   if(hint)hint.textContent=termos.length?`${vis} de ${tot} campanha(s) com "${q.trim()}"`:`${tot} campanha(s) no período`;
@@ -10882,14 +10884,21 @@ function evtFilterCampaignOptions(q){
   if(vazio)vazio.style.display=(termos.length&&!vis)?'':'none';
 }
 function evtSelectVisibleCampaigns(on){
-  document.querySelectorAll('#evtCampOptions .evt-filter-option').forEach(el=>{if(el.style.display!=='none'){const cb=el.querySelector('input');if(cb)cb.checked=!!on;}});
+  // "visível" agora é a mesma coisa que a tela mostra (antes marcava itens escondidos pelo filtro)
+  document.querySelectorAll('#evtCampOptions .evt-filter-option:not(.evt-oculto)').forEach(el=>{const cb=el.querySelector('input');if(cb)cb.checked=!!on;});
   evtUpdateFilterCounts();
 }
-function evtUseAllCampaigns(){document.querySelectorAll('.evtCampOpt').forEach(cb=>cb.checked=false);evtUpdateFilterCounts();}
+// "Marcar todos" marcava... nada: desmarcava as caixas, porque internamente lista vazia já significa "todos".
+// Quem clicava via a janela sem reagir. Agora marca de verdade, e a leitura trata TUDO MARCADO como sem filtro
+// (é o mesmo resultado, e é importante: manter a lista cheia faria a receita do GA4 cair, porque o casamento
+// por origem/mídia deixaria de fora o tráfego orgânico e direto).
+function _evtTodasMarcadas(sel){const b=[...document.querySelectorAll(sel)];return b.length&&b.every(x=>x.checked);}
+function evtSelMarcadas(sel){const b=[...document.querySelectorAll(sel)];const m=b.filter(x=>x.checked).map(x=>x.value);return (m.length===b.length)?[]:m;}
+function evtUseAllCampaigns(){document.querySelectorAll('.evtCampOpt').forEach(cb=>cb.checked=true);evtUpdateFilterCounts();}
 function evtSelectAllRd(on){document.querySelectorAll('.evtRdOpt').forEach(cb=>cb.checked=!!on);evtUpdateFilterCounts();}
-function evtUseAllChannels(id){document.querySelectorAll('.evtChannelOpt').forEach(cb=>cb.checked=false);evtChannelChanged(id);}
+function evtUseAllChannels(id){const marcar=!_evtTodasMarcadas('.evtChannelOpt');document.querySelectorAll('.evtChannelOpt').forEach(cb=>cb.checked=marcar);evtChannelChanged(id);}
 function evtChannelChanged(id){
-  _evtChannelFilter=[...document.querySelectorAll('.evtChannelOpt:checked')].map(x=>x.value);
+  _evtChannelFilter=evtSelMarcadas('.evtChannelOpt');
   document.querySelectorAll('#evtCampOptions .evt-filter-option').forEach(el=>{if(_evtChannelFilter.length&&!_evtChannelFilter.includes(String(el.dataset.channel||''))){const cb=el.querySelector('input');if(cb)cb.checked=false;}});
   evtFilterCampaignOptions((document.getElementById('evtCampSearch')||{}).value||'');evtUpdateFilterCounts();
   const e=_evtData.editions.find(x=>x.id===id),s=(_evtData.snapshots||[]).find(x=>x.edition_id===id);if(e&&s){const shell=document.querySelector('.evt-section-shell');if(shell)shell.innerHTML=_evtSectionContent(id,e,s,s.metrics||{},(_evtData.versions||[]).filter(x=>x.edition_id===id));if(_evtSection==='creatives')evtRenderCreativeGallery(id);}
