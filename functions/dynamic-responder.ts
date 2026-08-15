@@ -121,9 +121,10 @@ const DNA_SHAPE = `{
   "identidade": {"marca": "", "promessa": "", "posicionamento": "", "tom": "", "sobre": ""},
   "produtos": [{"nome": "", "dorQueResolve": "", "desejo": "", "personaAlvo": ""}],
   "personas": [{"titulo": "", "descricao": "", "transformacao": "de [estado atual] para [estado desejado]", "estadoAtual": "", "dores": [""], "desejos": [""], "tensoes": "", "crencas": ""}],
+  "objecoes": [{"objecao": "", "resposta": "", "personaAlvo": ""}],
   "diretrizes": {"tom": "", "palavrasRessoam": [""], "palavrasProibidas": [""], "abordagens": [""], "beneficios": [""], "sempreFim": [""]}
 }`;
-const DNA_SYSTEM = `Voce e uma estrategista de marketing e copywriting senior. A partir do material fornecido sobre um cliente/negocio (briefing, site, questionario, material institucional), voce monta o "DNA" do cliente: identidade da marca, produtos/servicos, personas detalhadas e diretrizes de copy.
+const DNA_SYSTEM = `Voce e uma estrategista de marketing e copywriting senior. A partir do material fornecido sobre um cliente/negocio (briefing, site, questionario, material institucional), voce monta o "DNA" do cliente: identidade da marca, produtos/servicos, personas detalhadas, objecoes de compra (com a quebra de cada uma) e diretrizes de copy.
 
 Responda SOMENTE com um JSON valido no formato exato abaixo (sem markdown, sem comentarios, em portugues do Brasil):
 ${DNA_SHAPE}
@@ -132,22 +133,26 @@ Regras:
 - Preencha com base no material; nao invente fatos concretos (nomes, precos), mas PODE inferir dores/desejos/tom coerentes com o segmento.
 - personas: crie de 2 a 4 personas ricas. Cada uma com titulo curto e descritivo, descricao de 1-2 frases, transformacao (de X para Y), estadoAtual (o "antes" concreto), 4-6 dores e 4-6 desejos especificos, tensoes recorrentes e crencas/mitos a quebrar.
 - produtos: liste os produtos/servicos identificados; se so houver um negocio, crie 1-3 entradas. personaAlvo deve referenciar o titulo de uma das personas.
+- objecoes: 4-8 objecoes REAIS de compra desse publico, escritas na voz do cliente ("Nao tenho tempo", "Ta caro", "Sera que funciona pra mim?", "Ja tentei e nao deu certo", "Vou pensar", "Prefiro o concorrente X"). Para cada uma, "resposta" = a quebra em 1-2 frases, com argumento concreto do proprio material (garantia, prova, formato, suporte, prazo) — e nunca uma promessa que o material nao sustente. personaAlvo referencia o titulo de uma persona, ou fica vazio quando a objecao vale para todas.
 - diretrizes: tom de comunicacao, 6-12 palavras que ressoam, 4-8 palavras proibidas, 4-6 abordagens de copy, 4-6 beneficios principais, e 1-3 frases para "sempre no fim da copy" (CTA/assinatura).
 - Se um campo nao tiver base, deixe string vazia ou array vazio, nunca invente dado factual.`;
 
 async function extractDna(text: string, direcionamento: string) {
   let user = `Material do cliente:\n${String(text || "").slice(0, 24000)}`;
   if (direcionamento) user += `\n\nDirecionamento do gestor (leve em conta): ${direcionamento}`;
-  const json = await callOpenAI({ messages: [{ role: "system", content: DNA_SYSTEM }, { role: "user", content: user }], response_format: { type: "json_object" }, max_tokens: 3500, temperature: 0.7 });
+  // 3500 nao cabia mais depois que "objecoes" entrou no formato: o JSON vinha cortado e o parse estourava
+  // com erro generico. Com folga + mensagem propria, o gestor sabe o que aconteceu.
+  const json = await callOpenAI({ messages: [{ role: "system", content: DNA_SYSTEM }, { role: "user", content: user }], response_format: { type: "json_object" }, max_tokens: 5000, temperature: 0.7 });
   const content = json.choices?.[0]?.message?.content || "{}";
-  return JSON.parse(content);
+  try { return JSON.parse(content); } catch { throw new Error("a IA devolveu um DNA incompleto (resposta cortada). Tente de novo, ou gere por PDF/texto em vez de automático."); }
 }
 
 async function refineDna(dna: any, instrucao: string) {
   const sys = `Voce edita o DNA de um cliente (JSON). Aplique a instrucao do gestor ao DNA atual e devolva o DNA COMPLETO atualizado, no MESMO formato JSON, sem markdown. Formato:\n${DNA_SHAPE}\nMantenha tudo que nao foi pedido para mudar. Portugues do Brasil.`;
   const user = `DNA atual:\n${JSON.stringify(dna)}\n\nInstrucao: ${instrucao}`;
-  const json = await callOpenAI({ messages: [{ role: "system", content: sys }, { role: "user", content: user }], response_format: { type: "json_object" }, max_tokens: 3500, temperature: 0.5 });
-  return JSON.parse(json.choices?.[0]?.message?.content || "{}");
+  const json = await callOpenAI({ messages: [{ role: "system", content: sys }, { role: "user", content: user }], response_format: { type: "json_object" }, max_tokens: 5000, temperature: 0.5 });
+  const content = json.choices?.[0]?.message?.content || "{}";
+  try { return JSON.parse(content); } catch { throw new Error("a IA devolveu um DNA incompleto (resposta cortada). Refaça o pedido em partes menores."); }
 }
 
 async function fetchUrlText(url: string) {
@@ -2325,6 +2330,7 @@ async function briefingGerarFichas(input: any) {
     publico: input.publico || "", angulo: input.angulo || "", promessa: input.promessa || "",
     referencia: input.referencia || "", funis, canais, formatos, variacoes, prazo: input.prazo || null,
     marca: dna?.identidade || {}, produtos: (dna?.produtos || []).slice(0, 12), personas: (dna?.personas || []).slice(0, 8),
+    objecoes: (dna?.objecoes || []).slice(0, 10), // o que trava a compra + a quebra: material direto pra copy
     diretrizes: dna?.diretrizes || {},
   };
   const prompt = `Você é diretor de criação para mídia paga. Transforme a análise de performance em fichas objetivas de solicitação de criativos para o time de produção.
@@ -2631,24 +2637,48 @@ Regras: baseie-se nos números e nas imagens; nunca invente dados; avalie cada c
 
 // Análise de site: PageSpeed Insights (carregamento/acessibilidade/SEO) + leitura de UX/navegação por IA.
 // Junta material do cliente automaticamente (site + copy dos anúncios do Meta + termos de busca do Google) pra montar o DNA.
+// Nao deixa uma fonte lenta derrubar a coleta inteira: passou do tempo, segue sem ela.
+function _comLimite<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let t: number | undefined;
+  return Promise.race([
+    p.catch(() => fallback).then((v) => { if (t) clearTimeout(t); return v; }),
+    new Promise<T>((r) => { t = setTimeout(() => r(fallback), ms); }),
+  ]);
+}
+// A coleta era SEQUENCIAL (site → 3 contas Meta uma a uma → termos do Google). Em cliente grande
+// (Curso Fernanda Pessoa: 7 contas Meta + a maior conta Google) isso somava ~90s e, com o modelo em cima,
+// estourava o teto de 150s da Edge Function (504). Agora tudo em paralelo e com teto por fonte.
 async function _dnaGatherFromAccount(clientId: string): Promise<string> {
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,seg,site_url,meta_account_id,google_account_id`))[0];
   if (!c) return "";
-  const parts: string[] = [`Negócio: ${c.name}. Segmento: ${c.seg || "-"}.`];
-  if (c.site_url) { const t = await fetchUrlText(c.site_url).catch(() => ""); if (t) parts.push("=== SITE DO CLIENTE ===\n" + t.slice(0, 6000)); }
-  const token = await _metaUserToken();
-  const accs = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
-  const copies = new Set<string>();
-  if (token) for (const acc of accs.slice(0, 3)) {
-    try {
-      const r = await fetch(`https://graph.facebook.com/v21.0/act_${acc}/adcreatives?fields=title,body,object_story_spec{link_data{message,name,description}}&limit=150&access_token=${token}`);
-      const j = await r.json();
-      (j.data || []).forEach((cr: any) => { const ld = cr.object_story_spec && cr.object_story_spec.link_data; [cr.title, cr.body, ld && ld.message, ld && ld.name, ld && ld.description].forEach((x: any) => { if (x && String(x).trim().length > 3) copies.add(String(x).trim()); }); });
-    } catch { /* */ }
-  }
-  if (copies.size) parts.push("=== COPY DOS ANÚNCIOS (Meta) ===\n" + [...copies].slice(0, 70).join("\n"));
+  const accs = String(c.meta_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean).slice(0, 3);
   const gAccs = String(c.google_account_id || "").split(",").map((s: string) => s.trim()).filter(Boolean);
-  if (gAccs.length) { try { const since = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10); const br: any = await googleBreakdowns({ accounts: gAccs.map((id: string) => ({ id })), since, until }).catch(() => null); if (br && br.termos && br.termos.length) parts.push("=== TERMOS DE BUSCA (Google) ===\n" + br.termos.slice(0, 40).map((t: any) => t.key).join(", ")); } catch { /* */ } }
+  const token = accs.length ? await _metaUserToken() : "";
+  const metaCopies = async () => {
+    const copies = new Set<string>();
+    await Promise.all(accs.map(async (acc) => {
+      try {
+        const r = await fetch(`https://graph.facebook.com/v21.0/act_${acc}/adcreatives?fields=title,body,object_story_spec{link_data{message,name,description}}&limit=150&access_token=${token}`);
+        const j = await r.json();
+        (j.data || []).forEach((cr: any) => { const ld = cr.object_story_spec && cr.object_story_spec.link_data; [cr.title, cr.body, ld && ld.message, ld && ld.name, ld && ld.description].forEach((x: any) => { if (x && String(x).trim().length > 3) copies.add(String(x).trim()); }); });
+      } catch { /* uma conta fora nao invalida as outras */ }
+    }));
+    return [...copies];
+  };
+  const googleTermos = async () => {
+    const since = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10), until = new Date().toISOString().slice(0, 10);
+    const br: any = await googleBreakdowns({ accounts: gAccs.map((id: string) => ({ id })), since, until });
+    return ((br && br.termos) || []).slice(0, 40).map((t: any) => t.key);
+  };
+  const [site, copies, termos] = await Promise.all([
+    c.site_url ? _comLimite(fetchUrlText(c.site_url), 25000, "") : Promise.resolve(""),
+    (token && accs.length) ? _comLimite(metaCopies(), 35000, [] as string[]) : Promise.resolve([] as string[]),
+    gAccs.length ? _comLimite(googleTermos(), 35000, [] as string[]) : Promise.resolve([] as string[]),
+  ]);
+  const parts: string[] = [`Negócio: ${c.name}. Segmento: ${c.seg || "-"}.`];
+  if (site) parts.push("=== SITE DO CLIENTE ===\n" + site.slice(0, 6000));
+  if (copies.length) parts.push("=== COPY DOS ANÚNCIOS (Meta) ===\n" + copies.slice(0, 70).join("\n"));
+  if (termos.length) parts.push("=== TERMOS DE BUSCA (Google) ===\n" + termos.join(", "));
   return parts.join("\n\n");
 }
 async function siteAudit(m: any) {
@@ -2830,7 +2860,7 @@ async function waExtract(convId: string, autoApply = false) {
   const keys = stages.map((s: any) => s.key).join(", ");
   // DNA do cliente pra avaliar relevância
   let dnaCtx = ""; let hasDna = false;
-  if (cv.client_id) { const cl = (await sbGet("clients", `id=eq.${encodeURIComponent(cv.client_id)}&select=name,dna,seg`))[0]; const dna = cl?.dna || {}; const prods = (dna?.produtos || []).map((p: any) => p.nome).filter(Boolean); hasDna = !!(prods.length || dna?.identidade?.marca); dnaCtx = `\n\nNEGÓCIO DO CLIENTE (contexto): ${cl?.name || ""} · segmento ${cl?.seg || ""}. Vende: ${prods.join(", ") || dna?.identidade?.marca || "—"}. Personas: ${(dna?.personas || []).map((p: any) => p.titulo).filter(Boolean).join(", ") || "—"}.`; }
+  if (cv.client_id) { const cl = (await sbGet("clients", `id=eq.${encodeURIComponent(cv.client_id)}&select=name,dna,seg`))[0]; const dna = cl?.dna || {}; const prods = (dna?.produtos || []).map((p: any) => p.nome).filter(Boolean); hasDna = !!(prods.length || dna?.identidade?.marca); dnaCtx = `\n\nNEGÓCIO DO CLIENTE (contexto): ${cl?.name || ""} · segmento ${cl?.seg || ""}. Vende: ${prods.join(", ") || dna?.identidade?.marca || "—"}. Personas: ${(dna?.personas || []).map((p: any) => p.titulo).filter(Boolean).join(", ") || "—"}.${(dna?.objecoes || []).length ? ` Objeções conhecidas e como responder: ${(dna.objecoes || []).slice(0, 8).map((o: any) => `"${o.objecao}" → ${o.resposta}`).join(" | ")}` : ""}`; }
   // O ANÚNCIO que o lead respondeu — quem pergunta sobre o que foi anunciado é RELEVANTE por definição
   let adCtx = ""; const _o = cv.origin || {};
   if (cv.origin_type === "anuncio" && (_o.title || _o.body || _o.campaign || _o.ad)) adCtx = `\n\nESTE LEAD VEIO DE UM ANÚNCIO. O que foi anunciado: "${String(_o.title || "").slice(0, 120)}${_o.body ? " — " + String(_o.body).slice(0, 200) : ""}"${_o.campaign ? ` (campanha: ${_o.campaign})` : ""}. Se o interesse do lead bate com esse anúncio, ele é RELEVANTE — o cliente está pagando justamente para atrair essas pessoas.`;

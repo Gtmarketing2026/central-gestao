@@ -7904,7 +7904,7 @@ function renderClientConfig(){
   const dna=c.dna, personas=dna&&dna.personas?dna.personas.length:0;
   // "tem DNA" não é só ter persona: identidade, produtos ou diretrizes já contam. Antes, um DNA salvo sem
   // persona aparecia como "sem DNA" e parecia que o trabalho tinha sumido.
-  const temDna=!!dna&&(personas>0||(dna.produtos||[]).length>0
+  const temDna=!!dna&&(personas>0||(dna.produtos||[]).length>0||(dna.objecoes||[]).length>0
     ||Object.values(dna.identidade||{}).some(v=>String(v||'').trim())
     ||Object.values(dna.diretrizes||{}).some(v=>Array.isArray(v)?v.length:String(v||'').trim()));
   // conta metas do Geral + as próprias de cada canal (porCanal não é meta, é o balde dos canais)
@@ -10767,13 +10767,14 @@ function orderStatusColor(st){
 }
 /* ===== DNA DO CLIENTE ===== */
 let dnaDraft=null,dnaClientId=null,dnaTab='fonte',dnaSourceType='pdf',_dnaSnapshot='';
-const DNA_TABS=[['fonte','Fonte'],['identidade','Identidade'],['produtos','Produtos'],['personas','Personas'],['diretrizes','Diretrizes'],['refinar','Refinar com IA']];
+const DNA_TABS=[['fonte','Fonte'],['identidade','Identidade'],['produtos','Produtos'],['personas','Personas'],['objecoes','Objeções'],['diretrizes','Diretrizes'],['refinar','Refinar com IA']];
 function dnaEsc(s){return String(s==null?'':s).replace(/</g,'&lt;')}
 function dnaAttr(s){return String(s==null?'':s).replace(/"/g,'&quot;')}
 function normalizeDna(d){d=d||{};return{
   identidade:Object.assign({marca:'',promessa:'',posicionamento:'',tom:'',sobre:''},d.identidade||{}),
   produtos:(d.produtos||[]).map(p=>({nome:p.nome||'',dorQueResolve:p.dorQueResolve||'',desejo:p.desejo||'',personaAlvo:p.personaAlvo||''})),
   personas:(d.personas||[]).map(p=>({titulo:p.titulo||'',descricao:p.descricao||'',transformacao:p.transformacao||'',estadoAtual:p.estadoAtual||'',dores:Array.isArray(p.dores)?p.dores:[],desejos:Array.isArray(p.desejos)?p.desejos:[],tensoes:p.tensoes||'',crencas:p.crencas||''})),
+  objecoes:(d.objecoes||[]).map(o=>({objecao:o.objecao||'',resposta:o.resposta||'',personaAlvo:o.personaAlvo||''})),
   diretrizes:Object.assign({tom:'',palavrasRessoam:[],palavrasProibidas:[],abordagens:[],beneficios:[],sempreFim:[]},d.diretrizes||{})
 };}
 function openDnaModal(clientId){
@@ -10788,7 +10789,7 @@ function setDnaTab(t){dnaTab=t;renderDnaTabs();renderDnaBody();}
 function renderDnaTabs(){document.getElementById('dnaTabs').innerHTML=DNA_TABS.map(([k,l])=>`<button class="btn sm ${dnaTab===k?'primary':'ghost'}" style="font-size:12px" onclick="setDnaTab('${k}')">${l}</button>`).join('');}
 function renderDnaBody(){
   const el=document.getElementById('dnaBody');
-  el.innerHTML=dnaTab==='fonte'?dnaFonteHTML():dnaTab==='identidade'?dnaIdentidadeHTML():dnaTab==='produtos'?dnaProdutosHTML():dnaTab==='personas'?dnaPersonasHTML():dnaTab==='diretrizes'?dnaDiretrizesHTML():dnaRefinarHTML();
+  el.innerHTML=dnaTab==='fonte'?dnaFonteHTML():dnaTab==='identidade'?dnaIdentidadeHTML():dnaTab==='produtos'?dnaProdutosHTML():dnaTab==='personas'?dnaPersonasHTML():dnaTab==='objecoes'?dnaObjecoesHTML():dnaTab==='diretrizes'?dnaDiretrizesHTML():dnaRefinarHTML();
 }
 function dnaLongList(arr,path,add){return (arr||[]).map((v,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px"><textarea rows="2" style="flex:1;font-size:12.5px" oninput="${path}[${i}]=this.value">${dnaEsc(v)}</textarea><button type="button" class="btn sm ghost" style="color:var(--red)" onclick="${path}.splice(${i},1);renderDnaBody()">✕</button></div>`).join('')+`<button type="button" class="btn sm ghost" onclick="${path}.push('');renderDnaBody()">+ ${add}</button>`;}
 function dnaChips(arr,path){return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">${(arr||[]).map((v,i)=>`<span style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 10px;font-size:12px">${dnaEsc(v)} <span style="cursor:pointer;color:var(--faint)" onclick="${path}.splice(${i},1);renderDnaBody()">×</span></span>`).join('')}</div><input placeholder="Digite e tecle Enter" onkeydown="if(event.key==='Enter'){event.preventDefault();const v=this.value.trim();if(v){${path}.push(v);renderDnaBody()}}">`;}
@@ -10848,6 +10849,19 @@ function dnaProdutosHTML(){
     </div>`;
   }).join('');
   return `<div style="font-size:11px;text-transform:uppercase;color:var(--accent);margin-bottom:6px">Produtos & Serviços</div><div style="font-size:12px;color:var(--muted);margin-bottom:10px">Cada produto com a dor que resolve, o desejo que realiza e a persona-alvo.</div>${cards}<button type="button" class="btn ghost" onclick="dnaDraft.produtos.push({nome:'',dorQueResolve:'',desejo:'',personaAlvo:''});renderDnaBody()">+ Adicionar produto</button>`;
+}
+// Objeções: o que trava a compra, na voz do cliente, com a quebra ao lado. A AndréIA usa nas copies.
+function dnaObjecoesHTML(){
+  const cards=dnaDraft.objecoes.map((o,i)=>{
+    const opts='<option value="">— todas as personas —</option>'+dnaDraft.personas.map(pe=>`<option value="${dnaAttr(pe.titulo)}" ${pe.titulo===o.personaAlvo?'selected':''}>${dnaEsc(pe.titulo||'(sem título)')}</option>`).join('');
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;position:relative">
+      <button type="button" class="btn sm ghost" style="position:absolute;top:8px;right:8px;color:var(--red)" onclick="dnaDraft.objecoes.splice(${i},1);renderDnaBody()">✕</button>
+      <div class="form-row"><label>Objeção (na voz do cliente)</label><input value="${dnaAttr(o.objecao)}" placeholder='ex: "Tá caro" · "Não tenho tempo" · "Será que funciona pra mim?"' oninput="dnaDraft.objecoes[${i}].objecao=this.value"></div>
+      <div class="form-row"><label>Como quebrar</label><textarea rows="2" placeholder="Argumento concreto: garantia, prova, formato, prazo, suporte" oninput="dnaDraft.objecoes[${i}].resposta=this.value">${dnaEsc(o.resposta)}</textarea></div>
+      <div class="form-row"><label>Persona-alvo</label><select oninput="dnaDraft.objecoes[${i}].personaAlvo=this.value" onchange="dnaDraft.objecoes[${i}].personaAlvo=this.value">${opts}</select></div>
+    </div>`;
+  }).join('');
+  return `<div style="font-size:11px;text-transform:uppercase;color:var(--accent);margin-bottom:6px">Objeções &amp; quebras</div><div style="font-size:12px;color:var(--muted);margin-bottom:10px">O que faz o cliente hesitar antes de comprar e a resposta pra cada travamento. É o que a AndréIA usa pra escrever copy que antecipa a dúvida.</div>${cards||'<div class="empty" style="padding:14px">Nenhuma objeção ainda. Gere o DNA com IA ou adicione na mão.</div>'}<button type="button" class="btn ghost" onclick="dnaDraft.objecoes.push({objecao:'',resposta:'',personaAlvo:''});renderDnaBody()">+ Adicionar objeção</button>`;
 }
 function dnaPersonasHTML(){
   const cards=dnaDraft.personas.map((p,i)=>{const b=`dnaDraft.personas[${i}]`;
