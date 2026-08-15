@@ -1299,7 +1299,9 @@
           <span style="font-size:13px;font-weight:600;color:var(--text)">🎯 Metas / Benchmark do cliente (opcional)</span>
           <button type="button" class="btn sm ghost" id="cMetaAvgBtn" onclick="pullAccountAverages()">📊 Puxar média da conta</button>
         </div>
-        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Defina só as metas que fazem sentido pro objetivo dele. A AndréIA cobra o desempenho contra elas. Deixe em branco o que não usar. "Puxar média da conta" preenche com a média dos últimos 90 dias do Meta.</div>
+        <div style="font-size:11px;color:var(--faint);font-weight:400;margin-top:2px">Defina só as metas que fazem sentido pro objetivo dele. A AndréIA cobra o desempenho contra elas. Deixe em branco o que não usar. "Puxar média da conta" preenche com a média dos últimos 90 dias <b>do canal aberto aqui embaixo</b>.</div>
+        <div id="cBenchTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
+        <div id="cBenchHint" style="font-size:11px;color:var(--muted);font-weight:400;margin-top:5px"></div>
         <span id="cMetaAvgMsg" style="font-size:11px;color:var(--muted)"></span>
       </div>
       <div class="form-grid">
@@ -6174,7 +6176,7 @@ function _rxScore(actual,target,higher){
   return Math.max(0,Math.min(100,Math.round(s)));
 }
 function rxHealth(agg,c,dominant){
-  const bm=(c.benchmarkMetas)||{};const d=deriveMeta({...agg});
+  const bm=benchFor(c,'geral')||{};const d=deriveMeta({...agg});// Diagnóstico junta Meta+Google → metas gerais
   const impr=agg.impressions||0;
   const engRate=impr?((agg.engajamentos||0)+(agg.videoViews||0)+(agg.clicks||0))/impr*100:0;
   const dims={};
@@ -7900,7 +7902,10 @@ function renderClientConfig(){
   const metaCount=(c.metaAccountIds||[]).length;
   const metaNames=(c.metaAccountIds||[]).map(id=>(metaAccountsCache.find(a=>a.id===id)||{}).name||id).slice(0,2).join(', ');
   const dna=c.dna, personas=dna&&dna.personas?dna.personas.length:0;
-  const bm=c.benchmarkMetas||{}; const metasSet=Object.values(bm).filter(v=>v!=null).length;
+  // conta metas do Geral + as próprias de cada canal (porCanal não é meta, é o balde dos canais)
+  const bm=c.benchmarkMetas||{};
+  const _nMetas=o=>Object.keys(BENCH_INPUTS).filter(k=>o&&o[k]!=null&&o[k]!=='').length;
+  const metasSet=_nMetas(bm)+Object.values(bm.porCanal||{}).reduce((s,o)=>s+_nMetas(o),0);
   const tplName=c.reportTemplateId?((templateById(c.reportTemplateId)||{}).name||'—'):'Automático (pelo objetivo)';
   const convLbl={'':'Automático','orders':'Pedidos (planilha/site)','meta':'Meta (gerenciador)','none':'Não trabalha com vendas'}[c.conversionSource||''];
   const grp=(title,cards)=>`<div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:18px 0 10px">${title}</div><div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">${cards}</div>`;
@@ -9306,8 +9311,7 @@ function openClientModal(id){
   document.getElementById('cWhatsapp').value=c.whatsapp||'';
   document.getElementById('cPixelId').value=c.pixelId||'';const _pm=document.getElementById('cPixelMsg');if(_pm)_pm.textContent='';const _mm=document.getElementById('cMetaInfoMsg');if(_mm)_mm.textContent='';
   document.getElementById('cConversionSource').value=c.conversionSource||'';
-  {const bm=c.benchmarkMetas||{};const setM=(id,v)=>{document.getElementById(id).value=(v||v===0)?v:''};
-   setM('cMetaCtr',bm.ctr);setM('cMetaCpc',bm.cpc);setM('cMetaCpm',bm.cpm);setM('cMetaRoas',bm.roas);setM('cMetaCpa',bm.cpa);setM('cMetaCpl',bm.cpl);setM('cMetaConversa',bm.custoConversa);setM('cMetaView',bm.custoView);
+  {benchInit(c); // Geral + metas por canal (Meta/Google) — abre sempre no Geral
    document.getElementById('cMetaAvgMsg').textContent='';
    autoFillBenchmark(c);} // metas vazias → preenche automático com a média (gestor ajusta manual)
   {const st=document.getElementById('cDnaStatus');if(st)st.textContent=c.dna&&c.dna.personas?('✓ DNA salvo · '+(c.dna.personas.length||0)+' personas'):(id?'Ainda sem DNA — clique pra montar':'(disponível após salvar o cliente)');}
@@ -9334,6 +9338,7 @@ function fillMetaSelect(){
 function renderMetaChips(){
   const box=document.getElementById('cMetaAccountChips');if(!box)return;
   box.innerHTML=metaSelectedIds.map(id=>`<span style="display:inline-flex;align-items:center;gap:6px;background:rgba(96,165,250,.15);border:1px solid rgba(96,165,250,.4);border-radius:14px;padding:3px 10px;font-size:12px;color:var(--text)">${metaAccName(id).replace(/</g,'')} <span style="cursor:pointer;color:var(--faint);font-weight:700" onclick="removeMetaAccount('${id}')">×</span></span>`).join('');
+  renderBenchTabs(); // vincular/desvincular conta muda quais abas de meta por canal fazem sentido
 }
 function addMetaAccount(){
   const sel=document.getElementById('cMetaAccountId');const id=sel.value;
@@ -9373,6 +9378,7 @@ function fillGoogleSelect(){
 function renderGoogleChips(){
   const box=document.getElementById('cGoogleAccountChips');if(!box)return;
   box.innerHTML=googleSelectedIds.map(id=>`<span style="display:inline-flex;align-items:center;gap:6px;background:rgba(52,211,153,.15);border:1px solid rgba(52,211,153,.4);border-radius:14px;padding:3px 10px;font-size:12px;color:var(--text)">${googleAccName(id).replace(/</g,'')} <span style="cursor:pointer;color:var(--faint);font-weight:700" onclick="removeGoogleAccount('${id}')">×</span></span>`).join('');
+  renderBenchTabs();
 }
 function addGoogleAccount(){
   const sel=document.getElementById('cGoogleAccountId');const id=sel.value;
@@ -9396,42 +9402,102 @@ async function loadGoogleAccounts(){
   }catch(e){hint.style.color='var(--red)';hint.textContent='Erro: '+(e.message||e)+' (os secrets do Google Ads já foram publicados no Supabase?)';}
   btn.disabled=false;btn.textContent=old;
 }
+/* ---- Metas / Benchmark: um jogo Geral + um por canal ----
+   CPC/CPM/CTR do Meta e do Google vivem em ordens de grandeza diferentes; uma meta só para os dois deixava a
+   comparação furada. Guardamos {…geral, porCanal:{meta:{…},google:{…}}} — o formato antigo (só os campos soltos)
+   continua valendo como Geral. Os 8 campos do formulário editam UM escopo por vez; trocar de aba salva o anterior. */
+const BENCH_INPUTS={ctr:'cMetaCtr',cpc:'cMetaCpc',cpm:'cMetaCpm',roas:'cMetaRoas',cpa:'cMetaCpa',cpl:'cMetaCpl',custoConversa:'cMetaConversa',custoView:'cMetaView'};
+const BENCH_SCOPES=[['geral','🌐 Geral'],['meta','Ⓜ️ Meta Ads'],['google','🔎 Google Ads']];
+let _benchScope='geral',_benchVals={geral:{},meta:{},google:{}};
+// metas valendo pra um canal: o que o canal não define cai pro Geral, campo a campo
+function benchFor(c,canal){
+  const bm=(c&&c.benchmarkMetas)||null;if(!bm)return null;
+  const ch=(canal==='meta'||canal==='google')?((bm.porCanal||{})[canal]||{}):{};
+  const out={};Object.keys(BENCH_INPUTS).forEach(k=>{const v=(ch[k]!=null&&ch[k]!=='')?ch[k]:bm[k];if(v!=null&&v!==''&&+v!==0)out[k]=+v;});
+  return Object.keys(out).length?out:null;
+}
+function benchHasOwn(c,canal){const pc=((c&&c.benchmarkMetas&&c.benchmarkMetas.porCanal)||{})[canal]||{};return Object.keys(pc).length>0;}
+function benchCapture(){const o={};Object.entries(BENCH_INPUTS).forEach(([k,id])=>{const el=document.getElementById(id);if(el&&el.value!=='')o[k]=+el.value;});_benchVals[_benchScope]=o;}
+function benchLoadInputs(){const o=_benchVals[_benchScope]||{};Object.entries(BENCH_INPUTS).forEach(([k,id])=>{const el=document.getElementById(id);if(el)el.value=(o[k]!=null)?o[k]:'';});}
+function benchSetScope(s){if(s===_benchScope)return;benchCapture();_benchScope=s;benchLoadInputs();renderBenchTabs();const m=document.getElementById('cMetaAvgMsg');if(m)m.textContent='';}
+function benchScopesFor(c){return BENCH_SCOPES.filter(([k])=>k==='geral'||(k==='meta'?(c&&c.metaAccountIds||[]).length:(c&&c.googleAccountIds||[]).length));}
+function renderBenchTabs(){
+  const el=document.getElementById('cBenchTabs');if(!el)return;
+  const c=DB.clients.find(x=>x.id===(cId&&cId.value))||{metaAccountIds:metaSelectedIds,googleAccountIds:googleSelectedIds};
+  const scopes=benchScopesFor(c);
+  if(!scopes.some(([k])=>k===_benchScope))_benchScope='geral';
+  el.innerHTML=scopes.map(([k,l])=>{const n=Object.keys(_benchVals[k]||{}).length;return `<button type="button" class="btn sm ${_benchScope===k?'primary':'ghost'}" onclick="benchSetScope('${k}')">${l}${n?` <span class="badge">${n}</span>`:''}</button>`}).join('');
+  const h=document.getElementById('cBenchHint');
+  if(h)h.innerHTML=_benchScope==='geral'
+    ?'Metas <b>gerais</b>: valem pro Diagnóstico (Meta+Google juntos) e como padrão de qualquer canal que não tenha meta própria.'
+    :`Metas só do <b>${_benchScope==='meta'?'Meta Ads':'Google Ads'}</b>. O que você deixar em branco aqui usa a meta Geral.`;
+}
+function benchInit(c){
+  const bm=(c&&c.benchmarkMetas)||{};const pc=bm.porCanal||{};
+  const pick=o=>{const r={};Object.keys(BENCH_INPUTS).forEach(k=>{if(o&&o[k]!=null&&o[k]!=='')r[k]=+o[k]});return r};
+  _benchVals={geral:pick(bm),meta:pick(pc.meta),google:pick(pc.google)};
+  _benchScope='geral';benchLoadInputs();renderBenchTabs();
+}
+// formato pro banco: campos soltos = Geral, porCanal só com os canais que o gestor preencheu
+function benchCollect(){
+  benchCapture();
+  const out={...(_benchVals.geral||{})},pc={};
+  ['meta','google'].forEach(k=>{if(Object.keys(_benchVals[k]||{}).length)pc[k]={..._benchVals[k]}});
+  if(Object.keys(pc).length)out.porCanal=pc;
+  return Object.keys(out).length?out:null;
+}
 // Preenche as metas automaticamente com a média da conta quando estão vazias (o gestor ajusta manual se quiser)
 async function autoFillBenchmark(c){
-  if(!c||!c.id||!(c.metaAccountIds&&c.metaAccountIds.length))return;
-  const ids=['cMetaCtr','cMetaCpc','cMetaCpm','cMetaRoas','cMetaCpa','cMetaCpl','cMetaConversa','cMetaView'];
+  if(!c||!c.id||!((c.metaAccountIds||[]).length||(c.googleAccountIds||[]).length))return;
+  if(_benchScope!=='geral')return; // só sugere o Geral; canal o gestor puxa no botão
+  const ids=Object.values(BENCH_INPUTS);
   const empty=()=>ids.every(i=>{const el=document.getElementById(i);return el&&el.value==='';});
   if(!empty())return; // já tem metas definidas — não sobrescreve
   const msg=document.getElementById('cMetaAvgMsg');if(msg)msg.textContent='⏳ Preenchendo com a média da conta (90 dias)…';
   try{
-    const t=await fetchMetaTotals(c,daysAgoISO(90),today());
+    const t=await benchTotals90(c,'geral');
     const msg2=document.getElementById('cMetaAvgMsg');
-    if(!t||!t.spend){if(msg2)msg2.textContent='';return;}
+    if(!t){if(msg2)msg2.textContent='';return;}
     if(!empty())return; // gestor começou a digitar enquanto carregava
-    const setV=(elid,v,dec)=>{const el=document.getElementById(elid);if(el&&v&&isFinite(v))el.value=(+v).toFixed(dec==null?2:dec)};
-    setV('cMetaCtr',t.ctr,2);setV('cMetaCpc',t.cpc,2);setV('cMetaCpm',t.cpm,2);setV('cMetaRoas',t.roas,2);
-    setV('cMetaCpa',t.purchases?t.spend/t.purchases:0,2);
-    setV('cMetaCpl',t.leads?t.spend/t.leads:0,2);
-    setV('cMetaConversa',t.conversas?t.spend/t.conversas:0,2);
-    setV('cMetaView',t.videoViews?t.spend/t.videoViews:0,3);
+    benchApplyTotals(t);benchCapture();renderBenchTabs();
     if(msg2)msg2.textContent='✓ Preenchido automático com a média de 90 dias — ajuste manual o que quiser e salve.';
   }catch(e){const m=document.getElementById('cMetaAvgMsg');if(m)m.textContent='';}
+}
+// média de 90 dias do canal do escopo aberto ('geral' = Meta + Google somados, quando o cliente tem os dois)
+async function benchTotals90(c,scope){
+  const hasM=(c.metaAccountIds||[]).length,hasG=(c.googleAccountIds||[]).length;
+  const since=daysAgoISO(90),until=today();
+  const wantM=scope!=='google'&&hasM,wantG=scope!=='meta'&&hasG;
+  const [tm,gr]=await Promise.all([
+    wantM?fetchMetaTotals(c,since,until).catch(()=>null):Promise.resolve(null),
+    wantG?fetchGoogleReportRange(c,since,until).then(r=>r&&r.total).catch(()=>null):Promise.resolve(null),
+  ]);
+  if(!tm&&!gr)return null;
+  const k=['spend','impressions','clicks','revenue','purchases','leads','conversas','videoViews'];
+  const t={};k.forEach(x=>t[x]=((tm&&tm[x])||0)+((gr&&gr[x])||0));
+  t.ctr=t.impressions?t.clicks/t.impressions*100:0;t.cpc=t.clicks?t.spend/t.clicks:0;
+  t.cpm=t.impressions?t.spend/t.impressions*1000:0;t.roas=t.spend?t.revenue/t.spend:0;
+  return t.spend?t:null;
+}
+function benchApplyTotals(t){
+  const setV=(elid,v,dec)=>{const el=document.getElementById(elid);if(el&&v&&isFinite(v))el.value=(+v).toFixed(dec==null?2:dec)};
+  setV('cMetaCtr',t.ctr,2);setV('cMetaCpc',t.cpc,2);setV('cMetaCpm',t.cpm,2);setV('cMetaRoas',t.roas,2);
+  setV('cMetaCpa',t.purchases?t.spend/t.purchases:0,2);
+  setV('cMetaCpl',t.leads?t.spend/t.leads:0,2);
+  setV('cMetaConversa',t.conversas?t.spend/t.conversas:0,2);
+  setV('cMetaView',t.videoViews?t.spend/t.videoViews:0,3);
 }
 async function pullAccountAverages(){
   const id=cId.value;const c=DB.clients.find(x=>x.id===id);
   const msg=document.getElementById('cMetaAvgMsg');
-  if(!c||!(c.metaAccountIds&&c.metaAccountIds.length)){msg.textContent='Vincule uma conta do Meta (aba Mídia) e salve antes.';return}
+  if(!c||!((c.metaAccountIds||[]).length||(c.googleAccountIds||[]).length)){msg.textContent='Vincule uma conta do Meta ou do Google (aba Mídia) e salve antes.';return}
+  const canal=_benchScope==='meta'?'do Meta':_benchScope==='google'?'do Google':'da conta';
   const btn=document.getElementById('cMetaAvgBtn');btn.disabled=true;const old=btn.textContent;btn.textContent='Puxando...';msg.textContent='';
   try{
-    const t=await fetchMetaTotals(c,daysAgoISO(90),today());
-    if(!t||!t.spend){msg.textContent='Sem dados de entrega nos últimos 90 dias.';btn.disabled=false;btn.textContent=old;return}
-    const setV=(elid,v,dec)=>{if(v&&isFinite(v))document.getElementById(elid).value=(+v).toFixed(dec==null?2:dec)};
-    setV('cMetaCtr',t.ctr,2);setV('cMetaCpc',t.cpc,2);setV('cMetaCpm',t.cpm,2);setV('cMetaRoas',t.roas,2);
-    setV('cMetaCpa',t.purchases?t.spend/t.purchases:0,2);
-    setV('cMetaCpl',t.leads?t.spend/t.leads:0,2);
-    setV('cMetaConversa',t.conversas?t.spend/t.conversas:0,2);
-    setV('cMetaView',t.videoViews?t.spend/t.videoViews:0,3);
-    msg.textContent='✓ Preenchido com a média de 90 dias. Ajuste as metas como quiser e salve.';
+    const t=await benchTotals90(c,_benchScope);
+    if(!t){msg.textContent='Sem dados de entrega nos últimos 90 dias.';btn.disabled=false;btn.textContent=old;return}
+    benchApplyTotals(t);benchCapture();renderBenchTabs();
+    msg.textContent=`✓ Preenchido com a média ${canal} (90 dias). Ajuste as metas como quiser e salve.`;
   }catch(e){msg.textContent='Erro: '+(e.message||e);}
   btn.disabled=false;btn.textContent=old;
 }
@@ -9450,7 +9516,7 @@ async function saveClient(){
   const prevStatus=prev?.status||'Ativo';
   const newStatus=cStatus.value;
   const reportWeekly=document.getElementById('cReportWeekly').checked;
-  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,budgetCampaigns:campaignBudgets,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),googleAccountIds:googleSelectedIds.slice(),reportTemplateIds:getSelectedTemplateIds(),reportTemplateId:(getSelectedTemplateIds()[0]||''),siteUrl:document.getElementById('cSiteUrl').value.trim(),ga4PropertyId:(document.getElementById('cGa4Prop').value||'').replace(/[^0-9]/g,''),gscSiteUrl:(document.getElementById('cGscSite').value||'').trim(),whatsapp:(document.getElementById('cWhatsapp').value||'').replace(/[^0-9]/g,''),pixelId:(document.getElementById('cPixelId').value||'').replace(/[^0-9]/g,''),conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:[...new Set(getSelectedTemplateIds().map(id=>(templateById(id)||{}).objectiveType).filter(Boolean))],benchmarkMetas:(()=>{const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v};const m={ctr:g('cMetaCtr'),cpc:g('cMetaCpc'),cpm:g('cMetaCpm'),roas:g('cMetaRoas'),cpa:g('cMetaCpa'),cpl:g('cMetaCpl'),custoConversa:g('cMetaConversa'),custoView:g('cMetaView')};return Object.values(m).some(v=>v!=null)?m:null})()};
+  const o={id:cId.value||uid(),name:cName.value.trim(),seg:cSeg.value,status:newStatus,plat:cPlat.value,billing:cBilling.value,category:cat,customType,fee:+cFee.value||0,day:+cDay.value||null,payRule:document.getElementById('cPayRule').value,payDelay:pd!==''?+pd:null,report:cReport.value,notes:cNotes.value,budget:+document.getElementById('cBudget').value||0,budgetChannels:channels,budgetCampaigns:campaignBudgets,usesBalance:document.getElementById('cUsesBalance').checked,balanceInit:+document.getElementById('cBalanceInit').value||0,temp:currentTemp,tempSince:tempChanged?today():prevSince,activeChannels:activeClientChannels,reportWeekly,reportWeeklyDay:reportWeekly?document.getElementById('cReportWeeklyDay').value:'',reportSheetUrl:document.getElementById('cReportSheetUrl').value.trim(),reportTabs:document.getElementById('cReportTabs').value.trim(),reportOrdersSheetUrl:document.getElementById('cReportOrdersSheetUrl').value.trim(),reportOrdersTab:document.getElementById('cReportOrdersTab').value.trim(),reportOrdersMode:document.getElementById('cReportOrdersMode').value,metaAccountIds:metaSelectedIds.slice(),googleAccountIds:googleSelectedIds.slice(),reportTemplateIds:getSelectedTemplateIds(),reportTemplateId:(getSelectedTemplateIds()[0]||''),siteUrl:document.getElementById('cSiteUrl').value.trim(),ga4PropertyId:(document.getElementById('cGa4Prop').value||'').replace(/[^0-9]/g,''),gscSiteUrl:(document.getElementById('cGscSite').value||'').trim(),whatsapp:(document.getElementById('cWhatsapp').value||'').replace(/[^0-9]/g,''),pixelId:(document.getElementById('cPixelId').value||'').replace(/[^0-9]/g,''),conversionSource:document.getElementById('cConversionSource').value||'',reportFocos:[...new Set(getSelectedTemplateIds().map(id=>(templateById(id)||{}).objectiveType).filter(Boolean))],benchmarkMetas:benchCollect()};
   closeModal('clientModal');
   const statusMudou=!isNew&&prevStatus==='Ativo'&&(newStatus==='Pausado'||newStatus==='Inativo');
   if(statusMudou)await _maybeDeleteClientTasks(o.id,o.name);
@@ -11363,7 +11429,8 @@ function renderDashKpiEditor(){
 function renderDashBench(){
   const el=document.getElementById('dashBenchCard');if(!el)return;
   const c=DB.clients.find(x=>x.id===_dashClientId);
-  const bm=(c&&c.benchmarkMetas)||null;
+  // metas do canal aberto (Meta/Google), caindo pro Geral no que o canal não define
+  const bm=benchFor(c,_dashSource);
   if(!bm){el.style.display='none';return}
   const agg=dashAggFiltered();
   const map=[['ctr','ctr','CTR',1],['cpc','cpc','CPC',-1],['cpm','cpm','CPM',-1],['roas','roas','ROAS',1],['cpa','custoPorCompra','Custo por Compra',-1],['cpl','cpl','CPL',-1],['custoConversa','custoPorConversa','Custo por Conversa',-1],['custoView','custoPorView','Custo por View',-1]];
@@ -11390,7 +11457,10 @@ function renderDashBench(){
   });
   if(!rows.length){el.style.display='none';return}
   el.style.display='block';
-  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="margin:0">🎯 Benchmark do cliente</h3><span style="font-size:11px;color:var(--faint)">metas do cadastro (aba Relatórios) · respeita canal, filtros e período</span></div>
+  const _escopo=(_dashSource==='meta'||_dashSource==='google')
+    ?(benchHasOwn(c,_dashSource)?`metas do <b>${_dashSource==='meta'?'Meta':'Google'}</b>`:`metas <b>gerais</b> (${_dashSource==='meta'?'Meta':'Google'} não tem meta própria)`)
+    :'metas <b>gerais</b>';
+  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="margin:0">🎯 Benchmark do cliente</h3><span style="font-size:11px;color:var(--faint)">${_escopo} · cadastro › aba Relatórios · respeita filtros e período</span></div>
     <div style="columns:2;column-gap:24px">${rows.map(r=>`<div style="break-inside:avoid">${r}</div>`).join('')}</div>`;
 }
 /* ---- Performance por Segmentação (Meta: sexo / plataforma / posicionamento) ---- */
@@ -12195,8 +12265,10 @@ async function fetchClientReportMetrics(c,month){
       out.temVenda=hasSales;
       const trimResumo=r=>{if(r&&!hasSales){delete r.roas;delete r.compras;}return r;};
       out.periodos={ultimos7dias:trimResumo(metaTotalResumo(t7)),ultimos30dias:trimResumo(metaTotalResumo(t30))};
-      if(c.benchmarkMetas&&t30){
-        const bm=c.benchmarkMetas,cpa=t30.purchases?t30.spend/t30.purchases:null,cpl=t30.leads?t30.spend/t30.leads:null,cpConv=t30.conversas?t30.spend/t30.conversas:null,cpView=t30.videoViews?t30.spend/t30.videoViews:null;
+      // t30 é só do Meta — compara contra as metas do Meta (caem pro Geral no que não estiver definido)
+      const _bmMeta=benchFor(c,'meta');
+      if(_bmMeta&&t30){
+        const bm=_bmMeta,cpa=t30.purchases?t30.spend/t30.purchases:null,cpl=t30.leads?t30.spend/t30.leads:null,cpConv=t30.conversas?t30.spend/t30.conversas:null,cpView=t30.videoViews?t30.spend/t30.videoViews:null;
         const cmp=(meta,atual,menorMelhor)=>meta==null||atual==null?null:{meta,atual:+atual.toFixed(2),status:(menorMelhor?atual<=meta:atual>=meta)?'atingida':(menorMelhor?'acima_do_alvo_ruim':'abaixo_do_alvo_ruim')};
         const inFoco=t=>!focoSet||focoSet.has(t);
         // só as métricas que fazem sentido pro objetivo do cliente

@@ -1293,11 +1293,14 @@ async function googleCreateCustomAudience(m: any) {
 
 // Classifica uma AÇÃO de conversão do Google (form, WhatsApp, ligação, compra...) no balde certo.
 // É o evento que o gestor marca dentro do Google — cada campanha tem o seu.
-function _gConvBucket(name: string, category: string): "purchases" | "conversas" | "leads" {
+function _gConvBucket(name: string, category: string): "purchases" | "conversas" | "leads" | "outros" {
   const nm = String(name || "").toLowerCase();
   const cat = String(category || "").toUpperCase();
   if (/whats|wpp|\bzap\b|mensag|message|\bchat\b|conversa|direct|\bdm\b/.test(nm)) return "conversas";
   if (cat === "PURCHASE" || /compra|purchase|venda|\bsale\b|checkout|pedido|receita|revenue|e-?commerce/.test(nm)) return "purchases";
+  // Acoes que o Google conta como conversao mas NAO sao contato de lead — contavam como lead e inflavam o CPL
+  // (numa conta real, 124 dos 675 "leads" eram visita a loja e view/inscricao do YouTube).
+  if (/store visit|visita.*loja|follow-?on view|visualiza.*subsequen|channel subscri|inscri.*canal|\bsubscription/.test(nm)) return "outros";
   return "leads"; // form, contato, orçamento, cadastro, ligação, agendamento, etc.
 }
 // Objetivo por canal, mas com o TIPO vindo do evento de conversão dominante (quando houver)
@@ -1397,11 +1400,11 @@ async function googleAdsInsights(g: any) {
   const accountErrors = perAccount.filter((p) => p.error).map((p) => ({ id: p.acc.id, name: p.acc.name || p.acc.id, error: p.error }));
 
   // Mapas de conversão por AÇÃO → baldes (purchases/leads/conversas) + detalhamento por ação, por campanha e por anúncio
-  const convByCamp: Record<string, { purchases: number; leads: number; conversas: number; acts: Record<string, number> }> = {};
-  const convByAd: Record<string, { purchases: number; leads: number; conversas: number; acts: Record<string, number> }> = {};
+  const convByCamp: Record<string, { purchases: number; leads: number; conversas: number; outros: number; acts: Record<string, number> }> = {};
+  const convByAd: Record<string, { purchases: number; leads: number; conversas: number; outros: number; acts: Record<string, number> }> = {};
   const _accConv = (map: any, key: string, name: string, cat: string, v: number) => {
     if (!key || !(v > 0)) return;
-    const b = map[key] || (map[key] = { purchases: 0, leads: 0, conversas: 0, acts: {} });
+    const b = map[key] || (map[key] = { purchases: 0, leads: 0, conversas: 0, outros: 0, acts: {} });
     b[_gConvBucket(name, cat)] += v; const an = name || "Conversão"; b.acts[an] = (b.acts[an] || 0) + v;
   };
   for (const { campConvRows, adConvRows } of perAccount) {
@@ -2911,6 +2914,16 @@ async function waAgentSnapshot(clientId: string) {
   if (v) _snapCache[clientId] = { t: Date.now(), v };
   return v;
 }
+// Metas do cliente valendo pra um canal: {…geral, porCanal:{meta,google}} — o que o canal nao define cai pro Geral.
+// Formato antigo (so os campos soltos) continua valendo como Geral.
+const _BENCH_KEYS = ["ctr", "cpc", "cpm", "roas", "cpa", "cpl", "custoConversa", "custoView"];
+function _benchFor(bm: any, canal: string) {
+  if (!bm) return {};
+  const ch = (canal === "meta" || canal === "google") ? ((bm.porCanal || {})[canal] || {}) : {};
+  const out: any = {};
+  for (const k of _BENCH_KEYS) { const v = (ch[k] != null && ch[k] !== "") ? ch[k] : bm[k]; if (v != null && v !== "" && +v !== 0) out[k] = +v; }
+  return out;
+}
 async function _waBuildSnapshot(clientId: string) {
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,benchmark_metas,meta_account_id,conversion_source`))[0];
   if (!c) return null;
@@ -2927,7 +2940,8 @@ async function _waBuildSnapshot(clientId: string) {
   ]);
   if (r7 && r7.total) out.ultimos7dias = _waResumoMeta(r7.total);
   if (r30 && r30.total) out.ultimos30dias = _waResumoMeta(r30.total);
-  const bm = c.benchmark_metas || {}; const t = (r30 && r30.total) || null;
+  // r30 é só do Meta: usa as metas do canal Meta, caindo pro Geral campo a campo (mesma regra do painel)
+  const bm = _benchFor(c.benchmark_metas, "meta"); const t = (r30 && r30.total) || null;
   if (t && Object.values(bm).some((v) => v != null)) {
     const cpConv = t.conversas ? t.spend / t.conversas : null, cpl = t.leads ? t.spend / t.leads : null, cpa = t.purchases ? t.spend / t.purchases : null;
     const cmp = (meta: any, atual: any, menorMelhor: boolean) => (meta == null || atual == null) ? null : { meta, atual: +atual.toFixed(2), atingida: menorMelhor ? atual <= meta : atual >= meta };
