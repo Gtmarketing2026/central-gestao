@@ -6014,9 +6014,18 @@ async function ordersFromSheet(spreadsheetId: string, tab: string, hashToPerson:
   for (let b = 0, ini = de; b < blocos; b++, ini += BLOCO) {
     ultima = ini;
     const fim = ini + BLOCO - 1;
-    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${tab}'!A${ini}:Z${fim}` });
+    let res: any;
+    try {
+      res = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${tab}'!A${ini}:Z${fim}` });
+    } catch (e) {
+      // Cursor parado UMA linha depois do fim da planilha: o Google recusa o range ("exceeds grid limits") e o
+      // erro travava a sincronização inteira — nenhuma venda nova entrava na Jornada e o cursor nunca mais
+      // avançava (a da Curso Fernanda Pessoa ficou parada de 03/08 até aqui). Fim de planilha não é falha.
+      if (/exceeds grid limits/i.test(String((e as any)?.message || e))) { fimDaPlanilha = true; break; }
+      throw e;
+    }
     const rows: any[][] = res.data.values || [];
-    if (!rows.length) break;
+    if (!rows.length) { fimDaPlanilha = true; break; }
     lidas += rows.length;
     for (let r = 0; r < rows.length; r++) {
       const row = rows[r]; if (!row || !row.length) continue;
