@@ -1415,7 +1415,9 @@ async function googleAdsInsights(g: any) {
       const [accountRows, acctDaily, campRows, adRows, campConvRows, adConvRows, adsetRows, adDailyRows] = await Promise.all([
         gadsSearch(acc.id, `SELECT ${GADS_METRICS} FROM customer WHERE ${range}`, token),
         g.daily ? gadsSearch(acc.id, `SELECT segments.date, ${GADS_METRICS} FROM customer WHERE ${range}`, token) : Promise.resolve([] as any[]),
-        g.byCampaign ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, campaign.advertising_channel_type, campaign_budget.amount_micros, campaign_budget.resource_name${g.daily ? ", segments.date" : ""}, ${GADS_METRICS_FULL} FROM campaign WHERE ${range}`, token) : Promise.resolve([] as any[]),
+        // Colunas de CONFIGURAÇÃO da campanha, as mesmas que o Gerenciador mostra (status, tipo, estratégia de
+        // lance, pontuação de otimização, datas) + parcela de impressões perdida por orçamento/classificação.
+        g.byCampaign ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, campaign.advertising_channel_type, campaign.status, campaign.bidding_strategy_type, campaign.optimization_score, campaign_budget.amount_micros, campaign_budget.resource_name${g.daily ? ", segments.date" : ""}, ${GADS_METRICS_FULL}, metrics.search_impression_share, metrics.search_budget_lost_impression_share, metrics.search_rank_lost_impression_share FROM campaign WHERE ${range}`, token) : Promise.resolve([] as any[]),
         g.byAd ? gadsSearch(acc.id, `SELECT campaign.id, campaign.name, campaign.advertising_channel_type, ad_group.id, ad_group.name, ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.ad.type, ${GADS_METRICS_FULL} FROM ad_group_ad WHERE ${range} AND metrics.cost_micros > 0`, token) : Promise.resolve([] as any[]),
         // quebra das conversões por AÇÃO (form, WhatsApp, ligação, compra...) — por campanha e por anúncio
         (g.byCampaign || g.byAd) ? gadsSearch(acc.id, `SELECT campaign.id, segments.conversion_action_name, segments.conversion_action_category, metrics.conversions FROM campaign WHERE ${range} AND metrics.conversions > 0`, token).catch(() => [] as any[]) : Promise.resolve([] as any[]),
@@ -1465,10 +1467,22 @@ async function googleAdsInsights(g: any) {
         const _cb = row.campaign?.id ? convByCamp[String(row.campaign.id)] : null;
         // leads/conversas vem da quebra por ACAO de conversao (total do periodo, nao por linha): setados na criacao
         // e nunca somados de novo, senao cada dia da campanha multiplicaria o mesmo numero.
-        byCamp[label] = { campaign: label, campaignId: row.campaign?.id ? String(row.campaign.id) : null, account: acc.name || acc.id, accountId: acc.id, objetivo: googleObjetivoConv(row.campaign?.advertisingChannelType, _cb ? { purchases: _cb.purchases, leads: _cb.leads, conversas: _cb.conversas } : null), _google: true, orcamentoDiario: row.campaignBudget?.amountMicros ? +row.campaignBudget.amountMicros / 1e6 : null, budgetResource: row.campaignBudget?.resourceName || null, spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: _cb ? _cb.leads : 0, addToCart: 0, initiateCheckout: 0, conversas: _cb ? _cb.conversas : 0, videoViews: 0, engajamentos: 0, records: [] };
+        byCamp[label] = { campaign: label, campaignId: row.campaign?.id ? String(row.campaign.id) : null, account: acc.name || acc.id, accountId: acc.id, objetivo: googleObjetivoConv(row.campaign?.advertisingChannelType, _cb ? { purchases: _cb.purchases, leads: _cb.leads, conversas: _cb.conversas } : null), _google: true, orcamentoDiario: row.campaignBudget?.amountMicros ? +row.campaignBudget.amountMicros / 1e6 : null, budgetResource: row.campaignBudget?.resourceName || null,
+          // config da campanha (mesmas colunas do Gerenciador) — vem igual em toda linha da campanha, então grava na criação
+          status: row.campaign?.status || null, tipoCampanha: row.campaign?.advertisingChannelType || null,
+          estrategiaLance: row.campaign?.biddingStrategyType || null,
+          pontuacaoOtimizacao: row.campaign?.optimizationScore != null ? +(Number(row.campaign.optimizationScore) * 100).toFixed(1) : null,
+          impShare: null as number | null, impPerdidaOrcamento: null as number | null, impPerdidaRank: null as number | null,
+          spend: 0, impressions: 0, clicks: 0, reach: 0, revenue: 0, purchases: 0, leads: _cb ? _cb.leads : 0, addToCart: 0, initiateCheckout: 0, conversas: _cb ? _cb.conversas : 0, videoViews: 0, engajamentos: 0, records: [] };
         campAgg.leads += _cb ? _cb.leads : 0; campAgg.conversas += _cb ? _cb.conversas : 0;
       }
       const c = byCamp[label];
+      // parcela de impressões é percentual: pega o maior valor visto no período (não soma)
+      const _pct = (v: any) => v == null ? null : +(Number(v) * 100).toFixed(1);
+      const _mx = (a: any, b: any) => b == null ? a : (a == null ? b : Math.max(a, b));
+      c.impShare = _mx(c.impShare, _pct(row.metrics?.searchImpressionShare));
+      c.impPerdidaOrcamento = _mx(c.impPerdidaOrcamento, _pct(row.metrics?.searchBudgetLostImpressionShare));
+      c.impPerdidaRank = _mx(c.impPerdidaRank, _pct(row.metrics?.searchRankLostImpressionShare));
       c.spend += s.spend; c.impressions += s.impressions; c.clicks += s.clicks;
       c.revenue += s.revenue; c.purchases += s.purchases; c.videoViews += s.videoViews; c.engajamentos += s.engajamentos;
       campAgg.spend += s.spend; campAgg.impressions += s.impressions; campAgg.clicks += s.clicks;

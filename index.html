@@ -7737,6 +7737,15 @@ const CAMP_COLS={
   checkout:{label:'Checkout',get:x=>Math.round(x.initiateCheckout||0).toLocaleString('pt-BR')},
   custocheckout:{label:'Custo/check.',get:x=>x.initiateCheckout?fmt(x.spend/x.initiateCheckout):'—'},
   revenue:{label:'Receita',get:x=>fmt(x.revenue||0)},
+  /* ---- Colunas de CONFIGURAÇÃO da campanha, como no Gerenciador (só campanha; conjunto/anúncio ficam vazios) ---- */
+  cStatus:{label:'Status',get:x=>{const s=x.status||((typeof _campStatus!=='undefined'&&_campStatus.camp&&_campStatus.camp[x.id])||'');if(!s)return '—';const m={ENABLED:['Ativa','green'],ACTIVE:['Ativa','green'],PAUSED:['Pausada','amber'],REMOVED:['Removida','gray'],ARCHIVED:['Arquivada','gray']}[String(s).toUpperCase()]||[s,'gray'];return `<span class="pill ${m[1]}" style="font-size:10px">${m[0]}</span>`;}},
+  cTipo:{label:'Tipo',get:x=>{const t=String(x.tipoCampanha||'').toUpperCase();if(!t)return '—';return {SEARCH:'Pesquisa',PERFORMANCE_MAX:'PMax',DISPLAY:'Display',VIDEO:'Vídeo',DEMAND_GEN:'Demand Gen',SHOPPING:'Shopping',MULTI_CHANNEL:'App',LOCAL:'Local',SMART:'Smart'}[t]||t.replace(/_/g,' ').toLowerCase();}},
+  cLance:{label:'Estratégia de lance',get:x=>{const t=String(x.estrategiaLance||'').toUpperCase();if(!t)return '—';return {TARGET_CPA:'CPA alvo',TARGET_ROAS:'ROAS alvo',MAXIMIZE_CONVERSIONS:'Maximizar conversões',MAXIMIZE_CONVERSION_VALUE:'Maximizar valor',MAXIMIZE_CLICKS:'Maximizar cliques',MANUAL_CPC:'CPC manual',MANUAL_CPV:'CPV manual',TARGET_IMPRESSION_SHARE:'Parcela de impressões',PAGE_ONE_PROMOTED:'Página 1'}[t]||t.replace(/_/g,' ').toLowerCase();}},
+  cOtim:{label:'Pontuação otim.',get:x=>x.pontuacaoOtimizacao!=null?x.pontuacaoOtimizacao.toFixed(1).replace('.',',')+'%':'—'},
+  cOrc:{label:'Orçamento/dia',get:x=>x.orcamentoDiario?fmt(x.orcamentoDiario):'—'},
+  cImpShare:{label:'% de impr.',get:x=>x.impShare!=null?x.impShare.toFixed(1).replace('.',',')+'%':'—'},
+  cPerdOrc:{label:'IS perd. (orçam.)',get:x=>x.impPerdidaOrcamento!=null?`<span style="${x.impPerdidaOrcamento>=20?'color:#f87171;font-weight:700':''}">${x.impPerdidaOrcamento.toFixed(1).replace('.',',')}%</span>`:'—'},
+  cPerdRank:{label:'IS perd. (class.)',get:x=>x.impPerdidaRank!=null?x.impPerdidaRank.toFixed(1).replace('.',',')+'%':'—'},
 };
 const CAMP_COLS_DEFAULT=['invest','impressions','ctr','resultado','custores'];
 // Colunas padrão por objetivo (aparecem ao filtrar por tipo de campanha; ainda editáveis)
@@ -7766,7 +7775,9 @@ function focoCols(tipo){
   return (COLS_BY_OBJETIVO[tipo]||CAMP_COLS_DEFAULT).slice();
 }
 // Colunas que existem no canal atual (Google não tem alcance/frequência/leads/conversas/engajamento na API)
-const GOOGLE_COL_KEYS=['invest','impressions','clicks','ctr','cpc','cpm','resultado','custores','roas','compras','cpa','revenue','views','custoview'];
+const GOOGLE_COL_KEYS=['invest','impressions','clicks','ctr','cpc','cpm','resultado','custores','roas','compras','cpa','revenue','views','custoview','cStatus','cTipo','cLance','cOtim','cOrc','cImpShare','cPerdOrc','cPerdRank'];
+// as de configuração aparecem separadas no seletor, pra não misturar com métrica de desempenho
+const CAMP_COLS_CONFIG=['cStatus','cTipo','cLance','cOtim','cOrc','cImpShare','cPerdOrc','cPerdRank'];
 function campColsAvailable(){
   if(_campSource!=='google')return CAMP_COLS;
   const o={};GOOGLE_COL_KEYS.forEach(k=>{if(CAMP_COLS[k])o[k]=CAMP_COLS[k]});return o;
@@ -7777,10 +7788,14 @@ function _campPresets(){try{return JSON.parse(localStorage.getItem('campColPrese
 function toggleCampColsPanel(){const p=document.getElementById('campColsPanel');if(p)p.style.display=p.style.display==='none'?'block':'none';renderCampColsPanel();}
 function renderCampColsPanel(){
   const p=document.getElementById('campColsPanel');if(!p||p.style.display==='none')return;
-  const checks=Object.entries(campColsAvailable()).map(([k,v])=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 8px;cursor:pointer;margin:0 4px 4px 0"><input type="checkbox" ${_campCols.includes(k)?'checked':''} onchange="setCampCol('${k}',this.checked)" style="width:auto">${v.label}</label>`).join('');
+  const disp=Object.entries(campColsAvailable());
+  const chip=([k,v])=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 8px;cursor:pointer;margin:0 4px 4px 0"><input type="checkbox" ${_campCols.includes(k)?'checked':''} onchange="setCampCol('${k}',this.checked)" style="width:auto">${v.label}</label>`;
+  const checks=disp.filter(([k])=>!CAMP_COLS_CONFIG.includes(k)).map(chip).join('');
+  const config=disp.filter(([k])=>CAMP_COLS_CONFIG.includes(k)).map(chip).join('');
   const presets=_campPresets();
   const presetList=Object.keys(presets).length?Object.keys(presets).map(n=>`<span style="display:inline-flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:3px 8px;font-size:11px;margin:0 4px 4px 0"><span style="cursor:pointer" onclick="loadCampPreset('${n.replace(/'/g,'')}')">${n.replace(/</g,'&lt;')}</span> <span style="cursor:pointer;color:var(--red)" onclick="deleteCampPreset('${n.replace(/'/g,'')}')">×</span></span>`).join(''):'<span style="font-size:11px;color:var(--faint)">Nenhum preset salvo</span>';
-  p.innerHTML=`<div style="font-size:11px;text-transform:uppercase;color:var(--faint);margin-bottom:6px">Colunas visíveis</div><div style="display:flex;flex-wrap:wrap">${checks}</div>
+  p.innerHTML=`<div style="font-size:11px;text-transform:uppercase;color:var(--faint);margin-bottom:6px">Desempenho</div><div style="display:flex;flex-wrap:wrap">${checks}</div>
+    ${config?`<div style="font-size:11px;text-transform:uppercase;color:var(--faint);margin:10px 0 6px">Configuração da campanha <span style="text-transform:none;font-weight:400">· como no Gerenciador (só preenche na linha da campanha)</span></div><div style="display:flex;flex-wrap:wrap">${config}</div>`:''}
     <div style="font-size:11px;text-transform:uppercase;color:var(--faint);margin:10px 0 6px">Presets salvos</div><div>${presetList}</div>
     <div style="display:flex;gap:6px;margin-top:8px"><input id="campPresetName" placeholder="Nome do preset" style="flex:1;font-size:12px"><button class="btn sm primary" onclick="saveCampPreset()">Salvar preset</button></div>`;
 }
