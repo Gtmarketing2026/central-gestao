@@ -9431,7 +9431,32 @@ function renderFinance(){
   }catch(e){console.error('finTable render',e);t.innerHTML=`<tr><td colspan="8"><div class="empty">Erro ao renderizar: ${e.message}</div></td></tr>`}
 }
 async function toggleShowPayInFin(showId,payId){const s=DB.shows.find(x=>x.id===showId);if(!s)return;const p=showPays(s).find(x=>x.id===payId);if(!p)return;p.status=p.status==='pago'?'pendente':'pago';if(s.payments)s.payments=showPays(s);await _upsertShow(s);renderAll()}
-async function toggleFinPaid(id){const f=DB.finance.find(x=>x.id===id);if(!f)return;f.status=f.status==='pago'?'pendente':'pago';await sb.from('finance').update({status:f.status}).eq('id',f.id);renderAll()}
+// Cliente que acumula saldo: receita paga entra na carteira dele e aparece na movimentação. Antes, dar baixa
+// só trocava o status — o saldo ficava parado no valor inicial e não havia registro nenhum da entrada.
+// A movimentação nasce com id derivado do lançamento (fin_<id>), então desmarcar o pago remove a entrada
+// certa, sem duplicar nem deixar sobra.
+function _walletTxIdDoLancamento(f){return 'fin_'+f.id;}
+async function _sincronizaSaldoComLancamento(f){
+  const c=DB.clients.find(x=>x.id===f.client);
+  if(!c||!c.usesBalance||(f.type||'receita')!=='receita')return null;
+  const txId=_walletTxIdDoLancamento(f);
+  if(f.status==='pago'){
+    const tx={id:txId,client:f.client,type:'entrada',description:(f.desc||'Recebimento')+' (baixa no financeiro)',val:+f.val||0,date:f.due||today()};
+    const {error}=await sb.from('wallet').upsert(tx);if(error)throw error;
+    const i=DB.wallet.findIndex(x=>x.id===txId);i>=0?DB.wallet[i]=tx:DB.wallet.push(tx);
+    return {acao:'entrada',val:tx.val};
+  }
+  const {error}=await sb.from('wallet').delete().eq('id',txId);if(error)throw error;
+  DB.wallet=DB.wallet.filter(x=>x.id!==txId);
+  return {acao:'removida'};
+}
+async function toggleFinPaid(id){
+  const f=DB.finance.find(x=>x.id===id);if(!f)return;
+  f.status=f.status==='pago'?'pendente':'pago';
+  await sb.from('finance').update({status:f.status}).eq('id',f.id);
+  try{await _sincronizaSaldoComLancamento(f);}catch(e){alert('Status salvo, mas não consegui atualizar o saldo do cliente: '+(e.message||e));}
+  renderAll();
+}
 
 /* ---- SELECTS ---- */
 function fillClientSelects(){
