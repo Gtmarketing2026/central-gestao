@@ -5991,10 +5991,12 @@ function _dtBR(v: any): string {
 }
 // status da planilha → venda confirmada ou pedido em aberto
 function _ordStatus(v: any): "purchase" | "checkout" | "" {
-  const s = String(v || "").toLowerCase();
+  const s = String(v || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
   if (!s) return "checkout";
+  // As NEGATIVAS vêm primeiro de propósito: "Não Autorizada" contém "autoriz" e era classificada como VENDA
+  // pela regra de baixo (numa base real, 13.774 linhas desse status seriam contadas como compra paga).
+  if (/nao autoriz|nao aprovad|cancel|recus|estorn|expir|reembols|falh|negad|charge|blacklist|nao process/.test(s)) return "";
   if (/aprovad|pago|paga|conclu|complet|autoriz|captur|finaliz|entregue/.test(s)) return "purchase";
-  if (/cancel|recus|estorn|expir|reembols|falh|negad|charge/.test(s)) return ""; // não conta como pedido em aberto
   return "checkout"; // pendente, aguardando, processando…
 }
 // Lê a aba de pedidos e devolve os toques de compra JÁ CASADOS por hash com as identidades do lead.
@@ -6045,6 +6047,36 @@ async function ordersFromSheet(spreadsheetId: string, tab: string, hashToPerson:
     if (rows.length < BLOCO) { fimDaPlanilha = true; break; }
   }
   return { toques, lidas, casadas, proxima: fimDaPlanilha ? 0 : ultima, fim: fimDaPlanilha };
+}
+// Importa vendas enviadas de FORA (planilha local do cliente, via enviador agendado no computador dele).
+// Mesma regra da leitura por Google Sheets: só entra quem casa com um lead conhecido, o ID do pedido evita
+// duplicar, e reenviar a mesma linha só atualiza — de propósito, porque a base é corrigida retroativamente.
+async function journeyOrdersImport(m: any) {
+  const clientId = String(m.clientId || "").trim();
+  if (!clientId) throw new Error("clientId obrigatório");
+  const linhas: any[] = Array.isArray(m.rows) ? m.rows : [];
+  if (!linhas.length) return { recebidas: 0, casadas: 0, gravadas: 0, compras: 0 };
+  const ident = await _sbAll("lead_identities", `client_id=eq.${encodeURIComponent(clientId)}&kind=in.(email,phone)&select=person_id,kind,value`);
+  const h2p: Record<string, string> = {};
+  for (const i of (ident || [])) h2p[`${i.kind}:${i.value}`] = i.person_id;
+  const toques: any[] = []; let casadas = 0;
+  for (const row of linhas) {
+    const kind = _ordStatus(row.status || "");
+    if (!kind) continue;
+    let pid = "";
+    if (row.email) pid = h2p["email:" + String(row.email).trim().toLowerCase()] || "";
+    if (!pid && row.celular) { const d = String(row.celular).replace(/[^0-9]/g, ""); if (d.length >= 8) pid = h2p["phone:" + d.slice(-8)] || ""; }
+    if (!pid) continue;
+    casadas++;
+    const ts = _dtBR(row.data || ""); if (!ts) continue;
+    const refId = String(row.id || "").trim(); if (!refId) continue;
+    toques.push({ id: "t_" + _wuid(), client_id: clientId, person_id: pid, ts, kind, channel: "site",
+      label: kind === "purchase" ? ("Compra" + (row.produto ? " · " + String(row.produto).slice(0, 60) : "")) : ("Pedido " + String(row.status || "em aberto").slice(0, 30)),
+      value: parseNumberBR(row.total) || 0, ref_table: "sheet_order", ref_id: refId });
+  }
+  for (let i = 0; i < toques.length; i += 400) await _sbUpsert("lead_touchpoints", toques.slice(i, i + 400), "ref_table,ref_id");
+  const compras = toques.filter((x) => x.kind === "purchase");
+  return { recebidas: linhas.length, casadas, gravadas: toques.length, compras: compras.length, receita: compras.reduce((s, x) => s + (x.value || 0), 0), identidades: (ident || []).length };
 }
 // classifica o evento do RD: compra confirmada, pedido/checkout iniciado, negociação ou formulário comum
 function _rdKind(ev?: string): string {
@@ -6802,6 +6834,10 @@ Deno.serve(async (req) => {
     }
     if (body.journeyOrdersTick) {
       const r = await journeyOrdersTick(body.journeyOrdersTick);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.journeyOrdersImport) {
+      const r = await journeyOrdersImport(body.journeyOrdersImport);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.journeyOrders) {
