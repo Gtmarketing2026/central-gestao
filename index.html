@@ -11703,13 +11703,29 @@ function renderInad(){
    entra se qualquer dia dele estiver dentro do período escolhido. Está escrito na tela pra ninguém
    comparar com o bloco de período (que é diário) e achar que um dos dois está errado. */
 let _negUFsel=new Set(),_negUFmetrica='receita',_negUFtop=12;
-// De onde veio o estado de cada venda — importa saber, porque DDD é palpite melhor que nada, não certeza
+/* De onde veio o estado de cada venda. Importa mostrar separado: o CEP é o endereço que a pessoa
+   declarou; o DDD é um palpite razoável, mas quem muda de estado costuma manter o número. Somar as
+   duas fontes num número só esconderia essa diferença. */
 function _negCobertura(d){
   const cep=d.uf_por_cep||0,ddd=d.uf_por_ddd||0,sem=d.vendas_sem_estado!=null?d.vendas_sem_estado:(d.vendas_sem_cep||0);
   const tot=cep+ddd+sem;if(!tot)return '';
   const n=v=>Math.round(v).toLocaleString('pt-BR');
-  const pct=((cep+ddd)*100/tot).toFixed(2).replace(/\.?0+$/,'').replace('.',',');
-  return ` · <b>${pct}% das vendas com estado</b>: ${n(cep)} pelo CEP${ddd?`, ${n(ddd)} pelo DDD do telefone`:''}${sem?` · ${n(sem)} sem nenhum dos dois`:''}`;
+  const p=v=>(v*100/tot).toFixed(1).replace('.',',');
+  const item=(cor,pct,rot,sub,dica)=>`<span title="${dica}" style="display:inline-flex;align-items:baseline;gap:5px">
+    <span style="width:8px;height:8px;border-radius:2px;background:${cor};display:inline-block"></span>
+    <b style="color:${cor}">${pct}%</b> <span style="color:var(--muted)">${rot}</span>
+    <span style="color:var(--faint)">· ${sub}</span></span>`;
+  return `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0 14px">
+    <div style="flex:1;min-width:170px;height:8px;border-radius:4px;overflow:hidden;display:flex;background:var(--surface2)">
+      <div style="width:${cep*100/tot}%;background:#34d399"></div>
+      <div style="width:${ddd*100/tot}%;background:#f0c040"></div>
+      <div style="width:${sem*100/tot}%;background:#5b5b55"></div>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px">
+      ${item('#34d399',p(cep),'confiável',`endereço · ${n(cep)}`,'Estado tirado do CEP informado na compra')}
+      ${ddd?item('#f0c040',p(ddd),'menos confiável',`DDD do telefone · ${n(ddd)}`,'Sem CEP na compra: o estado vem do DDD. Quem muda de estado costuma manter o número, então pode não ser onde a pessoa mora hoje'):''}
+      ${sem?item('#8b8b83',p(sem),'sem estado',`${n(sem)} venda${sem===1?'':'s'}`,'Sem CEP e sem telefone com DDD válido — essas vendas ficam fora do mapa'):''}
+    </div></div>`;
 }
 function negUFtoggle(uf){_negUFsel.has(uf)?_negUFsel.delete(uf):_negUFsel.add(uf);renderNegEstados();renderNegProdutos();}
 function negUFlimpar(){_negUFsel.clear();renderNegEstados();renderNegProdutos();}
@@ -11755,7 +11771,7 @@ function renderNegEstados(){
   el.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:12px">
       <div><h3 style="margin:0">🗺 Vendas por estado</h3>
-        <div class="hint">${mensal?`recorte mensal, de ${(_negDe||'').slice(0,7)} a ${(_negAte||'').slice(0,7)}`:'vida inteira da base'}${_negCobertura(d)}</div></div>
+        <div class="hint">${mensal?`recorte mensal, de ${(_negDe||'').slice(0,7)} a ${(_negAte||'').slice(0,7)}`:'vida inteira da base'} · estado deduzido do cadastro do aluno</div></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <select onchange="negUFmetrica(this.value)" style="width:auto;font-size:12px" title="O que ordenar e medir">
           <option value="receita"${met==='receita'?' selected':''}>Faturamento</option>
@@ -11771,6 +11787,7 @@ function renderNegEstados(){
         </select>
       </div>
     </div>
+    ${_negCobertura(d)}
     <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px;align-items:center">
       <span style="font-size:11px;color:var(--faint);margin-right:2px">FILTRAR ESTADO:</span>
       ${linhas.map(x=>x.uf).sort().map(uf=>`<button class="pill" onclick="negUFtoggle('${uf}')" style="cursor:pointer;font-size:11px;padding:3px 9px;${_negUFsel.has(uf)?'background:var(--accent);color:#1a1a17;font-weight:700;border-color:var(--accent)':''}">${uf}</button>`).join('')}
