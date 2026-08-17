@@ -11246,6 +11246,31 @@ function _negUF(cep){
   for(const [ate,uf] of NEG_CEP_UF)if(p<=ate)return uf;
   return '';
 }
+/* O nome do produto carrega DUAS informações: o produto em si e a turma em que ele foi vendido.
+   "Mega Combo (12 meses de acesso) - 2026.1" e "... - 2025.1" são o MESMO produto, em turmas
+   diferentes — 2026.1 é janeiro de 2026, 2023.10 é outubro de 2023. Sem separar os dois, o mesmo
+   produto aparece uma vez por turma no ranking e nunca se vê quanto ele vale de verdade.
+   A turma é diferente da data da compra: alguém pode comprar a turma 2026.1 em março. Por isso ela
+   vira filtro próprio, e não um recorte de data.
+   O que NÃO é referência de turma ("Antigo", "II", "INTENSIVO", "Acesso Parceiros") continua no nome:
+   são ofertas diferentes, não a mesma coisa em outro mês. */
+function _negProdRef(prod){
+  const s=String(prod||'').replace(/\s+/g,' ').trim();
+  const m=s.match(/[\s-]*(\d{4})(?:\.(\d{1,2}))?\s*$/);
+  let base=s,ref='',ano=0,mes=0;
+  if(m&&+m[1]>=2018&&+m[1]<=2100){
+    base=s.slice(0,m.index);
+    ano=+m[1];mes=m[2]?+m[2]:0;ref=ano+(mes?'.'+mes:'');
+  }
+  // o mesmo produto aparece como "Mega Combo - (12 meses…)" e "Mega Combo  (12 meses…)" conforme o ano
+  base=base.replace(/\s*-\s*\(/,' (').replace(/\s+/g,' ').replace(/[\s-]+$/,'').trim();
+  return {base:base||s,ref,ano,mes};
+}
+const NEG_MES_NOME=['','jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+function _negRefLabel(r){
+  const [a,m]=String(r||'').split('.');
+  return m?`${NEG_MES_NOME[+m]||m}/${a}`:a||'sem turma';
+}
 function _negData(v){
   if(v instanceof Date)return v;
   if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(v);return d?new Date(d.y,d.m-1,d.d):null}
@@ -11277,6 +11302,7 @@ async function negocioProcessar(arquivos,aviso){
     const alunos={},mesMap={},diaMap={},prodMap={};let creditos=0;
     const cortesiaK={},seletivoK={},devolK={};let devN=0,devVal=0;
     const ufMap={},ufMesMap={};let semCep=0;
+    const refMap={},prodRefMap={};
     for(const l of linhas){
       const st=String(col(l,'status')).trim().toLowerCase();
       const dt=_negData(col(l,'data'));if(!dt)continue;
@@ -11293,7 +11319,15 @@ async function negocioProcessar(arquivos,aviso){
       (mesMap[mk]=mesMap[mk]||{mes:mk,vendas:0,receita:0,novos:0});mesMap[mk].vendas++;mesMap[mk].receita+=val;
       // série DIÁRIA: é o que permite o calendário com intervalo livre e o comparativo de período
       (diaMap[dk]=diaMap[dk]||{dia:dk,vendas:0,receita:0,novos:0});diaMap[dk].vendas++;diaMap[dk].receita+=val;
-      if(prod){(prodMap[prod]=prodMap[prod]||{produto:prod,vendas:0,receita:0});prodMap[prod].vendas++;prodMap[prod].receita+=val}
+      if(prod){
+        const pr=_negProdRef(prod);
+        (prodMap[pr.base]=prodMap[pr.base]||{produto:pr.base,vendas:0,receita:0});prodMap[pr.base].vendas++;prodMap[pr.base].receita+=val;
+        const rk=pr.ref||'—';
+        (refMap[rk]=refMap[rk]||{ref:rk,ano:pr.ano,mes:pr.mes,vendas:0,receita:0});refMap[rk].vendas++;refMap[rk].receita+=val;
+        const prk=pr.base+''+rk;
+        (prodRefMap[prk]=prodRefMap[prk]||{produto:pr.base,ref:rk,ano:pr.ano,mes:pr.mes,vendas:0,receita:0});
+        prodRefMap[prk].vendas++;prodRefMap[prk].receita+=val;
+      }
       const uf=_negUF(col(l,'cep'));
       if(uf){
         (ufMap[uf]=ufMap[uf]||{uf,vendas:0,receita:0,_al:{}});ufMap[uf].vendas++;ufMap[uf].receita+=val;ufMap[uf]._al[chave]=1;
@@ -11351,6 +11385,9 @@ async function negocioProcessar(arquivos,aviso){
         .sort((a,b)=>b.receita-a.receita),
       por_estado_mes:Object.values(ufMesMap).map(x=>({...x,receita:+x.receita.toFixed(2)})).sort((a,b)=>a.mes<b.mes?-1:1),
       vendas_sem_cep:semCep,
+      // turmas: o sufixo do nome do produto ("- 2026.1" = janeiro/2026). Vira filtro, não recorte de data
+      turmas:Object.values(refMap).map(x=>({...x,receita:+x.receita.toFixed(2)}))
+        .sort((a,b)=>(b.ano-a.ano)||(b.mes-a.mes)),
       devolucoes:{compras:devN,valor:+devVal.toFixed(2),pessoas:Object.keys(devolK).length,so_devolvido:soDevolvido},
       cortesia:{pessoas:Object.keys(cortesiaK).length,sem_compra:soCortesia},
       seletivo:{pessoas:soSeletivo},
@@ -11368,7 +11405,13 @@ async function negocioProcessar(arquivos,aviso){
       })(),
       serie_mensal:Object.values(mesMap).sort((a,b)=>a.mes<b.mes?-1:1).map(m=>({...m,receita:+m.receita.toFixed(2)})),
       serie_diaria:Object.values(diaMap).sort((a,b)=>a.dia<b.dia?-1:1).map(x=>({...x,receita:+x.receita.toFixed(2)})),
-      top_produtos:Object.values(prodMap).sort((a,b)=>b.receita-a.receita).slice(0,15).map(p=>({...p,receita:+p.receita.toFixed(2)}))};
+      // produto SEM a turma no nome: é isso que responde "quanto esse produto vale"
+      top_produtos:Object.values(prodMap).sort((a,b)=>b.receita-a.receita).slice(0,30).map(p=>({...p,receita:+p.receita.toFixed(2)})),
+      produtos_distintos:Object.keys(prodMap).length};
+    // produto × turma só dos que aparecem no ranking — é o que sustenta o filtro de turma
+    const noTop=new Set(dados.top_produtos.map(p=>p.produto));
+    dados.por_produto_turma=Object.values(prodRefMap).filter(x=>noTop.has(x.produto))
+      .map(x=>({...x,receita:+x.receita.toFixed(2)})).sort((a,b)=>b.receita-a.receita);
     return dados;
   }
 }
@@ -11507,7 +11550,8 @@ async function inadProcessar(arquivos,aviso){
     for(const m of lista.matchAll(/\((\d{2})\/(\d{2})\/(\d{4})\)/g)){const d=new Date(+m[3],+m[2]-1,+m[1]);if(!maior||d>maior)maior=d}
     if(maior){const y=maior.getFullYear();(porAnoVenc[y]=porAnoVenc[y]||{ano:y,contratos:0});porAnoVenc[y].contratos++;
       if(maior<hoje)vencido++;else aVencer++}
-    const p=String(col(l,'produto')).replace(/\s+/g,' ').trim();
+    // mesmo tratamento do dash de venda: junta as turmas, senão o mesmo produto aparece 5 vezes
+    const p=_negProdRef(col(l,'produto')).base;
     if(p){(porProduto[p]=porProduto[p]||{produto:p,contratos:0,aberto:0});porProduto[p].contratos++;porProduto[p].aberto+=vAberto}
   }
   if(!contratos)throw new Error('não encontrei as colunas esperadas (Qtd. de Parcelas e Parcelas (Vencimento))');
@@ -11702,6 +11746,75 @@ function renderNegEstados(){
       </div>`).join('')}
     </div>
     <div class="hint" style="margin-top:10px">${rot} por estado. ${mensal?'O recorte por estado é <b>mensal</b> — um mês inteiro entra se encostar no período escolhido. O bloco "Desempenho no período" acima é diário, então os totais podem não bater exatamente.':''}</div>`;
+}
+/* ---- Produtos + turma ----
+   O ranking mostra o PRODUTO (sem a turma no nome). O filtro de turma usa por_produto_turma, que só
+   existe para os produtos do ranking — por isso filtrar por turma nunca traz produto novo pra lista. */
+let _negTurmaAno='',_negTurmaMes='';
+function negTurmaSet(campo,v){if(campo==='ano')_negTurmaAno=v;else _negTurmaMes=v;renderNegProdutos();}
+function negTurmaLimpar(){_negTurmaAno='';_negTurmaMes='';renderNegProdutos();}
+function negProdutosDados(){
+  const d=(_negocio&&_negocio.dados)||{};
+  const pt=d.por_produto_turma||[];
+  if((!_negTurmaAno&&!_negTurmaMes)||!pt.length)return {linhas:d.top_produtos||[],filtrado:false};
+  const agg={};
+  for(const x of pt){
+    if(_negTurmaAno&&String(x.ano||'')!==String(_negTurmaAno))continue;
+    if(_negTurmaMes&&String(x.mes||'')!==String(_negTurmaMes))continue;
+    (agg[x.produto]=agg[x.produto]||{produto:x.produto,vendas:0,receita:0});
+    agg[x.produto].vendas+=x.vendas;agg[x.produto].receita+=x.receita;
+  }
+  return {linhas:Object.values(agg).sort((a,b)=>b.receita-a.receita),filtrado:true};
+}
+function renderNegProdutos(){
+  const el=document.getElementById('negProdCard');if(!el||!_negocio)return;
+  const d=_negocio.dados,turmas=d.turmas||[];
+  const {linhas,filtrado}=negProdutosDados();
+  const top=linhas.slice(0,15);
+  const anos=[...new Set(turmas.filter(t=>t.ano).map(t=>t.ano))].sort((a,b)=>b-a);
+  const meses=[...new Set(turmas.filter(t=>t.mes).map(t=>t.mes))].sort((a,b)=>a-b);
+  const n=v=>Math.round(v||0).toLocaleString('pt-BR');
+  const totRec=linhas.reduce((s,x)=>s+x.receita,0);
+  el.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+      <div><h3 style="margin:0">🏆 Onde o faturamento se concentra</h3>
+        <div class="hint">por produto${d.produtos_distintos?`, juntando as turmas · ${n(d.produtos_distintos)} produtos distintos na base`:''}</div></div>
+      ${turmas.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:11px;color:var(--faint)">TURMA:</span>
+        <select onchange="negTurmaSet('ano',this.value)" style="width:auto;font-size:12px">
+          <option value="">Todos os anos</option>
+          ${anos.map(a=>`<option value="${a}"${String(_negTurmaAno)===String(a)?' selected':''}>${a}</option>`).join('')}
+        </select>
+        <select onchange="negTurmaSet('mes',this.value)" style="width:auto;font-size:12px">
+          <option value="">Todos os meses</option>
+          ${meses.map(m=>`<option value="${m}"${String(_negTurmaMes)===String(m)?' selected':''}>${NEG_MES_NOME[m]||m}</option>`).join('')}
+        </select>
+        ${(_negTurmaAno||_negTurmaMes)?`<button class="btn sm ghost" style="padding:3px 9px;font-size:11px" onclick="negTurmaLimpar()">limpar</button>`:''}
+      </div>`:''}
+    </div>
+    <div id="negProdNota" style="font-size:11.5px;color:var(--muted);margin-bottom:8px"></div>
+    ${filtrado?`<div style="font-size:12px;color:var(--accent);margin-bottom:8px">${
+      _negTurmaAno&&_negTurmaMes?`Turma ${NEG_MES_NOME[_negTurmaMes]||_negTurmaMes}/${_negTurmaAno}`
+      :_negTurmaAno?`Turmas de ${_negTurmaAno}`
+      :`Turmas de ${NEG_MES_NOME[_negTurmaMes]||_negTurmaMes}, em todos os anos`
+    } · ${(()=>{const v=linhas.reduce((s,x)=>s+x.vendas,0);return n(v)+' venda'+(v===1?'':'s')})()} · ${fmt(totRec)}</div>`:''}
+    ${top.length?`<div style="height:${Math.max(240,top.length*26)}px"><canvas id="negProd"></canvas></div>`:'<div class="empty">Nenhuma venda nessa turma.</div>'}
+    ${turmas.length?`<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+      <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.06em;margin-bottom:8px">TURMAS QUE MAIS VENDERAM</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${[...turmas].sort((a,b)=>b.receita-a.receita).slice(0,12).map(t=>`<button class="pill" style="cursor:pointer;font-size:11px;padding:4px 10px" onclick="_negTurmaAno='${t.ano||''}';_negTurmaMes='${t.mes||''}';renderNegProdutos()" title="${n(t.vendas)} vendas">${_negRefLabel(t.ref)} · <b>${fmt(t.receita)}</b></button>`).join('')}
+      </div>
+    </div>`:''}`;
+  renderNegProdutosNota();
+  const c=document.getElementById('negProd');if(!c||!top.length)return;
+  try{if(_negCharts.prod)_negCharts.prod.destroy()}catch(e){}
+  const eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
+  _negCharts.prod=new Chart(c.getContext('2d'),{type:'bar',
+    data:{labels:top.map(p=>p.produto.length>44?p.produto.slice(0,44)+'…':p.produto),
+      datasets:[{label:'Receita',data:top.map(p=>p.receita),backgroundColor:'rgba(168,85,247,.55)'}]},
+    options:{indexAxis:'y',maintainAspectRatio:false,plugins:{legend:{display:false},
+      tooltip:{callbacks:{title:x=>top[x[0].dataIndex].produto,label:x=>fmt(x.raw)+' · '+n(top[x.dataIndex].vendas)+' vendas'}}},
+      scales:{x:{...eixo,ticks:{...eixo.ticks,callback:v=>'R$ '+(v>=1e6?(v/1e6).toFixed(1)+'mi':(v/1e3).toFixed(0)+'k')}},y:{...eixo,ticks:{...eixo.ticks,font:{size:9}}}}}});
 }
 function renderNegProdutosNota(){
   const el=document.getElementById('negProdNota');if(!el)return;
@@ -11907,11 +12020,11 @@ function renderNegocio(){
     ${(d.recompra_ano&&d.recompra_ano.length)?`<div class="card" style="margin-bottom:16px" id="negRecompraCard"></div>`:''}
     <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">📈 Faturamento e vendas por mês</h3><div style="height:300px"><canvas id="negFat"></canvas></div></div>
     <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">🆕 Alunos novos × recompra</h3><div class="hint" style="margin-bottom:8px">Barra cheia = quem comprou pela primeira vez. A diferença até o total é recompra da base.</div><div style="height:280px"><canvas id="negNovos"></canvas></div></div>
-    <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">🏆 Onde o faturamento se concentra</h3><div id="negProdNota" style="font-size:11.5px;color:var(--muted);margin-bottom:8px"></div><div style="height:${Math.max(240,top.length*26)}px"><canvas id="negProd"></canvas></div></div>`;
+    <div class="card" style="margin-bottom:16px" id="negProdCard"></div>`;
   _negDestroy();          // limpa ANTES de montar: se vier depois, apaga os gráficos que os blocos acabaram de criar
   renderNegPeriodo();
   renderNegEstados();
-  renderNegProdutosNota();
+  renderNegProdutos();
   renderRecompraAno();
   const meses=serie.map(x=>x.mes),eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
   const ctx=id=>{const c=document.getElementById(id);return c?c.getContext('2d'):null};
@@ -11924,8 +12037,7 @@ function renderNegocio(){
     {label:'Alunos novos',data:serie.map(x=>x.novos),backgroundColor:'rgba(52,211,153,.6)'},
     {label:'Recompra',data:serie.map(x=>Math.max(0,(x.vendas||0)-(x.novos||0))),backgroundColor:'rgba(255,213,42,.6)'}]},
     options:{maintainAspectRatio:false,plugins:{legend:{labels:{color:'#c9c9c1'}}},scales:{x:{...eixo,stacked:true},y:{...eixo,stacked:true}}}});
-  if(ctx('negProd'))_negCharts.prod=new Chart(ctx('negProd'),{type:'bar',data:{labels:top.map(p=>p.produto.length>44?p.produto.slice(0,44)+'…':p.produto),datasets:[{label:'Receita',data:top.map(p=>p.receita),backgroundColor:'rgba(168,85,247,.55)'}]},
-    options:{indexAxis:'y',maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)+' · '+(top[c.dataIndex].vendas||0)+' vendas'}}},scales:{x:{...eixo,ticks:{...eixo.ticks,callback:v=>'R$ '+(v/1e6).toFixed(1)+'mi'}},y:{...eixo,ticks:{...eixo.ticks,font:{size:9}}}}}});
+  // o gráfico de produtos é montado por renderNegProdutos: ele muda com o filtro de turma
 }
 /* Classificação de status de pedido — investigada na base real (435.827 linhas, ago/2026).
    Cada linha é um pedido com Id único e o status é o estado FINAL dele: NÃO existe linha "Pago"
