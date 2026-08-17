@@ -498,6 +498,15 @@
       </div>
       </div>
 
+      <!-- Só existe para cliente que manda a venda geral da empresa (hoje, Curso Fernanda Pessoa).
+           O grupo inteiro fica escondido para todos os outros — quem decide é negocioDisponivel(). -->
+      <button class="nav-group" id="navNegocioHead" style="display:none" onclick="toggleNavGroup(this)">Negócio<span class="caret">▾</span></button>
+      <div class="nav-sec" id="navNegocioSec" style="display:none">
+      <button class="tab" id="navNegVenda" data-nav-icon="chart" onclick="goToTab('negocio');setNegSub('venda')">Dash de venda</button>
+      <button class="tab" id="navNegInad" data-nav-icon="alert" onclick="goToTab('negocio');setNegSub('inadimplencia')">Inadimplência</button>
+      <button class="tab" id="navNegParc" data-nav-icon="users" onclick="goToTab('negocio');setNegSub('parceiros')">Parceiros</button>
+      </div>
+
       <button class="nav-group" onclick="toggleNavGroup(this)">Orgânico<span class="caret">▾</span></button>
       <div class="nav-sec">
       <button class="tab" data-tab="social" data-nav-icon="image">Social</button>
@@ -857,8 +866,11 @@
     <div class="seg" id="crSubSeg" style="margin-bottom:16px">
       <button class="active" data-sub="dashboard" onclick="setReportSub('dashboard')">📊 Dashboard</button>
       <button data-sub="template" onclick="setReportSub('template')">📋 Template</button>
-      <!-- só aparece pra cliente que tem retrato de negócio (hoje, quem manda a venda geral da empresa) -->
-      <button data-sub="negocio" id="crNegocioTab" style="display:none" onclick="setReportSub('negocio')">🏛 Negócio</button>
+    </div>
+    <!-- Porta de entrada do módulo de Negócio: sem isso, um cliente novo nunca teria como subir o
+         primeiro arquivo (o menu só aparece depois que existe retrato). Some assim que é ativado. -->
+    <div id="negAtivarBox" style="display:none;margin:-6px 0 14px">
+      <button class="btn sm ghost" onclick="negocioAtivar()" title="Cria o módulo de Negócio para este cliente e libera os uploads da base de vendas e da inadimplência">🏛 Ativar módulo de Negócio para este cliente</button>
     </div>
 
     <div id="crDashboardView">
@@ -883,7 +895,23 @@
       <div class="filterbar" id="crtRangeBar" style="margin-bottom:14px;flex-wrap:wrap;gap:6px"></div>
       <div id="crTemplateBody"><div class="empty">Selecione um cliente com planilha de pedidos configurada.</div></div>
     </div>
-    <div id="crNegocioView" style="display:none"></div>
+  </section>
+
+  <!-- NEGÓCIO: menu próprio, só para o cliente que manda a venda geral da empresa.
+       Cada submenu é uma análise independente sobre a mesma base. -->
+  <section class="panel" id="negocio">
+    <div class="section-head" style="margin-top:0">
+      <h2>🏛 Negócio</h2>
+      <div id="negClienteNome" style="font-size:12.5px;color:var(--muted)"></div>
+    </div>
+    <div class="seg" id="negSubSeg" style="margin-bottom:16px">
+      <button class="active" data-negsub="venda" onclick="setNegSub('venda')">📈 Dash de venda</button>
+      <button data-negsub="inadimplencia" onclick="setNegSub('inadimplencia')">⚠️ Inadimplência</button>
+      <button data-negsub="parceiros" onclick="setNegSub('parceiros')">🤝 Parceiros</button>
+    </div>
+    <div id="negVendaView"></div>
+    <div id="negInadView" style="display:none"></div>
+    <div id="negParcView" style="display:none"></div>
   </section>
 
   <!-- WHATSAPP: conexão de números + AndréIA -->
@@ -2578,6 +2606,7 @@ function goToTab(tabId){
   if(tabId==='briefing')loadBriefing(activeClientId);
   if(tabId==='jornada')loadJornada(activeClientId);
   if(tabId==='social')loadSocial(activeClientId);
+  if(tabId==='negocio')loadNegocio(activeClientId);
   if(tabId==='operacional')loadHealthCard();
   if(tabId==='crm')loadCrm();
   else stopCrmPoll();
@@ -5040,7 +5069,7 @@ function integCard(id,icon,name,desc,rightHtml,bodyHtml){
     ${bodyHtml?`<div id="integBody_${id}" style="margin-top:12px">${bodyHtml}</div>`:''}
   </div>`;
 }
-const ACCESS_MENU_CATALOG=[['iagestora','AndréIA'],['operacional','Visão Geral'],['tasks','Tarefas'],['crm','CRM'],['jornada','Jornada'],['raiox','Diagnóstico'],['campanhas','Campanhas'],['publicos','Públicos'],['clients','Clientes'],['reunioes','Reuniões'],['relatorios','Relatórios'],['eventos','Eventos'],['social','Social'],['briefing','Criativos e Briefing'],['rastreamento','Pixel e Links'],['whatsapp','WhatsApp'],['bancodados','Banco de Dados'],['modelos','Templates'],['financeiro','Financeiro']];
+const ACCESS_MENU_CATALOG=[['iagestora','AndréIA'],['operacional','Visão Geral'],['tasks','Tarefas'],['crm','CRM'],['jornada','Jornada'],['raiox','Diagnóstico'],['campanhas','Campanhas'],['publicos','Públicos'],['clients','Clientes'],['reunioes','Reuniões'],['relatorios','Relatórios'],['eventos','Eventos'],['social','Social'],['briefing','Criativos e Briefing'],['rastreamento','Pixel e Links'],['whatsapp','WhatsApp'],['bancodados','Banco de Dados'],['modelos','Templates'],['financeiro','Financeiro'],['negocio','Negócio (venda geral da empresa)']];
 const ACCESS_ACTION_CATALOG=[['data.write','Criar e editar dados dos clientes'],['clients.write','Cadastrar e editar clientes'],['campaign.manage','Alterar campanhas e públicos'],['crm.write','Mover, classificar e responder no CRM'],['task.write','Criar e concluir tarefas'],['reports.export','Gerar e baixar relatórios'],['finance.read','Visualizar financeiro'],['finance.write','Alterar financeiro'],['global.write','Alterar cadastros globais']];
 const ACCESS_GESTOR_DEFAULT={menus:['iagestora','operacional','tasks','crm','jornada','raiox','campanhas','publicos','relatorios','briefing'],actions:['data.write','campaign.manage','crm.write','task.write','reports.export']};
 function _accessEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -7146,6 +7175,7 @@ function selectSidebarClient(id){
   if(id==='__toggle__'){toggleSidebarInativos();return}// linha de expandir/recolher: não é cliente
   if(!id)return;
   activeClientId=id;
+  negocioDisponivel(id); // o menu Negócio aparece/some junto com o cliente, esteja onde estiver
   const active=((document.querySelector('.tab.active')||{}).dataset||{}).tab||'';
   if(active==='relatorios'){const s=document.getElementById('crClientSelect');if(s){s.value=id;loadClientReport(id)}}
   else if(active==='iagestora'){loadAgentProject(id);}
@@ -7153,6 +7183,7 @@ function selectSidebarClient(id){
   else if(active==='crm'){_crmViewAgency=false;_crmActive=null;loadCrm();}
   else if(active==='jornada'){loadJornada(id);}
   else if(active==='publicos'){loadAudiences(true);}
+  else if(active==='negocio'){loadNegocio(id);}
   else{openClientConfig(id);}
 }
 /* ===== CAMPANHAS (drill-down estilo gerenciador) ===== */
@@ -11115,7 +11146,6 @@ function setReportSub(v){
   document.querySelectorAll('#crSubSeg [data-sub]').forEach(b=>b.classList.toggle('active',b.dataset.sub===v));
   document.getElementById('crDashboardView').style.display=v==='dashboard'?'block':'none';
   document.getElementById('crTemplateView').style.display=v==='template'?'block':'none';
-  const nv=document.getElementById('crNegocioView');if(nv)nv.style.display=v==='negocio'?'block':'none';
   if(v==='template'){
     loadClientTemplate();
   }
@@ -11134,21 +11164,26 @@ async function negocioLembrete(){
     const hoje=today();
     if(localStorage.getItem('negLembreteVisto')===hoje)return;      // já avisou (ou foi dispensado) hoje
     if(new Date().getHours()<NEG_HORA_LEMBRETE)return;
-    const {data}=await sb.from('client_business_snapshot').select('client_id,gerado_em').order('gerado_em',{ascending:true});
-    const pend=(data||[]).filter(x=>String(x.gerado_em||'').slice(0,10)<hoje);
+    const {data}=await sb.from('client_business_snapshot').select('client_id,gerado_em,inad_gerado_em').order('gerado_em',{ascending:true});
+    // os dois arquivos são alimentados à mão todo dia: basta um estar atrasado pra lembrar
+    const atrasado=x=>String(x.gerado_em||'').slice(0,10)<hoje||String(x.inad_gerado_em||'').slice(0,10)<hoje;
+    const pend=(data||[]).filter(atrasado);
     if(!pend.length)return;
     const nomes=pend.map(x=>(DB.clients.find(c=>c.id===x.client_id)||{}).name||x.client_id);
+    const faltam=[];
+    if(pend.some(x=>String(x.gerado_em||'').slice(0,10)<hoje))faltam.push('base de vendas');
+    if(pend.some(x=>String(x.inad_gerado_em||'').slice(0,10)<hoje))faltam.push('relatório de inadimplência');
     const dias=Math.max(0,Math.round((new Date(hoje)-new Date(String(pend[0].gerado_em).slice(0,10)))/864e5));
     let ov=document.getElementById('negLembreteModal');
     if(!ov){ov=document.createElement('div');ov.id='negLembreteModal';ov.className='modal-bg';document.body.appendChild(ov);}
     ov.classList.add('open');
     ov.innerHTML=`<div class="modal" style="max-width:520px">
-      <h3 style="margin:0 0 6px">⏰ Atualizar a base de vendas</h3>
-      <div class="hint" style="margin-bottom:14px">A base de ${nomes.map(n=>`<b>${String(n).replace(/</g,'&lt;')}</b>`).join(', ')} está com o retrato de ${dias===1?'ontem':`${dias} dias atrás`}. Depois de atualizar a planilha no Excel, suba o arquivo pra o painel acompanhar.</div>
+      <h3 style="margin:0 0 6px">⏰ Atualizar os dados de negócio</h3>
+      <div class="hint" style="margin-bottom:14px">Falta subir hoje: <b>${faltam.join(' e ')}</b> de ${nomes.map(n=>`<b>${String(n).replace(/</g,'&lt;')}</b>`).join(', ')}. O retrato mais antigo é de ${dias===1?'ontem':`${dias} dias atrás`}.</div>
       <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--muted);line-height:1.6">
         1. Confirme que a planilha do OneDrive já sincronizou<br>
-        2. Clique em <b>Atualizar base de vendas</b> na aba Negócio<br>
-        3. Escolha o arquivo — leva 1 a 2 minutos
+        2. No menu <b>Negócio</b>, use <b>Dash de venda</b> para a base e <b>Inadimplência</b> para o relatório<br>
+        3. Escolha o arquivo — a base leva 1 a 2 minutos
       </div>
       <div class="modal-actions">
         <button class="btn ghost" onclick="negocioLembreteFechar(false)">Deixar pra depois</button>
@@ -11162,7 +11197,7 @@ function negocioLembreteFechar(ir){
   if(ir){
     const alvo=(DB.clients.find(c=>c.name&&/fernanda/i.test(c.name))||{}).id;
     if(alvo&&!activeClientId)selectSidebarClient(alvo);
-    goToTab('relatorios');setTimeout(()=>{setReportSub('negocio');const b=document.getElementById('negUpFile');if(b)b.click();},400);
+    goToTab('negocio');setTimeout(()=>{setNegSub('venda');const b=document.getElementById('negUpFile');if(b)b.click();},400);
   }
 }
 /* ---- Subir a base de vendas (.xlsx) pela tela ----
@@ -11319,21 +11354,249 @@ async function negocioUpload(input){
     const {error}=await sb.from('client_business_snapshot').upsert({client_id:cid,fonte,dados,gerado_em:new Date().toISOString()});
     if(error)throw error;
     _negocio={gerado_em:new Date().toISOString(),fonte,dados};
-    document.getElementById('crNegocioTab').style.display='';
+    _negMenuMostra(true);
     renderNegocio();
     const m2=document.getElementById('negUpMsg');if(m2){m2.style.color='var(--accent)';m2.textContent=`✓ ${dados.alunos.toLocaleString('pt-BR')} alunos e ${dados.compras.toLocaleString('pt-BR')} compras pagas processados${dados.linhas_repetidas?` · ${dados.linhas_repetidas.toLocaleString('pt-BR')} linha(s) repetida(s) descartada(s)`:''}.`}
   }catch(e){msg.style.color='var(--red)';msg.textContent='Não consegui ler: '+(e.message||e);}
   input.value='';
 }
+/* ===== MENU NEGÓCIO =====
+   Menu próprio, não um pedaço de Relatórios: só aparece para o cliente que manda a venda geral da
+   empresa (hoje só a Curso Fernanda Pessoa) e reúne as análises que nascem dessa base. Cada submenu
+   é alimentado por um arquivo diferente, subido à mão — por isso os uploads ficam dentro de cada um. */
+let _negSub='venda',_inad=null;
+function _negMenuMostra(v){
+  const h=document.getElementById('navNegocioHead'),s=document.getElementById('navNegocioSec');
+  if(h)h.style.display=v?'':'none';
+  // respeita o estado recolhido do grupo: só reabre a seção se o cabeçalho não estiver colapsado
+  if(s)s.style.display=v&&!(h&&h.classList.contains('collapsed'))?'':'none';
+}
+function setNegSub(v){
+  _negSub=v;
+  document.querySelectorAll('#negSubSeg [data-negsub]').forEach(b=>b.classList.toggle('active',b.dataset.negsub===v));
+  document.querySelectorAll('#navNegocioSec .tab').forEach(b=>b.classList.remove('active'));
+  const nb={venda:'navNegVenda',inadimplencia:'navNegInad',parceiros:'navNegParc'}[v];
+  const nbe=nb&&document.getElementById(nb);if(nbe)nbe.classList.add('active');
+  document.getElementById('negVendaView').style.display=v==='venda'?'block':'none';
+  document.getElementById('negInadView').style.display=v==='inadimplencia'?'block':'none';
+  document.getElementById('negParcView').style.display=v==='parceiros'?'block':'none';
+  if(v==='venda')renderNegocio();
+  if(v==='inadimplencia')renderInad();
+  if(v==='parceiros')renderParceiros();
+}
+async function loadNegocio(clientId){
+  const nome=document.getElementById('negClienteNome');
+  const c=DB.clients.find(x=>x.id===clientId);
+  if(nome)nome.textContent=c?c.name:'Selecione um cliente.';
+  await negocioDisponivel(clientId);
+  setNegSub(_negSub);
+}
 async function negocioDisponivel(clientId){
-  if(!clientId){const t=document.getElementById('crNegocioTab');if(t)t.style.display='none';return}
+  if(!clientId){_negocio=null;_inad=null;_negMenuMostra(false);return}
   try{
-    const {data}=await sb.from('client_business_snapshot').select('dados,gerado_em,fonte').eq('client_id',clientId).maybeSingle();
-    _negocio=data||null;
-    const t=document.getElementById('crNegocioTab');if(t)t.style.display=data?'':'none';
-  }catch(e){_negocio=null;}
+    const {data}=await sb.from('client_business_snapshot')
+      .select('dados,gerado_em,fonte,inadimplencia,inad_fonte,inad_gerado_em').eq('client_id',clientId).maybeSingle();
+    // a coluna dados nasce como '{}' quando o módulo é só ativado: retrato vazio não é retrato
+    const temVenda=!!(data&&data.dados&&Object.keys(data.dados).length);
+    _negocio=temVenda?{dados:data.dados,gerado_em:data.gerado_em,fonte:data.fonte}:null;
+    _inad=data&&data.inadimplencia?{dados:data.inadimplencia,gerado_em:data.inad_gerado_em,fonte:data.inad_fonte}:null;
+    _negMenuMostra(!!data);
+    const box=document.getElementById('negAtivarBox');
+    if(box)box.style.display=(!data&&accessCanMenu('negocio'))?'':'none';
+  }catch(e){_negocio=null;_inad=null;_negMenuMostra(false);}
+}
+async function negocioAtivar(){
+  const cid=activeClientId;if(!cid){alert('Selecione um cliente primeiro.');return}
+  const c=DB.clients.find(x=>x.id===cid);
+  if(!confirm(`Ativar o módulo de Negócio para ${c?c.name:'este cliente'}?\n\nEle passa a ter o menu Negócio, com os uploads da base de vendas e do relatório de inadimplência.`))return;
+  const {error}=await sb.from('client_business_snapshot').upsert({client_id:cid,gerado_em:new Date().toISOString()});
+  if(error){alert('Não consegui ativar: '+error.message);return}
+  await negocioDisponivel(cid);
+  goToTab('negocio');setNegSub('venda');
 }
 function _negCard(rot,val,sub,cor){return `<div class="rt-kpi ${cor||'pu'}"><div class="rt-kpi-lbl">${rot}</div><div class="rt-kpi-val sm">${val}</div><div style="font-size:10.5px;color:var(--faint);margin-top:3px;line-height:1.3">${sub||'&nbsp;'}</div></div>`;}
+// estado vazio dos submenus: o upload precisa estar aqui, senão não há como subir o primeiro arquivo
+function _negUploadVazio(oque,inputId,fn,texto){
+  return `<div class="card" style="text-align:center;padding:34px 22px">
+    <div style="font-size:34px;margin-bottom:8px">⬆️</div>
+    <h3 style="margin:0 0 6px">Nenhum retrato de ${oque} ainda</h3>
+    <div style="font-size:12.5px;color:var(--muted);max-width:520px;margin:0 auto 16px">${texto}</div>
+    <input type="file" id="${inputId}" accept=".xlsx,.xls,.csv" multiple style="display:none" onchange="${fn}(this)">
+    <button class="btn primary" onclick="document.getElementById('${inputId}').click()">Escolher arquivo</button>
+    <div id="${inputId==='negUpFile'?'negUpMsg':'inadUpMsg'}" style="font-size:12px;color:var(--muted);margin-top:10px"></div>
+  </div>`;
+}
+/* ===== INADIMPLÊNCIA =====
+   Vem do relatório de inadimplência da plataforma, que é o único lugar com a informação de quanto
+   de um contrato parcelado foi pago: a coluna "Parcelas (Vencimento)" lista as parcelas EM ABERTO,
+   então pagas = contratadas − em aberto. A base de vendas não tem isso (lá a coluna Parcelas é o
+   tamanho do plano: "Lead" e "Aguardando Pagamento", que nunca receberam nada, também trazem 12).
+   Guardamos só agregados — nome e e-mail do aluno não saem do arquivo. */
+function _inadNum(v){
+  if(typeof v==='number')return v;
+  const s=String(v||'').replace(/[^\d,.-]/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',','.');
+  const n=parseFloat(s);return isNaN(n)?0:n;
+}
+function _inadData(v){
+  if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(v);return d?new Date(d.y,d.m-1,d.d):null}
+  const m=String(v||'').match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?new Date(+m[3],+m[2]-1,+m[1]):null;
+}
+async function inadProcessar(arquivos,aviso){
+  const arqs=Array.isArray(arquivos)?arquivos:[arquivos];
+  const setMsg=t=>{if(aviso)aviso(t)};
+  const linhas=[],vistos=new Set();let repetidas=0;
+  for(let i=0;i<arqs.length;i++){
+    setMsg(`Lendo ${arqs[i].name}…`);
+    const wb=XLSX.read(await arqs[i].arrayBuffer(),{type:'array',cellDates:false});
+    const aba=wb.SheetNames[0];
+    for(const l of XLSX.utils.sheet_to_json(wb.Sheets[aba],{defval:''})){
+      const id=String(l.ID||l.Id||l.id||'').trim();
+      if(id){if(vistos.has(id)){repetidas++;continue}vistos.add(id)}
+      linhas.push(l);
+    }
+  }
+  if(!linhas.length)throw new Error('relatório vazio — sem nenhuma linha abaixo do cabeçalho');
+  const col=(l,...nomes)=>{for(const n of nomes){const k=Object.keys(l).find(x=>x.toLowerCase().trim().startsWith(n));if(k)return l[k]}return ''};
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const porPagas={},porAnoCriacao={},porProduto={},porAnoVenc={};
+  let contratos=0,aberto=0,vencido=0,aVencer=0,parcelasAbertas=0,parcelasContratadas=0;
+  for(const l of linhas){
+    const qtd=Math.round(_inadNum(col(l,'qtd')))||0;
+    const lista=String(col(l,'parcelas (venc','parcelas')||'');
+    const abertas=(lista.match(/\d+\s*\(/g)||[]).length;
+    if(!qtd||!abertas)continue;
+    const vAberto=_inadNum(col(l,'total em aberto'));
+    contratos++;aberto+=vAberto;parcelasAbertas+=abertas;parcelasContratadas+=qtd;
+    const pagas=Math.max(0,qtd-abertas);
+    const k=`${pagas}/${qtd}`;(porPagas[k]=porPagas[k]||{pagas,qtd,contratos:0,aberto:0});porPagas[k].contratos++;porPagas[k].aberto+=vAberto;
+    const cri=_inadData(col(l,'cria'));
+    if(cri){const y=cri.getFullYear();(porAnoCriacao[y]=porAnoCriacao[y]||{ano:y,contratos:0,aberto:0});porAnoCriacao[y].contratos++;porAnoCriacao[y].aberto+=vAberto}
+    // a maior data da lista diz se ainda há parcela por vencer (cobrança em andamento) ou se já é calote
+    let maior=null;
+    for(const m of lista.matchAll(/\((\d{2})\/(\d{2})\/(\d{4})\)/g)){const d=new Date(+m[3],+m[2]-1,+m[1]);if(!maior||d>maior)maior=d}
+    if(maior){const y=maior.getFullYear();(porAnoVenc[y]=porAnoVenc[y]||{ano:y,contratos:0});porAnoVenc[y].contratos++;
+      if(maior<hoje)vencido++;else aVencer++}
+    const p=String(col(l,'produto')).replace(/\s+/g,' ').trim();
+    if(p){(porProduto[p]=porProduto[p]||{produto:p,contratos:0,aberto:0});porProduto[p].contratos++;porProduto[p].aberto+=vAberto}
+  }
+  if(!contratos)throw new Error('não encontrei as colunas esperadas (Qtd. de Parcelas e Parcelas (Vencimento))');
+  const r2=x=>+(+x||0).toFixed(2);
+  return {gerado_em:new Date().toISOString(),arquivos:arqs.map(a=>a.name),linhas_lidas:linhas.length,linhas_repetidas:repetidas,
+    contratos,em_aberto:r2(aberto),parcelas_abertas:parcelasAbertas,parcelas_contratadas:parcelasContratadas,
+    ticket_aberto:r2(aberto/contratos),vencido,a_vencer:aVencer,
+    por_pagas:Object.values(porPagas).sort((a,b)=>a.pagas-b.pagas).map(x=>({...x,aberto:r2(x.aberto)})),
+    por_ano_criacao:Object.values(porAnoCriacao).sort((a,b)=>a.ano-b.ano).map(x=>({...x,aberto:r2(x.aberto)})),
+    por_ano_vencimento:Object.values(porAnoVenc).sort((a,b)=>a.ano-b.ano),
+    top_produtos:Object.values(porProduto).sort((a,b)=>b.aberto-a.aberto).slice(0,15).map(x=>({...x,aberto:r2(x.aberto)}))};
+}
+async function inadUpload(input){
+  const arqs=[...(input.files||[])];if(!arqs.length)return;
+  const msg=document.getElementById('inadUpMsg'),cid=activeClientId;
+  if(!cid){if(msg)msg.textContent='Selecione um cliente antes.';return}
+  const fonte=arqs.map(a=>a.name).join(' + ');
+  if(msg){msg.style.color='';msg.textContent='Lendo o relatório…'}
+  try{
+    const dados=await inadProcessar(arqs,t=>{if(msg)msg.textContent=t});
+    if(msg)msg.textContent='Salvando o retrato…';
+    const {error}=await sb.from('client_business_snapshot')
+      .upsert({client_id:cid,inadimplencia:dados,inad_fonte:fonte,inad_gerado_em:new Date().toISOString()});
+    if(error)throw error;
+    _inad={dados,fonte,gerado_em:new Date().toISOString()};
+    _negMenuMostra(true);
+    renderInad();
+    const m2=document.getElementById('inadUpMsg');
+    if(m2){m2.style.color='var(--accent)';m2.textContent=`✓ ${dados.contratos.toLocaleString('pt-BR')} contratos com parcela em aberto.`}
+  }catch(e){if(msg){msg.style.color='var(--red)';msg.textContent='Não consegui ler: '+(e.message||e)}}
+  input.value='';
+}
+function renderInad(){
+  const el=document.getElementById('negInadView');if(!el)return;
+  if(!_inad||!_inad.dados){el.innerHTML=_negUploadVazio('inadimplência','inadUpFile','inadUpload',
+    'Suba o relatório de inadimplência da plataforma. É o único arquivo que diz até que parcela cada aluno pagou — a base de vendas não tem essa informação.');return}
+  const d=_inad.dados,n=x=>Math.round(x||0).toLocaleString('pt-BR');
+  const pagasMedia=d.parcelas_contratadas?(d.parcelas_contratadas-d.parcelas_abertas)/d.contratos:0;
+  const perdaMedia=d.parcelas_contratadas?(d.parcelas_abertas*100/d.parcelas_contratadas):0;
+  const maxP=Math.max(1,...(d.por_pagas||[]).map(x=>x.contratos));
+  el.innerHTML=`
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div><h3 style="margin:0">⚠️ Inadimplência</h3><div class="hint">fonte: ${_evtEsc(_inad.fonte||'—')} · atualizado ${new Date(_inad.gerado_em).toLocaleString('pt-BR')}</div></div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <input type="file" id="inadUpFile" accept=".xlsx,.xls,.csv" multiple style="display:none" onchange="inadUpload(this)">
+          <button class="btn sm ghost" onclick="document.getElementById('inadUpFile').click()" title="Sobe o relatório de inadimplência e recalcula. O arquivo é lido aqui no navegador, não vai pro servidor">⬆️ Atualizar inadimplência</button>
+          <span id="inadUpMsg" style="font-size:11.5px;color:var(--muted)"></span>
+        </div>
+      </div>
+      <div class="rt-kpi-grid">
+        ${_negCard('Contratos em atraso',n(d.contratos),`${n(d.parcelas_abertas)} parcelas em aberto`,'ye')}
+        ${_negCard('Valor em aberto',fmt(d.em_aberto),`${fmt(d.ticket_aberto)} por contrato, em média`,'ye')}
+        ${_negCard('Calote consumado',n(d.vencido),'a última parcela em aberto já venceu')}
+        ${_negCard('Cobrança em andamento',n(d.a_vencer),'ainda tem parcela a vencer','gr')}
+        ${_negCard('Pagou em média',pagasMedia.toFixed(1).replace('.',',')+' parcelas','antes de parar','gr')}
+        ${_negCard('Perda do contrato',perdaMedia.toFixed(1).replace('.',',')+'%','das parcelas contratadas não entraram')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin-top:0">📉 Em que parcela o aluno para de pagar</h3>
+      <div class="hint" style="margin-bottom:10px">Quanto mais à direita, mais tarde a desistência — e menos dinheiro se perde por contrato.</div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        ${(d.por_pagas||[]).map(x=>`<div style="display:grid;grid-template-columns:88px 1fr 132px;gap:10px;align-items:center;font-size:12px">
+          <div style="color:var(--muted);text-align:right">${x.pagas} de ${x.qtd}</div>
+          <div style="background:var(--surface2);border-radius:5px;height:19px;position:relative;overflow:hidden">
+            <div style="width:${Math.max(2,x.contratos*100/maxP)}%;height:100%;background:linear-gradient(90deg,#b45309,#fcd34d)"></div>
+          </div>
+          <div style="text-align:right"><b>${n(x.contratos)}</b> <span style="color:var(--faint)">· ${fmt(x.aberto)}</span></div>
+        </div>`).join('')||'<div class="empty">Sem dados.</div>'}
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin-top:0">🗓 De que safra vem o atraso</h3>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        ${(d.por_ano_criacao||[]).map(x=>`<div style="display:grid;grid-template-columns:60px 1fr 132px;gap:10px;align-items:center;font-size:12px">
+          <div style="color:var(--muted)">${x.ano}</div>
+          <div style="background:var(--surface2);border-radius:5px;height:19px;overflow:hidden">
+            <div style="width:${Math.max(2,x.contratos*100/Math.max(1,...(d.por_ano_criacao||[]).map(y=>y.contratos)))}%;height:100%;background:linear-gradient(90deg,#6d28d9,#a78bfa)"></div>
+          </div>
+          <div style="text-align:right"><b>${n(x.contratos)}</b> <span style="color:var(--faint)">· ${fmt(x.aberto)}</span></div>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin-top:0">📦 Onde o dinheiro está parado</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr><th style="text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Produto</th>
+        <th style="text-align:right;padding:7px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Contratos</th>
+        <th style="text-align:right;padding:7px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Em aberto</th></tr></thead>
+        <tbody>${(d.top_produtos||[]).map(x=>`<tr>
+          <td style="padding:7px 8px;border-bottom:1px solid var(--border)">${_evtEsc(x.produto)}</td>
+          <td style="padding:7px 8px;text-align:right;border-bottom:1px solid var(--border)">${n(x.contratos)}</td>
+          <td style="padding:7px 8px;text-align:right;border-bottom:1px solid var(--border);font-weight:700">${fmt(x.aberto)}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>
+
+    <div class="card" style="border-color:rgba(255,213,42,.3)">
+      <div style="font-size:12.5px;color:var(--muted)">
+        <b>O que este retrato não tem ainda:</b> a lista nominal de quem cobrar. O relatório traz nome e
+        e-mail do aluno, mas por enquanto guardamos só os totais. Quando formos montar a régua de
+        cobrança, isso precisa de uma decisão sua sobre guardar dado pessoal de inadimplente aqui dentro.
+      </div>
+    </div>`;
+}
+function renderParceiros(){
+  const el=document.getElementById('negParcView');if(!el)return;
+  el.innerHTML=`<div class="card" style="text-align:center;padding:38px 22px">
+    <div style="font-size:34px;margin-bottom:8px">🤝</div>
+    <h3 style="margin:0 0 6px">Parceiros</h3>
+    <div style="font-size:12.5px;color:var(--muted);max-width:520px;margin:0 auto">
+      Ainda não montamos esta análise. Na base de vendas já existe o rastro dela: os acessos marcados
+      como <b>"Acesso Parceiros"</b> e a <b>seleção de novos corretores</b>. Me diga o que você quer ver
+      aqui — quanto cada parceiro trouxe, quantos corretores entraram por seleção, ou outra coisa.
+    </div>
+  </div>`;
+}
 function _negDestroy(){Object.values(_negCharts).forEach(c=>{try{c.destroy()}catch(e){}});_negCharts={};}
 /* ---- Recompra ano a ano ----
    "% de recompra" do ano = dos que compraram naquele ano, quantos JÁ eram clientes de antes. É diferente do
@@ -11451,8 +11714,9 @@ function renderRecompraAno(){
       scales:{x:{...eixo,stacked:true},y1:{...eixo,stacked:true,position:'left'},y:{...eixo,position:'right',grid:{drawOnChartArea:false},ticks:{...eixo.ticks,callback:v=>v+'%'}}}}});
 }
 function renderNegocio(){
-  const el=document.getElementById('crNegocioView');if(!el)return;
-  if(!_negocio||!_negocio.dados){el.innerHTML='<div class="empty">Este cliente ainda não tem retrato de negócio.</div>';return}
+  const el=document.getElementById('negVendaView');if(!el)return;
+  if(!_negocio||!_negocio.dados){el.innerHTML=_negUploadVazio('base de vendas','negUpFile','negocioUpload',
+    'Suba a base de pedidos. Dá pra escolher mais de um arquivo de uma vez — o histórico de 2020 e 2021 saiu em relatórios separados.');return}
   const d=_negocio.dados,b=d.base||{},serie=d.serie_mensal||[],top=d.top_produtos||[];
   const n=x=>Math.round(x||0).toLocaleString('pt-BR');
   const baseViva=(b.ativos||0)+(b.expirados||0);
