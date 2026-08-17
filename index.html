@@ -11212,8 +11212,9 @@ async function negocioProcessar(f,aviso){
       const mk=dt.toISOString().slice(0,7);
       (mesMap[mk]=mesMap[mk]||{mes:mk,vendas:0,receita:0,novos:0});mesMap[mk].vendas++;mesMap[mk].receita+=val;
       if(prod){(prodMap[prod]=prodMap[prod]||{produto:prod,vendas:0,receita:0});prodMap[prod].vendas++;prodMap[prod].receita+=val}
-      const a=alunos[chave]=alunos[chave]||{n:0,tot:0,pri:dt,ult:dt,ivs:[],exp:null,vital:false,semPrazo:false};
+      const a=alunos[chave]=alunos[chave]||{n:0,tot:0,pri:dt,ult:dt,ivs:[],exp:null,vital:false,semPrazo:false,anos:{}};
       a.n++;a.tot+=val;if(dt<a.pri)a.pri=dt;if(dt>a.ult)a.ult=dt;
+      (a.anos[dt.getFullYear()]=a.anos[dt.getFullYear()]||{compras:0,receita:0}),a.anos[dt.getFullYear()].compras++,a.anos[dt.getFullYear()].receita+=val;
       if(meses===-1){a.vital=true}
       else if(meses>0){const fim=new Date(dt);fim.setMonth(fim.getMonth()+meses);a.ivs.push([dt,fim]);if(!a.exp||fim>a.exp)a.exp=fim}
       else if(meses===null){a.semPrazo=true}
@@ -11246,6 +11247,18 @@ async function negocioProcessar(f,aviso){
       relacionamento_medio:+med(relac).toFixed(1),
       base:{ativos,expirados,expira_30d:exp30,expira_60d:exp60,sem_prazo:semPrazo},
       compras_por_credito:creditos,
+      // recompra ANO A ANO: dos que compraram naquele ano, quantos já eram clientes (compraram em algum ano anterior)
+      recompra_ano:(()=>{
+        const anos={};
+        for(const k in alunos){const a=alunos[k],ini=a.pri.getFullYear();
+          for(const y of Object.keys(a.anos)){const ano=+y;
+            (anos[ano]=anos[ano]||{ano,compradores:0,recompradores:0,novos:0,receita:0,compras:0});
+            anos[ano].compradores++;anos[ano].receita+=a.anos[y].receita;anos[ano].compras+=a.anos[y].compras;
+            if(ini<ano)anos[ano].recompradores++;else anos[ano].novos++;}}
+        return Object.values(anos).sort((a,b)=>a.ano-b.ano).map(x=>({...x,receita:+x.receita.toFixed(2),
+          pct_recompra:+(x.compradores?x.recompradores*100/x.compradores:0).toFixed(1),
+          ticket:+(x.compradores?x.receita/x.compradores:0).toFixed(2)}));
+      })(),
       serie_mensal:Object.values(mesMap).sort((a,b)=>a.mes<b.mes?-1:1).map(m=>({...m,receita:+m.receita.toFixed(2)})),
       top_produtos:Object.values(prodMap).sort((a,b)=>b.receita-a.receita).slice(0,15).map(p=>({...p,receita:+p.receita.toFixed(2)}))};
     return dados;
@@ -11278,6 +11291,43 @@ async function negocioDisponivel(clientId){
 }
 function _negCard(rot,val,sub,cor){return `<div class="rt-kpi ${cor||'pu'}"><div class="rt-kpi-lbl">${rot}</div><div class="rt-kpi-val sm">${val}</div><div style="font-size:10.5px;color:var(--faint);margin-top:3px;line-height:1.3">${sub||'&nbsp;'}</div></div>`;}
 function _negDestroy(){Object.values(_negCharts).forEach(c=>{try{c.destroy()}catch(e){}});_negCharts={};}
+/* ---- Recompra ano a ano ----
+   "% de recompra" do ano = dos que compraram naquele ano, quantos JÁ eram clientes de antes. É diferente do
+   número geral da base (15,7%), que olha a vida inteira do aluno — este mostra o ano específico e a evolução. */
+let _negAnoSel=null;
+function negSetAno(a){_negAnoSel=+a;renderRecompraAno();}
+function renderRecompraAno(){
+  const el=document.getElementById('negRecompraCard');if(!el||!_negocio)return;
+  const lista=(_negocio.dados.recompra_ano||[]).filter(x=>x.compradores>0);if(!lista.length){el.style.display='none';return}
+  if(_negAnoSel==null||!lista.some(x=>x.ano===_negAnoSel))_negAnoSel=lista[lista.length-1].ano;
+  const a=lista.find(x=>x.ano===_negAnoSel),ant=lista.find(x=>x.ano===_negAnoSel-1);
+  const n=v=>Math.round(v||0).toLocaleString('pt-BR');
+  const delta=ant?+(a.pct_recompra-ant.pct_recompra).toFixed(1):null;
+  const cor=delta==null?'var(--muted)':(delta>=0?'#34d399':'#f87171');
+  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <div><h3 style="margin:0">🔁 Recompra ano a ano</h3><div class="hint">Dos que compraram no ano, quantos já eram clientes de anos anteriores</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${lista.map(x=>`<button class="btn sm ${x.ano===_negAnoSel?'primary':'ghost'}" onclick="negSetAno(${x.ano})">${x.ano}</button>`).join('')}</div>
+    </div>
+    <div class="rt-kpi-grid">
+      <div class="rt-kpi gr"><div class="rt-kpi-lbl">% de recompra em ${a.ano}</div><div class="rt-kpi-val sm">${a.pct_recompra.toFixed(1).replace('.',',')}%</div>
+        <div style="font-size:10.5px;margin-top:3px;color:${cor}">${delta==null?'primeiro ano da base':`${delta>=0?'▲':'▼'} ${Math.abs(delta).toFixed(1).replace('.',',')} p.p. vs ${a.ano-1} (${ant.pct_recompra.toFixed(1).replace('.',',')}%)`}</div></div>
+      ${_negCard('Compradores no ano',n(a.compradores),`${n(a.compras)} compras pagas`)}
+      ${_negCard('Já eram clientes',n(a.recompradores),'voltaram a comprar')}
+      ${_negCard('Clientes novos',n(a.novos),a.compradores?`${(a.novos*100/a.compradores).toFixed(1).replace('.',',')}% do ano`:'')}
+      ${_negCard('Faturamento do ano',fmt(a.receita),'só das compras pagas')}
+      ${_negCard('Ticket por comprador',fmt(a.ticket),'faturamento ÷ compradores')}
+    </div>
+    <div style="height:220px;margin-top:14px"><canvas id="negRecChart"></canvas></div>`;
+  try{if(_negCharts.rec)_negCharts.rec.destroy()}catch(e){}
+  const c=document.getElementById('negRecChart');if(!c)return;
+  const eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
+  _negCharts.rec=new Chart(c.getContext('2d'),{data:{labels:lista.map(x=>x.ano),datasets:[
+    {type:'bar',label:'Novos',data:lista.map(x=>x.novos),backgroundColor:'rgba(52,211,153,.5)',stack:'s',yAxisID:'y1'},
+    {type:'bar',label:'Recompra',data:lista.map(x=>x.recompradores),backgroundColor:'rgba(255,213,42,.55)',stack:'s',yAxisID:'y1'},
+    {type:'line',label:'% recompra',data:lista.map(x=>x.pct_recompra),borderColor:'#a855f7',backgroundColor:'transparent',tension:.3,yAxisID:'y'}]},
+    options:{maintainAspectRatio:false,plugins:{legend:{labels:{color:'#c9c9c1'}},tooltip:{callbacks:{label:c2=>c2.dataset.label==='% recompra'?`% recompra: ${c2.raw}%`:`${c2.dataset.label}: ${Math.round(c2.raw).toLocaleString('pt-BR')}`}}},
+      scales:{x:{...eixo,stacked:true},y1:{...eixo,stacked:true,position:'left'},y:{...eixo,position:'right',grid:{drawOnChartArea:false},ticks:{...eixo.ticks,callback:v=>v+'%'}}}}});
+}
 function renderNegocio(){
   const el=document.getElementById('crNegocioView');if(!el)return;
   if(!_negocio||!_negocio.dados){el.innerHTML='<div class="empty">Este cliente ainda não tem retrato de negócio.</div>';return}
@@ -11323,9 +11373,11 @@ function renderNegocio(){
         💡 <b>${n(b.expira_30d)} alunos expiram em até 30 dias.</b> Pelo LTV de quem recompra (${fmt(d.ltv_recomprador)}), reativar 10% deles representa ${fmt(b.expira_30d*0.1*d.ltv_recomprador)}.</div>`:''}
     </div>
 
+    ${(d.recompra_ano&&d.recompra_ano.length)?`<div class="card" style="margin-bottom:16px" id="negRecompraCard"></div>`:''}
     <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">📈 Faturamento e vendas por mês</h3><div style="height:300px"><canvas id="negFat"></canvas></div></div>
     <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">🆕 Alunos novos × recompra</h3><div class="hint" style="margin-bottom:8px">Barra cheia = quem comprou pela primeira vez. A diferença até o total é recompra da base.</div><div style="height:280px"><canvas id="negNovos"></canvas></div></div>
     <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">🏆 Onde o faturamento se concentra</h3><div style="height:${Math.max(240,top.length*26)}px"><canvas id="negProd"></canvas></div></div>`;
+  renderRecompraAno();
   _negDestroy();
   const meses=serie.map(x=>x.mes),eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
   const ctx=id=>{const c=document.getElementById(id);return c?c.getContext('2d'):null};
@@ -13109,6 +13161,20 @@ function andreiaExportOpen(idx){
   ov.onclick=e=>{if(e.target===ov)andreiaExportClose();};
 }
 function andreiaExportClose(){const ov=document.getElementById('docExportOverlay');if(ov)ov.remove();}
+// A IA abre a resposta conversando ("Aqui está o resumo pronto para copiar e enviar no WhatsApp:"). No chat
+// isso é natural, mas o documento exportado vai PRO CLIENTE — e ele não tem nada a ver com o nosso processo.
+// Tira só a conversa de abertura, antes do conteúdo começar; nenhuma linha com dado é tocada.
+function _docSemPreambulo(txt){
+  const linhas=String(txt||'').split('\n');
+  const conversa=/^\s*(aqui (est[áa]|vai|v[ãa]o)|segue[m]?\b|abaixo|claro|perfeito|prontinho|beleza|com certeza|sem problema|vou (montar|gerar|preparar)|preparei|montei|gerei)\b/i;
+  while(linhas.length){
+    const l=linhas[0].trim();
+    if(!l){linhas.shift();continue}                       // linha em branco do começo
+    if(conversa.test(l)&&l.length<160&&!/^#{1,3}\s/.test(l)){linhas.shift();continue}
+    break;
+  }
+  return linhas.join('\n').trim();
+}
 function andreiaExportBuild(fmt){
   const idx=_docExportIdx;const m=agentActiveChat&&agentActiveChat.messages[idx];if(!m)return;
   const r=document.querySelector('input[name=docLayout]:checked');const layout=r?r.value:'executivo';
