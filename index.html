@@ -11183,6 +11183,18 @@ function _negNum(v){
   const s=String(v||'').replace(/[^\d,.-]/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',','.');
   const n=parseFloat(s);return isNaN(n)?0:n;
 }
+/* Status que representam dinheiro que entrou de verdade. O porquê de cada um está no comentário
+   de ORDER_STATUS_GROUPS. "Estornado Parcialmente" fica aqui porque a maior parte do valor ficou. */
+const NEG_VENDA=new Set(['pago','disponível','disponivel','finalizado','debitado','estornado parcialmente','aguardando estorno']);
+const NEG_DEVOLVIDO=new Set(['estornado','chargeback']); // foi aluno, mas o dinheiro voltou
+/* "Liberado Automaticamente" é acesso sem pagamento (R$ 0,00 em 100% das linhas) e tem dois sentidos
+   bem diferentes: a maior parte é INSCRIÇÃO em processo seletivo, seleção de corretores ou simulado
+   gratuito — essa gente nunca foi aluna. O resto é acesso de verdade a um curso (bolsista, parceiro),
+   que é aluno sim, só que sem receita. A regra testa a NEGAÇÃO primeiro: é cortesia o que não for
+   um desses processos. */
+function _negCortesia(prod){
+  return !/processo\s+seletivo|bolsas?\s+de\s+estudo|corretor|sistema\s+seriado|ssa\s*\/?\s*upe|^\s*teste\s*$/i.test(String(prod||''));
+}
 function _negData(v){
   if(v instanceof Date)return v;
   if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(v);return d?new Date(d.y,d.m-1,d.d):null}
@@ -11200,14 +11212,18 @@ async function negocioProcessar(f,aviso){
     if(!linhas.length)throw new Error('planilha vazia ou sem cabeçalho');
     const col=(l,...nomes)=>{for(const n of nomes){const k=Object.keys(l).find(x=>x.toLowerCase().trim()===n);if(k)return l[k]}return ''};
     const alunos={},mesMap={},diaMap={},prodMap={};let creditos=0;
+    const cortesiaK={},seletivoK={},devolK={};let devN=0,devVal=0;
     for(const l of linhas){
-      if(String(col(l,'status')).trim().toLowerCase()!=='pago')continue;
+      const st=String(col(l,'status')).trim().toLowerCase();
       const dt=_negData(col(l,'data'));if(!dt)continue;
       const mail=String(col(l,'email','e-mail')).trim().toLowerCase();
       const cpf=String(col(l,'cpf')).replace(/\D/g,'');
       const chave=cpf.length>=11?'c:'+cpf:(mail?'e:'+mail:null);if(!chave)continue;
       const prod=String(col(l,'produto')).replace(/\s+/g,' ').trim();
       const val=_negNum(col(l,'total','valor'));
+      if(st==='liberado automaticamente'){(_negCortesia(prod)?cortesiaK:seletivoK)[chave]=1;continue}
+      if(NEG_DEVOLVIDO.has(st)){devolK[chave]=1;devN++;devVal+=val;continue}
+      if(!NEG_VENDA.has(st))continue;
       const meses=_negMeses(prod);if(meses===0)creditos++;
       const mk=dt.toISOString().slice(0,7),dk=dt.toISOString().slice(0,10);
       (mesMap[mk]=mesMap[mk]||{mes:mk,vendas:0,receita:0,novos:0});mesMap[mk].vendas++;mesMap[mk].receita+=val;
@@ -11239,6 +11255,12 @@ async function negocioProcessar(f,aviso){
     }
     const med=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:0;
     const chaves=Object.keys(alunos),rec=chaves.filter(k=>alunos[k].n>1);
+    // quem SÓ aparece fora da compra: cortesia sem nunca ter pago, inscrito em seletivo, e quem
+    // só teve compra devolvida. São contagens de pessoa, não de linha.
+    const comprou=new Set(chaves);
+    const soCortesia=Object.keys(cortesiaK).filter(k=>!comprou.has(k)).length;
+    const soSeletivo=Object.keys(seletivoK).filter(k=>!comprou.has(k)&&!cortesiaK[k]).length;
+    const soDevolvido=Object.keys(devolK).filter(k=>!comprou.has(k)).length;
     const fat=chaves.reduce((s,k)=>s+alunos[k].tot,0);
     const dados={gerado_em:new Date().toISOString(),
       periodo:{de:Object.keys(mesMap).sort()[0]+'-01',ate:hoje.toISOString().slice(0,10)},
@@ -11250,6 +11272,9 @@ async function negocioProcessar(f,aviso){
       relacionamento_medio:+med(relac).toFixed(1),
       base:{ativos,expirados,expira_30d:exp30,expira_60d:exp60,sem_prazo:semPrazo},
       compras_por_credito:creditos,
+      devolucoes:{compras:devN,valor:+devVal.toFixed(2),pessoas:Object.keys(devolK).length,so_devolvido:soDevolvido},
+      cortesia:{pessoas:Object.keys(cortesiaK).length,sem_compra:soCortesia},
+      seletivo:{pessoas:soSeletivo},
       // recompra ANO A ANO: dos que compraram naquele ano, quantos já eram clientes (compraram em algum ano anterior)
       recompra_ano:(()=>{
         const anos={};
@@ -11416,6 +11441,8 @@ function renderNegocio(){
   const d=_negocio.dados,b=d.base||{},serie=d.serie_mensal||[],top=d.top_produtos||[];
   const n=x=>Math.round(x||0).toLocaleString('pt-BR');
   const baseViva=(b.ativos||0)+(b.expirados||0);
+  const dev=d.devolucoes,cort=d.cortesia,sel=d.seletivo;
+  const pctDev=(dev&&d.faturamento)?(dev.valor*100/(d.faturamento+dev.valor)):0;
   el.innerHTML=`
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
@@ -11448,7 +11475,7 @@ function renderNegocio(){
       <div class="rt-kpi-grid">
         ${_negCard('Ativos',n(b.ativos),baseViva?`${(b.ativos*100/baseViva).toFixed(1).replace('.',',')}% da base`:'','gr')}
         ${_negCard('Expirados',n(b.expirados),'oportunidade de reativação')}
-        ${_negCard('Expiram em 30 dias',n(b.expira_30d),'renovação com data marcada','gd')}
+        ${_negCard('Expiram em 30 dias',n(b.expira_30d),'renovação com data marcada','ye')}
         ${_negCard('Expiram em 31–60 dias',n(b.expira_60d),'próxima janela')}
         ${_negCard('Sem prazo definido',n(b.sem_prazo),'produto sem duração no nome — a definir')}
         ${_negCard('Compras por crédito',n(d.compras_por_credito),'entram no LTV, não no prazo')}
@@ -11456,6 +11483,23 @@ function renderNegocio(){
       ${b.expira_30d?`<div style="margin-top:12px;padding:10px 12px;background:rgba(255,213,42,.07);border:1px solid rgba(255,213,42,.3);border-radius:10px;font-size:12.5px">
         💡 <b>${n(b.expira_30d)} alunos expiram em até 30 dias.</b> Pelo LTV de quem recompra (${fmt(d.ltv_recomprador)}), reativar 10% deles representa ${fmt(b.expira_30d*0.1*d.ltv_recomprador)}.</div>`:''}
     </div>
+
+    ${(dev||cort||sel)?`<div class="card" style="margin-bottom:16px">
+      <h3 style="margin-top:0">🧹 Quem está na base mas não é aluno pagante</h3>
+      <div class="hint" style="margin-bottom:10px">Separado do retrato acima de propósito: nada aqui entra em faturamento nem em LTV.</div>
+      <div class="rt-kpi-grid">
+        ${dev?_negCard('Devoluções',n(dev.compras),`${fmt(dev.valor)} estornados · ${pctDev.toFixed(1).replace('.',',')}% do que foi vendido`,'ye'):''}
+        ${dev?_negCard('Foi aluno e devolveu',n(dev.so_devolvido),'nunca teve outra compra válida'):''}
+        ${cort?_negCard('Acesso de cortesia',n(cort.sem_compra),'bolsista ou parceiro — é aluno, sem receita','gr'):''}
+        ${sel?_negCard('Só processo seletivo',n(sel.pessoas),'inscrito em seletivo, bolsa, corretor ou simulado — não é aluno'):''}
+      </div>
+      <div style="margin-top:12px;padding:10px 12px;background:var(--surface2);border-radius:10px;font-size:11.5px;color:var(--muted)">
+        Os acessos liberados automaticamente valem R$ 0,00 na base. A maior parte é <b>inscrição em
+        processo seletivo, seleção de corretores ou simulado</b> — gente que nunca estudou e que, se
+        contada como aluno, encolheria o LTV artificialmente. Quem recebeu acesso a um curso de
+        verdade aparece como cortesia.
+      </div>
+    </div>`:''}
 
     ${(d.recompra_ano&&d.recompra_ano.length)?`<div class="card" style="margin-bottom:16px" id="negRecompraCard"></div>`:''}
     <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">📈 Faturamento e vendas por mês</h3><div style="height:300px"><canvas id="negFat"></canvas></div></div>
@@ -11478,20 +11522,30 @@ function renderNegocio(){
   if(ctx('negProd'))_negCharts.prod=new Chart(ctx('negProd'),{type:'bar',data:{labels:top.map(p=>p.produto.length>44?p.produto.slice(0,44)+'…':p.produto),datasets:[{label:'Receita',data:top.map(p=>p.receita),backgroundColor:'rgba(168,85,247,.55)'}]},
     options:{indexAxis:'y',maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)+' · '+(top[c.dataIndex].vendas||0)+' vendas'}}},scales:{x:{...eixo,ticks:{...eixo.ticks,callback:v=>'R$ '+(v/1e6).toFixed(1)+'mi'}},y:{...eixo,ticks:{...eixo.ticks,font:{size:9}}}}}});
 }
+/* Classificação de status de pedido — investigada na base real (435.827 linhas, ago/2026).
+   Cada linha é um pedido com Id único e o status é o estado FINAL dele: NÃO existe linha "Pago"
+   separada da "Estornado", então não há venda duplicada a descontar.
+   A plataforma trocou o vocabulário em set/out 2022: até lá o pago se chamava "Disponível"
+   (jan–set/2022 não tem NENHUMA linha "Pago" — eram 7.212 vendas e R$ 7,6 mi fora da conta), e
+   "Lead" era a fatura gerada no checkout: mesma pessoa, mesmo dia, mesmo produto e mesmo valor da
+   linha "Disponível" — contar as duas duplicaria a venda.
+   "Finalizado" é assinatura recorrente concluída (100% cartão recorrente) e a receita dela só
+   existe nessa linha. "Liberado Automaticamente" é R$ 0,00 em 100% das linhas: não é venda. */
 const ORDER_STATUS_GROUPS={
-  aprovado:['Pago','Liberado Automaticamente'],
+  aprovado:['Pago','Disponível','Finalizado','Debitado','Estornado Parcialmente','Aguardando Estorno'],
+  cortesia:['Liberado Automaticamente'],
   cancelado:['Cancelado'],
   aguardando:['Aguardando Pagamento','Pagamento Pendente'],
-  estornado:['Estornado','Estornado Parcialmente','Chargeback','Aguardando Estorno'],
-  naoprocessado:['Não Processado','Não Autorizada'],
-  ignorar:['Lead','Disponível'],
+  estornado:['Estornado','Chargeback'],
+  naoprocessado:['Não Processado','Não Autorizada','Blacklist','Em Análise'],
+  ignorar:['Lead'],
 };
 function classifyOrderStatus(status){
   for(const [k,list] of Object.entries(ORDER_STATUS_GROUPS)){if(list.includes(status))return k}
   return 'outro';
 }
 function orderStatusColor(st){
-  const m={'Pago':'#10b981','Liberado Automaticamente':'#10b981','Cancelado':'#64748b','Aguardando Pagamento':'#f59e0b','Pagamento Pendente':'#f59e0b','Estornado':'#ef4444','Estornado Parcialmente':'#ef4444','Chargeback':'#ef4444','Aguardando Estorno':'#f59e0b','Não Processado':'#64748b','Não Autorizada':'#ef4444'};
+  const m={'Pago':'#10b981','Disponível':'#10b981','Finalizado':'#10b981','Debitado':'#10b981','Liberado Automaticamente':'#38bdf8','Cancelado':'#64748b','Aguardando Pagamento':'#f59e0b','Pagamento Pendente':'#f59e0b','Estornado':'#ef4444','Estornado Parcialmente':'#f59e0b','Chargeback':'#ef4444','Aguardando Estorno':'#f59e0b','Não Processado':'#64748b','Não Autorizada':'#ef4444','Lead':'#94a3b8','Blacklist':'#64748b'};
   return m[st]||'#94a3b8';
 }
 /* ===== DNA DO CLIENTE ===== */

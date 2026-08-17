@@ -5995,7 +5995,17 @@ function _ordStatus(v: any): "purchase" | "checkout" | "" {
   if (!s) return "checkout";
   // As NEGATIVAS vêm primeiro de propósito: "Não Autorizada" contém "autoriz" e era classificada como VENDA
   // pela regra de baixo (numa base real, 13.774 linhas desse status seriam contadas como compra paga).
-  if (/nao autoriz|nao aprovad|cancel|recus|estorn|expir|reembols|falh|negad|charge|blacklist|nao process/.test(s)) return "";
+  // "Liberado Automaticamente" (1.462 registros na base da CFP) NÃO é venda — confirmado pela gestora.
+  // exceção antes das negativas: no estorno parcial a maior parte do dinheiro ficou, e o "aguardando
+  // estorno" ainda não voltou. Ambos contam como venda — igual à aba Negócio, pra não divergir.
+  if (/estorn\w* parcial|aguardando estorno/.test(s)) return "purchase";
+  if (/nao autoriz|nao aprovad|cancel|recus|estorn|expir|reembols|falh|negad|charge|blacklist|nao process|liberad/.test(s)) return "";
+  // "Disponivel" e "Debitado" são venda paga do vocabulário antigo da plataforma (até set/2022):
+  // naquele período NÃO existe nenhuma linha "Pago", e sem isso 9 meses inteiros de venda somem.
+  // "Lead" é a fatura gerada no checkout — mesma pessoa/dia/produto/valor da linha "Disponivel",
+  // então é pedido em aberto, nunca compra. "Finalizado" já cai no /finaliz/ abaixo (assinatura
+  // recorrente concluída, cuja receita só existe naquela linha).
+  if (/disponivel|debitad/.test(s)) return "purchase";
   if (/aprovad|pago|paga|conclu|complet|autoriz|captur|finaliz|entregue/.test(s)) return "purchase";
   return "checkout"; // pendente, aguardando, processando…
 }
