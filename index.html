@@ -11199,7 +11199,7 @@ async function negocioProcessar(f,aviso){
     const linhas=XLSX.utils.sheet_to_json(wb.Sheets[aba],{defval:''});
     if(!linhas.length)throw new Error('planilha vazia ou sem cabeçalho');
     const col=(l,...nomes)=>{for(const n of nomes){const k=Object.keys(l).find(x=>x.toLowerCase().trim()===n);if(k)return l[k]}return ''};
-    const alunos={},mesMap={},prodMap={};let creditos=0;
+    const alunos={},mesMap={},diaMap={},prodMap={};let creditos=0;
     for(const l of linhas){
       if(String(col(l,'status')).trim().toLowerCase()!=='pago')continue;
       const dt=_negData(col(l,'data'));if(!dt)continue;
@@ -11209,8 +11209,10 @@ async function negocioProcessar(f,aviso){
       const prod=String(col(l,'produto')).replace(/\s+/g,' ').trim();
       const val=_negNum(col(l,'total','valor'));
       const meses=_negMeses(prod);if(meses===0)creditos++;
-      const mk=dt.toISOString().slice(0,7);
+      const mk=dt.toISOString().slice(0,7),dk=dt.toISOString().slice(0,10);
       (mesMap[mk]=mesMap[mk]||{mes:mk,vendas:0,receita:0,novos:0});mesMap[mk].vendas++;mesMap[mk].receita+=val;
+      // série DIÁRIA: é o que permite o calendário com intervalo livre e o comparativo de período
+      (diaMap[dk]=diaMap[dk]||{dia:dk,vendas:0,receita:0,novos:0});diaMap[dk].vendas++;diaMap[dk].receita+=val;
       if(prod){(prodMap[prod]=prodMap[prod]||{produto:prod,vendas:0,receita:0});prodMap[prod].vendas++;prodMap[prod].receita+=val}
       const a=alunos[chave]=alunos[chave]||{n:0,tot:0,pri:dt,ult:dt,ivs:[],exp:null,vital:false,semPrazo:false,anos:{}};
       a.n++;a.tot+=val;if(dt<a.pri)a.pri=dt;if(dt>a.ult)a.ult=dt;
@@ -11233,6 +11235,7 @@ async function negocioProcessar(f,aviso){
       else if(a.exp){if(a.exp>=hoje){ativos++;const dd=(a.exp-hoje)/(1000*60*60*24);if(dd<=30)exp30++;else if(dd<=60)exp60++}else expirados++}
       else semPrazo++;
       const pk=a.pri.toISOString().slice(0,7);if(mesMap[pk])mesMap[pk].novos++;
+      const pd=a.pri.toISOString().slice(0,10);if(diaMap[pd])diaMap[pd].novos++;
     }
     const med=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:0;
     const chaves=Object.keys(alunos),rec=chaves.filter(k=>alunos[k].n>1);
@@ -11260,6 +11263,7 @@ async function negocioProcessar(f,aviso){
           ticket:+(x.compradores?x.receita/x.compradores:0).toFixed(2)}));
       })(),
       serie_mensal:Object.values(mesMap).sort((a,b)=>a.mes<b.mes?-1:1).map(m=>({...m,receita:+m.receita.toFixed(2)})),
+      serie_diaria:Object.values(diaMap).sort((a,b)=>a.dia<b.dia?-1:1).map(x=>({...x,receita:+x.receita.toFixed(2)})),
       top_produtos:Object.values(prodMap).sort((a,b)=>b.receita-a.receita).slice(0,15).map(p=>({...p,receita:+p.receita.toFixed(2)}))};
     return dados;
   }
@@ -11294,8 +11298,86 @@ function _negDestroy(){Object.values(_negCharts).forEach(c=>{try{c.destroy()}cat
 /* ---- Recompra ano a ano ----
    "% de recompra" do ano = dos que compraram naquele ano, quantos JÁ eram clientes de antes. É diferente do
    número geral da base (15,7%), que olha a vida inteira do aluno — este mostra o ano específico e a evolução. */
+/* ---- Filtro de período + comparativo (só na aba Negócio) ----
+   Vale pro que é movimento no tempo (faturamento, vendas, novos, ticket). LTV, permanência e base de alunos
+   NÃO são filtrados: são retrato da vida inteira do aluno, recortar por data daria número errado. */
+let _negDe='',_negAte='',_negCmp='anterior';
+// dateBR omite o ano ("15/08"); no comparativo anual isso vira armadilha — aqui o ano é obrigatório
+const _negBR=d=>String(d||'').split('-').reverse().join('/');
+function negPeriodoAtalho(k){
+  const dias=(_negocio&&_negocio.dados&&_negocio.dados.serie_diaria)||[];
+  if(!dias.length)return;
+  const ult=dias[dias.length-1].dia,hoje=new Date(ult+'T12:00:00');
+  const iso=d=>d.toISOString().slice(0,10);
+  if(k==='tudo'){_negDe=dias[0].dia;_negAte=ult}
+  else if(k==='30'||k==='90'){const d=new Date(hoje);d.setDate(d.getDate()-(+k-1));_negDe=iso(d);_negAte=ult}
+  else if(k==='mes'){_negDe=ult.slice(0,8)+'01';_negAte=ult}
+  else if(k==='ano'){_negDe=ult.slice(0,4)+'-01-01';_negAte=ult}
+  else if(k==='anoant'){const a=+ult.slice(0,4)-1;_negDe=a+'-01-01';_negAte=a+'-12-31'}
+  renderNegocio();
+}
+function negPeriodoManual(){_negDe=(document.getElementById('negDe')||{}).value||'';_negAte=(document.getElementById('negAte')||{}).value||'';renderNegocio();}
+function negSetCmp(v){_negCmp=v;renderNegocio();}
+function _negSoma(dias,de,ate){
+  const r={vendas:0,receita:0,novos:0};
+  for(const d of dias){if(d.dia>=de&&d.dia<=ate){r.vendas+=d.vendas;r.receita+=d.receita;r.novos+=d.novos}}
+  r.ticket=r.vendas?r.receita/r.vendas:0;return r;
+}
+function _negPeriodoAnterior(de,ate){
+  const d1=new Date(de+'T12:00:00'),d2=new Date(ate+'T12:00:00'),iso=d=>d.toISOString().slice(0,10);
+  if(_negCmp==='ano'){const a=x=>{const y=new Date(x);y.setFullYear(y.getFullYear()-1);return iso(y)};return [a(d1),a(d2)]}
+  const dur=Math.round((d2-d1)/864e5)+1,f=new Date(d1);f.setDate(f.getDate()-1);const i=new Date(f);i.setDate(i.getDate()-dur+1);
+  return [iso(i),iso(f)];
+}
+function _negVar(atual,ant){
+  if(!ant)return '<span style="color:var(--faint);font-size:10.5px">sem base de comparação</span>';
+  const v=((atual-ant)/ant)*100,bom=v>=0;
+  return `<span style="color:${bom?'#34d399':'#f87171'};font-size:10.5px;font-weight:700">${bom?'▲':'▼'} ${Math.abs(v).toFixed(1).replace('.',',')}%</span>`;
+}
 let _negAnoSel=null;
 function negSetAno(a){_negAnoSel=+a;renderRecompraAno();}
+function renderNegPeriodo(){
+  const el=document.getElementById('negPeriodoCard');if(!el||!_negocio)return;
+  const dias=_negocio.dados.serie_diaria||[];if(!dias.length){el.style.display='none';return}
+  if(!_negDe||!_negAte){_negAte=dias[dias.length-1].dia;const d=new Date(_negAte+'T12:00:00');d.setDate(d.getDate()-29);_negDe=d.toISOString().slice(0,10);}
+  const a=_negSoma(dias,_negDe,_negAte),[pde,pate]=_negPeriodoAnterior(_negDe,_negAte),p=_negSoma(dias,pde,pate);
+  const n=v=>Math.round(v||0).toLocaleString('pt-BR');
+  const atalho=(k,l)=>`<button class="btn sm ghost" onclick="negPeriodoAtalho('${k}')">${l}</button>`;
+  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <div><h3 style="margin:0">📅 Desempenho no período</h3><div class="hint">${_negBR(_negDe)} a ${_negBR(_negAte)} · comparando com ${_negBR(pde)} a ${_negBR(pate)}</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        ${atalho('30','30 dias')}${atalho('90','90 dias')}${atalho('mes','Este mês')}${atalho('ano','Este ano')}${atalho('anoant','Ano passado')}${atalho('tudo','Tudo')}
+        <input type="date" id="negDe" value="${_negDe}" onchange="negPeriodoManual()" style="width:auto;font-size:12px">
+        <span style="color:var(--faint)">–</span>
+        <input type="date" id="negAte" value="${_negAte}" onchange="negPeriodoManual()" style="width:auto;font-size:12px">
+        <select onchange="negSetCmp(this.value)" style="width:auto;font-size:12px" title="Com o que comparar">
+          <option value="anterior"${_negCmp==='anterior'?' selected':''}>vs período anterior</option>
+          <option value="ano"${_negCmp==='ano'?' selected':''}>vs mesmo período do ano passado</option>
+        </select>
+      </div>
+    </div>
+    <div class="rt-kpi-grid">
+      <div class="rt-kpi gd"><div class="rt-kpi-lbl">Faturamento</div><div class="rt-kpi-val sm">${fmt(a.receita)}</div><div style="margin-top:3px">${_negVar(a.receita,p.receita)} <span style="font-size:10px;color:var(--faint)">${fmt(p.receita)}</span></div></div>
+      <div class="rt-kpi"><div class="rt-kpi-lbl">Vendas pagas</div><div class="rt-kpi-val sm">${n(a.vendas)}</div><div style="margin-top:3px">${_negVar(a.vendas,p.vendas)} <span style="font-size:10px;color:var(--faint)">${n(p.vendas)}</span></div></div>
+      <div class="rt-kpi gr"><div class="rt-kpi-lbl">Alunos novos</div><div class="rt-kpi-val sm">${n(a.novos)}</div><div style="margin-top:3px">${_negVar(a.novos,p.novos)} <span style="font-size:10px;color:var(--faint)">${n(p.novos)}</span></div></div>
+      <div class="rt-kpi"><div class="rt-kpi-lbl">Recompra no período</div><div class="rt-kpi-val sm">${n(Math.max(0,a.vendas-a.novos))}</div><div style="margin-top:3px"><span style="font-size:10.5px;color:var(--muted)">${a.vendas?((a.vendas-a.novos)*100/a.vendas).toFixed(1).replace('.',',')+'% das vendas':''}</span></div></div>
+      <div class="rt-kpi"><div class="rt-kpi-lbl">Ticket médio</div><div class="rt-kpi-val sm">${fmt(a.ticket)}</div><div style="margin-top:3px">${_negVar(a.ticket,p.ticket)} <span style="font-size:10px;color:var(--faint)">${fmt(p.ticket)}</span></div></div>
+    </div>
+    <div style="height:240px;margin-top:14px"><canvas id="negPerChart"></canvas></div>
+    <div class="hint" style="margin-top:8px">Este bloco respeita o período. LTV, permanência e base de alunos acima são da <b>vida inteira</b> do aluno — recortar por data daria número errado.</div>`;
+  try{if(_negCharts.per)_negCharts.per.destroy()}catch(e){}
+  const c=document.getElementById('negPerChart');if(!c)return;
+  const dentro=dias.filter(x=>x.dia>=_negDe&&x.dia<=_negAte);
+  // intervalo longo vira mês, pra não virar sopa de pontos
+  const porMes=dentro.length>92,mapa={};
+  dentro.forEach(x=>{const k=porMes?x.dia.slice(0,7):x.dia;(mapa[k]=mapa[k]||{k,receita:0,vendas:0});mapa[k].receita+=x.receita;mapa[k].vendas+=x.vendas});
+  const pts=Object.values(mapa),eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
+  _negCharts.per=new Chart(c.getContext('2d'),{data:{labels:pts.map(x=>porMes?x.k:dateBR(x.k)),datasets:[
+    {type:'bar',label:'Vendas',data:pts.map(x=>x.vendas),backgroundColor:'rgba(168,85,247,.4)',yAxisID:'y1'},
+    {type:'line',label:'Faturamento',data:pts.map(x=>x.receita),borderColor:'#ffd42a',backgroundColor:'rgba(255,213,42,.08)',fill:true,tension:.3,yAxisID:'y'}]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'#c9c9c1'}},tooltip:{callbacks:{label:x=>x.dataset.label==='Faturamento'?`Faturamento: ${fmt(x.raw)}`:`Vendas: ${Math.round(x.raw)}`}}},
+      scales:{x:eixo,y:{...eixo,ticks:{...eixo.ticks,callback:v=>'R$ '+(v>=1e6?(v/1e6).toFixed(1)+'mi':(v/1e3).toFixed(0)+'k')}},y1:{...eixo,position:'right',grid:{drawOnChartArea:false}}}}});
+}
 function renderRecompraAno(){
   const el=document.getElementById('negRecompraCard');if(!el||!_negocio)return;
   const lista=(_negocio.dados.recompra_ano||[]).filter(x=>x.compradores>0);if(!lista.length){el.style.display='none';return}
@@ -11359,6 +11441,8 @@ function renderNegocio(){
       </div>
     </div>
 
+    ${(d.serie_diaria&&d.serie_diaria.length)?`<div class="card" style="margin-bottom:16px" id="negPeriodoCard"></div>`:''}
+
     <div class="card" style="margin-bottom:16px">
       <h3 style="margin-top:0">👥 Base de alunos hoje</h3>
       <div class="rt-kpi-grid">
@@ -11377,8 +11461,9 @@ function renderNegocio(){
     <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">📈 Faturamento e vendas por mês</h3><div style="height:300px"><canvas id="negFat"></canvas></div></div>
     <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">🆕 Alunos novos × recompra</h3><div class="hint" style="margin-bottom:8px">Barra cheia = quem comprou pela primeira vez. A diferença até o total é recompra da base.</div><div style="height:280px"><canvas id="negNovos"></canvas></div></div>
     <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">🏆 Onde o faturamento se concentra</h3><div style="height:${Math.max(240,top.length*26)}px"><canvas id="negProd"></canvas></div></div>`;
+  _negDestroy();          // limpa ANTES de montar: se vier depois, apaga os gráficos que os blocos acabaram de criar
+  renderNegPeriodo();
   renderRecompraAno();
-  _negDestroy();
   const meses=serie.map(x=>x.mes),eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
   const ctx=id=>{const c=document.getElementById(id);return c?c.getContext('2d'):null};
   if(ctx('negFat'))_negCharts.fat=new Chart(ctx('negFat'),{data:{labels:meses,datasets:[
