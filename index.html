@@ -11622,6 +11622,10 @@ async function inadProcessar(arquivos,aviso){
   const col=(l,...nomes)=>{for(const n of nomes){const k=Object.keys(l).find(x=>x.toLowerCase().trim().startsWith(n));if(k)return l[k]}return ''};
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const porPagas={},porAnoCriacao={},porProduto={},porAnoVenc={};
+  /* Recortes por MÊS DE CRIAÇÃO do contrato: é o que permite filtrar a inadimplência por período.
+     Guardo os mesmos números dos cards por mês, e também parcela-parada e produto por mês, senão o
+     filtro mexeria só nos totais e os blocos de baixo continuariam mostrando a base inteira. */
+  const porMes={},pagasMes={},prodMes={};
   let contratos=0,aberto=0,vencido=0,aVencer=0,parcelasAbertas=0,parcelasContratadas=0;
   for(const l of linhas){
     const qtd=Math.round(_inadNum(col(l,'qtd')))||0;
@@ -11633,15 +11637,25 @@ async function inadProcessar(arquivos,aviso){
     const pagas=Math.max(0,qtd-abertas);
     const k=`${pagas}/${qtd}`;(porPagas[k]=porPagas[k]||{pagas,qtd,contratos:0,aberto:0});porPagas[k].contratos++;porPagas[k].aberto+=vAberto;
     const cri=_inadData(col(l,'cria'));
+    const mk=cri?`${cri.getFullYear()}-${String(cri.getMonth()+1).padStart(2,'0')}`:'';
     if(cri){const y=cri.getFullYear();(porAnoCriacao[y]=porAnoCriacao[y]||{ano:y,contratos:0,aberto:0});porAnoCriacao[y].contratos++;porAnoCriacao[y].aberto+=vAberto}
+    if(mk){
+      (porMes[mk]=porMes[mk]||{mes:mk,contratos:0,aberto:0,parcelas_abertas:0,parcelas_contratadas:0,vencido:0,a_vencer:0});
+      porMes[mk].contratos++;porMes[mk].aberto+=vAberto;porMes[mk].parcelas_abertas+=abertas;porMes[mk].parcelas_contratadas+=qtd;
+      const pk=mk+'|'+pagas+'/'+qtd;
+      (pagasMes[pk]=pagasMes[pk]||{mes:mk,pagas,qtd,contratos:0,aberto:0});pagasMes[pk].contratos++;pagasMes[pk].aberto+=vAberto;
+    }
     // a maior data da lista diz se ainda há parcela por vencer (cobrança em andamento) ou se já é calote
     let maior=null;
     for(const m of lista.matchAll(/\((\d{2})\/(\d{2})\/(\d{4})\)/g)){const d=new Date(+m[3],+m[2]-1,+m[1]);if(!maior||d>maior)maior=d}
     if(maior){const y=maior.getFullYear();(porAnoVenc[y]=porAnoVenc[y]||{ano:y,contratos:0});porAnoVenc[y].contratos++;
-      if(maior<hoje)vencido++;else aVencer++}
+      if(maior<hoje){vencido++;if(mk)porMes[mk].vencido++}else{aVencer++;if(mk)porMes[mk].a_vencer++}}
     // mesmo tratamento do dash de venda: junta as turmas, senão o mesmo produto aparece 5 vezes
     const p=_negProdRef(col(l,'produto')).base;
-    if(p){(porProduto[p]=porProduto[p]||{produto:p,contratos:0,aberto:0});porProduto[p].contratos++;porProduto[p].aberto+=vAberto}
+    if(p){
+      (porProduto[p]=porProduto[p]||{produto:p,contratos:0,aberto:0});porProduto[p].contratos++;porProduto[p].aberto+=vAberto;
+      if(mk){const pk2=mk+'|'+p;(prodMes[pk2]=prodMes[pk2]||{mes:mk,produto:p,contratos:0,aberto:0});prodMes[pk2].contratos++;prodMes[pk2].aberto+=vAberto}
+    }
   }
   if(!contratos)throw new Error('não encontrei as colunas esperadas (Qtd. de Parcelas e Parcelas (Vencimento))');
   const r2=x=>+(+x||0).toFixed(2);
@@ -11651,7 +11665,10 @@ async function inadProcessar(arquivos,aviso){
     por_pagas:Object.values(porPagas).sort((a,b)=>a.pagas-b.pagas).map(x=>({...x,aberto:r2(x.aberto)})),
     por_ano_criacao:Object.values(porAnoCriacao).sort((a,b)=>a.ano-b.ano).map(x=>({...x,aberto:r2(x.aberto)})),
     por_ano_vencimento:Object.values(porAnoVenc).sort((a,b)=>a.ano-b.ano),
-    top_produtos:Object.values(porProduto).sort((a,b)=>b.aberto-a.aberto).slice(0,15).map(x=>({...x,aberto:r2(x.aberto)}))};
+    top_produtos:Object.values(porProduto).sort((a,b)=>b.aberto-a.aberto).slice(0,15).map(x=>({...x,aberto:r2(x.aberto)})),
+    por_mes:Object.values(porMes).map(x=>({...x,aberto:r2(x.aberto)})).sort((a,b)=>a.mes<b.mes?-1:1),
+    por_pagas_mes:Object.values(pagasMes).map(x=>({...x,aberto:r2(x.aberto)})),
+    por_produto_mes:Object.values(prodMes).map(x=>({...x,aberto:r2(x.aberto)}))};
 }
 async function inadUpload(input){
   const arqs=[...(input.files||[])];if(!arqs.length)return;
@@ -11673,12 +11690,72 @@ async function inadUpload(input){
   }catch(e){if(msg){msg.style.color='var(--red)';msg.textContent='Não consegui ler: '+(e.message||e)}}
   input.value='';
 }
+/* ---- Filtro de período da inadimplência ----
+   O recorte é pelo MÊS EM QUE O CONTRATO FOI CRIADO, não pelo vencimento da parcela: a pergunta útil
+   é "as vendas de tal período estão dando calote?". O retrato guarda os mesmos números por mês, então
+   os cards e os blocos de baixo respondem juntos. */
+let _inadDe='',_inadAte='';
+function inadPeriodo(k){
+  const meses=((_inad&&_inad.dados&&_inad.dados.por_mes)||[]).map(x=>x.mes);
+  if(!meses.length)return;
+  const ult=meses[meses.length-1],pri=meses[0];
+  if(k==='tudo'){_inadDe='';_inadAte=''}
+  else if(k==='ano'){_inadDe=ult.slice(0,4)+'-01';_inadAte=ult}
+  else if(k==='anoant'){const a=+ult.slice(0,4)-1;_inadDe=a+'-01';_inadAte=a+'-12'}
+  else if(k==='12m'){const [a,m]=ult.split('-').map(Number);const d=new Date(a,m-1-11,1);
+    _inadDe=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;_inadAte=ult}
+  else if(k==='ini'){_inadDe=pri;_inadAte=ult}
+  renderInad();
+}
+function inadPeriodoManual(){
+  const de=document.getElementById('inadDe'),ate=document.getElementById('inadAte');
+  _inadDe=(de&&de.value)||'';_inadAte=(ate&&ate.value)||'';renderInad();
+}
+function _inadFiltrado(){
+  const d=(_inad&&_inad.dados)||{};
+  const temMes=(d.por_mes||[]).length>0;
+  if(!temMes||(!_inadDe&&!_inadAte))return {d,filtrado:false,temMes};
+  const de=_inadDe||'0000-00',ate=_inadAte||'9999-99';
+  const dentro=x=>x.mes>=de&&x.mes<=ate;
+  const m=(d.por_mes||[]).filter(dentro);
+  const tot=m.reduce((a,x)=>({contratos:a.contratos+x.contratos,aberto:a.aberto+x.aberto,
+    parcelas_abertas:a.parcelas_abertas+x.parcelas_abertas,parcelas_contratadas:a.parcelas_contratadas+x.parcelas_contratadas,
+    vencido:a.vencido+x.vencido,a_vencer:a.a_vencer+x.a_vencer}),
+    {contratos:0,aberto:0,parcelas_abertas:0,parcelas_contratadas:0,vencido:0,a_vencer:0});
+  const somar=(arr,chave,extra)=>{const o={};
+    for(const x of (arr||[])){if(!dentro(x))continue;const k=chave(x);
+      (o[k]=o[k]||{...extra(x),contratos:0,aberto:0});o[k].contratos+=x.contratos;o[k].aberto+=x.aberto}
+    return Object.values(o)};
+  const pagas=somar(d.por_pagas_mes,x=>x.pagas+'/'+x.qtd,x=>({pagas:x.pagas,qtd:x.qtd})).sort((a,b)=>a.pagas-b.pagas);
+  const prods=somar(d.por_produto_mes,x=>x.produto,x=>({produto:x.produto})).sort((a,b)=>b.aberto-a.aberto).slice(0,15);
+  const anos={};
+  for(const x of m){const y=+x.mes.slice(0,4);(anos[y]=anos[y]||{ano:y,contratos:0,aberto:0});anos[y].contratos+=x.contratos;anos[y].aberto+=x.aberto}
+  // o card lê "em_aberto"; o acumulador chama "aberto" — sem mapear, o valor ficava o da base inteira
+  return {filtrado:true,temMes,d:{...d,...tot,em_aberto:tot.aberto,ticket_aberto:tot.contratos?tot.aberto/tot.contratos:0,
+    por_pagas:pagas,top_produtos:prods,por_ano_criacao:Object.values(anos).sort((a,b)=>a.ano-b.ano)}};
+}
+function _inadBarraPeriodo(f){
+  if(!f.temMes)return '<div class="hint" style="margin-bottom:10px">Suba o relatório de inadimplência de novo para poder filtrar por período.</div>';
+  const meses=((_inad&&_inad.dados&&_inad.dados.por_mes)||[]).map(x=>x.mes);
+  const pri=meses[0]||'',ult=meses[meses.length-1]||'';
+  const bt=(k,l)=>`<button class="btn sm ghost" style="padding:3px 10px;font-size:11.5px" onclick="inadPeriodo('${k}')">${l}</button>`;
+  const rot=f.filtrado?`${_inadDe?_inadBR(_inadDe):'início'} a ${_inadAte?_inadBR(_inadAte):'hoje'}`:'todos os contratos';
+  return `<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin:0 0 14px">
+    <span style="font-size:11px;color:var(--faint)">CONTRATOS CRIADOS EM:</span>
+    ${bt('tudo','Tudo')}${bt('12m','12 meses')}${bt('ano','Este ano')}${bt('anoant','Ano passado')}
+    <input type="month" id="inadDe" value="${_inadDe}" min="${pri}" max="${ult}" onchange="inadPeriodoManual()" style="width:auto;font-size:12px">
+    <span style="color:var(--faint)">–</span>
+    <input type="month" id="inadAte" value="${_inadAte}" min="${pri}" max="${ult}" onchange="inadPeriodoManual()" style="width:auto;font-size:12px">
+    <span class="pill" style="font-size:10.5px">${rot}</span>
+  </div>`;
+}
+const _inadBR=m=>{const [a,b]=String(m||'').split('-');return b?`${NEG_MES_NOME[+b]||b}/${a}`:a||''};
 function renderInad(){
   const el=document.getElementById('negInadView');if(!el)return;
   if(!_inad||!_inad.dados){el.innerHTML=_negUploadVazio('inadimplência','inadUpFile','inadUpload',
     'Suba o relatório de inadimplência da plataforma. É o único arquivo que diz até que parcela cada aluno pagou — a base de vendas não tem essa informação.');return}
-  const d=_inad.dados,n=x=>Math.round(x||0).toLocaleString('pt-BR');
-  const pagasMedia=d.parcelas_contratadas?(d.parcelas_contratadas-d.parcelas_abertas)/d.contratos:0;
+  const _f=_inadFiltrado(),d=_f.d,n=x=>Math.round(x||0).toLocaleString('pt-BR');
+  const pagasMedia=d.parcelas_contratadas&&d.contratos?(d.parcelas_contratadas-d.parcelas_abertas)/d.contratos:0;
   const perdaMedia=d.parcelas_contratadas?(d.parcelas_abertas*100/d.parcelas_contratadas):0;
   const maxP=Math.max(1,...(d.por_pagas||[]).map(x=>x.contratos));
   el.innerHTML=`
@@ -11691,6 +11768,7 @@ function renderInad(){
           <span id="inadUpMsg" style="font-size:11.5px;color:var(--muted)"></span>
         </div>
       </div>
+      ${_inadBarraPeriodo(_f)}
       <div class="rt-kpi-grid">
         ${_negCard('Contratos em atraso',n(d.contratos),`${n(d.parcelas_abertas)} parcelas em aberto`,'ye','Contratos parcelados com pelo menos uma parcela não paga. Vem do relatório de inadimplência da plataforma, não da base de vendas.')}
         ${_negCard('Valor em aberto',fmt(d.em_aberto),`${fmt(d.ticket_aberto)} por contrato, em média`,'ye','Soma de tudo que foi contratado e não entrou. É dinheiro que a base de vendas conta como vendido, mas que não foi recebido.')}
