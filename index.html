@@ -11307,8 +11307,11 @@ async function negocioProcessar(arquivos,aviso,emAberto){
      recorrência, que na verdade entra mês a mês. O relatório de inadimplência diz, por pedido, quanto
      ainda não entrou. Cruzando pelo Id (que casa 100%), cada venda passa a ter os dois números:
      o que foi vendido e o que de fato caiu. Sem o relatório subido, recebido = faturado. */
-  const _aberto=new Map(),_casados=new Set();
-  for(const x of (emAberto||[]))if(x&&x.i)_aberto.set(String(x.i),+x.a||0);
+  const _aberto=new Map(),_casados=new Set(),_abMesTot={},_abMesCasado={};
+  for(const x of (emAberto||[]))if(x&&x.i){
+    _aberto.set(String(x.i),{a:+x.a||0,m:String(x.m||'')});
+    const mm=String(x.m||'');if(mm)_abMesTot[mm]=(_abMesTot[mm]||0)+(+x.a||0);
+  }
   {
     /* Aceita mais de um arquivo porque o histórico veio partido: 2020 e 2021 saíram da plataforma
        em relatórios separados e a base grande começa em 2022. O Id do pedido é único na base inteira
@@ -11363,9 +11366,14 @@ async function negocioProcessar(arquivos,aviso,emAberto){
       const meses=_negMeses(prod);if(meses===0)creditos++;
       const mk=dt.toISOString().slice(0,7),dk=dt.toISOString().slice(0,10);
       // o que ainda não entrou desta venda (0 quando o pedido não está no relatório de inadimplência)
-      const emAb=_aberto.get(l.__id||'')||0;
+      const _ab=_aberto.get(l.__id||'');
+      const emAb=_ab?_ab.a:0;
       const rec=Math.max(0,val-emAb);
-      if(emAb>0){naoRecebido+=Math.min(emAb,val);vendasComAberto++;_casados.add(l.__id)}
+      if(emAb>0){
+        const usado=Math.min(emAb,val);
+        naoRecebido+=usado;vendasComAberto++;_casados.add(l.__id);
+        if(_ab.m)_abMesCasado[_ab.m]=(_abMesCasado[_ab.m]||0)+usado;
+      }
       recebidoTot+=rec;
       (mesMap[mk]=mesMap[mk]||{mes:mk,vendas:0,receita:0,recebido:0,novos:0});mesMap[mk].vendas++;mesMap[mk].receita+=val;mesMap[mk].recebido+=rec;
       // série DIÁRIA: é o que permite o calendário com intervalo livre e o comparativo de período
@@ -11450,6 +11458,9 @@ async function negocioProcessar(arquivos,aviso,emAberto){
       aberto_em_vendas:+naoRecebido.toFixed(2),
       aberto_fora_do_faturamento:+Math.max(0,(emAberto||[]).reduce((t,x)=>t+(+x.a||0),0)-naoRecebido).toFixed(2),
       contratos_relatorio:(emAberto||[]).length,contratos_casados:_casados.size,
+      // mesmo cruzamento quebrado pelo mês de criação do contrato, pra tela de inadimplência filtrar
+      aberto_por_mes:Object.keys(_abMesTot).sort().map(m=>({mes:m,total:+_abMesTot[m].toFixed(2),
+        em_vendas:+(_abMesCasado[m]||0).toFixed(2),fora:+Math.max(0,_abMesTot[m]-(_abMesCasado[m]||0)).toFixed(2)})),
       ltv_medio:+(fat/chaves.length).toFixed(2),
       ltv_recomprador:+(rec.reduce((s,k)=>s+alunos[k].tot,0)/(rec.length||1)).toFixed(2),
       recompradores:rec.length,pct_recompra:+(rec.length*100/chaves.length).toFixed(1),
@@ -11662,7 +11673,11 @@ async function inadProcessar(arquivos,aviso){
     const vAberto=_inadNum(col(l,'total em aberto'));
     contratos++;aberto+=vAberto;parcelasAbertas+=abertas;parcelasContratadas+=qtd;
     const _id=String(col(l,'id')||'').trim();
-    if(_id&&vAberto>0)abertos.push({i:_id,a:+vAberto.toFixed(2)});
+    const _cri=_inadData(col(l,'cria'));
+    const _mk=_cri?`${_cri.getFullYear()}-${String(_cri.getMonth()+1).padStart(2,'0')}`:'';
+    // o mês vai junto porque a tela de inadimplência filtra pelo mês de CRIAÇÃO do contrato:
+    // sem ele, o cruzamento com o faturamento não teria como respeitar esse filtro
+    if(_id&&vAberto>0)abertos.push({i:_id,a:+vAberto.toFixed(2),m:_mk});
     const pagas=Math.max(0,qtd-abertas);
     const k=`${pagas}/${qtd}`;(porPagas[k]=porPagas[k]||{pagas,qtd,contratos:0,aberto:0});porPagas[k].contratos++;porPagas[k].aberto+=vAberto;
     const cri=_inadData(col(l,'cria'));
@@ -11789,19 +11804,38 @@ function _inadNotaFaturamento(){
   const v=(_negocio&&_negocio.dados)||{};
   if(!v.aberto_relatorio)return '';
   const n=x=>Math.round(x||0).toLocaleString('pt-BR');
-  const pct=v.aberto_relatorio?(v.aberto_em_vendas*100/v.aberto_relatorio):0;
+  const porMes=v.aberto_por_mes||[];
+  const filtra=(_inadDe||_inadAte)&&porMes.length;
+  const de=_inadDe||'0000-00',ate=_inadAte||'9999-99';
+  let tot=v.aberto_relatorio,emV=v.aberto_em_vendas,fora=v.aberto_fora_do_faturamento,rot='base inteira';
+  if(filtra){
+    const m=porMes.filter(x=>x.mes>=de&&x.mes<=ate);
+    tot=m.reduce((a,x)=>a+x.total,0);emV=m.reduce((a,x)=>a+x.em_vendas,0);fora=m.reduce((a,x)=>a+x.fora,0);
+    rot=`${_inadDe?_inadBR(_inadDe):'início'} a ${_inadAte?_inadBR(_inadAte):'hoje'}`;
+  }
+  const pct=tot?(emV*100/tot):0;
+  /* Se a base de vendas foi calculada contra OUTRO relatório de inadimplência, esta conta fica velha
+     sem avisar. Comparar o total guardado com o total do retrato atual denuncia isso na hora. */
+  const atual=(_inad&&_inad.dados&&_inad.dados.em_aberto)||0;
+  const desatualizado=atual&&Math.abs(atual-v.aberto_relatorio)>1;
   return `<div class="card" style="margin-bottom:16px;border-color:rgba(52,211,153,.3)">
-    <h3 title="O relatório de inadimplência é maior do que o pedaço que afeta o faturamento." style="cursor:help;margin-top:0">🔗 Quanto disto afeta o faturamento</h3>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+      <h3 title="O relatório de inadimplência é maior do que o pedaço que afeta o faturamento." style="cursor:help;margin:0 0 10px">🔗 Quanto disto afeta o faturamento</h3>
+      <span class="pill" style="font-size:10.5px">${rot}</span>
+    </div>
+    ${desatualizado?`<div style="margin-bottom:10px;padding:9px 12px;background:rgba(255,213,42,.08);border:1px solid rgba(255,213,42,.35);border-radius:9px;font-size:12px">
+      ⚠ Esta faixa foi calculada com um relatório de inadimplência diferente do que está carregado agora
+      (${fmt(v.aberto_relatorio)} contra ${fmt(atual)}). <b>Suba a base de vendas de novo</b> para refazer o cruzamento.
+    </div>`:''}
     <div class="rt-kpi-grid">
-      ${_negCard('Em aberto no relatório',fmt(v.aberto_relatorio),`${n(v.contratos_relatorio)} contratos`,'ye','Tudo que o relatório de inadimplência aponta como não pago, na base inteira.')}
-      ${_negCard('Está em venda contada',fmt(v.aberto_em_vendas),`${n(v.contratos_casados)} contratos · ${pct.toFixed(1).replace('.',',')}% do total`,'','Parte que pertence a pedidos que ENTRARAM no faturamento. É exatamente o que aparece como "falta" no card Recebido do Dash de venda.')}
-      ${_negCard('Nunca entrou no faturamento',fmt(v.aberto_fora_do_faturamento),'pedido não contado como venda','gr','Contratos que estão em "Aguardando Pagamento" ou "Pagamento Pendente": nunca foram contados como venda, então não há o que descontar do faturamento.')}
+      ${_negCard('Em aberto no relatório',fmt(tot),filtra?'contratos criados no período':`${n(v.contratos_relatorio)} contratos`,'ye','Tudo que o relatório de inadimplência aponta como não pago, nos contratos criados dentro do período escolhido.')}
+      ${_negCard('Está em venda contada',fmt(emV),`${pct.toFixed(1).replace('.',',')}% do total`,'','Parte que pertence a pedidos que ENTRARAM no faturamento. É exatamente o que aparece como "falta" no card Recebido do Dash de venda.')}
+      ${_negCard('Nunca entrou no faturamento',fmt(fora),'pedido não contado como venda','gr','Contratos em "Aguardando Pagamento" ou "Pagamento Pendente": nunca foram contados como venda, então não há o que descontar do faturamento.')}
     </div>
     <div style="margin-top:12px;padding:10px 12px;background:var(--surface2);border-radius:10px;font-size:11.5px;color:var(--muted)">
       É por isso que o <b>valor em aberto</b> desta tela é maior que o <b>"falta"</b> do card Recebido: aqui
       entra todo contrato com parcela não paga, inclusive o que nunca foi contado como venda. Lá só entra
-      o que efetivamente inflaria o faturamento. Os números desta faixa são da <b>base inteira</b>, não do
-      período filtrado acima.
+      o que efetivamente inflaria o faturamento.
     </div>
   </div>`;
 }
