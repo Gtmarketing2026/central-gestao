@@ -11326,6 +11326,11 @@ async function negocioProcessar(arquivos,aviso){
     const cortesiaK={},seletivoK={},devolK={};let devN=0,devVal=0;
     const ufMap={},ufMesMap={};let semUF=0,ufPorCep=0,ufPorDdd=0;
     const refMap={},prodRefMap={},cuboMap={};
+    const devMes={},gratMes={},prodMesMap={};
+    // acesso ao longo do tempo: guardo os intervalos pra depois montar "ativos ao fim de cada mês"
+    const mesIdx=d=>d.getFullYear()*12+d.getMonth();
+    const idxMes=i=>`${Math.floor(i/12)}-${String(i%12+1).padStart(2,'0')}`;
+    const deltaAtivos={},expMes={};
     for(const l of linhas){
       const st=String(col(l,'status')).trim().toLowerCase();
       const dt=_negData(col(l,'data'));if(!dt)continue;
@@ -11334,8 +11339,18 @@ async function negocioProcessar(arquivos,aviso){
       const chave=cpf.length>=11?'c:'+cpf:(mail?'e:'+mail:null);if(!chave)continue;
       const prod=String(col(l,'produto')).replace(/\s+/g,' ').trim();
       const val=_negNum(col(l,'total','valor'));
-      if(st==='liberado automaticamente'){(_negCortesia(prod)?cortesiaK:seletivoK)[chave]=1;continue}
-      if(NEG_DEVOLVIDO.has(st)){devolK[chave]=1;devN++;devVal+=val;continue}
+      if(st==='liberado automaticamente'){
+        const ehCort=_negCortesia(prod);(ehCort?cortesiaK:seletivoK)[chave]=1;
+        const cm=dt.toISOString().slice(0,7);
+        (gratMes[cm]=gratMes[cm]||{mes:cm,cortesia:0,seletivo:0});gratMes[cm][ehCort?'cortesia':'seletivo']++;
+        continue;
+      }
+      if(NEG_DEVOLVIDO.has(st)){
+        devolK[chave]=1;devN++;devVal+=val;
+        const dm=dt.toISOString().slice(0,7);
+        (devMes[dm]=devMes[dm]||{mes:dm,compras:0,valor:0});devMes[dm].compras++;devMes[dm].valor+=val;
+        continue;
+      }
       if(!NEG_VENDA.has(st))continue;
       const meses=_negMeses(prod);if(meses===0)creditos++;
       const mk=dt.toISOString().slice(0,7),dk=dt.toISOString().slice(0,10);
@@ -11349,6 +11364,9 @@ async function negocioProcessar(arquivos,aviso){
       if(prod){
         const pr=_negProdRef(prod);
         (prodMap[pr.base]=prodMap[pr.base]||{produto:pr.base,vendas:0,receita:0});prodMap[pr.base].vendas++;prodMap[pr.base].receita+=val;
+        const pmk=pr.base+'|'+mk;
+        (prodMesMap[pmk]=prodMesMap[pmk]||{produto:pr.base,mes:mk,vendas:0,receita:0});
+        prodMesMap[pmk].vendas++;prodMesMap[pmk].receita+=val;
         const rk=pr.ref||'—';
         (refMap[rk]=refMap[rk]||{ref:rk,ano:pr.ano,mes:pr.mes,vendas:0,receita:0});refMap[rk].vendas++;refMap[rk].receita+=val;
         const prk=pr.base+''+rk;
@@ -11377,9 +11395,18 @@ async function negocioProcessar(arquivos,aviso){
       const a=alunos[k];
       if(a.ivs.length){
         const ivs=a.ivs.sort((x,y)=>x[0]-y[0]);let tot=0,ini=ivs[0][0],fim=ivs[0][1];
-        for(let j=1;j<ivs.length;j++){if(ivs[j][0]<=fim){if(ivs[j][1]>fim)fim=ivs[j][1]}else{tot+=fim-ini;ini=ivs[j][0];fim=ivs[j][1]}}
-        tot+=fim-ini;const m=tot/(1000*60*60*24*30.44);permT.push(m);if(a.n>1)permR.push(m);
+        const unidos=[];
+        for(let j=1;j<ivs.length;j++){if(ivs[j][0]<=fim){if(ivs[j][1]>fim)fim=ivs[j][1]}else{tot+=fim-ini;unidos.push([ini,fim]);ini=ivs[j][0];fim=ivs[j][1]}}
+        tot+=fim-ini;unidos.push([ini,fim]);
+        const m=tot/(1000*60*60*24*30.44);permT.push(m);if(a.n>1)permR.push(m);
+        // cada intervalo de acesso marca entrada e saída: a soma acumulada vira "ativos ao fim do mês"
+        for(const [i0,i1] of unidos){
+          const a0=mesIdx(i0),a1=mesIdx(i1);
+          deltaAtivos[a0]=(deltaAtivos[a0]||0)+1;deltaAtivos[a1+1]=(deltaAtivos[a1+1]||0)-1;
+        }
       }
+      if(a.vital){const v0=mesIdx(a.pri);deltaAtivos[v0]=(deltaAtivos[v0]||0)+1;}
+      if(!a.vital&&a.exp){const e=idxMes(mesIdx(a.exp));(expMes[e]=expMes[e]||{mes:e,qtd:0}).qtd++;}
       if(a.n>1)relac.push((a.ult-a.pri)/(1000*60*60*24*30.44));
       if(a.vital)ativos++;
       else if(a.exp){if(a.exp>=hoje){ativos++;const dd=(a.exp-hoje)/(1000*60*60*24);if(dd<=30)exp30++;else if(dd<=60)exp60++}else expirados++}
@@ -11418,6 +11445,20 @@ async function negocioProcessar(arquivos,aviso){
       // turmas: o sufixo do nome do produto ("- 2026.1" = janeiro/2026). Vira filtro, não recorte de data
       turmas:Object.values(refMap).map(x=>({...x,receita:+x.receita.toFixed(2)}))
         .sort((a,b)=>(b.ano-a.ano)||(b.mes-a.mes)),
+      /* Séries mensais: são elas que deixam o filtro de datas valer para a tela inteira, e não só
+         para o bloco de período. Ativos ao fim do mês sai da soma acumulada das entradas e saídas
+         de acesso; expirados por mês, do vencimento de cada aluno. */
+      ativos_mes:(()=>{
+        const idxs=Object.keys(deltaAtivos).map(Number).sort((a,b)=>a-b);
+        if(!idxs.length)return [];
+        const fim=Math.max(idxs[idxs.length-1],mesIdx(hoje)+24);
+        const out=[];let acc=0;
+        for(let i=idxs[0];i<=fim;i++){acc+=deltaAtivos[i]||0;out.push({mes:idxMes(i),ativos:acc})}
+        return out;
+      })(),
+      expira_mes:Object.values(expMes).sort((a,b)=>a.mes<b.mes?-1:1),
+      devolucoes_mes:Object.values(devMes).map(x=>({...x,valor:+x.valor.toFixed(2)})).sort((a,b)=>a.mes<b.mes?-1:1),
+      gratuitos_mes:Object.values(gratMes).sort((a,b)=>a.mes<b.mes?-1:1),
       devolucoes:{compras:devN,valor:+devVal.toFixed(2),pessoas:Object.keys(devolK).length,so_devolvido:soDevolvido},
       cortesia:{pessoas:Object.keys(cortesiaK).length,sem_compra:soCortesia},
       seletivo:{pessoas:soSeletivo},
@@ -11450,6 +11491,9 @@ async function negocioProcessar(arquivos,aviso){
       return {p:idx[x.produto],uf:x.uf,ano:x.ano,mes:x.mes,v:x.vendas,r:+x.receita.toFixed(2)};
     });
     dados.cubo_produto={produtos:nomes,linhas:linhasCubo};
+    // produto × mês: é o que faz o ranking de produtos respeitar o filtro de datas
+    dados.por_produto_mes=Object.values(prodMesMap).filter(x=>noTop.has(x.produto))
+      .map(x=>({...x,receita:+x.receita.toFixed(2)}));
     return dados;
   }
 }
@@ -11736,30 +11780,43 @@ function _negCobertura(d){
 }
 /* Seleção em vez de 27 botões: um estado por vez no seletor, e o comparativo entra à parte. Dá pra
    comparar um estado contra outro, contra alguns, ou contra todos os demais somados. */
-let _negUFcmp=[];
-function negUFprinc(v){_negUFsel=v?new Set([v]):new Set();_negUFcmp=_negUFcmp.filter(x=>x!==v);renderNegEstados();renderNegProdutos();}
-function negUFaddCmp(v){
-  if(!v)return;
-  if(v==='__outros__')_negUFcmp=['__outros__'];
-  else{_negUFcmp=_negUFcmp.filter(x=>x!=='__outros__');if(!_negUFcmp.includes(v))_negUFcmp.push(v)}
+let _negUFcmp=[],_negUFcmpAberto=false,_negUFsomar=false;
+function negUFprinc(v){_negUFsel=v?new Set([v]):new Set();_negUFcmp=_negUFcmp.filter(x=>x!==v);renderNegocio();}
+function negUFcmpToggle(){_negUFcmpAberto=!_negUFcmpAberto;renderNegEstados();}
+function negUFcmpMarca(uf,on){
+  _negUFcmp=on?[...new Set([..._negUFcmp,uf])]:_negUFcmp.filter(x=>x!==uf);
   renderNegEstados();
 }
-function negUFdelCmp(v){_negUFcmp=_negUFcmp.filter(x=>x!==v);renderNegEstados();}
-function negUFlimpar(){_negUFsel.clear();_negUFcmp=[];renderNegEstados();renderNegProdutos();}
+function negUFcmpTodos(on,ufs){_negUFcmp=on?ufs.filter(u=>u!==_negUFprincipal()):[];renderNegEstados();}
+function negUFsomar(on){_negUFsomar=!!on;renderNegEstados();}
+function negUFlimpar(){_negUFsel.clear();_negUFcmp=[];_negUFcmpAberto=false;_negUFsomar=false;renderNegocio();}
 function _negUFprincipal(){return [..._negUFsel][0]||''}
 function _negUFcontroles(linhas){
   const ufs=linhas.map(x=>x.uf).sort(),pr=_negUFprincipal();
+  const outros=ufs.filter(u=>u!==pr);
+  const todosMarcados=outros.length&&outros.every(u=>_negUFcmp.includes(u));
   const opt=(v,l,sel)=>`<option value="${v}"${sel?' selected':''}>${l}</option>`;
-  return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center">
+  const cx=(id,lbl,on,onch,forte)=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;${forte?'font-weight:700':''}">
+    <input type="checkbox" ${on?'checked':''} onchange="${onch}" style="width:auto;margin:0"> ${lbl}</label>`;
+  return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center;position:relative">
     <span style="font-size:11px;color:var(--faint)">ESTADO:</span>
     <select onchange="negUFprinc(this.value)" style="width:auto;font-size:12px" title="Escolha um estado para ver só ele, ou deixe em Todos para ver o ranking inteiro">
       ${opt('','Todos os estados',!pr)}${ufs.map(u=>opt(u,u,u===pr)).join('')}
     </select>
     ${pr?`<span style="font-size:11px;color:var(--faint)">COMPARAR COM:</span>
-      <select onchange="negUFaddCmp(this.value);this.value=''" style="width:auto;font-size:12px" title="Compare este estado com outro, com alguns, ou com todos os demais somados">
-        ${opt('','+ escolher…',true)}${opt('__outros__','Todos os outros estados')}${ufs.filter(u=>u!==pr&&!_negUFcmp.includes(u)).map(u=>opt(u,u)).join('')}
-      </select>
-      ${_negUFcmp.map(u=>`<span class="pill" style="font-size:11px;padding:3px 6px 3px 9px">${u==='__outros__'?'Todos os outros':u} <b style="cursor:pointer;color:var(--faint)" onclick="negUFdelCmp('${u}')" title="tirar da comparação">✕</b></span>`).join('')}`:''}
+      <button class="btn sm ghost" style="padding:4px 10px;font-size:12px" onclick="negUFcmpToggle()" title="Marque os estados que quer comparar com ${pr}">
+        ${_negUFcmp.length?`${_negUFcmp.length} estado${_negUFcmp.length>1?'s':''} marcado${_negUFcmp.length>1?'s':''}`:'escolher estados'} ${_negUFcmpAberto?'▴':'▾'}
+      </button>
+      ${_negUFcmp.length?cx('','somar numa linha só',_negUFsomar,'negUFsomar(this.checked)'):''}
+      ${_negUFcmpAberto?`<div style="position:absolute;top:100%;left:0;z-index:40;margin-top:6px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;box-shadow:0 12px 32px rgba(0,0,0,.45);max-height:280px;overflow:auto;min-width:260px">
+        <div style="padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--border)">
+          ${cx('','Marcar todos os outros',!!todosMarcados,`negUFcmpTodos(this.checked,${JSON.stringify(ufs).replace(/"/g,'&quot;')})`,true)}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:7px">
+          ${outros.map(u=>cx('',u,_negUFcmp.includes(u),`negUFcmpMarca('${u}',this.checked)`)).join('')}
+        </div>
+        <div style="margin-top:10px;text-align:right"><button class="btn sm ghost" style="padding:3px 10px;font-size:11px" onclick="negUFcmpToggle()">fechar</button></div>
+      </div>`:''}`:''}
     ${(pr||_negUFcmp.length)?`<button class="btn sm ghost" style="padding:3px 9px;font-size:11px" onclick="negUFlimpar()">limpar</button>`:''}
   </div>`;
 }
@@ -11769,12 +11826,13 @@ function _negUFcomparativo(linhas,valor,rot,cel){
   // o comparativo lê a lista COMPLETA de estados, não a filtrada — senão o alvo da comparação some
   const acha=u=>linhas.find(x=>x.uf===u)||{uf:u,vendas:0,receita:0,novos:0,alunos:0};
   const base=acha(pr);
-  const alvos=_negUFcmp.map(u=>{
-    if(u!=='__outros__')return acha(u);
-    const r=linhas.filter(x=>x.uf!==pr).reduce((a,x)=>({vendas:a.vendas+x.vendas,receita:a.receita+x.receita,
-      novos:a.novos+(x.novos||0),alunos:a.alunos+(x.alunos||0)}),{vendas:0,receita:0,novos:0,alunos:0});
-    return {...r,uf:`Todos os outros (${Math.max(0,linhas.length-1)})`};
-  });
+  const marcados=_negUFcmp.map(acha);
+  // "somar numa linha só": comparar PE contra o Brasil inteiro vira uma linha, não 26
+  const alvos=_negUFsomar&&marcados.length>1
+    ?[{...marcados.reduce((a,x)=>({vendas:a.vendas+x.vendas,receita:a.receita+x.receita,
+        novos:a.novos+(x.novos||0),alunos:a.alunos+(x.alunos||0)}),{vendas:0,receita:0,novos:0,alunos:0}),
+        uf:`${marcados.length} estados somados`}]
+    :marcados;
   const vb=valor(base);
   const dif=v=>{if(!vb)return '<span style="color:var(--faint)">—</span>';
     const p=(v-vb)*100/vb,pos=p>=0;
@@ -11878,9 +11936,10 @@ function renderNegEstados(){
    O ranking mostra o PRODUTO (sem a turma no nome). O filtro de turma usa por_produto_turma, que só
    existe para os produtos do ranking — por isso filtrar por turma nunca traz produto novo pra lista. */
 let _negTurmaAno='',_negTurmaMes='',_negProdSel='';
-function negTurmaSet(campo,v){if(campo==='ano')_negTurmaAno=v;else _negTurmaMes=v;renderNegProdutos();}
-function negTurmaLimpar(){_negTurmaAno='';_negTurmaMes='';renderNegProdutos();}
-function negProdSet(v){_negProdSel=v||'';renderNegProdutos();}
+function negTurmaSet(campo,v){if(campo==='ano')_negTurmaAno=v;else _negTurmaMes=v;renderNegocio();}
+function negTurmaLimpar(){_negTurmaAno='';_negTurmaMes='';renderNegocio();}
+function negProdSet(v){_negProdSel=v||'';renderNegocio();}
+function negLimparTudo(){_negUFsel.clear();_negUFcmp=[];_negUFcmpAberto=false;_negUFsomar=false;_negProdSel='';_negTurmaAno='';_negTurmaMes='';renderNegocio();}
 /* Escolhido um produto, o gráfico de ranking não diz mais nada (é uma barra só). O que interessa
    ali é abrir o produto: em que turmas ele vendeu e em que estados. Os dois saem do mesmo cubo. */
 function negProdDetalhe(nome){
@@ -12016,6 +12075,99 @@ function renderNegProdutos(){
       tooltip:{callbacks:{title:x=>top[x[0].dataIndex].produto,label:x=>fmt(x.raw)+' · '+n(top[x.dataIndex].vendas)+' vendas'}}},
       scales:{x:{...eixo,ticks:{...eixo.ticks,callback:v=>'R$ '+(v>=1e6?(v/1e6).toFixed(1)+'mi':(v/1e3).toFixed(0)+'k')}},y:{...eixo,ticks:{...eixo.ticks,font:{size:9}}}}}});
 }
+/* ---- Base de alunos e "não é aluno pagante", agora recortados pelo período ----
+   Ativos é uma FOTO: quantos tinham acesso válido no último dia do período. Expirados é um FLUXO:
+   quantos venceram dentro do período. São coisas diferentes de propósito — "expirados nos últimos
+   30 dias" é quem acabou de sair, não o acumulado histórico. */
+/* ---- Um filtro só, valendo para a tela inteira ----
+   Estado, produto, turma e período são escolhidos em lugares diferentes, mas mandam no relatório
+   todo. O que o retrato guarda decide até onde cada um alcança: estado × mês existe, produto × mês
+   existe, mas estado × produto × mês não — seria um cubo grande demais. Então quando os dois estão
+   ligados ao mesmo tempo, o estado manda na série do tempo e a tela avisa. */
+function negFiltros(){
+  return {uf:[..._negUFsel],prod:_negProdSel,ano:_negTurmaAno,mes:_negTurmaMes,
+    algum:!!(_negUFsel.size||_negProdSel||_negTurmaAno||_negTurmaMes)};
+}
+function negSerieMes(){
+  const d=(_negocio&&_negocio.dados)||{},f=negFiltros();
+  const soma=(map,it)=>{(map[it.mes]=map[it.mes]||{mes:it.mes,vendas:0,receita:0,novos:0});
+    map[it.mes].vendas+=it.vendas||0;map[it.mes].receita+=it.receita||0;map[it.mes].novos+=it.novos||0};
+  if(f.uf.length&&(d.por_estado_mes||[]).length){
+    const m={};for(const x of d.por_estado_mes)if(f.uf.includes(x.uf))soma(m,x);
+    return {serie:Object.values(m).sort((a,b)=>a.mes<b.mes?-1:1),por:'estado '+f.uf.join(', '),
+      ignorado:f.prod?'produto':''};
+  }
+  if(f.prod&&(d.por_produto_mes||[]).length){
+    const m={};for(const x of d.por_produto_mes)if(x.produto===f.prod)soma(m,x);
+    return {serie:Object.values(m).sort((a,b)=>a.mes<b.mes?-1:1),por:'produto',semNovos:true,ignorado:''};
+  }
+  return {serie:d.serie_mensal||[],por:'',ignorado:(f.ano||f.mes)?'turma':''};
+}
+function _negSelo(txt){return `<span class="pill" style="font-size:10px;padding:2px 8px;background:rgba(255,213,42,.12);border-color:rgba(255,213,42,.35);color:var(--accent)">${txt}</span>`}
+function _negMesFim(){return (_negAte||'').slice(0,7)}
+function _negMesIni(){return (_negDe||'').slice(0,7)}
+function _negPeriodoTudo(){
+  const d=(_negocio&&_negocio.dados)||{},dias=d.serie_diaria||[];
+  return !_negDe||!_negAte||!dias.length||(_negDe<=dias[0].dia&&_negAte>=dias[dias.length-1].dia);
+}
+function renderNegBase(){
+  const el=document.getElementById('negBaseCard');if(!el||!_negocio)return;
+  const d=_negocio.dados,b=d.base||{},n=v=>Math.round(v||0).toLocaleString('pt-BR');
+  const serieAtivos=d.ativos_mes||[],serieExp=d.expira_mes||[];
+  const tudo=_negPeriodoTudo(),temSerie=serieAtivos.length>0;
+  const mi=_negMesIni(),mf=_negMesFim();
+  let ativos=b.ativos,expirados=b.expirados,exp30=b.expira_30d,exp60=b.expira_60d,rotAtivo='hoje';
+  if(temSerie&&!tudo){
+    const ate=serieAtivos.filter(x=>x.mes<=mf).pop();
+    ativos=ate?ate.ativos:0;
+    expirados=serieExp.filter(x=>x.mes>=mi&&x.mes<=mf).reduce((s,x)=>s+x.qtd,0);
+    // as próximas janelas passam a contar a partir do FIM do período escolhido
+    const somaMes=k=>serieExp.filter(x=>x.mes===k).reduce((s,x)=>s+x.qtd,0);
+    const prox=k=>{const [a,m]=mf.split('-').map(Number),dt=new Date(a,m-1+k,1);return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`};
+    exp30=somaMes(prox(1));exp60=somaMes(prox(2));
+    rotAtivo=`no fim de ${_negBR(_negAte)}`;
+  }
+  const viva=(ativos||0)+(expirados||0);
+  el.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+      <h3 title="Situação do acesso dos alunos. Ativos é uma foto no fim do período; expirados é quanto venceu dentro dele. A duração vem do nome do produto (&quot;12 meses de acesso&quot;)." style="cursor:help;margin:0 0 4px">👥 Base de alunos ${tudo||!temSerie?'hoje':'no período'}</h3>
+      ${temSerie&&!tudo?`<span class="pill" style="font-size:10.5px">${_negBR(_negDe)} a ${_negBR(_negAte)}</span>`:''}
+    </div>
+    <div class="hint" style="margin-bottom:10px">${temSerie?(tudo?'Retrato de hoje. Escolha um período no bloco acima para ver a base em outra data.':'Ativos é a foto no último dia do período; expirados é quem venceu dentro dele.'):'Suba a base de novo para este bloco passar a respeitar o filtro de datas.'}</div>
+    <div class="rt-kpi-grid">
+      ${_negCard('Ativos',n(ativos),`${rotAtivo}${viva?` · ${(ativos*100/viva).toFixed(1).replace('.',',')}% da base`:''}`,'gr','Alunos com acesso válido nessa data. A duração sai do nome do produto e produto vitalício conta sempre como ativo.')}
+      ${_negCard(tudo||!temSerie?'Expirados':'Expiraram no período',n(expirados),tudo||!temSerie?'oportunidade de reativação':'venceram dentro do período escolhido','','Acesso vencido. No período, conta quem venceu dentro dele — é a turma que acabou de sair e está quente para reativação.')}
+      ${_negCard('Expiram no mês seguinte',n(exp30),tudo||!temSerie?'próximos 30 dias':'após o fim do período','ye','Acessos que vencem logo depois da data de referência. Quem ainda está estudando é mais fácil de renovar do que quem já saiu.')}
+      ${_negCard('Expiram no mês depois',n(exp60),tudo||!temSerie?'31 a 60 dias':'segunda janela','','A janela seguinte de renovação.')}
+      ${_negCard('Sem prazo definido',n(b.sem_prazo),'produto sem duração no nome — a definir','','Compraram produto cujo nome não diz a duração (cursos avulsos, bancas, CNU). Ficam fora do ativo × expirado até a duração ser definida. Este número é da base inteira.')}
+      ${_negCard('Compras por crédito',n(d.compras_por_credito),'entram no LTV, não no prazo','','Produtos vendidos por crédito, como correção de redação. O valor conta no faturamento, mas crédito não dá prazo de acesso. Este número é da base inteira.')}
+    </div>
+    ${exp30?`<div style="margin-top:12px;padding:10px 12px;background:rgba(255,213,42,.07);border:1px solid rgba(255,213,42,.3);border-radius:10px;font-size:12.5px">
+      💡 <b>${n(exp30)} alunos expiram na próxima janela.</b> Pelo LTV de quem recompra (${fmt(d.ltv_recomprador)}), reativar 10% deles representa ${fmt(exp30*0.1*d.ltv_recomprador)}.</div>`:''}`;
+}
+function renderNegNaoAluno(){
+  const el=document.getElementById('negNaoAlunoGrid');if(!el||!_negocio)return;
+  const d=_negocio.dados,n=v=>Math.round(v||0).toLocaleString('pt-BR');
+  const tudo=_negPeriodoTudo(),mi=_negMesIni(),mf=_negMesFim();
+  const dev=d.devolucoes,cort=d.cortesia,sel=d.seletivo;
+  const devM=d.devolucoes_mes||[],gratM=d.gratuitos_mes||[];
+  const dentro=x=>x.mes>=mi&&x.mes<=mf;
+  if(!tudo&&(devM.length||gratM.length)){
+    const dv=devM.filter(dentro).reduce((a,x)=>({compras:a.compras+x.compras,valor:a.valor+x.valor}),{compras:0,valor:0});
+    const gr=gratM.filter(dentro).reduce((a,x)=>({cortesia:a.cortesia+x.cortesia,seletivo:a.seletivo+x.seletivo}),{cortesia:0,seletivo:0});
+    el.innerHTML=`
+      ${_negCard('Devoluções no período',n(dv.compras),`${fmt(dv.valor)} estornados`,'ye','Compras devolvidas (estorno ou chargeback) com data dentro do período escolhido. O dinheiro voltou para o aluno.')}
+      ${_negCard('Valor devolvido',fmt(dv.valor),'saiu do caixa no período','ye','Soma do que foi estornado no período. Não está descontado do faturamento acima — o faturamento é o que foi vendido.')}
+      ${_negCard('Cortesias liberadas',n(gr.cortesia),'acesso a curso, sem pagar','gr','Liberações de acesso a um curso de verdade (bolsa ou parceria) feitas no período. São alunos, mas sem receita.')}
+      ${_negCard('Inscrições em seletivo',n(gr.seletivo),'processo seletivo, corretor ou simulado','','Inscrições em processo seletivo, seleção de corretores ou simulado gratuito feitas no período. Não são alunos.')}`;
+    return;
+  }
+  el.innerHTML=`
+    ${dev?_negCard('Devoluções',n(dev.compras),`${fmt(dev.valor)} estornados`,'ye','Compras com status Estornado ou Chargeback: o dinheiro voltou para o aluno. Ficam fora do faturamento e do LTV.'):''}
+    ${dev?_negCard('Foi aluno e devolveu',n(dev.so_devolvido),'nunca teve outra compra válida','','Pessoas cuja única compra foi devolvida. Tiveram acesso por algum tempo, mas não geraram receita nenhuma.'):''}
+    ${cort?_negCard('Acesso de cortesia',n(cort.sem_compra),'bolsista ou parceiro — é aluno, sem receita','gr','Receberam acesso liberado a um curso de verdade e nunca pagaram. São alunos sem receita — por isso ficam fora do LTV.'):''}
+    ${sel?_negCard('Só processo seletivo',n(sel.pessoas),'inscrito em seletivo, bolsa, corretor ou simulado — não é aluno','','Só aparecem na base como inscritos em processo seletivo, seleção de corretores ou simulado gratuito. Nunca compraram e nunca estudaram.'):''}`;
+}
 function renderNegProdutosNota(){
   const el=document.getElementById('negProdNota');if(!el)return;
   const temCubo=!!((_negocio&&_negocio.dados&&_negocio.dados.cubo_produto)||{}).linhas;
@@ -12080,7 +12232,15 @@ function renderNegPeriodo(){
   const el=document.getElementById('negPeriodoCard');if(!el||!_negocio)return;
   const dias=_negocio.dados.serie_diaria||[];if(!dias.length){el.style.display='none';return}
   if(!_negDe||!_negAte){_negAte=dias[dias.length-1].dia;const d=new Date(_negAte+'T12:00:00');d.setDate(d.getDate()-29);_negDe=d.toISOString().slice(0,10);}
-  const a=_negSoma(dias,_negDe,_negAte),[pde,pate]=_negPeriodoAnterior(_negDe,_negAte),p=_negSoma(dias,pde,pate);
+  // com filtro de estado ou produto a série diária não existe: cai pro mensal, e a tela avisa
+  const sm=negSerieMes();
+  const mensal=!!sm.por;
+  const somaM=(de,ate)=>{const r=sm.serie.filter(x=>x.mes>=de.slice(0,7)&&x.mes<=ate.slice(0,7))
+    .reduce((s,x)=>({receita:s.receita+x.receita,vendas:s.vendas+x.vendas,novos:s.novos+x.novos}),{receita:0,vendas:0,novos:0});
+    return {...r,ticket:r.vendas?r.receita/r.vendas:0}};
+  const [pde,pate]=_negPeriodoAnterior(_negDe,_negAte);
+  const a=mensal?somaM(_negDe,_negAte):_negSoma(dias,_negDe,_negAte);
+  const p=mensal?somaM(pde,pate):_negSoma(dias,pde,pate);
   const n=v=>Math.round(v||0).toLocaleString('pt-BR');
   const atalho=(k,l)=>`<button class="btn sm ghost" onclick="negPeriodoAtalho('${k}')">${l}</button>`;
   el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:12px">
@@ -12104,7 +12264,7 @@ function renderNegPeriodo(){
       <div class="rt-kpi" style="cursor:help" title="Faturamento dividido pelo número de vendas do período. Sobe quando se vende produto mais caro ou com menos desconto."><div class="rt-kpi-lbl">Ticket médio</div><div class="rt-kpi-val sm">${fmt(a.ticket)}</div><div style="margin-top:3px">${_negVar(a.ticket,p.ticket)} <span style="font-size:10px;color:var(--faint)">${fmt(p.ticket)}</span></div></div>
     </div>
     <div style="height:240px;margin-top:14px"><canvas id="negPerChart"></canvas></div>
-    <div class="hint" style="margin-top:8px">Este bloco respeita o período. LTV, permanência e base de alunos acima são da <b>vida inteira</b> do aluno — recortar por data daria número errado.</div>`;
+    <div class="hint" style="margin-top:8px">O período escolhido aqui vale para a tela inteira. Só <b>LTV</b> e <b>permanência</b> ficam de fora: são o retrato da vida inteira do aluno, e recortar por data daria número errado.</div>`;
   try{if(_negCharts.per)_negCharts.per.destroy()}catch(e){}
   const c=document.getElementById('negPerChart');if(!c)return;
   const dentro=dias.filter(x=>x.dia>=_negDe&&x.dia<=_negAte);
@@ -12160,6 +12320,8 @@ function renderNegocio(){
   const baseViva=(b.ativos||0)+(b.expirados||0);
   const dev=d.devolucoes,cort=d.cortesia,sel=d.seletivo;
   const pctDev=(dev&&d.faturamento)?(dev.valor*100/(d.faturamento+dev.valor)):0;
+  // série do tempo já filtrada por estado/produto — os dois gráficos de baixo bebem dela
+  const sm=negSerieMes(),serieG=sm.serie.length?sm.serie:serie;
   el.innerHTML=`
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
@@ -12185,31 +12347,26 @@ function renderNegocio(){
       </div>
     </div>
 
+    ${negFiltros().algum?`<div class="card" style="margin-bottom:16px;border-color:rgba(255,213,42,.35);background:rgba(255,213,42,.04);padding:12px 16px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px">
+        <b style="color:var(--accent)">FILTRO ATIVO</b>
+        ${_negUFsel.size?`<span class="pill">Estado: ${[..._negUFsel].join(', ')}</span>`:''}
+        ${_negProdSel?`<span class="pill">Produto: ${_evtEsc(_negProdSel.length>40?_negProdSel.slice(0,40)+'…':_negProdSel)}</span>`:''}
+        ${_negTurmaAno?`<span class="pill">Turma: ${_negTurmaMes?(NEG_MES_NOME[_negTurmaMes]||_negTurmaMes)+'/':''}${_negTurmaAno}</span>`:(_negTurmaMes?`<span class="pill">Turma: ${NEG_MES_NOME[_negTurmaMes]||_negTurmaMes}</span>`:'')}
+        <span style="flex:1"></span>
+        <button class="btn sm ghost" style="padding:3px 10px;font-size:11px" onclick="negLimparTudo()">limpar tudo</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">Vale para a tela inteira. LTV e permanência ficam de fora: são o retrato da vida inteira do aluno.</div>
+    </div>`:''}
+
     ${(d.serie_diaria&&d.serie_diaria.length)?`<div class="card" style="margin-bottom:16px" id="negPeriodoCard"></div>`:''}
 
-    <div class="card" style="margin-bottom:16px">
-      <h3 title="Situação do acesso de cada aluno neste momento. A duração vem do nome do produto (&quot;12 meses de acesso&quot;); quem comprou produto sem prazo no nome fica separado." style="cursor:help;margin-top:0">👥 Base de alunos hoje</h3>
-      <div class="rt-kpi-grid">
-        ${_negCard('Ativos',n(b.ativos),baseViva?`${(b.ativos*100/baseViva).toFixed(1).replace('.',',')}% da base`:'','gr','Alunos cujo acesso ainda não venceu hoje. A duração sai do nome do produto ("12 meses de acesso"), e produto vitalício conta sempre como ativo.')}
-        ${_negCard('Expirados',n(b.expirados),'oportunidade de reativação','','Já foram alunos e o acesso venceu. É a base natural para campanha de reativação.')}
-        ${_negCard('Expiram em 30 dias',n(b.expira_30d),'renovação com data marcada','ye','Acesso vence nos próximos 30 dias. Quem ainda está estudando é mais fácil de renovar do que quem já saiu.')}
-        ${_negCard('Expiram em 31–60 dias',n(b.expira_60d),'próxima janela','','Vencem entre 31 e 60 dias — a janela seguinte de renovação.')}
-        ${_negCard('Sem prazo definido',n(b.sem_prazo),'produto sem duração no nome — a definir','','Compraram produto cujo nome não diz a duração (cursos avulsos, bancas, CNU). Ficam fora do ativo × expirado até a duração ser definida.')}
-        ${_negCard('Compras por crédito',n(d.compras_por_credito),'entram no LTV, não no prazo','','Produtos vendidos por crédito, como correção de redação. O valor conta no faturamento e no LTV, mas crédito não dá prazo de acesso, então não entra no ativo × expirado.')}
-      </div>
-      ${b.expira_30d?`<div style="margin-top:12px;padding:10px 12px;background:rgba(255,213,42,.07);border:1px solid rgba(255,213,42,.3);border-radius:10px;font-size:12.5px">
-        💡 <b>${n(b.expira_30d)} alunos expiram em até 30 dias.</b> Pelo LTV de quem recompra (${fmt(d.ltv_recomprador)}), reativar 10% deles representa ${fmt(b.expira_30d*0.1*d.ltv_recomprador)}.</div>`:''}
-    </div>
+    <div class="card" style="margin-bottom:16px" id="negBaseCard"></div>
 
     ${(dev||cort||sel)?`<div class="card" style="margin-bottom:16px">
       <h3 title="Gente que aparece na base sem ser aluno que pagou: devolução, acesso de cortesia e inscrito em processo seletivo. Nada daqui entra no faturamento nem no LTV." style="cursor:help;margin-top:0">🧹 Quem está na base mas não é aluno pagante</h3>
       <div class="hint" style="margin-bottom:10px">Separado do retrato acima de propósito: nada aqui entra em faturamento nem em LTV.</div>
-      <div class="rt-kpi-grid">
-        ${dev?_negCard('Devoluções',n(dev.compras),`${fmt(dev.valor)} estornados · ${pctDev.toFixed(1).replace('.',',')}% do que foi vendido`,'ye','Compras com status Estornado ou Chargeback: o dinheiro voltou para o aluno. Ficam fora do faturamento e do LTV, e aparecem aqui para dar a dimensão da perda.'):''}
-        ${dev?_negCard('Foi aluno e devolveu',n(dev.so_devolvido),'nunca teve outra compra válida','','Pessoas cuja única compra foi devolvida. Tiveram acesso por algum tempo, mas não geraram receita nenhuma.'):''}
-        ${cort?_negCard('Acesso de cortesia',n(cort.sem_compra),'bolsista ou parceiro — é aluno, sem receita','gr','Receberam acesso liberado a um curso de verdade (bolsa ou parceria) e nunca pagaram. São alunos, mas sem receita — por isso ficam fora do LTV, que ficaria menor artificialmente.'):''}
-        ${sel?_negCard('Só processo seletivo',n(sel.pessoas),'inscrito em seletivo, bolsa, corretor ou simulado — não é aluno','','Só aparecem na base como inscritos em processo seletivo, seleção de corretores ou simulado gratuito. Nunca compraram e nunca estudaram: não são alunos.'):''}
-      </div>
+      <div class="rt-kpi-grid" id="negNaoAlunoGrid"></div>
       <div style="margin-top:12px;padding:10px 12px;background:var(--surface2);border-radius:10px;font-size:11.5px;color:var(--muted)">
         Os acessos liberados automaticamente valem R$ 0,00 na base. A maior parte é <b>inscrição em
         processo seletivo, seleção de corretores ou simulado</b> — gente que nunca estudou e que, se
@@ -12221,24 +12378,29 @@ function renderNegocio(){
     ${((d.por_estado&&d.por_estado.length)||(d.por_estado_mes&&d.por_estado_mes.length))?`<div class="card" style="margin-bottom:16px" id="negEstadosCard"></div>`:''}
 
     ${(d.recompra_ano&&d.recompra_ano.length)?`<div class="card" style="margin-bottom:16px" id="negRecompraCard"></div>`:''}
-    <div class="card" style="margin-bottom:16px"><h3 title="Evolução mês a mês da base inteira, sem filtro de período. A linha é o faturamento e as barras são a quantidade de vendas." style="cursor:help;margin-top:0">📈 Faturamento e vendas por mês</h3><div style="height:300px"><canvas id="negFat"></canvas></div></div>
-    <div class="card" style="margin-bottom:16px"><h3 title="Quanto de cada mês veio de gente nova e quanto veio da base voltando a comprar." style="cursor:help;margin-top:0">🆕 Alunos novos × recompra</h3><div class="hint" style="margin-bottom:8px">Barra cheia = quem comprou pela primeira vez. A diferença até o total é recompra da base.</div><div style="height:280px"><canvas id="negNovos"></canvas></div></div>
+    <div class="card" style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px"><h3 title="Evolução mês a mês. Segue o filtro de estado ou de produto que estiver ligado. A linha é o faturamento e as barras são a quantidade de vendas." style="cursor:help;margin:0 0 8px">📈 Faturamento e vendas por mês</h3>${sm.por?_negSelo('só '+sm.por):''}</div><div style="height:300px"><canvas id="negFat"></canvas></div></div>
+    <div class="card" style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px"><h3 title="Quanto de cada mês veio de gente nova e quanto veio da base voltando a comprar." style="cursor:help;margin:0 0 4px">🆕 Alunos novos × recompra</h3>${sm.por&&!sm.semNovos?_negSelo('só '+sm.por):''}</div><div class="hint" style="margin-bottom:8px">${sm.semNovos?'Com filtro de produto não dá pra separar quem é novo: o retrato guarda produto por mês, mas não quem comprou pela primeira vez naquele produto. Este bloco segue a base inteira.':'Barra cheia = quem comprou pela primeira vez. A diferença até o total é recompra da base.'}</div><div style="height:280px"><canvas id="negNovos"></canvas></div></div>
     <div class="card" style="margin-bottom:16px" id="negProdCard"></div>`;
   _negDestroy();          // limpa ANTES de montar: se vier depois, apaga os gráficos que os blocos acabaram de criar
   renderNegPeriodo();
+  renderNegBase();
+  renderNegNaoAluno();
   renderNegEstados();
   renderNegProdutos();
   renderRecompraAno();
-  const meses=serie.map(x=>x.mes),eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
+  const meses=serieG.map(x=>x.mes),eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
   const ctx=id=>{const c=document.getElementById(id);return c?c.getContext('2d'):null};
+  const escala=Math.max(1,...serieG.map(x=>x.receita));
   if(ctx('negFat'))_negCharts.fat=new Chart(ctx('negFat'),{data:{labels:meses,datasets:[
-    {type:'bar',label:'Vendas',data:serie.map(x=>x.vendas),backgroundColor:'rgba(168,85,247,.45)',yAxisID:'y1'},
-    {type:'line',label:'Faturamento',data:serie.map(x=>x.receita),borderColor:'#ffd42a',backgroundColor:'rgba(255,213,42,.1)',tension:.3,fill:true,yAxisID:'y'}]},
+    {type:'bar',label:'Vendas',data:serieG.map(x=>x.vendas),backgroundColor:'rgba(168,85,247,.45)',yAxisID:'y1'},
+    {type:'line',label:'Faturamento',data:serieG.map(x=>x.receita),borderColor:'#ffd42a',backgroundColor:'rgba(255,213,42,.1)',tension:.3,fill:true,yAxisID:'y'}]},
     options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'#c9c9c1'}},tooltip:{callbacks:{label:c=>c.dataset.label==='Faturamento'?`Faturamento: ${fmt(c.raw)}`:`Vendas: ${Math.round(c.raw).toLocaleString('pt-BR')}`}}},
-    scales:{x:eixo,y:{...eixo,position:'left',ticks:{...eixo.ticks,callback:v=>'R$ '+(v/1e6).toFixed(1)+'mi'}},y1:{...eixo,position:'right',grid:{drawOnChartArea:false}}}}});
-  if(ctx('negNovos'))_negCharts.novos=new Chart(ctx('negNovos'),{type:'bar',data:{labels:meses,datasets:[
-    {label:'Alunos novos',data:serie.map(x=>x.novos),backgroundColor:'rgba(52,211,153,.6)'},
-    {label:'Recompra',data:serie.map(x=>Math.max(0,(x.vendas||0)-(x.novos||0))),backgroundColor:'rgba(255,213,42,.6)'}]},
+    scales:{x:eixo,y:{...eixo,position:'left',ticks:{...eixo.ticks,callback:v=>'R$ '+(escala>=1e6?(v/1e6).toFixed(1)+'mi':(v/1e3).toFixed(0)+'k')}},y1:{...eixo,position:'right',grid:{drawOnChartArea:false}}}}});
+  // sem "novos" por produto, este gráfico volta pra base inteira em vez de mostrar barra vazia
+  const serieN=sm.semNovos?(d.serie_mensal||[]):serieG;
+  if(ctx('negNovos'))_negCharts.novos=new Chart(ctx('negNovos'),{type:'bar',data:{labels:serieN.map(x=>x.mes),datasets:[
+    {label:'Alunos novos',data:serieN.map(x=>x.novos),backgroundColor:'rgba(52,211,153,.6)'},
+    {label:'Recompra',data:serieN.map(x=>Math.max(0,(x.vendas||0)-(x.novos||0))),backgroundColor:'rgba(255,213,42,.6)'}]},
     options:{maintainAspectRatio:false,plugins:{legend:{labels:{color:'#c9c9c1'}}},scales:{x:{...eixo,stacked:true},y:{...eixo,stacked:true}}}});
   // o gráfico de produtos é montado por renderNegProdutos: ele muda com o filtro de turma
 }
