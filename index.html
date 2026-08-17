@@ -11526,7 +11526,14 @@ async function negocioAtivar(){
   await negocioDisponivel(cid);
   goToTab('negocio');setNegSub('venda');
 }
-function _negCard(rot,val,sub,cor){return `<div class="rt-kpi ${cor||'pu'}"><div class="rt-kpi-lbl">${rot}</div><div class="rt-kpi-val sm">${val}</div><div style="font-size:10.5px;color:var(--faint);margin-top:3px;line-height:1.3">${sub||'&nbsp;'}</div></div>`;}
+/* Todo card tem explicação no hover: a linha de baixo é curta demais pra dizer COMO o número é
+   calculado, e sem isso cada pessoa interpreta de um jeito. cursor:help avisa que tem explicação. */
+function _negCard(rot,val,sub,cor,dica){
+  const t=dica?` title="${String(dica).replace(/"/g,'&quot;')}" style="cursor:help"`:'';
+  return `<div class="rt-kpi ${cor||'pu'}"${t}><div class="rt-kpi-lbl">${rot}</div><div class="rt-kpi-val sm">${val}</div><div style="font-size:10.5px;color:var(--faint);margin-top:3px;line-height:1.3">${sub||'&nbsp;'}</div></div>`;
+}
+// título de bloco com explicação no hover
+function _negH3(txt,dica){return `<h3 style="margin:0;cursor:help" title="${String(dica||'').replace(/"/g,'&quot;')}">${txt}</h3>`;}
 // estado vazio dos submenus: o upload precisa estar aqui, senão não há como subir o primeiro arquivo
 function _negUploadVazio(oque,inputId,fn,texto){
   return `<div class="card" style="text-align:center;padding:34px 22px">
@@ -11633,7 +11640,7 @@ function renderInad(){
   el.innerHTML=`
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-        <div><h3 style="margin:0">⚠️ Inadimplência</h3><div class="hint">fonte: ${_evtEsc(_inad.fonte||'—')} · atualizado ${new Date(_inad.gerado_em).toLocaleString('pt-BR')}</div></div>
+        <div><h3 title="Contratos parcelados com parcela em aberto. Vem de um arquivo separado — o relatório de inadimplência da plataforma — porque a base de vendas não diz até que parcela o aluno pagou." style="cursor:help;margin:0">⚠️ Inadimplência</h3><div class="hint">fonte: ${_evtEsc(_inad.fonte||'—')} · atualizado ${new Date(_inad.gerado_em).toLocaleString('pt-BR')}</div></div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <input type="file" id="inadUpFile" accept=".xlsx,.xls,.csv" multiple style="display:none" onchange="inadUpload(this)">
           <button class="btn sm ghost" onclick="document.getElementById('inadUpFile').click()" title="Sobe o relatório de inadimplência e recalcula. O arquivo é lido aqui no navegador, não vai pro servidor">⬆️ Atualizar inadimplência</button>
@@ -11641,17 +11648,17 @@ function renderInad(){
         </div>
       </div>
       <div class="rt-kpi-grid">
-        ${_negCard('Contratos em atraso',n(d.contratos),`${n(d.parcelas_abertas)} parcelas em aberto`,'ye')}
-        ${_negCard('Valor em aberto',fmt(d.em_aberto),`${fmt(d.ticket_aberto)} por contrato, em média`,'ye')}
-        ${_negCard('Calote consumado',n(d.vencido),'a última parcela em aberto já venceu')}
-        ${_negCard('Cobrança em andamento',n(d.a_vencer),'ainda tem parcela a vencer','gr')}
-        ${_negCard('Pagou em média',pagasMedia.toFixed(1).replace('.',',')+' parcelas','antes de parar','gr')}
-        ${_negCard('Perda do contrato',perdaMedia.toFixed(1).replace('.',',')+'%','das parcelas contratadas não entraram')}
+        ${_negCard('Contratos em atraso',n(d.contratos),`${n(d.parcelas_abertas)} parcelas em aberto`,'ye','Contratos parcelados com pelo menos uma parcela não paga. Vem do relatório de inadimplência da plataforma, não da base de vendas.')}
+        ${_negCard('Valor em aberto',fmt(d.em_aberto),`${fmt(d.ticket_aberto)} por contrato, em média`,'ye','Soma de tudo que foi contratado e não entrou. É dinheiro que a base de vendas conta como vendido, mas que não foi recebido.')}
+        ${_negCard('Calote consumado',n(d.vencido),'a última parcela em aberto já venceu','','A última parcela em aberto já passou do vencimento: não há mais cobrança automática por vir, só ação de cobrança.')}
+        ${_negCard('Cobrança em andamento',n(d.a_vencer),'ainda tem parcela a vencer','gr','Ainda existe parcela futura para ser cobrada. Parte disso pode entrar normalmente — não é perda confirmada.')}
+        ${_negCard('Pagou em média',pagasMedia.toFixed(1).replace('.',',')+' parcelas','antes de parar','gr','Média de parcelas pagas antes de o aluno parar. Calculado como parcelas contratadas menos as que estão em aberto.')}
+        ${_negCard('Perda do contrato',perdaMedia.toFixed(1).replace('.',',')+'%','das parcelas contratadas não entraram','','Das parcelas contratadas nesses contratos, quanto ficou sem pagar. Quanto menor, mais tarde o aluno desiste e menos se perde por contrato.')}
       </div>
     </div>
 
     <div class="card" style="margin-bottom:16px">
-      <h3 style="margin-top:0">📉 Em que parcela o aluno para de pagar</h3>
+      <h3 title="Distribuição dos contratos por quantas parcelas foram pagas antes de parar. Concentração à direita significa que o aluno desiste no fim do contrato, quando quase tudo já foi pago." style="cursor:help;margin-top:0">📉 Em que parcela o aluno para de pagar</h3>
       <div class="hint" style="margin-bottom:10px">Quanto mais à direita, mais tarde a desistência — e menos dinheiro se perde por contrato.</div>
       <div style="display:flex;flex-direction:column;gap:5px">
         ${(d.por_pagas||[]).map(x=>`<div style="display:grid;grid-template-columns:88px 1fr 132px;gap:10px;align-items:center;font-size:12px">
@@ -11665,7 +11672,7 @@ function renderInad(){
     </div>
 
     <div class="card" style="margin-bottom:16px">
-      <h3 style="margin-top:0">🗓 De que safra vem o atraso</h3>
+      <h3 title="Ano em que o contrato inadimplente foi criado. Ajuda a ver se o problema é antigo e já resolvido, ou se continua acontecendo nas vendas recentes." style="cursor:help;margin-top:0">🗓 De que safra vem o atraso</h3>
       <div style="display:flex;flex-direction:column;gap:5px">
         ${(d.por_ano_criacao||[]).map(x=>`<div style="display:grid;grid-template-columns:60px 1fr 132px;gap:10px;align-items:center;font-size:12px">
           <div style="color:var(--muted)">${x.ano}</div>
@@ -11678,7 +11685,7 @@ function renderInad(){
     </div>
 
     <div class="card" style="margin-bottom:16px">
-      <h3 style="margin-top:0">📦 Onde o dinheiro está parado</h3>
+      <h3 title="Produtos com mais valor em aberto. As turmas do mesmo produto aparecem juntas." style="cursor:help;margin-top:0">📦 Onde o dinheiro está parado</h3>
       <table style="width:100%;border-collapse:collapse;font-size:12.5px">
         <thead><tr><th style="text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Produto</th>
         <th style="text-align:right;padding:7px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Contratos</th>
@@ -11727,8 +11734,68 @@ function _negCobertura(d){
       ${sem?item('#8b8b83',p(sem),'sem estado',`${n(sem)} venda${sem===1?'':'s'}`,'Sem CEP e sem telefone com DDD válido — essas vendas ficam fora do mapa'):''}
     </div></div>`;
 }
-function negUFtoggle(uf){_negUFsel.has(uf)?_negUFsel.delete(uf):_negUFsel.add(uf);renderNegEstados();renderNegProdutos();}
-function negUFlimpar(){_negUFsel.clear();renderNegEstados();renderNegProdutos();}
+/* Seleção em vez de 27 botões: um estado por vez no seletor, e o comparativo entra à parte. Dá pra
+   comparar um estado contra outro, contra alguns, ou contra todos os demais somados. */
+let _negUFcmp=[];
+function negUFprinc(v){_negUFsel=v?new Set([v]):new Set();_negUFcmp=_negUFcmp.filter(x=>x!==v);renderNegEstados();renderNegProdutos();}
+function negUFaddCmp(v){
+  if(!v)return;
+  if(v==='__outros__')_negUFcmp=['__outros__'];
+  else{_negUFcmp=_negUFcmp.filter(x=>x!=='__outros__');if(!_negUFcmp.includes(v))_negUFcmp.push(v)}
+  renderNegEstados();
+}
+function negUFdelCmp(v){_negUFcmp=_negUFcmp.filter(x=>x!==v);renderNegEstados();}
+function negUFlimpar(){_negUFsel.clear();_negUFcmp=[];renderNegEstados();renderNegProdutos();}
+function _negUFprincipal(){return [..._negUFsel][0]||''}
+function _negUFcontroles(linhas){
+  const ufs=linhas.map(x=>x.uf).sort(),pr=_negUFprincipal();
+  const opt=(v,l,sel)=>`<option value="${v}"${sel?' selected':''}>${l}</option>`;
+  return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center">
+    <span style="font-size:11px;color:var(--faint)">ESTADO:</span>
+    <select onchange="negUFprinc(this.value)" style="width:auto;font-size:12px" title="Escolha um estado para ver só ele, ou deixe em Todos para ver o ranking inteiro">
+      ${opt('','Todos os estados',!pr)}${ufs.map(u=>opt(u,u,u===pr)).join('')}
+    </select>
+    ${pr?`<span style="font-size:11px;color:var(--faint)">COMPARAR COM:</span>
+      <select onchange="negUFaddCmp(this.value);this.value=''" style="width:auto;font-size:12px" title="Compare este estado com outro, com alguns, ou com todos os demais somados">
+        ${opt('','+ escolher…',true)}${opt('__outros__','Todos os outros estados')}${ufs.filter(u=>u!==pr&&!_negUFcmp.includes(u)).map(u=>opt(u,u)).join('')}
+      </select>
+      ${_negUFcmp.map(u=>`<span class="pill" style="font-size:11px;padding:3px 6px 3px 9px">${u==='__outros__'?'Todos os outros':u} <b style="cursor:pointer;color:var(--faint)" onclick="negUFdelCmp('${u}')" title="tirar da comparação">✕</b></span>`).join('')}`:''}
+    ${(pr||_negUFcmp.length)?`<button class="btn sm ghost" style="padding:3px 9px;font-size:11px" onclick="negUFlimpar()">limpar</button>`:''}
+  </div>`;
+}
+function _negUFcomparativo(linhas,valor,rot,cel){
+  const pr=_negUFprincipal();
+  if(!pr||!_negUFcmp.length)return '';
+  // o comparativo lê a lista COMPLETA de estados, não a filtrada — senão o alvo da comparação some
+  const acha=u=>linhas.find(x=>x.uf===u)||{uf:u,vendas:0,receita:0,novos:0,alunos:0};
+  const base=acha(pr);
+  const alvos=_negUFcmp.map(u=>{
+    if(u!=='__outros__')return acha(u);
+    const r=linhas.filter(x=>x.uf!==pr).reduce((a,x)=>({vendas:a.vendas+x.vendas,receita:a.receita+x.receita,
+      novos:a.novos+(x.novos||0),alunos:a.alunos+(x.alunos||0)}),{vendas:0,receita:0,novos:0,alunos:0});
+    return {...r,uf:`Todos os outros (${Math.max(0,linhas.length-1)})`};
+  });
+  const vb=valor(base);
+  const dif=v=>{if(!vb)return '<span style="color:var(--faint)">—</span>';
+    const p=(v-vb)*100/vb,pos=p>=0;
+    return `<span style="color:${pos?'#34d399':'#f87171'};font-weight:700">${pos?'+':''}${p.toFixed(1).replace('.',',')}%</span>`};
+  const max=Math.max(1,vb,...alvos.map(valor));
+  const linha=(x,destaque)=>`<tr>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-weight:${destaque?'800':'600'};color:${destaque?'var(--accent)':'inherit'}">${x.uf}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);width:44%">
+      <div style="background:var(--bg);border-radius:4px;height:16px;overflow:hidden">
+        <div style="width:${Math.max(2,valor(x)*100/max)}%;height:100%;background:${destaque?'linear-gradient(90deg,#b45309,#ffd42a)':'linear-gradient(90deg,#6d28d9,#a78bfa)'}"></div></div></td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);text-align:right;font-weight:700;white-space:nowrap">${cel(valor(x))}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap">${destaque?'<span style="color:var(--faint);font-size:11px">referência</span>':dif(valor(x))}</td>
+  </tr>`;
+  return `<div style="margin-bottom:16px;padding:12px 14px;background:var(--surface2);border-radius:12px">
+    <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.06em;margin-bottom:8px">COMPARATIVO · ${rot.toUpperCase()}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px"><tbody>
+      ${linha(base,true)}${alvos.map(x=>linha(x,false)).join('')}
+    </tbody></table>
+    <div style="font-size:11px;color:var(--faint);margin-top:8px">A variação compara cada linha com <b>${pr}</b>, na métrica escolhida e no período selecionado.</div>
+  </div>`;
+}
 function negUFmetrica(v){_negUFmetrica=v;renderNegEstados();}
 function negUFtop(v){_negUFtop=+v||12;renderNegEstados();}
 function _negMesesNoPeriodo(){
@@ -11770,7 +11837,7 @@ function renderNegEstados(){
   el.style.display='';
   el.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-      <div><h3 style="margin:0">🗺 Vendas por estado</h3>
+      <div><h3 title="Faturamento e vendas por unidade da federação. A base não tem coluna de estado: ele é deduzido do CEP e, na falta dele, do DDD do telefone — a barra colorida abaixo mostra a confiança de cada parte." style="cursor:help;margin:0">🗺 Vendas por estado</h3>
         <div class="hint">${mensal?`recorte mensal, de ${(_negDe||'').slice(0,7)} a ${(_negAte||'').slice(0,7)}`:'vida inteira da base'} · estado deduzido do cadastro do aluno</div></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <select onchange="negUFmetrica(this.value)" style="width:auto;font-size:12px" title="O que ordenar e medir">
@@ -11788,16 +11855,13 @@ function renderNegEstados(){
       </div>
     </div>
     ${_negCobertura(d)}
-    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px;align-items:center">
-      <span style="font-size:11px;color:var(--faint);margin-right:2px">FILTRAR ESTADO:</span>
-      ${linhas.map(x=>x.uf).sort().map(uf=>`<button class="pill" onclick="negUFtoggle('${uf}')" style="cursor:pointer;font-size:11px;padding:3px 9px;${_negUFsel.has(uf)?'background:var(--accent);color:#1a1a17;font-weight:700;border-color:var(--accent)':''}">${uf}</button>`).join('')}
-      ${_negUFsel.size?`<button class="btn sm ghost" style="padding:3px 9px;font-size:11px" onclick="negUFlimpar()">limpar (${_negUFsel.size})</button>`:''}
-    </div>
+    ${_negUFcontroles(linhas)}
+    ${_negUFcomparativo(linhas,valor,rot,cel)}
     <div class="rt-kpi-grid" style="margin-bottom:14px">
-      ${_negCard('Estados com venda',n(sel.length),_negUFsel.size?'filtro ativo':'de 27 possíveis','gr')}
-      ${_negCard('Faturamento',fmt(totRec),`${n(totVen)} vendas`)}
-      ${_negCard('Líder',top3[0]?top3[0].uf:'—',top3[0]?`${cel(valor(top3[0]))} · ${totRec?(top3[0].receita*100/totRec).toFixed(1).replace('.',','):0}% do total`:'')}
-      ${_negCard('Concentração',conc.toFixed(1).replace('.',',')+'%','do faturamento nos 5 maiores','ye')}
+      ${_negCard('Estados com venda',n(sel.length),_negUFsel.size?'filtro ativo':'de 27 possíveis','gr','Quantos estados tiveram pelo menos uma venda no recorte escolhido. Estado sem nenhuma venda pode ser praça inexplorada ou entrega ruim do anúncio ali.')}
+      ${_negCard('Faturamento',fmt(totRec),`${n(totVen)} venda${totVen===1?'':'s'}`,'','Soma das vendas dos estados que estão sendo mostrados, dentro do período escolhido. Não inclui as vendas sem estado identificado.')}
+      ${_negCard('Líder',top3[0]?top3[0].uf:'—',top3[0]?`${cel(valor(top3[0]))} · ${totRec?(top3[0].receita*100/totRec).toFixed(1).replace('.',','):0}% do total`:'','','Estado com o maior valor na métrica escolhida ao lado, e quanto ele representa do faturamento do recorte.')}
+      ${_negCard('Concentração',conc.toFixed(1).replace('.',',')+'%','do faturamento nos 5 maiores','ye','Quanto do faturamento vem dos 5 maiores estados. Percentual muito alto significa dependência de poucas praças — se uma delas cair, o faturamento sente.')}
     </div>
     <div style="display:flex;flex-direction:column;gap:5px">
       ${mostra.map(x=>`<div style="display:grid;grid-template-columns:42px 1fr 150px;gap:10px;align-items:center;font-size:12px">
@@ -11857,7 +11921,7 @@ function renderNegProdutos(){
   const totRec=linhas.reduce((s,x)=>s+x.receita,0);
   el.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:10px">
-      <div><h3 style="margin:0">🏆 Onde o faturamento se concentra</h3>
+      <div><h3 title="Ranking de produtos por faturamento, juntando as turmas do mesmo produto. O sufixo do nome (&quot;- 2026.1&quot; = janeiro de 2026) é turma, não produto diferente, e virou filtro." style="cursor:help;margin:0">🏆 Onde o faturamento se concentra</h3>
         <div class="hint">por produto${d.produtos_distintos?`, juntando as turmas · ${n(d.produtos_distintos)} produtos distintos na base`:''}</div></div>
       ${turmas.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <span style="font-size:11px;color:var(--faint)">TURMA:</span>
@@ -11965,7 +12029,7 @@ function renderNegPeriodo(){
   const n=v=>Math.round(v||0).toLocaleString('pt-BR');
   const atalho=(k,l)=>`<button class="btn sm ghost" onclick="negPeriodoAtalho('${k}')">${l}</button>`;
   el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-      <div><h3 style="margin:0">📅 Desempenho no período</h3><div class="hint">${_negBR(_negDe)} a ${_negBR(_negAte)} · comparando com ${_negBR(pde)} a ${_negBR(pate)}</div></div>
+      <div><h3 title="O único bloco que respeita o filtro de datas. LTV, permanência e base de alunos são retrato da vida inteira do aluno e não são recortados por período — recortar daria número errado." style="cursor:help;margin:0">📅 Desempenho no período</h3><div class="hint">${_negBR(_negDe)} a ${_negBR(_negAte)} · comparando com ${_negBR(pde)} a ${_negBR(pate)}</div></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         ${atalho('30','30 dias')}${atalho('90','90 dias')}${atalho('mes','Este mês')}${atalho('ano','Este ano')}${atalho('anoant','Ano passado')}${atalho('tudo','Tudo')}
         <input type="date" id="negDe" value="${_negDe}" onchange="negPeriodoManual()" style="width:auto;font-size:12px">
@@ -11978,11 +12042,11 @@ function renderNegPeriodo(){
       </div>
     </div>
     <div class="rt-kpi-grid">
-      <div class="rt-kpi gd"><div class="rt-kpi-lbl">Faturamento</div><div class="rt-kpi-val sm">${fmt(a.receita)}</div><div style="margin-top:3px">${_negVar(a.receita,p.receita)} <span style="font-size:10px;color:var(--faint)">${fmt(p.receita)}</span></div></div>
-      <div class="rt-kpi"><div class="rt-kpi-lbl">Vendas pagas</div><div class="rt-kpi-val sm">${n(a.vendas)}</div><div style="margin-top:3px">${_negVar(a.vendas,p.vendas)} <span style="font-size:10px;color:var(--faint)">${n(p.vendas)}</span></div></div>
-      <div class="rt-kpi gr"><div class="rt-kpi-lbl">Alunos novos</div><div class="rt-kpi-val sm">${n(a.novos)}</div><div style="margin-top:3px">${_negVar(a.novos,p.novos)} <span style="font-size:10px;color:var(--faint)">${n(p.novos)}</span></div></div>
-      <div class="rt-kpi"><div class="rt-kpi-lbl">Recompra no período</div><div class="rt-kpi-val sm">${n(Math.max(0,a.vendas-a.novos))}</div><div style="margin-top:3px"><span style="font-size:10.5px;color:var(--muted)">${a.vendas?((a.vendas-a.novos)*100/a.vendas).toFixed(1).replace('.',',')+'% das vendas':''}</span></div></div>
-      <div class="rt-kpi"><div class="rt-kpi-lbl">Ticket médio</div><div class="rt-kpi-val sm">${fmt(a.ticket)}</div><div style="margin-top:3px">${_negVar(a.ticket,p.ticket)} <span style="font-size:10px;color:var(--faint)">${fmt(p.ticket)}</span></div></div>
+      <div class="rt-kpi gd" style="cursor:help" title="Faturamento das vendas confirmadas dentro do período escolhido. A variação compara com o período anterior de mesmo tamanho (ou com o ano passado, conforme a escolha ao lado)."><div class="rt-kpi-lbl">Faturamento</div><div class="rt-kpi-val sm">${fmt(a.receita)}</div><div style="margin-top:3px">${_negVar(a.receita,p.receita)} <span style="font-size:10px;color:var(--faint)">${fmt(p.receita)}</span></div></div>
+      <div class="rt-kpi" style="cursor:help" title="Quantidade de compras confirmadas no período. Uma pessoa que comprou três vezes conta três vendas."><div class="rt-kpi-lbl">Vendas pagas</div><div class="rt-kpi-val sm">${n(a.vendas)}</div><div style="margin-top:3px">${_negVar(a.vendas,p.vendas)} <span style="font-size:10px;color:var(--faint)">${n(p.vendas)}</span></div></div>
+      <div class="rt-kpi gr" style="cursor:help" title="Pessoas cuja PRIMEIRA compra da vida caiu dentro do período. É o que a aquisição trouxe de gente nova."><div class="rt-kpi-lbl">Alunos novos</div><div class="rt-kpi-val sm">${n(a.novos)}</div><div style="margin-top:3px">${_negVar(a.novos,p.novos)} <span style="font-size:10px;color:var(--faint)">${n(p.novos)}</span></div></div>
+      <div class="rt-kpi" style="cursor:help" title="Vendas do período feitas por quem já era cliente antes. É a diferença entre as vendas do período e os alunos novos."><div class="rt-kpi-lbl">Recompra no período</div><div class="rt-kpi-val sm">${n(Math.max(0,a.vendas-a.novos))}</div><div style="margin-top:3px"><span style="font-size:10.5px;color:var(--muted)">${a.vendas?((a.vendas-a.novos)*100/a.vendas).toFixed(1).replace('.',',')+'% das vendas':''}</span></div></div>
+      <div class="rt-kpi" style="cursor:help" title="Faturamento dividido pelo número de vendas do período. Sobe quando se vende produto mais caro ou com menos desconto."><div class="rt-kpi-lbl">Ticket médio</div><div class="rt-kpi-val sm">${fmt(a.ticket)}</div><div style="margin-top:3px">${_negVar(a.ticket,p.ticket)} <span style="font-size:10px;color:var(--faint)">${fmt(p.ticket)}</span></div></div>
     </div>
     <div style="height:240px;margin-top:14px"><canvas id="negPerChart"></canvas></div>
     <div class="hint" style="margin-top:8px">Este bloco respeita o período. LTV, permanência e base de alunos acima são da <b>vida inteira</b> do aluno — recortar por data daria número errado.</div>`;
@@ -12008,17 +12072,18 @@ function renderRecompraAno(){
   const delta=ant?+(a.pct_recompra-ant.pct_recompra).toFixed(1):null;
   const cor=delta==null?'var(--muted)':(delta>=0?'#34d399':'#f87171');
   el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-      <div><h3 style="margin:0">🔁 Recompra ano a ano</h3><div class="hint">Dos que compraram no ano, quantos já eram clientes de anos anteriores</div></div>
+      <div><h3 title="Para cada ano, quantos dos compradores daquele ano já eram clientes de antes. Mostra se a base está sendo aproveitada ou se a operação vive de gente nova." style="cursor:help;margin:0">🔁 Recompra ano a ano</h3><div class="hint">Dos que compraram no ano, quantos já eram clientes de anos anteriores</div></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">${lista.map(x=>`<button class="btn sm ${x.ano===_negAnoSel?'primary':'ghost'}" onclick="negSetAno(${x.ano})">${x.ano}</button>`).join('')}</div>
     </div>
     <div class="rt-kpi-grid">
-      <div class="rt-kpi gr"><div class="rt-kpi-lbl">% de recompra em ${a.ano}</div><div class="rt-kpi-val sm">${a.pct_recompra.toFixed(1).replace('.',',')}%</div>
+      <div class="rt-kpi gr" style="cursor:help" title="Dos que compraram neste ano, quantos já haviam comprado em algum ano anterior. É diferente do % de recompra geral do topo da página, que olha a vida inteira do aluno — aqui é o retrato do ano.">
+        <div class="rt-kpi-lbl">% de recompra em ${a.ano}</div><div class="rt-kpi-val sm">${a.pct_recompra.toFixed(1).replace('.',',')}%</div>
         <div style="font-size:10.5px;margin-top:3px;color:${cor}">${delta==null?'primeiro ano da base':`${delta>=0?'▲':'▼'} ${Math.abs(delta).toFixed(1).replace('.',',')} p.p. vs ${a.ano-1} (${ant.pct_recompra.toFixed(1).replace('.',',')}%)`}</div></div>
-      ${_negCard('Compradores no ano',n(a.compradores),`${n(a.compras)} compras pagas`)}
-      ${_negCard('Já eram clientes',n(a.recompradores),'voltaram a comprar')}
-      ${_negCard('Clientes novos',n(a.novos),a.compradores?`${(a.novos*100/a.compradores).toFixed(1).replace('.',',')}% do ano`:'')}
-      ${_negCard('Faturamento do ano',fmt(a.receita),'só das compras pagas')}
-      ${_negCard('Ticket por comprador',fmt(a.ticket),'faturamento ÷ compradores')}
+      ${_negCard('Compradores no ano',n(a.compradores),`${n(a.compras)} compras pagas`,'','Pessoas distintas que compraram neste ano. Quem comprou várias vezes conta uma vez só.')}
+      ${_negCard('Já eram clientes',n(a.recompradores),'voltaram a comprar','','Compraram neste ano e já haviam comprado antes. É a base voltando.')}
+      ${_negCard('Clientes novos',n(a.novos),a.compradores?`${(a.novos*100/a.compradores).toFixed(1).replace('.',',')}% do ano`:'','','Primeira compra da vida foi neste ano. É o que a aquisição trouxe de gente nova.')}
+      ${_negCard('Faturamento do ano',fmt(a.receita),'só das compras pagas','','Soma das vendas confirmadas do ano, sem estorno e sem acesso de cortesia.')}
+      ${_negCard('Ticket por comprador',fmt(a.ticket),'faturamento ÷ compradores','','Quanto cada comprador gastou em média no ano. Diferente do LTV, que soma a vida inteira do aluno.')}
     </div>
     <div style="height:220px;margin-top:14px"><canvas id="negRecChart"></canvas></div>`;
   try{if(_negCharts.rec)_negCharts.rec.destroy()}catch(e){}
@@ -12043,7 +12108,7 @@ function renderNegocio(){
   el.innerHTML=`
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-        <div><h3 style="margin:0">🏛 Visão de negócio</h3><div class="hint">${d.periodo?`${dateBR(d.periodo.de)} a ${dateBR(d.periodo.ate)}`:''} · fonte: <span title="${String(_negocio.fonte||'').replace(/"/g,'&quot;')}">${(d.arquivos&&d.arquivos.length>1)?d.arquivos.length+' arquivos':_evtEsc(_negocio.fonte||'—')}</span> · atualizado ${new Date(_negocio.gerado_em).toLocaleString('pt-BR')}</div></div>
+        <div><h3 title="Retrato da vida inteira do negócio, calculado a partir da base de pedidos que você sobe aqui. Nada nesta faixa é filtrado por data." style="cursor:help;margin:0">🏛 Visão de negócio</h3><div class="hint">${d.periodo?`${dateBR(d.periodo.de)} a ${dateBR(d.periodo.ate)}`:''} · fonte: <span title="${String(_negocio.fonte||'').replace(/"/g,'&quot;')}">${(d.arquivos&&d.arquivos.length>1)?d.arquivos.length+' arquivos':_evtEsc(_negocio.fonte||'—')}</span> · atualizado ${new Date(_negocio.gerado_em).toLocaleString('pt-BR')}</div></div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <input type="file" id="negUpFile" accept=".xlsx,.xls,.csv" multiple style="display:none" onchange="negocioUpload(this)">
           <button class="btn sm ghost" onclick="document.getElementById('negUpFile').click()" title="Sobe a base de vendas e recalcula tudo. Dá pra escolher vários arquivos de uma vez (o histórico de 2020 e 2021 saiu em relatórios separados) — pedido repetido é descartado pelo Id. Tudo é lido aqui no navegador, não vai pro servidor">⬆️ Atualizar base de vendas</button>
@@ -12051,12 +12116,12 @@ function renderNegocio(){
         </div>
       </div>
       <div class="rt-kpi-grid">
-        ${_negCard('LTV médio',fmt(d.ltv_medio),'faturamento total ÷ alunos únicos','gr')}
-        ${_negCard('LTV de quem recompra',fmt(d.ltv_recomprador),`${d.pct_recompra}% da base compra mais de uma vez`,'gr')}
-        ${_negCard('Permanência efetiva',(d.permanencia_media||0).toFixed(1).replace('.',',')+' meses','tempo real com acesso (soma dos períodos comprados)')}
-        ${_negCard('Permanência · recomprador',(d.permanencia_recomprador||0).toFixed(1).replace('.',',')+' meses','quem volta fica quase o dobro')}
-        ${_negCard('Alunos únicos',n(d.alunos),`${n(d.compras)} compras pagas`)}
-        ${_negCard('Faturamento acumulado',fmt(d.faturamento),'desde o início da base')}
+        ${_negCard('LTV médio',fmt(d.ltv_medio),'faturamento total ÷ alunos únicos','gr','Quanto um aluno vale, em média, ao longo de toda a vida dele com a marca: o faturamento inteiro dividido pelo número de alunos únicos. O aluno é identificado pelo CPF, e pelo e-mail quando não há CPF.')}
+        ${_negCard('LTV de quem recompra',fmt(d.ltv_recomprador),`${d.pct_recompra}% da base compra mais de uma vez`,'gr','O mesmo cálculo, mas só entre quem comprou mais de uma vez. A diferença para o LTV médio mostra quanto vale conquistar a segunda compra.')}
+        ${_negCard('Permanência efetiva',(d.permanencia_media||0).toFixed(1).replace('.',',')+' meses','tempo real com acesso (soma dos períodos comprados)','','Quanto tempo o aluno REALMENTE teve acesso: somamos os períodos que ele comprou, unindo os que se sobrepõem. Quem comprou 12 meses em 2022 e 12 meses em 2026 conta 24 meses, não 4 anos.')}
+        ${_negCard('Permanência · recomprador',(d.permanencia_recomprador||0).toFixed(1).replace('.',',')+' meses','quem volta fica quase o dobro','','A mesma permanência efetiva, considerando só quem comprou mais de uma vez.')}
+        ${_negCard('Alunos únicos',n(d.alunos),`${n(d.compras)} compras pagas`,'','Pessoas distintas que já compraram, contadas uma vez só por CPF (ou e-mail, quando não há CPF), mesmo que tenham comprado várias vezes. Não inclui acesso de cortesia nem inscrito em processo seletivo.')}
+        ${_negCard('Faturamento acumulado',fmt(d.faturamento),'desde o início da base','','Soma do valor de todas as vendas confirmadas da base inteira. Não desconta estorno nem parcela que ficou em aberto — é o que foi vendido.')}
       </div>
       <div style="margin-top:12px;padding:10px 12px;background:var(--surface2);border-radius:10px;font-size:11.5px;color:var(--muted)">
         <b>Período de relacionamento: ${(d.relacionamento_medio||0).toFixed(1).replace('.',',')} meses.</b>
@@ -12068,27 +12133,27 @@ function renderNegocio(){
     ${(d.serie_diaria&&d.serie_diaria.length)?`<div class="card" style="margin-bottom:16px" id="negPeriodoCard"></div>`:''}
 
     <div class="card" style="margin-bottom:16px">
-      <h3 style="margin-top:0">👥 Base de alunos hoje</h3>
+      <h3 title="Situação do acesso de cada aluno neste momento. A duração vem do nome do produto (&quot;12 meses de acesso&quot;); quem comprou produto sem prazo no nome fica separado." style="cursor:help;margin-top:0">👥 Base de alunos hoje</h3>
       <div class="rt-kpi-grid">
-        ${_negCard('Ativos',n(b.ativos),baseViva?`${(b.ativos*100/baseViva).toFixed(1).replace('.',',')}% da base`:'','gr')}
-        ${_negCard('Expirados',n(b.expirados),'oportunidade de reativação')}
-        ${_negCard('Expiram em 30 dias',n(b.expira_30d),'renovação com data marcada','ye')}
-        ${_negCard('Expiram em 31–60 dias',n(b.expira_60d),'próxima janela')}
-        ${_negCard('Sem prazo definido',n(b.sem_prazo),'produto sem duração no nome — a definir')}
-        ${_negCard('Compras por crédito',n(d.compras_por_credito),'entram no LTV, não no prazo')}
+        ${_negCard('Ativos',n(b.ativos),baseViva?`${(b.ativos*100/baseViva).toFixed(1).replace('.',',')}% da base`:'','gr','Alunos cujo acesso ainda não venceu hoje. A duração sai do nome do produto ("12 meses de acesso"), e produto vitalício conta sempre como ativo.')}
+        ${_negCard('Expirados',n(b.expirados),'oportunidade de reativação','','Já foram alunos e o acesso venceu. É a base natural para campanha de reativação.')}
+        ${_negCard('Expiram em 30 dias',n(b.expira_30d),'renovação com data marcada','ye','Acesso vence nos próximos 30 dias. Quem ainda está estudando é mais fácil de renovar do que quem já saiu.')}
+        ${_negCard('Expiram em 31–60 dias',n(b.expira_60d),'próxima janela','','Vencem entre 31 e 60 dias — a janela seguinte de renovação.')}
+        ${_negCard('Sem prazo definido',n(b.sem_prazo),'produto sem duração no nome — a definir','','Compraram produto cujo nome não diz a duração (cursos avulsos, bancas, CNU). Ficam fora do ativo × expirado até a duração ser definida.')}
+        ${_negCard('Compras por crédito',n(d.compras_por_credito),'entram no LTV, não no prazo','','Produtos vendidos por crédito, como correção de redação. O valor conta no faturamento e no LTV, mas crédito não dá prazo de acesso, então não entra no ativo × expirado.')}
       </div>
       ${b.expira_30d?`<div style="margin-top:12px;padding:10px 12px;background:rgba(255,213,42,.07);border:1px solid rgba(255,213,42,.3);border-radius:10px;font-size:12.5px">
         💡 <b>${n(b.expira_30d)} alunos expiram em até 30 dias.</b> Pelo LTV de quem recompra (${fmt(d.ltv_recomprador)}), reativar 10% deles representa ${fmt(b.expira_30d*0.1*d.ltv_recomprador)}.</div>`:''}
     </div>
 
     ${(dev||cort||sel)?`<div class="card" style="margin-bottom:16px">
-      <h3 style="margin-top:0">🧹 Quem está na base mas não é aluno pagante</h3>
+      <h3 title="Gente que aparece na base sem ser aluno que pagou: devolução, acesso de cortesia e inscrito em processo seletivo. Nada daqui entra no faturamento nem no LTV." style="cursor:help;margin-top:0">🧹 Quem está na base mas não é aluno pagante</h3>
       <div class="hint" style="margin-bottom:10px">Separado do retrato acima de propósito: nada aqui entra em faturamento nem em LTV.</div>
       <div class="rt-kpi-grid">
-        ${dev?_negCard('Devoluções',n(dev.compras),`${fmt(dev.valor)} estornados · ${pctDev.toFixed(1).replace('.',',')}% do que foi vendido`,'ye'):''}
-        ${dev?_negCard('Foi aluno e devolveu',n(dev.so_devolvido),'nunca teve outra compra válida'):''}
-        ${cort?_negCard('Acesso de cortesia',n(cort.sem_compra),'bolsista ou parceiro — é aluno, sem receita','gr'):''}
-        ${sel?_negCard('Só processo seletivo',n(sel.pessoas),'inscrito em seletivo, bolsa, corretor ou simulado — não é aluno'):''}
+        ${dev?_negCard('Devoluções',n(dev.compras),`${fmt(dev.valor)} estornados · ${pctDev.toFixed(1).replace('.',',')}% do que foi vendido`,'ye','Compras com status Estornado ou Chargeback: o dinheiro voltou para o aluno. Ficam fora do faturamento e do LTV, e aparecem aqui para dar a dimensão da perda.'):''}
+        ${dev?_negCard('Foi aluno e devolveu',n(dev.so_devolvido),'nunca teve outra compra válida','','Pessoas cuja única compra foi devolvida. Tiveram acesso por algum tempo, mas não geraram receita nenhuma.'):''}
+        ${cort?_negCard('Acesso de cortesia',n(cort.sem_compra),'bolsista ou parceiro — é aluno, sem receita','gr','Receberam acesso liberado a um curso de verdade (bolsa ou parceria) e nunca pagaram. São alunos, mas sem receita — por isso ficam fora do LTV, que ficaria menor artificialmente.'):''}
+        ${sel?_negCard('Só processo seletivo',n(sel.pessoas),'inscrito em seletivo, bolsa, corretor ou simulado — não é aluno','','Só aparecem na base como inscritos em processo seletivo, seleção de corretores ou simulado gratuito. Nunca compraram e nunca estudaram: não são alunos.'):''}
       </div>
       <div style="margin-top:12px;padding:10px 12px;background:var(--surface2);border-radius:10px;font-size:11.5px;color:var(--muted)">
         Os acessos liberados automaticamente valem R$ 0,00 na base. A maior parte é <b>inscrição em
@@ -12101,8 +12166,8 @@ function renderNegocio(){
     ${((d.por_estado&&d.por_estado.length)||(d.por_estado_mes&&d.por_estado_mes.length))?`<div class="card" style="margin-bottom:16px" id="negEstadosCard"></div>`:''}
 
     ${(d.recompra_ano&&d.recompra_ano.length)?`<div class="card" style="margin-bottom:16px" id="negRecompraCard"></div>`:''}
-    <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">📈 Faturamento e vendas por mês</h3><div style="height:300px"><canvas id="negFat"></canvas></div></div>
-    <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">🆕 Alunos novos × recompra</h3><div class="hint" style="margin-bottom:8px">Barra cheia = quem comprou pela primeira vez. A diferença até o total é recompra da base.</div><div style="height:280px"><canvas id="negNovos"></canvas></div></div>
+    <div class="card" style="margin-bottom:16px"><h3 title="Evolução mês a mês da base inteira, sem filtro de período. A linha é o faturamento e as barras são a quantidade de vendas." style="cursor:help;margin-top:0">📈 Faturamento e vendas por mês</h3><div style="height:300px"><canvas id="negFat"></canvas></div></div>
+    <div class="card" style="margin-bottom:16px"><h3 title="Quanto de cada mês veio de gente nova e quanto veio da base voltando a comprar." style="cursor:help;margin-top:0">🆕 Alunos novos × recompra</h3><div class="hint" style="margin-bottom:8px">Barra cheia = quem comprou pela primeira vez. A diferença até o total é recompra da base.</div><div style="height:280px"><canvas id="negNovos"></canvas></div></div>
     <div class="card" style="margin-bottom:16px" id="negProdCard"></div>`;
   _negDestroy();          // limpa ANTES de montar: se vier depois, apaga os gráficos que os blocos acabaram de criar
   renderNegPeriodo();
