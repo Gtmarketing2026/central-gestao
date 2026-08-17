@@ -11877,9 +11877,43 @@ function renderNegEstados(){
 /* ---- Produtos + turma ----
    O ranking mostra o PRODUTO (sem a turma no nome). O filtro de turma usa por_produto_turma, que só
    existe para os produtos do ranking — por isso filtrar por turma nunca traz produto novo pra lista. */
-let _negTurmaAno='',_negTurmaMes='';
+let _negTurmaAno='',_negTurmaMes='',_negProdSel='';
 function negTurmaSet(campo,v){if(campo==='ano')_negTurmaAno=v;else _negTurmaMes=v;renderNegProdutos();}
 function negTurmaLimpar(){_negTurmaAno='';_negTurmaMes='';renderNegProdutos();}
+function negProdSet(v){_negProdSel=v||'';renderNegProdutos();}
+/* Escolhido um produto, o gráfico de ranking não diz mais nada (é uma barra só). O que interessa
+   ali é abrir o produto: em que turmas ele vendeu e em que estados. Os dois saem do mesmo cubo. */
+function negProdDetalhe(nome){
+  const cubo=((_negocio&&_negocio.dados)||{}).cubo_produto;
+  if(!cubo||!cubo.linhas)return null;
+  const turmas={},ufs={};let vendas=0,receita=0;
+  for(const x of cubo.linhas){
+    if(cubo.produtos[x.p]!==nome)continue;
+    if(_negUFsel.size&&!_negUFsel.has(x.uf))continue;
+    if(_negTurmaAno&&String(x.ano||'')!==String(_negTurmaAno))continue;
+    if(_negTurmaMes&&String(x.mes||'')!==String(_negTurmaMes))continue;
+    vendas+=x.v;receita+=x.r;
+    const rk=x.ano?(x.ano+(x.mes?'.'+x.mes:'')):'—';
+    (turmas[rk]=turmas[rk]||{k:rk,vendas:0,receita:0});turmas[rk].vendas+=x.v;turmas[rk].receita+=x.r;
+    const uk=x.uf||'—';
+    (ufs[uk]=ufs[uk]||{k:uk,vendas:0,receita:0});ufs[uk].vendas+=x.v;ufs[uk].receita+=x.r;
+  }
+  return {vendas,receita,turmas:Object.values(turmas).sort((a,b)=>b.receita-a.receita),
+    ufs:Object.values(ufs).sort((a,b)=>b.receita-a.receita)};
+}
+function _negProdBloco(titulo,itens,rotulo){
+  const max=Math.max(1,...itens.map(x=>x.receita));
+  const n=v=>Math.round(v||0).toLocaleString('pt-BR');
+  return `<div style="flex:1;min-width:250px">
+    <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.06em;margin-bottom:8px">${titulo}</div>
+    ${itens.slice(0,12).map(x=>`<div style="display:grid;grid-template-columns:66px 1fr 118px;gap:8px;align-items:center;font-size:12px;margin-bottom:4px">
+      <div style="color:var(--muted);font-weight:600">${rotulo?rotulo(x.k):x.k}</div>
+      <div style="background:var(--bg);border-radius:4px;height:15px;overflow:hidden">
+        <div style="width:${Math.max(2,x.receita*100/max)}%;height:100%;background:linear-gradient(90deg,#6d28d9,#a78bfa)"></div></div>
+      <div style="text-align:right"><b>${fmt(x.receita)}</b> <span style="color:var(--faint)">· ${n(x.vendas)}</span></div>
+    </div>`).join('')||'<div style="font-size:12px;color:var(--faint)">sem dados</div>'}
+  </div>`;
+}
 function negProdutosDados(){
   const d=(_negocio&&_negocio.dados)||{};
   const temFiltro=!!(_negTurmaAno||_negTurmaMes||_negUFsel.size);
@@ -11919,10 +11953,21 @@ function renderNegProdutos(){
   const meses=[...new Set(turmas.filter(t=>t.mes).map(t=>t.mes))].sort((a,b)=>a-b);
   const n=v=>Math.round(v||0).toLocaleString('pt-BR');
   const totRec=linhas.reduce((s,x)=>s+x.receita,0);
+  // produto escolhido: em vez do ranking (que viraria uma barra só), abre o produto por turma e estado
+  if(_negProdSel&&!linhas.some(x=>x.produto===_negProdSel))_negProdSel='';
+  const det=_negProdSel?negProdDetalhe(_negProdSel):null;
+  const totGeral=(d.top_produtos||[]).reduce((s,x)=>s+x.receita,0);
   el.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:10px">
       <div><h3 title="Ranking de produtos por faturamento, juntando as turmas do mesmo produto. O sufixo do nome (&quot;- 2026.1&quot; = janeiro de 2026) é turma, não produto diferente, e virou filtro." style="cursor:help;margin:0">🏆 Onde o faturamento se concentra</h3>
         <div class="hint">por produto${d.produtos_distintos?`, juntando as turmas · ${n(d.produtos_distintos)} produtos distintos na base`:''}</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:11px;color:var(--faint)">PRODUTO:</span>
+        <select onchange="negProdSet(this.value)" style="width:auto;max-width:320px;font-size:12px" title="Escolha um produto para abrir as turmas e os estados em que ele vendeu">
+          <option value="">Todos os produtos</option>
+          ${linhas.map(x=>`<option value="${x.produto.replace(/"/g,'&quot;')}"${x.produto===_negProdSel?' selected':''}>${_evtEsc(x.produto)}</option>`).join('')}
+        </select>
+      </div>
       ${turmas.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <span style="font-size:11px;color:var(--faint)">TURMA:</span>
         <select onchange="negTurmaSet('ano',this.value)" style="width:auto;font-size:12px">
@@ -11943,7 +11988,17 @@ function renderNegProdutos(){
         :_negTurmaAno?`turmas de ${_negTurmaAno}`
         :_negTurmaMes?`turmas de ${NEG_MES_NOME[_negTurmaMes]||_negTurmaMes}, em todos os anos`:''
     ].filter(Boolean).join(' · ')} · ${(()=>{const v=linhas.reduce((s,x)=>s+x.vendas,0);return n(v)+' venda'+(v===1?'':'s')})()} · ${fmt(totRec)}</div>`:''}
-    ${top.length?`<div style="height:${Math.max(240,top.length*26)}px"><canvas id="negProd"></canvas></div>`:'<div class="empty">Nenhuma venda nessa turma.</div>'}
+    ${det?`<div style="padding:12px 14px;background:var(--surface2);border-radius:12px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+          <b style="font-size:13.5px">${_evtEsc(_negProdSel)}</b>
+          <div style="font-size:12px;color:var(--muted)">${fmt(det.receita)} · ${n(det.vendas)} venda${det.vendas===1?'':'s'} · ticket ${fmt(det.vendas?det.receita/det.vendas:0)}${totGeral?` · ${(det.receita*100/totGeral).toFixed(1).replace('.',',')}% do faturamento`:''}</div>
+        </div>
+        <div style="display:flex;gap:22px;flex-wrap:wrap">
+          ${_negProdBloco('POR TURMA',det.turmas,k=>k==='—'?'sem turma':_negRefLabel(k))}
+          ${_negProdBloco('POR ESTADO',det.ufs,k=>k==='—'?'sem estado':k)}
+        </div>
+      </div>`
+    :top.length?`<div style="height:${Math.max(240,top.length*26)}px"><canvas id="negProd"></canvas></div>`:'<div class="empty">Nenhuma venda com esses filtros.</div>'}
     ${turmas.length?`<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
       <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.06em;margin-bottom:8px">TURMAS QUE MAIS VENDERAM</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
@@ -11951,7 +12006,7 @@ function renderNegProdutos(){
       </div>
     </div>`:''}`;
   renderNegProdutosNota();
-  const c=document.getElementById('negProd');if(!c||!top.length)return;
+  const c=document.getElementById('negProd');if(!c||!top.length||det)return;
   try{if(_negCharts.prod)_negCharts.prod.destroy()}catch(e){}
   const eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
   _negCharts.prod=new Chart(c.getContext('2d'),{type:'bar',
