@@ -11201,15 +11201,27 @@ function _negData(v){
   const m=String(v||'').match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?new Date(+m[3],+m[2]-1,+m[1]):null;
 }
 // separado do upload pra dar pra testar o cálculo sem depender de banco nem de sessão
-async function negocioProcessar(f,aviso){
-  const msg={textContent:''};const setMsg=t=>{if(aviso)aviso(t)};
+async function negocioProcessar(arquivos,aviso){
+  const arqs=Array.isArray(arquivos)?arquivos:[arquivos];
+  const setMsg=t=>{if(aviso)aviso(t)};
   {
-    const buf=await f.arrayBuffer();
-    setMsg('Processando as linhas…');
-    const wb=XLSX.read(buf,{type:'array',cellDates:false});
-    const aba=wb.SheetNames.find(n=>/venda/i.test(n))||wb.SheetNames[0];
-    const linhas=XLSX.utils.sheet_to_json(wb.Sheets[aba],{defval:''});
+    /* Aceita mais de um arquivo porque o histórico veio partido: 2020 e 2021 saíram da plataforma
+       em relatórios separados e a base grande começa em 2022. O Id do pedido é único na base inteira
+       (conferido em 435.827 linhas: 435.827 ids distintos), então é ele que impede linha repetida se
+       dois arquivos se sobrepuserem. */
+    const linhas=[],vistos=new Set();let repetidas=0;
+    for(let i=0;i<arqs.length;i++){
+      setMsg(`Lendo ${arqs[i].name}${arqs.length>1?` (${i+1} de ${arqs.length})`:''}…`);
+      const wb=XLSX.read(await arqs[i].arrayBuffer(),{type:'array',cellDates:false});
+      const aba=wb.SheetNames.find(n=>/venda/i.test(n))||wb.SheetNames[0];
+      for(const l of XLSX.utils.sheet_to_json(wb.Sheets[aba],{defval:''})){
+        const id=String(l.Id||l.id||l.ID||'').trim();
+        if(id){if(vistos.has(id)){repetidas++;continue}vistos.add(id)}
+        linhas.push(l);
+      }
+    }
     if(!linhas.length)throw new Error('planilha vazia ou sem cabeçalho');
+    setMsg('Processando as linhas…');
     const col=(l,...nomes)=>{for(const n of nomes){const k=Object.keys(l).find(x=>x.toLowerCase().trim()===n);if(k)return l[k]}return ''};
     const alunos={},mesMap={},diaMap={},prodMap={};let creditos=0;
     const cortesiaK={},seletivoK={},devolK={};let devN=0,devVal=0;
@@ -11272,6 +11284,7 @@ async function negocioProcessar(f,aviso){
       relacionamento_medio:+med(relac).toFixed(1),
       base:{ativos,expirados,expira_30d:exp30,expira_60d:exp60,sem_prazo:semPrazo},
       compras_por_credito:creditos,
+      arquivos:arqs.map(a=>a.name),linhas_lidas:linhas.length,linhas_repetidas:repetidas,
       devolucoes:{compras:devN,valor:+devVal.toFixed(2),pessoas:Object.keys(devolK).length,so_devolvido:soDevolvido},
       cortesia:{pessoas:Object.keys(cortesiaK).length,sem_compra:soCortesia},
       seletivo:{pessoas:soSeletivo},
@@ -11294,19 +11307,21 @@ async function negocioProcessar(f,aviso){
   }
 }
 async function negocioUpload(input){
-  const f=input.files&&input.files[0];if(!f)return;
+  const arqs=[...(input.files||[])];if(!arqs.length)return;
   const msg=document.getElementById('negUpMsg'),cid=activeClientId;
   if(!cid){msg.textContent='Selecione um cliente antes.';return}
-  msg.style.color='';msg.textContent=`Lendo ${f.name} (${Math.round(f.size/1024/1024)}MB)… pode levar 1 a 2 minutos.`;
+  const mb=Math.round(arqs.reduce((s,a)=>s+a.size,0)/1024/1024);
+  const fonte=arqs.map(a=>a.name).join(' + ');
+  msg.style.color='';msg.textContent=`Lendo ${arqs.length>1?arqs.length+' arquivos':arqs[0].name} (${mb}MB)… pode levar 1 a 2 minutos.`;
   try{
-    const dados=await negocioProcessar(f,t=>{msg.textContent=t});
+    const dados=await negocioProcessar(arqs,t=>{msg.textContent=t});
     msg.textContent='Salvando o retrato…';
-    const {error}=await sb.from('client_business_snapshot').upsert({client_id:cid,fonte:f.name,dados,gerado_em:new Date().toISOString()});
+    const {error}=await sb.from('client_business_snapshot').upsert({client_id:cid,fonte,dados,gerado_em:new Date().toISOString()});
     if(error)throw error;
-    _negocio={gerado_em:new Date().toISOString(),fonte:f.name,dados};
+    _negocio={gerado_em:new Date().toISOString(),fonte,dados};
     document.getElementById('crNegocioTab').style.display='';
     renderNegocio();
-    const m2=document.getElementById('negUpMsg');if(m2){m2.style.color='var(--accent)';m2.textContent=`✓ ${dados.alunos.toLocaleString('pt-BR')} alunos e ${dados.compras.toLocaleString('pt-BR')} compras pagas processados.`}
+    const m2=document.getElementById('negUpMsg');if(m2){m2.style.color='var(--accent)';m2.textContent=`✓ ${dados.alunos.toLocaleString('pt-BR')} alunos e ${dados.compras.toLocaleString('pt-BR')} compras pagas processados${dados.linhas_repetidas?` · ${dados.linhas_repetidas.toLocaleString('pt-BR')} linha(s) repetida(s) descartada(s)`:''}.`}
   }catch(e){msg.style.color='var(--red)';msg.textContent='Não consegui ler: '+(e.message||e);}
   input.value='';
 }
@@ -11446,10 +11461,10 @@ function renderNegocio(){
   el.innerHTML=`
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-        <div><h3 style="margin:0">🏛 Visão de negócio</h3><div class="hint">${d.periodo?`${dateBR(d.periodo.de)} a ${dateBR(d.periodo.ate)}`:''} · fonte: ${_evtEsc(_negocio.fonte||'—')} · atualizado ${new Date(_negocio.gerado_em).toLocaleString('pt-BR')}</div></div>
+        <div><h3 style="margin:0">🏛 Visão de negócio</h3><div class="hint">${d.periodo?`${dateBR(d.periodo.de)} a ${dateBR(d.periodo.ate)}`:''} · fonte: <span title="${String(_negocio.fonte||'').replace(/"/g,'&quot;')}">${(d.arquivos&&d.arquivos.length>1)?d.arquivos.length+' arquivos':_evtEsc(_negocio.fonte||'—')}</span> · atualizado ${new Date(_negocio.gerado_em).toLocaleString('pt-BR')}</div></div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <input type="file" id="negUpFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="negocioUpload(this)">
-          <button class="btn sm ghost" onclick="document.getElementById('negUpFile').click()" title="Sobe a base de vendas e recalcula tudo — o arquivo é lido aqui no navegador, não vai pro servidor">⬆️ Atualizar base de vendas</button>
+          <input type="file" id="negUpFile" accept=".xlsx,.xls,.csv" multiple style="display:none" onchange="negocioUpload(this)">
+          <button class="btn sm ghost" onclick="document.getElementById('negUpFile').click()" title="Sobe a base de vendas e recalcula tudo. Dá pra escolher vários arquivos de uma vez (o histórico de 2020 e 2021 saiu em relatórios separados) — pedido repetido é descartado pelo Id. Tudo é lido aqui no navegador, não vai pro servidor">⬆️ Atualizar base de vendas</button>
           <span id="negUpMsg" style="font-size:11.5px;color:var(--muted)"></span>
         </div>
       </div>
