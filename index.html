@@ -11239,11 +11239,34 @@ const NEG_CEP_UF=[[19999,'SP'],[28999,'RJ'],[29999,'ES'],[39999,'MG'],[48999,'BA
   [72999,'GO'],[73699,'DF'],[76799,'GO'],[76999,'RO'],[77999,'TO'],[78899,'MT'],[78999,'RO'],
   [79999,'MS'],[87999,'PR'],[89999,'SC'],[99999,'RS']];
 function _negUF(cep){
-  const d=String(cep||'').replace(/\D/g,'');
+  let d=String(cep||'').replace(/\D/g,'');
+  // CEP guardado como número perde o zero à esquerda: 01310-100 vira 1310100. Sem devolver o zero,
+  // um CEP de São Paulo (09xxx) viraria 9xxxxxx e cairia na faixa do Rio Grande do Sul.
+  if(d.length===7)d='0'+d;
   if(d.length<5)return '';
   const p=parseInt(d.slice(0,5),10);
   if(!(p>=1000))return '';                       // CEP começa em 01000; abaixo disso é lixo de cadastro
   for(const [ate,uf] of NEG_CEP_UF)if(p<=ate)return uf;
+  return '';
+}
+/* Segunda fonte de estado: o DDD do telefone. Não é tão preciso quanto o CEP (gente que muda de
+   estado costuma manter o número), mas cobre quem comprou sem informar CEP — e é melhor do que
+   deixar a venda fora do mapa. A tela mostra quanto veio de cada fonte. */
+const NEG_DDD_UF={11:'SP',12:'SP',13:'SP',14:'SP',15:'SP',16:'SP',17:'SP',18:'SP',19:'SP',
+  21:'RJ',22:'RJ',24:'RJ',27:'ES',28:'ES',31:'MG',32:'MG',33:'MG',34:'MG',35:'MG',37:'MG',38:'MG',
+  41:'PR',42:'PR',43:'PR',44:'PR',45:'PR',46:'PR',47:'SC',48:'SC',49:'SC',
+  51:'RS',53:'RS',54:'RS',55:'RS',61:'DF',62:'GO',64:'GO',63:'TO',65:'MT',66:'MT',67:'MS',
+  68:'AC',69:'RO',71:'BA',73:'BA',74:'BA',75:'BA',77:'BA',79:'SE',81:'PE',87:'PE',82:'AL',83:'PB',
+  84:'RN',85:'CE',88:'CE',86:'PI',89:'PI',91:'PA',93:'PA',94:'PA',92:'AM',97:'AM',95:'RR',96:'AP',
+  98:'MA',99:'MA'};
+function _negUFtel(...tels){
+  for(const t of tels){
+    let d=String(t||'').replace(/\D/g,'');
+    if(d.startsWith('55')&&d.length>=12)d=d.slice(2);   // +55 do formato internacional
+    if(d.length<10)continue;
+    const uf=NEG_DDD_UF[+d.slice(0,2)];
+    if(uf)return uf;
+  }
   return '';
 }
 /* O nome do produto carrega DUAS informações: o produto em si e a turma em que ele foi vendido.
@@ -11301,8 +11324,8 @@ async function negocioProcessar(arquivos,aviso){
     const col=(l,...nomes)=>{for(const n of nomes){const k=Object.keys(l).find(x=>x.toLowerCase().trim()===n);if(k)return l[k]}return ''};
     const alunos={},mesMap={},diaMap={},prodMap={};let creditos=0;
     const cortesiaK={},seletivoK={},devolK={};let devN=0,devVal=0;
-    const ufMap={},ufMesMap={};let semCep=0;
-    const refMap={},prodRefMap={};
+    const ufMap={},ufMesMap={};let semUF=0,ufPorCep=0,ufPorDdd=0;
+    const refMap={},prodRefMap={},cuboMap={};
     for(const l of linhas){
       const st=String(col(l,'status')).trim().toLowerCase();
       const dt=_negData(col(l,'data'));if(!dt)continue;
@@ -11319,6 +11342,10 @@ async function negocioProcessar(arquivos,aviso){
       (mesMap[mk]=mesMap[mk]||{mes:mk,vendas:0,receita:0,novos:0});mesMap[mk].vendas++;mesMap[mk].receita+=val;
       // série DIÁRIA: é o que permite o calendário com intervalo livre e o comparativo de período
       (diaMap[dk]=diaMap[dk]||{dia:dk,vendas:0,receita:0,novos:0});diaMap[dk].vendas++;diaMap[dk].receita+=val;
+      // estado: CEP primeiro (é o endereço declarado); DDD do telefone como segunda fonte
+      let uf=_negUF(col(l,'cep'));
+      if(uf)ufPorCep++;
+      else{uf=_negUFtel(col(l,'celular'),col(l,'fone'),col(l,'telefone'));if(uf)ufPorDdd++;}
       if(prod){
         const pr=_negProdRef(prod);
         (prodMap[pr.base]=prodMap[pr.base]||{produto:pr.base,vendas:0,receita:0});prodMap[pr.base].vendas++;prodMap[pr.base].receita+=val;
@@ -11327,13 +11354,16 @@ async function negocioProcessar(arquivos,aviso){
         const prk=pr.base+''+rk;
         (prodRefMap[prk]=prodRefMap[prk]||{produto:pr.base,ref:rk,ano:pr.ano,mes:pr.mes,vendas:0,receita:0});
         prodRefMap[prk].vendas++;prodRefMap[prk].receita+=val;
+        // cubo produto × estado × turma: é o que deixa filtrar pelos dois juntos sem inventar número
+        const ck=prk+'|'+(uf||'');
+        (cuboMap[ck]=cuboMap[ck]||{produto:pr.base,uf:uf||'',ano:pr.ano,mes:pr.mes,vendas:0,receita:0});
+        cuboMap[ck].vendas++;cuboMap[ck].receita+=val;
       }
-      const uf=_negUF(col(l,'cep'));
       if(uf){
         (ufMap[uf]=ufMap[uf]||{uf,vendas:0,receita:0,_al:{}});ufMap[uf].vendas++;ufMap[uf].receita+=val;ufMap[uf]._al[chave]=1;
         const uk=uf+'|'+mk;(ufMesMap[uk]=ufMesMap[uk]||{uf,mes:mk,vendas:0,receita:0,novos:0});
         ufMesMap[uk].vendas++;ufMesMap[uk].receita+=val;
-      }else semCep++;
+      }else semUF++;
       const a=alunos[chave]=alunos[chave]||{n:0,tot:0,pri:dt,ult:dt,ivs:[],exp:null,vital:false,semPrazo:false,anos:{},uf};
       a.n++;a.tot+=val;if(dt<a.pri){a.pri=dt;a.uf=uf}if(dt>a.ult)a.ult=dt;
       (a.anos[dt.getFullYear()]=a.anos[dt.getFullYear()]||{compras:0,receita:0}),a.anos[dt.getFullYear()].compras++,a.anos[dt.getFullYear()].receita+=val;
@@ -11384,7 +11414,7 @@ async function negocioProcessar(arquivos,aviso){
       por_estado:Object.values(ufMap).map(x=>({uf:x.uf,vendas:x.vendas,receita:+x.receita.toFixed(2),alunos:Object.keys(x._al).length}))
         .sort((a,b)=>b.receita-a.receita),
       por_estado_mes:Object.values(ufMesMap).map(x=>({...x,receita:+x.receita.toFixed(2)})).sort((a,b)=>a.mes<b.mes?-1:1),
-      vendas_sem_cep:semCep,
+      vendas_sem_estado:semUF,uf_por_cep:ufPorCep,uf_por_ddd:ufPorDdd,
       // turmas: o sufixo do nome do produto ("- 2026.1" = janeiro/2026). Vira filtro, não recorte de data
       turmas:Object.values(refMap).map(x=>({...x,receita:+x.receita.toFixed(2)}))
         .sort((a,b)=>(b.ano-a.ano)||(b.mes-a.mes)),
@@ -11412,6 +11442,14 @@ async function negocioProcessar(arquivos,aviso){
     const noTop=new Set(dados.top_produtos.map(p=>p.produto));
     dados.por_produto_turma=Object.values(prodRefMap).filter(x=>noTop.has(x.produto))
       .map(x=>({...x,receita:+x.receita.toFixed(2)})).sort((a,b)=>b.receita-a.receita);
+    /* Cubo produto × estado × turma, só dos produtos do ranking. O nome do produto vira índice num
+       dicionário porque repetir a string em milhares de linhas engordaria o retrato à toa. */
+    const idx={},nomes=[];
+    const linhasCubo=Object.values(cuboMap).filter(x=>noTop.has(x.produto)).map(x=>{
+      if(idx[x.produto]==null){idx[x.produto]=nomes.length;nomes.push(x.produto)}
+      return {p:idx[x.produto],uf:x.uf,ano:x.ano,mes:x.mes,v:x.vendas,r:+x.receita.toFixed(2)};
+    });
+    dados.cubo_produto={produtos:nomes,linhas:linhasCubo};
     return dados;
   }
 }
@@ -11665,8 +11703,16 @@ function renderInad(){
    entra se qualquer dia dele estiver dentro do período escolhido. Está escrito na tela pra ninguém
    comparar com o bloco de período (que é diário) e achar que um dos dois está errado. */
 let _negUFsel=new Set(),_negUFmetrica='receita',_negUFtop=12;
-function negUFtoggle(uf){_negUFsel.has(uf)?_negUFsel.delete(uf):_negUFsel.add(uf);renderNegEstados();renderNegProdutosNota();}
-function negUFlimpar(){_negUFsel.clear();renderNegEstados();renderNegProdutosNota();}
+// De onde veio o estado de cada venda — importa saber, porque DDD é palpite melhor que nada, não certeza
+function _negCobertura(d){
+  const cep=d.uf_por_cep||0,ddd=d.uf_por_ddd||0,sem=d.vendas_sem_estado!=null?d.vendas_sem_estado:(d.vendas_sem_cep||0);
+  const tot=cep+ddd+sem;if(!tot)return '';
+  const n=v=>Math.round(v).toLocaleString('pt-BR');
+  const pct=((cep+ddd)*100/tot).toFixed(2).replace(/\.?0+$/,'').replace('.',',');
+  return ` · <b>${pct}% das vendas com estado</b>: ${n(cep)} pelo CEP${ddd?`, ${n(ddd)} pelo DDD do telefone`:''}${sem?` · ${n(sem)} sem nenhum dos dois`:''}`;
+}
+function negUFtoggle(uf){_negUFsel.has(uf)?_negUFsel.delete(uf):_negUFsel.add(uf);renderNegEstados();renderNegProdutos();}
+function negUFlimpar(){_negUFsel.clear();renderNegEstados();renderNegProdutos();}
 function negUFmetrica(v){_negUFmetrica=v;renderNegEstados();}
 function negUFtop(v){_negUFtop=+v||12;renderNegEstados();}
 function _negMesesNoPeriodo(){
@@ -11709,7 +11755,7 @@ function renderNegEstados(){
   el.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:12px">
       <div><h3 style="margin:0">🗺 Vendas por estado</h3>
-        <div class="hint">${mensal?`recorte mensal, de ${(_negDe||'').slice(0,7)} a ${(_negAte||'').slice(0,7)}`:'vida inteira da base'} · estado deduzido do CEP${d.vendas_sem_cep?` · ${n(d.vendas_sem_cep)} venda(s) sem CEP válido ficam de fora`:''}</div></div>
+        <div class="hint">${mensal?`recorte mensal, de ${(_negDe||'').slice(0,7)} a ${(_negAte||'').slice(0,7)}`:'vida inteira da base'}${_negCobertura(d)}</div></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <select onchange="negUFmetrica(this.value)" style="width:auto;font-size:12px" title="O que ordenar e medir">
           <option value="receita"${met==='receita'?' selected':''}>Faturamento</option>
@@ -11755,21 +11801,38 @@ function negTurmaSet(campo,v){if(campo==='ano')_negTurmaAno=v;else _negTurmaMes=
 function negTurmaLimpar(){_negTurmaAno='';_negTurmaMes='';renderNegProdutos();}
 function negProdutosDados(){
   const d=(_negocio&&_negocio.dados)||{};
-  const pt=d.por_produto_turma||[];
-  if((!_negTurmaAno&&!_negTurmaMes)||!pt.length)return {linhas:d.top_produtos||[],filtrado:false};
+  const temFiltro=!!(_negTurmaAno||_negTurmaMes||_negUFsel.size);
+  const cubo=d.cubo_produto;
+  if(!temFiltro||!cubo||!cubo.linhas||!cubo.linhas.length){
+    // retrato antigo (sem o cubo) ainda consegue filtrar por turma, só não por estado
+    const pt=d.por_produto_turma||[];
+    if(temFiltro&&pt.length&&!_negUFsel.size){
+      const a={};
+      for(const x of pt){
+        if(_negTurmaAno&&String(x.ano||'')!==String(_negTurmaAno))continue;
+        if(_negTurmaMes&&String(x.mes||'')!==String(_negTurmaMes))continue;
+        (a[x.produto]=a[x.produto]||{produto:x.produto,vendas:0,receita:0});
+        a[x.produto].vendas+=x.vendas;a[x.produto].receita+=x.receita;
+      }
+      return {linhas:Object.values(a).sort((x,y)=>y.receita-x.receita),filtrado:true,porEstado:false};
+    }
+    return {linhas:d.top_produtos||[],filtrado:false,porEstado:!!cubo};
+  }
   const agg={};
-  for(const x of pt){
+  for(const x of cubo.linhas){
+    if(_negUFsel.size&&!_negUFsel.has(x.uf))continue;
     if(_negTurmaAno&&String(x.ano||'')!==String(_negTurmaAno))continue;
     if(_negTurmaMes&&String(x.mes||'')!==String(_negTurmaMes))continue;
-    (agg[x.produto]=agg[x.produto]||{produto:x.produto,vendas:0,receita:0});
-    agg[x.produto].vendas+=x.vendas;agg[x.produto].receita+=x.receita;
+    const nome=cubo.produtos[x.p];
+    (agg[nome]=agg[nome]||{produto:nome,vendas:0,receita:0});
+    agg[nome].vendas+=x.v;agg[nome].receita+=x.r;
   }
-  return {linhas:Object.values(agg).sort((a,b)=>b.receita-a.receita),filtrado:true};
+  return {linhas:Object.values(agg).sort((a,b)=>b.receita-a.receita),filtrado:true,porEstado:true};
 }
 function renderNegProdutos(){
   const el=document.getElementById('negProdCard');if(!el||!_negocio)return;
   const d=_negocio.dados,turmas=d.turmas||[];
-  const {linhas,filtrado}=negProdutosDados();
+  const {linhas,filtrado,porEstado}=negProdutosDados();
   const top=linhas.slice(0,15);
   const anos=[...new Set(turmas.filter(t=>t.ano).map(t=>t.ano))].sort((a,b)=>b-a);
   const meses=[...new Set(turmas.filter(t=>t.mes).map(t=>t.mes))].sort((a,b)=>a-b);
@@ -11793,11 +11856,12 @@ function renderNegProdutos(){
       </div>`:''}
     </div>
     <div id="negProdNota" style="font-size:11.5px;color:var(--muted);margin-bottom:8px"></div>
-    ${filtrado?`<div style="font-size:12px;color:var(--accent);margin-bottom:8px">${
-      _negTurmaAno&&_negTurmaMes?`Turma ${NEG_MES_NOME[_negTurmaMes]||_negTurmaMes}/${_negTurmaAno}`
-      :_negTurmaAno?`Turmas de ${_negTurmaAno}`
-      :`Turmas de ${NEG_MES_NOME[_negTurmaMes]||_negTurmaMes}, em todos os anos`
-    } · ${(()=>{const v=linhas.reduce((s,x)=>s+x.vendas,0);return n(v)+' venda'+(v===1?'':'s')})()} · ${fmt(totRec)}</div>`:''}
+    ${filtrado?`<div style="font-size:12px;color:var(--accent);margin-bottom:8px">${[
+      _negUFsel.size?`Estado${_negUFsel.size>1?'s':''} ${[..._negUFsel].join(', ')}`:'',
+      _negTurmaAno&&_negTurmaMes?`turma ${NEG_MES_NOME[_negTurmaMes]||_negTurmaMes}/${_negTurmaAno}`
+        :_negTurmaAno?`turmas de ${_negTurmaAno}`
+        :_negTurmaMes?`turmas de ${NEG_MES_NOME[_negTurmaMes]||_negTurmaMes}, em todos os anos`:''
+    ].filter(Boolean).join(' · ')} · ${(()=>{const v=linhas.reduce((s,x)=>s+x.vendas,0);return n(v)+' venda'+(v===1?'':'s')})()} · ${fmt(totRec)}</div>`:''}
     ${top.length?`<div style="height:${Math.max(240,top.length*26)}px"><canvas id="negProd"></canvas></div>`:'<div class="empty">Nenhuma venda nessa turma.</div>'}
     ${turmas.length?`<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
       <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.06em;margin-bottom:8px">TURMAS QUE MAIS VENDERAM</div>
@@ -11818,7 +11882,9 @@ function renderNegProdutos(){
 }
 function renderNegProdutosNota(){
   const el=document.getElementById('negProdNota');if(!el)return;
-  el.innerHTML=_negUFsel.size?`<span style="color:var(--accent)">⚠ O filtro de estado (${[..._negUFsel].join(', ')}) não vale para este bloco</span> — a base guarda produto e estado em recortes separados. Para cruzar os dois eu preciso gravar mais um cruzamento no retrato; me peça se for útil.`:'';
+  const temCubo=!!((_negocio&&_negocio.dados&&_negocio.dados.cubo_produto)||{}).linhas;
+  el.innerHTML=(_negUFsel.size&&!temCubo)
+    ?`<span style="color:var(--accent)">⚠ O filtro de estado não vale para este bloco neste retrato</span> — suba a base de novo para o cruzamento produto × estado ser gravado.`:'';
 }
 function renderParceiros(){
   const el=document.getElementById('negParcView');if(!el)return;
