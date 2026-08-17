@@ -11300,9 +11300,15 @@ function _negData(v){
   const m=String(v||'').match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?new Date(+m[3],+m[2]-1,+m[1]):null;
 }
 // separado do upload pra dar pra testar o cálculo sem depender de banco nem de sessão
-async function negocioProcessar(arquivos,aviso){
+async function negocioProcessar(arquivos,aviso,emAberto){
   const arqs=Array.isArray(arquivos)?arquivos:[arquivos];
   const setMsg=t=>{if(aviso)aviso(t)};
+  /* FATURADO x RECEBIDO. A base lança a venda pelo valor CHEIO na data em que foi feita — inclusive a
+     recorrência, que na verdade entra mês a mês. O relatório de inadimplência diz, por pedido, quanto
+     ainda não entrou. Cruzando pelo Id (que casa 100%), cada venda passa a ter os dois números:
+     o que foi vendido e o que de fato caiu. Sem o relatório subido, recebido = faturado. */
+  const _aberto=new Map();
+  for(const x of (emAberto||[]))if(x&&x.i)_aberto.set(String(x.i),+x.a||0);
   {
     /* Aceita mais de um arquivo porque o histórico veio partido: 2020 e 2021 saíram da plataforma
        em relatórios separados e a base grande começa em 2022. O Id do pedido é único na base inteira
@@ -11316,6 +11322,7 @@ async function negocioProcessar(arquivos,aviso){
       for(const l of XLSX.utils.sheet_to_json(wb.Sheets[aba],{defval:''})){
         const id=String(l.Id||l.id||l.ID||'').trim();
         if(id){if(vistos.has(id)){repetidas++;continue}vistos.add(id)}
+        l.__id=id;
         linhas.push(l);
       }
     }
@@ -11325,6 +11332,7 @@ async function negocioProcessar(arquivos,aviso){
     const alunos={},mesMap={},diaMap={},prodMap={};let creditos=0;
     const cortesiaK={},seletivoK={},devolK={};let devN=0,devVal=0;
     const ufMap={},ufMesMap={};let semUF=0,ufPorCep=0,ufPorDdd=0;
+    let recebidoTot=0,naoRecebido=0,vendasComAberto=0;
     const refMap={},prodRefMap={},cuboMap={};
     const devMes={},gratMes={},prodMesMap={};
     // acesso ao longo do tempo: guardo os intervalos pra depois montar "ativos ao fim de cada mês"
@@ -11354,9 +11362,14 @@ async function negocioProcessar(arquivos,aviso){
       if(!NEG_VENDA.has(st))continue;
       const meses=_negMeses(prod);if(meses===0)creditos++;
       const mk=dt.toISOString().slice(0,7),dk=dt.toISOString().slice(0,10);
-      (mesMap[mk]=mesMap[mk]||{mes:mk,vendas:0,receita:0,novos:0});mesMap[mk].vendas++;mesMap[mk].receita+=val;
+      // o que ainda não entrou desta venda (0 quando o pedido não está no relatório de inadimplência)
+      const emAb=_aberto.get(l.__id||'')||0;
+      const rec=Math.max(0,val-emAb);
+      if(emAb>0){naoRecebido+=Math.min(emAb,val);vendasComAberto++}
+      recebidoTot+=rec;
+      (mesMap[mk]=mesMap[mk]||{mes:mk,vendas:0,receita:0,recebido:0,novos:0});mesMap[mk].vendas++;mesMap[mk].receita+=val;mesMap[mk].recebido+=rec;
       // série DIÁRIA: é o que permite o calendário com intervalo livre e o comparativo de período
-      (diaMap[dk]=diaMap[dk]||{dia:dk,vendas:0,receita:0,novos:0});diaMap[dk].vendas++;diaMap[dk].receita+=val;
+      (diaMap[dk]=diaMap[dk]||{dia:dk,vendas:0,receita:0,recebido:0,novos:0});diaMap[dk].vendas++;diaMap[dk].receita+=val;diaMap[dk].recebido+=rec;
       // estado: CEP primeiro (é o endereço declarado); DDD do telefone como segunda fonte
       let uf=_negUF(col(l,'cep'));
       if(uf)ufPorCep++;
@@ -11428,6 +11441,8 @@ async function negocioProcessar(arquivos,aviso){
     const dados={gerado_em:new Date().toISOString(),
       periodo:{de:Object.keys(mesMap).sort()[0]+'-01',ate:hoje.toISOString().slice(0,10)},
       alunos:chaves.length,compras:chaves.reduce((s,k)=>s+alunos[k].n,0),faturamento:+fat.toFixed(2),
+      recebido:+recebidoTot.toFixed(2),nao_recebido:+naoRecebido.toFixed(2),vendas_com_aberto:vendasComAberto,
+      tem_recebido:(emAberto||[]).length>0,
       ltv_medio:+(fat/chaves.length).toFixed(2),
       ltv_recomprador:+(rec.reduce((s,k)=>s+alunos[k].tot,0)/(rec.length||1)).toFixed(2),
       recompradores:rec.length,pct_recompra:+(rec.length*100/chaves.length).toFixed(1),
@@ -11505,7 +11520,8 @@ async function negocioUpload(input){
   const fonte=arqs.map(a=>a.name).join(' + ');
   msg.style.color='';msg.textContent=`Lendo ${arqs.length>1?arqs.length+' arquivos':arqs[0].name} (${mb}MB)… pode levar 1 a 2 minutos.`;
   try{
-    const dados=await negocioProcessar(arqs,t=>{msg.textContent=t});
+    const abertos=((_inad&&_inad.dados&&_inad.dados.abertos)||[]);
+    const dados=await negocioProcessar(arqs,t=>{msg.textContent=t},abertos);
     msg.textContent='Salvando o retrato…';
     const {error}=await sb.from('client_business_snapshot').upsert({client_id:cid,fonte,dados,gerado_em:new Date().toISOString()});
     if(error)throw error;
@@ -11626,6 +11642,10 @@ async function inadProcessar(arquivos,aviso){
      Guardo os mesmos números dos cards por mês, e também parcela-parada e produto por mês, senão o
      filtro mexeria só nos totais e os blocos de baixo continuariam mostrando a base inteira. */
   const porMes={},pagasMes={},prodMes={};
+  /* Em aberto POR ID do pedido. É o que permite dizer, na tela de vendas, quanto de cada venda já
+     entrou — o ID casa 100% com a base (4.179 de 4.179 conferidos). Aqui só vai id e valor: nome e
+     e-mail do aluno continuam fora do retrato. */
+  const abertos=[];
   let contratos=0,aberto=0,vencido=0,aVencer=0,parcelasAbertas=0,parcelasContratadas=0;
   for(const l of linhas){
     const qtd=Math.round(_inadNum(col(l,'qtd')))||0;
@@ -11634,6 +11654,8 @@ async function inadProcessar(arquivos,aviso){
     if(!qtd||!abertas)continue;
     const vAberto=_inadNum(col(l,'total em aberto'));
     contratos++;aberto+=vAberto;parcelasAbertas+=abertas;parcelasContratadas+=qtd;
+    const _id=String(col(l,'id')||'').trim();
+    if(_id&&vAberto>0)abertos.push({i:_id,a:+vAberto.toFixed(2)});
     const pagas=Math.max(0,qtd-abertas);
     const k=`${pagas}/${qtd}`;(porPagas[k]=porPagas[k]||{pagas,qtd,contratos:0,aberto:0});porPagas[k].contratos++;porPagas[k].aberto+=vAberto;
     const cri=_inadData(col(l,'cria'));
@@ -11668,7 +11690,8 @@ async function inadProcessar(arquivos,aviso){
     top_produtos:Object.values(porProduto).sort((a,b)=>b.aberto-a.aberto).slice(0,15).map(x=>({...x,aberto:r2(x.aberto)})),
     por_mes:Object.values(porMes).map(x=>({...x,aberto:r2(x.aberto)})).sort((a,b)=>a.mes<b.mes?-1:1),
     por_pagas_mes:Object.values(pagasMes).map(x=>({...x,aberto:r2(x.aberto)})),
-    por_produto_mes:Object.values(prodMes).map(x=>({...x,aberto:r2(x.aberto)}))};
+    por_produto_mes:Object.values(prodMes).map(x=>({...x,aberto:r2(x.aberto)})),
+    abertos};
 }
 async function inadUpload(input){
   const arqs=[...(input.files||[])];if(!arqs.length)return;
@@ -11686,7 +11709,8 @@ async function inadUpload(input){
     _negMenuMostra(true);
     renderInad();
     const m2=document.getElementById('inadUpMsg');
-    if(m2){m2.style.color='var(--accent)';m2.textContent=`✓ ${dados.contratos.toLocaleString('pt-BR')} contratos com parcela em aberto.`}
+    if(m2){m2.style.color='var(--accent)';m2.textContent=`✓ ${dados.contratos.toLocaleString('pt-BR')} contratos com parcela em aberto.`+
+      (_negocio&&_negocio.dados&&!_negocio.dados.tem_recebido?' Suba a base de vendas de novo para o Dash mostrar faturado × recebido.':'')}
   }catch(e){if(msg){msg.style.color='var(--red)';msg.textContent='Não consegui ler: '+(e.message||e)}}
   input.value='';
 }
@@ -12168,8 +12192,8 @@ function negFiltros(){
 }
 function negSerieMes(){
   const d=(_negocio&&_negocio.dados)||{},f=negFiltros();
-  const soma=(map,it)=>{(map[it.mes]=map[it.mes]||{mes:it.mes,vendas:0,receita:0,novos:0});
-    map[it.mes].vendas+=it.vendas||0;map[it.mes].receita+=it.receita||0;map[it.mes].novos+=it.novos||0};
+  const soma=(map,it)=>{(map[it.mes]=map[it.mes]||{mes:it.mes,vendas:0,receita:0,recebido:0,novos:0});
+    map[it.mes].vendas+=it.vendas||0;map[it.mes].receita+=it.receita||0;map[it.mes].recebido+=it.recebido||0;map[it.mes].novos+=it.novos||0};
   if(f.uf.length&&(d.por_estado_mes||[]).length){
     const m={};for(const x of d.por_estado_mes)if(f.uf.includes(x.uf))soma(m,x);
     return {serie:Object.values(m).sort((a,b)=>a.mes<b.mes?-1:1),por:'estado '+f.uf.join(', '),
@@ -12289,8 +12313,8 @@ function negPeriodoAtalho(k){
 function negPeriodoManual(){_negDe=(document.getElementById('negDe')||{}).value||'';_negAte=(document.getElementById('negAte')||{}).value||'';renderNegocio();}
 function negSetCmp(v){_negCmp=v;renderNegocio();}
 function _negSoma(dias,de,ate){
-  const r={vendas:0,receita:0,novos:0};
-  for(const d of dias){if(d.dia>=de&&d.dia<=ate){r.vendas+=d.vendas;r.receita+=d.receita;r.novos+=d.novos}}
+  const r={vendas:0,receita:0,recebido:0,novos:0};
+  for(const d of dias){if(d.dia>=de&&d.dia<=ate){r.vendas+=d.vendas;r.receita+=d.receita;r.recebido+=(d.recebido||0);r.novos+=d.novos}}
   r.ticket=r.vendas?r.receita/r.vendas:0;return r;
 }
 function _negPeriodoAnterior(de,ate){
@@ -12314,8 +12338,10 @@ function renderNegPeriodo(){
   const sm=negSerieMes();
   const mensal=!!sm.por;
   const somaM=(de,ate)=>{const r=sm.serie.filter(x=>x.mes>=de.slice(0,7)&&x.mes<=ate.slice(0,7))
-    .reduce((s,x)=>({receita:s.receita+x.receita,vendas:s.vendas+x.vendas,novos:s.novos+x.novos}),{receita:0,vendas:0,novos:0});
+    .reduce((s,x)=>({receita:s.receita+x.receita,recebido:s.recebido+(x.recebido||0),vendas:s.vendas+x.vendas,novos:s.novos+x.novos}),{receita:0,recebido:0,vendas:0,novos:0});
     return {...r,ticket:r.vendas?r.receita/r.vendas:0}};
+  // por estado/produto o retrato não guarda recebido; melhor esconder o card do que mostrar zero
+  const temRec=!!(_negocio.dados&&_negocio.dados.tem_recebido)&&!sm.por;
   const [pde,pate]=_negPeriodoAnterior(_negDe,_negAte);
   const a=mensal?somaM(_negDe,_negAte):_negSoma(dias,_negDe,_negAte);
   const p=mensal?somaM(pde,pate):_negSoma(dias,pde,pate);
@@ -12335,7 +12361,8 @@ function renderNegPeriodo(){
       </div>
     </div>
     <div class="rt-kpi-grid">
-      <div class="rt-kpi gd" style="cursor:help" title="Faturamento das vendas confirmadas dentro do período escolhido. A variação compara com o período anterior de mesmo tamanho (ou com o ano passado, conforme a escolha ao lado)."><div class="rt-kpi-lbl">Faturamento</div><div class="rt-kpi-val sm">${fmt(a.receita)}</div><div style="margin-top:3px">${_negVar(a.receita,p.receita)} <span style="font-size:10px;color:var(--faint)">${fmt(p.receita)}</span></div></div>
+      <div class="rt-kpi gd" style="cursor:help" title="Valor VENDIDO no período, pelo valor cheio de cada venda. A variação compara com o período anterior de mesmo tamanho (ou com o ano passado, conforme a escolha ao lado)."><div class="rt-kpi-lbl">Faturado</div><div class="rt-kpi-val sm">${fmt(a.receita)}</div><div style="margin-top:3px">${_negVar(a.receita,p.receita)} <span style="font-size:10px;color:var(--faint)">${fmt(p.receita)}</span></div></div>
+      ${temRec?`<div class="rt-kpi gr" style="cursor:help" title="Do que foi vendido nesse período, quanto já entrou. O que falta são parcelas em aberto apontadas pelo relatório de inadimplência, casadas pedido a pedido pelo Id."><div class="rt-kpi-lbl">Recebido</div><div class="rt-kpi-val sm">${fmt(a.recebido)}</div><div style="margin-top:3px"><span style="font-size:10.5px;color:${(a.receita-a.recebido)>0?'#f0c040':'var(--muted)'}">${a.receita?((a.recebido)*100/a.receita).toFixed(1).replace('.',',')+'% do faturado':''}${(a.receita-a.recebido)>0?' · falta '+fmt(a.receita-a.recebido):''}</span></div></div>`:''}
       <div class="rt-kpi" style="cursor:help" title="Quantidade de compras confirmadas no período. Uma pessoa que comprou três vezes conta três vendas."><div class="rt-kpi-lbl">Vendas pagas</div><div class="rt-kpi-val sm">${n(a.vendas)}</div><div style="margin-top:3px">${_negVar(a.vendas,p.vendas)} <span style="font-size:10px;color:var(--faint)">${n(p.vendas)}</span></div></div>
       <div class="rt-kpi gr" style="cursor:help" title="Pessoas cuja PRIMEIRA compra da vida caiu dentro do período. É o que a aquisição trouxe de gente nova."><div class="rt-kpi-lbl">Alunos novos</div><div class="rt-kpi-val sm">${n(a.novos)}</div><div style="margin-top:3px">${_negVar(a.novos,p.novos)} <span style="font-size:10px;color:var(--faint)">${n(p.novos)}</span></div></div>
       <div class="rt-kpi" style="cursor:help" title="Vendas do período feitas por quem já era cliente antes. É a diferença entre as vendas do período e os alunos novos."><div class="rt-kpi-lbl">Recompra no período</div><div class="rt-kpi-val sm">${n(Math.max(0,a.vendas-a.novos))}</div><div style="margin-top:3px"><span style="font-size:10.5px;color:var(--muted)">${a.vendas?((a.vendas-a.novos)*100/a.vendas).toFixed(1).replace('.',',')+'% das vendas':''}</span></div></div>
@@ -12416,7 +12443,8 @@ function renderNegocio(){
         ${_negCard('Permanência efetiva',(d.permanencia_media||0).toFixed(1).replace('.',',')+' meses','tempo real com acesso (soma dos períodos comprados)','','Quanto tempo o aluno REALMENTE teve acesso: somamos os períodos que ele comprou, unindo os que se sobrepõem. Quem comprou 12 meses em 2022 e 12 meses em 2026 conta 24 meses, não 4 anos.')}
         ${_negCard('Permanência · recomprador',(d.permanencia_recomprador||0).toFixed(1).replace('.',',')+' meses','quem volta fica quase o dobro','','A mesma permanência efetiva, considerando só quem comprou mais de uma vez.')}
         ${_negCard('Alunos únicos',n(d.alunos),`${n(d.compras)} compras pagas`,'','Pessoas distintas que já compraram, contadas uma vez só por CPF (ou e-mail, quando não há CPF), mesmo que tenham comprado várias vezes. Não inclui acesso de cortesia nem inscrito em processo seletivo.')}
-        ${_negCard('Faturamento acumulado',fmt(d.faturamento),'desde o início da base','','Soma do valor de todas as vendas confirmadas da base inteira. Não desconta estorno nem parcela que ficou em aberto — é o que foi vendido.')}
+        ${_negCard('Faturado acumulado',fmt(d.faturamento),'desde o início da base','','Soma do valor de todas as vendas confirmadas da base inteira, pelo valor cheio e na data da venda. É o que foi VENDIDO — não desconta parcela que ficou em aberto.')}
+        ${d.tem_recebido?_negCard('Recebido acumulado',fmt(d.recebido),`${fmt(d.nao_recebido)} ainda não entrou`,'gr','Do que foi vendido, quanto já entrou. Desconta as parcelas em aberto que o relatório de inadimplência aponta, casadas pedido a pedido pelo Id. Vale para o que foi vendido no período, mesmo que o dinheiro tenha caído depois.'):''}
       </div>
       <div style="margin-top:12px;padding:10px 12px;background:var(--surface2);border-radius:10px;font-size:11.5px;color:var(--muted)">
         <b>Período de relacionamento: ${(d.relacionamento_medio||0).toFixed(1).replace('.',',')} meses.</b>
@@ -12471,8 +12499,9 @@ function renderNegocio(){
   const escala=Math.max(1,...serieG.map(x=>x.receita));
   if(ctx('negFat'))_negCharts.fat=new Chart(ctx('negFat'),{data:{labels:meses,datasets:[
     {type:'bar',label:'Vendas',data:serieG.map(x=>x.vendas),backgroundColor:'rgba(168,85,247,.45)',yAxisID:'y1'},
-    {type:'line',label:'Faturamento',data:serieG.map(x=>x.receita),borderColor:'#ffd42a',backgroundColor:'rgba(255,213,42,.1)',tension:.3,fill:true,yAxisID:'y'}]},
-    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'#c9c9c1'}},tooltip:{callbacks:{label:c=>c.dataset.label==='Faturamento'?`Faturamento: ${fmt(c.raw)}`:`Vendas: ${Math.round(c.raw).toLocaleString('pt-BR')}`}}},
+    {type:'line',label:'Faturado',data:serieG.map(x=>x.receita),borderColor:'#ffd42a',backgroundColor:'rgba(255,213,42,.1)',tension:.3,fill:true,yAxisID:'y'},
+    ...((d.tem_recebido&&!sm.por)?[{type:'line',label:'Recebido',data:serieG.map(x=>x.recebido||0),borderColor:'#34d399',backgroundColor:'rgba(52,211,153,.06)',borderDash:[5,4],tension:.3,fill:false,yAxisID:'y'}]:[])]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'#c9c9c1'}},tooltip:{callbacks:{label:c=>c.dataset.label==='Vendas'?`Vendas: ${Math.round(c.raw).toLocaleString('pt-BR')}`:`${c.dataset.label}: ${fmt(c.raw)}`}}},
     scales:{x:eixo,y:{...eixo,position:'left',ticks:{...eixo.ticks,callback:v=>'R$ '+(escala>=1e6?(v/1e6).toFixed(1)+'mi':(v/1e3).toFixed(0)+'k')}},y1:{...eixo,position:'right',grid:{drawOnChartArea:false}}}}});
   // sem "novos" por produto, este gráfico volta pra base inteira em vez de mostrar barra vazia
   const serieN=sm.semNovos?(d.serie_mensal||[]):serieG;
