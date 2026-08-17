@@ -11307,7 +11307,7 @@ async function negocioProcessar(arquivos,aviso,emAberto){
      recorrência, que na verdade entra mês a mês. O relatório de inadimplência diz, por pedido, quanto
      ainda não entrou. Cruzando pelo Id (que casa 100%), cada venda passa a ter os dois números:
      o que foi vendido e o que de fato caiu. Sem o relatório subido, recebido = faturado. */
-  const _aberto=new Map();
+  const _aberto=new Map(),_casados=new Set();
   for(const x of (emAberto||[]))if(x&&x.i)_aberto.set(String(x.i),+x.a||0);
   {
     /* Aceita mais de um arquivo porque o histórico veio partido: 2020 e 2021 saíram da plataforma
@@ -11365,7 +11365,7 @@ async function negocioProcessar(arquivos,aviso,emAberto){
       // o que ainda não entrou desta venda (0 quando o pedido não está no relatório de inadimplência)
       const emAb=_aberto.get(l.__id||'')||0;
       const rec=Math.max(0,val-emAb);
-      if(emAb>0){naoRecebido+=Math.min(emAb,val);vendasComAberto++}
+      if(emAb>0){naoRecebido+=Math.min(emAb,val);vendasComAberto++;_casados.add(l.__id)}
       recebidoTot+=rec;
       (mesMap[mk]=mesMap[mk]||{mes:mk,vendas:0,receita:0,recebido:0,novos:0});mesMap[mk].vendas++;mesMap[mk].receita+=val;mesMap[mk].recebido+=rec;
       // série DIÁRIA: é o que permite o calendário com intervalo livre e o comparativo de período
@@ -11443,6 +11443,13 @@ async function negocioProcessar(arquivos,aviso,emAberto){
       alunos:chaves.length,compras:chaves.reduce((s,k)=>s+alunos[k].n,0),faturamento:+fat.toFixed(2),
       recebido:+recebidoTot.toFixed(2),nao_recebido:+naoRecebido.toFixed(2),vendas_com_aberto:vendasComAberto,
       tem_recebido:(emAberto||[]).length>0,
+      /* O relatorio de inadimplencia é maior do que o pedaço que afeta o faturamento: a maior parte dele
+         são pedidos que NUNCA entraram como venda (aguardando pagamento). Guardar o total e o quanto
+         casou com venda contada é o que permite a tela explicar por que os dois números diferem. */
+      aberto_relatorio:+(emAberto||[]).reduce((t,x)=>t+(+x.a||0),0).toFixed(2),
+      aberto_em_vendas:+naoRecebido.toFixed(2),
+      aberto_fora_do_faturamento:+Math.max(0,(emAberto||[]).reduce((t,x)=>t+(+x.a||0),0)-naoRecebido).toFixed(2),
+      contratos_relatorio:(emAberto||[]).length,contratos_casados:_casados.size,
       ltv_medio:+(fat/chaves.length).toFixed(2),
       ltv_recomprador:+(rec.reduce((s,k)=>s+alunos[k].tot,0)/(rec.length||1)).toFixed(2),
       recompradores:rec.length,pct_recompra:+(rec.length*100/chaves.length).toFixed(1),
@@ -11774,6 +11781,30 @@ function _inadBarraPeriodo(f){
   </div>`;
 }
 const _inadBR=m=>{const [a,b]=String(m||'').split('-');return b?`${NEG_MES_NOME[+b]||b}/${a}`:a||''};
+/* Por que o "valor em aberto" daqui nao bate com o "falta" do Dash de venda: sao populacoes
+   diferentes. Este relatorio traz TODO contrato com parcela em aberto — e a maior parte deles esta em
+   "Aguardando Pagamento", ou seja, nunca entrou no faturamento. Só o pedaco que casou com uma venda
+   contada e que derruba o recebido. Sem isso escrito, os dois numeros parecem contradicao. */
+function _inadNotaFaturamento(){
+  const v=(_negocio&&_negocio.dados)||{};
+  if(!v.aberto_relatorio)return '';
+  const n=x=>Math.round(x||0).toLocaleString('pt-BR');
+  const pct=v.aberto_relatorio?(v.aberto_em_vendas*100/v.aberto_relatorio):0;
+  return `<div class="card" style="margin-bottom:16px;border-color:rgba(52,211,153,.3)">
+    <h3 title="O relatório de inadimplência é maior do que o pedaço que afeta o faturamento." style="cursor:help;margin-top:0">🔗 Quanto disto afeta o faturamento</h3>
+    <div class="rt-kpi-grid">
+      ${_negCard('Em aberto no relatório',fmt(v.aberto_relatorio),`${n(v.contratos_relatorio)} contratos`,'ye','Tudo que o relatório de inadimplência aponta como não pago, na base inteira.')}
+      ${_negCard('Está em venda contada',fmt(v.aberto_em_vendas),`${n(v.contratos_casados)} contratos · ${pct.toFixed(1).replace('.',',')}% do total`,'','Parte que pertence a pedidos que ENTRARAM no faturamento. É exatamente o que aparece como "falta" no card Recebido do Dash de venda.')}
+      ${_negCard('Nunca entrou no faturamento',fmt(v.aberto_fora_do_faturamento),'pedido não contado como venda','gr','Contratos que estão em "Aguardando Pagamento" ou "Pagamento Pendente": nunca foram contados como venda, então não há o que descontar do faturamento.')}
+    </div>
+    <div style="margin-top:12px;padding:10px 12px;background:var(--surface2);border-radius:10px;font-size:11.5px;color:var(--muted)">
+      É por isso que o <b>valor em aberto</b> desta tela é maior que o <b>"falta"</b> do card Recebido: aqui
+      entra todo contrato com parcela não paga, inclusive o que nunca foi contado como venda. Lá só entra
+      o que efetivamente inflaria o faturamento. Os números desta faixa são da <b>base inteira</b>, não do
+      período filtrado acima.
+    </div>
+  </div>`;
+}
 function renderInad(){
   const el=document.getElementById('negInadView');if(!el)return;
   if(!_inad||!_inad.dados){el.innerHTML=_negUploadVazio('inadimplência','inadUpFile','inadUpload',
@@ -11842,6 +11873,8 @@ function renderInad(){
           <td style="padding:7px 8px;text-align:right;border-bottom:1px solid var(--border);font-weight:700">${fmt(x.aberto)}</td></tr>`).join('')}</tbody>
       </table>
     </div>
+
+    ${_inadNotaFaturamento()}
 
     <div class="card" style="border-color:rgba(255,213,42,.3)">
       <div style="font-size:12.5px;color:var(--muted)">
@@ -12362,7 +12395,7 @@ function renderNegPeriodo(){
     </div>
     <div class="rt-kpi-grid">
       <div class="rt-kpi gd" style="cursor:help" title="Valor VENDIDO no período, pelo valor cheio de cada venda. A variação compara com o período anterior de mesmo tamanho (ou com o ano passado, conforme a escolha ao lado)."><div class="rt-kpi-lbl">Faturado</div><div class="rt-kpi-val sm">${fmt(a.receita)}</div><div style="margin-top:3px">${_negVar(a.receita,p.receita)} <span style="font-size:10px;color:var(--faint)">${fmt(p.receita)}</span></div></div>
-      ${temRec?`<div class="rt-kpi gr" style="cursor:help" title="Do que foi vendido nesse período, quanto já entrou. O que falta são parcelas em aberto apontadas pelo relatório de inadimplência, casadas pedido a pedido pelo Id."><div class="rt-kpi-lbl">Recebido</div><div class="rt-kpi-val sm">${fmt(a.recebido)}</div><div style="margin-top:3px"><span style="font-size:10.5px;color:${(a.receita-a.recebido)>0?'#f0c040':'var(--muted)'}">${a.receita?((a.recebido)*100/a.receita).toFixed(1).replace('.',',')+'% do faturado':''}${(a.receita-a.recebido)>0?' · falta '+fmt(a.receita-a.recebido):''}</span></div></div>`:''}
+      ${temRec?`<div class="rt-kpi gr" style="cursor:help" title="Do que foi vendido nesse período, quanto já entrou. O que falta são parcelas em aberto apontadas pelo relatório de inadimplência, casadas pedido a pedido pelo Id. Este valor é MENOR que o total em aberto da tela de Inadimplência: lá entra todo contrato em atraso, inclusive os que nunca foram contados como venda."><div class="rt-kpi-lbl">Recebido</div><div class="rt-kpi-val sm">${fmt(a.recebido)}</div><div style="margin-top:3px"><span style="font-size:10.5px;color:${(a.receita-a.recebido)>0?'#f0c040':'var(--muted)'}">${a.receita?((a.recebido)*100/a.receita).toFixed(1).replace('.',',')+'% do faturado':''}${(a.receita-a.recebido)>0?' · falta '+fmt(a.receita-a.recebido)+' em parcelas':''}</span></div></div>`:''}
       <div class="rt-kpi" style="cursor:help" title="Quantidade de compras confirmadas no período. Uma pessoa que comprou três vezes conta três vendas."><div class="rt-kpi-lbl">Vendas pagas</div><div class="rt-kpi-val sm">${n(a.vendas)}</div><div style="margin-top:3px">${_negVar(a.vendas,p.vendas)} <span style="font-size:10px;color:var(--faint)">${n(p.vendas)}</span></div></div>
       <div class="rt-kpi gr" style="cursor:help" title="Pessoas cuja PRIMEIRA compra da vida caiu dentro do período. É o que a aquisição trouxe de gente nova."><div class="rt-kpi-lbl">Alunos novos</div><div class="rt-kpi-val sm">${n(a.novos)}</div><div style="margin-top:3px">${_negVar(a.novos,p.novos)} <span style="font-size:10px;color:var(--faint)">${n(p.novos)}</span></div></div>
       <div class="rt-kpi" style="cursor:help" title="Vendas do período feitas por quem já era cliente antes. É a diferença entre as vendas do período e os alunos novos."><div class="rt-kpi-lbl">Recompra no período</div><div class="rt-kpi-val sm">${n(Math.max(0,a.vendas-a.novos))}</div><div style="margin-top:3px"><span style="font-size:10.5px;color:var(--muted)">${a.vendas?((a.vendas-a.novos)*100/a.vendas).toFixed(1).replace('.',',')+'% das vendas':''}</span></div></div>
