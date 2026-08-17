@@ -14434,10 +14434,22 @@ function renderAgentAttachChips(){
   const el=document.getElementById('agentAttachChips');if(!el)return;
   el.innerHTML=_agentAnexos.map((a,i)=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:3px 10px;font-size:12px">${a.tipo==='imagem'?'🖼':'📄'} ${(a.nome||'anexo').replace(/</g,'&lt;')} <span style="cursor:pointer;color:var(--faint);font-weight:700" onclick="_agentAnexos.splice(${i},1);renderAgentAttachChips()">×</span></span>`).join('');
 }
+/* Print de painel é imagem de TEXTO: se comprimir demais, o número fica ilegível e a IA "chuta" — que foi
+   exatamente o que aconteceu. Então mantemos resolução e qualidade alta, e só apertamos se ficar pesado
+   a ponto de derrubar a chamada (o servidor recusa acima de ~4MB). */
 function _resizeImageToDataUrl(file,maxPx){
   return new Promise((res,rej)=>{
     const img=new Image();
-    img.onload=()=>{const sc=Math.min(1,maxPx/Math.max(img.width,img.height));const cv=document.createElement('canvas');cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);res(cv.toDataURL('image/jpeg',.85));URL.revokeObjectURL(img.src);};
+    img.onload=()=>{
+      const sc=Math.min(1,maxPx/Math.max(img.width,img.height));
+      const cv=document.createElement('canvas');
+      cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);
+      const cx=cv.getContext('2d');
+      cx.imageSmoothingQuality='high';cx.drawImage(img,0,0,cv.width,cv.height);
+      let url=cv.toDataURL('image/jpeg',.92);
+      for(const q of [.85,.75,.65]){if(url.length<=3_000_000)break;url=cv.toDataURL('image/jpeg',q)}
+      res(url);URL.revokeObjectURL(img.src);
+    };
     img.onerror=rej;img.src=URL.createObjectURL(file);
   });
 }
@@ -14452,7 +14464,7 @@ async function agentAttachFiles(files){
   for(const f of [...files].slice(0,4)){
     try{
       if(f.type.startsWith('image/')){
-        const dataUrl=await _resizeImageToDataUrl(f,1280);
+        const dataUrl=await _resizeImageToDataUrl(f,1800); // print de painel precisa de nitidez pra ler número
         _agentAnexos.push({tipo:'imagem',nome:f.name,dataUrl});
       }else if(/\.pdf$/i.test(f.name)){
         const texto=await extractPdfText(f);
@@ -14494,7 +14506,10 @@ async function sendAgentMessage(){
     await persistAgentChat();
   }catch(e){
     agentActiveChat.messages=agentActiveChat.messages.filter(m=>m.role!=='typing');
-    agentActiveChat.messages.push({role:'assistant',text:'Erro ao consultar a IA: '+e.message});
+    agentActiveChat.messages.push({role:'assistant',text:'Erro ao consultar a IA: '+e.message+(anexos.length?'\n\nDevolvi seu anexo e sua pergunta pro campo abaixo — é só apertar Enviar de novo.':'')});
+    // falhou: devolve pergunta e anexo. Sem isso a imagem se perde e a pessoa precisa anexar tudo outra vez.
+    if(anexos.length){_agentAnexos=anexos.slice(0,4);renderAgentAttachChips();}
+    if(q&&!inp.value.trim())inp.value=q;
   }
   btn.disabled=false;inp.disabled=false;renderAgentChat();inp.focus();
 }

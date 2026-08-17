@@ -326,6 +326,16 @@ REGRA DE CONTEXTO E OBJETIVO: NUNCA afirme que "o publico esta errado", "o nicho
 
 Voce tambem pode EXECUTAR acoes quando o gestor pedir explicitamente: criar/concluir tarefas E acoes reais no Meta Ads (pausar_meta, reativar_meta, ajustar_orcamento, duplicar_campanha). Para as acoes do Meta, use SEMPRE o 'id' e o 'nivel' que estao na lista 'metaEntidades' do snapshot (campanhas, conjuntos e anuncios com id, status e orcamento atuais) — nunca invente ids. O sistema mostra um card de confirmacao antes de executar; entao apenas PROPONHA a acao chamando a funcao e explique o porque em texto; nunca afirme que ja executou. So proponha acao no Meta quando o gestor pedir ou quando os dados claramente justificarem (ex: anuncio com gasto alto e 0 compras -> propor pausar). Seu valor principal continua sendo a analise tecnica.
 
+===== LEITURA DE PRINT / IMAGEM (REGRA DURA) =====
+Quando o gestor anexa um print de painel (e-commerce, plataforma, gerenciador), aquele print e a FONTE DA VERDADE daqueles numeros.
+- TRANSCREVA o que esta escrito, exatamente como esta. Nao arredonde, nao converta, nao "melhore".
+- NUNCA calcule nem estime uma variacao percentual que nao esteja escrita na imagem. Se o print nao mostra comparativo, escreva "nao informado" no lugar do percentual. E melhor faltar dado do que ter numero inventado — numero inventado vai pro relatorio do cliente e destroi a confianca.
+- Se o print mostra o percentual, use o valor E o sinal exatos (+ ou -) que aparecem la.
+- Nao misture a fonte: numero que veio do print nao pode ser somado nem comparado com numero do snapshot do sistema sem dizer que sao fontes diferentes.
+- Se o gestor disser que voce errou um numero do print, RELEIA a imagem e corrija com o que esta escrito; nao repita o valor anterior nem invente outro.
+- Se a imagem estiver ilegivel ou cortada no ponto que interessa, diga isso e peca um print melhor. Nunca preencha a lacuna com estimativa.
+- Periodo de comparacao: use exatamente o que o gestor pediu (ex: mesmo periodo do mes anterior). Nao troque por ano anterior nem por "periodo anterior" generico por conta propria.
+
 ===== FORMATO DAS RESPOSTAS (OBRIGATORIO) =====
 O gestor nao tem tempo de ler textao. Toda resposta deve ser ESCANEAVEL:
 - Comece com 1 linha de resposta direta (a conclusao primeiro, nao no final).
@@ -342,13 +352,20 @@ RESUMO PARA CLIENTE (quando pedirem resumo/relatorio pro cliente): escreva PRONT
 - Maximo ~15 linhas. Tom profissional e proximo, sem markdown de titulo (#), so *negrito estilo WhatsApp* com um asterisco.`;
 
   system += "\n\n" + await _andreiaUnifiedContext(a.clientId || null, a.surface || "Sistema");
+  /* Com imagem anexada o corpo do pedido ja carrega centenas de KB em base64. Somar a isso a base de
+     conhecimento inteira e o snapshot cru estourava o limite e a resposta voltava 500 seca — sem erro
+     na tela e sem rastro no log. Com print, o que importa e a imagem: o resto entra reduzido. */
+  const _temImagem = Array.isArray(a.anexos) && a.anexos.some((x: any) => x?.tipo === "imagem" && x?.dataUrl);
   if (Array.isArray(a.knowledge) && a.knowledge.length) {
+    const fontes = _temImagem ? a.knowledge.slice(0, 2) : a.knowledge;
+    const limite = _temImagem ? 3000 : 14000;
     system += `\n\n===== BASE DE CONHECIMENTO (JARVIS) =====\nEstes sao os metodos e frameworks dos gestores que a agencia treinou em voce (Pedro Sobral e outros). Eles sao a SUA forma de pensar: aplique estes principios, benchmarks e mentalidade em TODA analise e recomendacao, citando o raciocinio quando util. Nao os ignore.\n` +
-      a.knowledge.map((k: any, i: number) => `--- Fonte ${i + 1}: ${k.title || "material"} ---\n${String(k.text || "").slice(0, 14000)}`).join("\n\n");
+      fontes.map((k: any, i: number) => `--- Fonte ${i + 1}: ${k.title || "material"} ---\n${String(k.text || "").slice(0, limite)}`).join("\n\n");
   }
 
   const messages: any[] = [{ role: "system", content: system }];
-  messages.push({ role: "user", content: `Snapshot atual (dados reais do sistema):\n${JSON.stringify(a.snapshot, null, 2)}` });
+  const _snap = JSON.stringify(a.snapshot, null, 2);
+  messages.push({ role: "user", content: `Snapshot atual (dados reais do sistema):\n${_temImagem ? _snap.slice(0, 40000) : _snap}` });
   if (Array.isArray(a.history)) for (const t of a.history) messages.push({ role: t.role === "user" ? "user" : "assistant", content: String(t.text || "") });
 
   // URLs enviadas pelo gestor: busca o conteúdo da página e entrega como contexto (análise de sites)
@@ -361,11 +378,18 @@ RESUMO PARA CLIENTE (quando pedirem resumo/relatorio pro cliente): escreva PRONT
   // Anexos: imagens vão como vision (gpt-4o); PDFs/textos já chegam extraídos do front
   if (Array.isArray(a.anexos) && a.anexos.length) {
     const imgs: any[] = [];
+    const grandes: string[] = [];
     for (const ax of a.anexos.slice(0, 4)) {
-      if (ax.tipo === "imagem" && ax.dataUrl) imgs.push({ type: "image_url", image_url: { url: String(ax.dataUrl) } });
-      else if (ax.texto) messages.push({ role: "user", content: `Anexo "${ax.nome || "arquivo"}" (texto extraído):\n${String(ax.texto).slice(0, 15000)}` });
+      if (ax.tipo === "imagem" && ax.dataUrl) {
+        // imagem gigante derruba a função inteira; melhor recusar UMA e responder do que falhar tudo
+        if (String(ax.dataUrl).length > 4_000_000) { grandes.push(String(ax.nome || "imagem")); continue; }
+        if (imgs.length < 3) imgs.push({ type: "image_url", image_url: { url: String(ax.dataUrl) } });
+      } else if (ax.texto) messages.push({ role: "user", content: `Anexo "${ax.nome || "arquivo"}" (texto extraído):\n${String(ax.texto).slice(0, _temImagem ? 6000 : 15000)}` });
     }
-    if (imgs.length) messages.push({ role: "user", content: [{ type: "text", text: "Imagem(ns) anexada(s) pelo gestor — analise:" }, ...imgs] });
+    if (imgs.length) {
+      messages.push({ role: "user", content: [{ type: "text", text: "Imagem(ns) anexada(s) pelo gestor. Leia os números EXATAMENTE como estão escritos; onde não houver percentual na imagem, escreva \"não informado\" — nunca calcule nem estime:" }, ...imgs] });
+    }
+    if (grandes.length) messages.push({ role: "user", content: `(Não consegui ler ${grandes.join(", ")}: arquivo grande demais. Avise o gestor para reenviar um print menor ou recortado só na parte que interessa.)` });
   }
 
   const actionNames = new Set(AGENT_TOOLS.map((t: any) => t.function.name));
@@ -7049,6 +7073,8 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ data: result }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
+    // Sem isto, uma falha some: a tela mostra "non-2xx" e os logs não guardam nada do motivo.
+    console.error("[dynamic-responder] falhou:", (e as Error)?.message, (e as Error)?.stack?.slice(0, 600));
     return new Response(JSON.stringify({ error: (e as Error).message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
