@@ -11230,6 +11230,22 @@ const NEG_DEVOLVIDO=new Set(['estornado','chargeback']); // foi aluno, mas o din
 function _negCortesia(prod){
   return !/processo\s+seletivo|bolsas?\s+de\s+estudo|corretor|sistema\s+seriado|ssa\s*\/?\s*upe|^\s*teste\s*$/i.test(String(prod||''));
 }
+/* A base não tem coluna de estado — tem CEP. As faixas dos Correios são fixas e resolvem a UF sem
+   depender de consulta externa. Cuidado com as faixas quebradas: DF e GO se intercalam, e AM aparece
+   em dois pedaços com RR no meio. Por isso a lista é percorrida em ordem, do menor pro maior. */
+const NEG_CEP_UF=[[19999,'SP'],[28999,'RJ'],[29999,'ES'],[39999,'MG'],[48999,'BA'],[49999,'SE'],
+  [56999,'PE'],[57999,'AL'],[58999,'PB'],[59999,'RN'],[63999,'CE'],[64999,'PI'],[65999,'MA'],
+  [68899,'PA'],[68999,'AP'],[69299,'AM'],[69399,'RR'],[69899,'AM'],[69999,'AC'],[72799,'DF'],
+  [72999,'GO'],[73699,'DF'],[76799,'GO'],[76999,'RO'],[77999,'TO'],[78899,'MT'],[78999,'RO'],
+  [79999,'MS'],[87999,'PR'],[89999,'SC'],[99999,'RS']];
+function _negUF(cep){
+  const d=String(cep||'').replace(/\D/g,'');
+  if(d.length<5)return '';
+  const p=parseInt(d.slice(0,5),10);
+  if(!(p>=1000))return '';                       // CEP começa em 01000; abaixo disso é lixo de cadastro
+  for(const [ate,uf] of NEG_CEP_UF)if(p<=ate)return uf;
+  return '';
+}
 function _negData(v){
   if(v instanceof Date)return v;
   if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(v);return d?new Date(d.y,d.m-1,d.d):null}
@@ -11260,6 +11276,7 @@ async function negocioProcessar(arquivos,aviso){
     const col=(l,...nomes)=>{for(const n of nomes){const k=Object.keys(l).find(x=>x.toLowerCase().trim()===n);if(k)return l[k]}return ''};
     const alunos={},mesMap={},diaMap={},prodMap={};let creditos=0;
     const cortesiaK={},seletivoK={},devolK={};let devN=0,devVal=0;
+    const ufMap={},ufMesMap={};let semCep=0;
     for(const l of linhas){
       const st=String(col(l,'status')).trim().toLowerCase();
       const dt=_negData(col(l,'data'));if(!dt)continue;
@@ -11277,8 +11294,14 @@ async function negocioProcessar(arquivos,aviso){
       // série DIÁRIA: é o que permite o calendário com intervalo livre e o comparativo de período
       (diaMap[dk]=diaMap[dk]||{dia:dk,vendas:0,receita:0,novos:0});diaMap[dk].vendas++;diaMap[dk].receita+=val;
       if(prod){(prodMap[prod]=prodMap[prod]||{produto:prod,vendas:0,receita:0});prodMap[prod].vendas++;prodMap[prod].receita+=val}
-      const a=alunos[chave]=alunos[chave]||{n:0,tot:0,pri:dt,ult:dt,ivs:[],exp:null,vital:false,semPrazo:false,anos:{}};
-      a.n++;a.tot+=val;if(dt<a.pri)a.pri=dt;if(dt>a.ult)a.ult=dt;
+      const uf=_negUF(col(l,'cep'));
+      if(uf){
+        (ufMap[uf]=ufMap[uf]||{uf,vendas:0,receita:0,_al:{}});ufMap[uf].vendas++;ufMap[uf].receita+=val;ufMap[uf]._al[chave]=1;
+        const uk=uf+'|'+mk;(ufMesMap[uk]=ufMesMap[uk]||{uf,mes:mk,vendas:0,receita:0,novos:0});
+        ufMesMap[uk].vendas++;ufMesMap[uk].receita+=val;
+      }else semCep++;
+      const a=alunos[chave]=alunos[chave]||{n:0,tot:0,pri:dt,ult:dt,ivs:[],exp:null,vital:false,semPrazo:false,anos:{},uf};
+      a.n++;a.tot+=val;if(dt<a.pri){a.pri=dt;a.uf=uf}if(dt>a.ult)a.ult=dt;
       (a.anos[dt.getFullYear()]=a.anos[dt.getFullYear()]||{compras:0,receita:0}),a.anos[dt.getFullYear()].compras++,a.anos[dt.getFullYear()].receita+=val;
       if(meses===-1){a.vital=true}
       else if(meses>0){const fim=new Date(dt);fim.setMonth(fim.getMonth()+meses);a.ivs.push([dt,fim]);if(!a.exp||fim>a.exp)a.exp=fim}
@@ -11299,6 +11322,8 @@ async function negocioProcessar(arquivos,aviso){
       else semPrazo++;
       const pk=a.pri.toISOString().slice(0,7);if(mesMap[pk])mesMap[pk].novos++;
       const pd=a.pri.toISOString().slice(0,10);if(diaMap[pd])diaMap[pd].novos++;
+      // aluno novo entra no estado da PRIMEIRA compra: é de lá que ele veio
+      if(a.uf&&ufMesMap[a.uf+'|'+pk])ufMesMap[a.uf+'|'+pk].novos++;
     }
     const med=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:0;
     const chaves=Object.keys(alunos),rec=chaves.filter(k=>alunos[k].n>1);
@@ -11320,6 +11345,12 @@ async function negocioProcessar(arquivos,aviso){
       base:{ativos,expirados,expira_30d:exp30,expira_60d:exp60,sem_prazo:semPrazo},
       compras_por_credito:creditos,
       arquivos:arqs.map(a=>a.name),linhas_lidas:linhas.length,linhas_repetidas:repetidas,
+      // estado sai do CEP. por_estado é a vida inteira (tem aluno único); por_estado_mes é o que
+      // permite cruzar estado com período — por isso o recorte por estado é mensal, não diário.
+      por_estado:Object.values(ufMap).map(x=>({uf:x.uf,vendas:x.vendas,receita:+x.receita.toFixed(2),alunos:Object.keys(x._al).length}))
+        .sort((a,b)=>b.receita-a.receita),
+      por_estado_mes:Object.values(ufMesMap).map(x=>({...x,receita:+x.receita.toFixed(2)})).sort((a,b)=>a.mes<b.mes?-1:1),
+      vendas_sem_cep:semCep,
       devolucoes:{compras:devN,valor:+devVal.toFixed(2),pessoas:Object.keys(devolK).length,so_devolvido:soDevolvido},
       cortesia:{pessoas:Object.keys(cortesiaK).length,sem_compra:soCortesia},
       seletivo:{pessoas:soSeletivo},
@@ -11585,6 +11616,97 @@ function renderInad(){
       </div>
     </div>`;
 }
+/* ---- Vendas por estado ----
+   O cruzamento estado × período usa por_estado_mes, então o recorte por data aqui é MENSAL: um mês
+   entra se qualquer dia dele estiver dentro do período escolhido. Está escrito na tela pra ninguém
+   comparar com o bloco de período (que é diário) e achar que um dos dois está errado. */
+let _negUFsel=new Set(),_negUFmetrica='receita',_negUFtop=12;
+function negUFtoggle(uf){_negUFsel.has(uf)?_negUFsel.delete(uf):_negUFsel.add(uf);renderNegEstados();renderNegProdutosNota();}
+function negUFlimpar(){_negUFsel.clear();renderNegEstados();renderNegProdutosNota();}
+function negUFmetrica(v){_negUFmetrica=v;renderNegEstados();}
+function negUFtop(v){_negUFtop=+v||12;renderNegEstados();}
+function _negMesesNoPeriodo(){
+  // meses que encostam no período escolhido (o filtro de data vive em _negDe/_negAte)
+  if(!_negDe||!_negAte)return null;
+  const de=_negDe.slice(0,7),ate=_negAte.slice(0,7);
+  return m=>m>=de&&m<=ate;
+}
+function negEstadosDados(){
+  const d=(_negocio&&_negocio.dados)||{};
+  const mes=(d.por_estado_mes||[]),dentro=_negMesesNoPeriodo();
+  if(!mes.length)return {linhas:(d.por_estado||[]).map(x=>({...x,novos:0})),mensal:false};
+  const agg={};
+  for(const x of mes){
+    if(dentro&&!dentro(x.mes))continue;
+    (agg[x.uf]=agg[x.uf]||{uf:x.uf,vendas:0,receita:0,novos:0});
+    agg[x.uf].vendas+=x.vendas;agg[x.uf].receita+=x.receita;agg[x.uf].novos+=x.novos;
+  }
+  // alunos únicos só existem na visão de vida inteira; no recorte por período não dá pra somar
+  const vida={};(d.por_estado||[]).forEach(x=>vida[x.uf]=x.alunos);
+  return {linhas:Object.values(agg).map(x=>({...x,alunos:vida[x.uf]||0})),mensal:true};
+}
+function renderNegEstados(){
+  const el=document.getElementById('negEstadosCard');if(!el||!_negocio)return;
+  const d=_negocio.dados,{linhas,mensal}=negEstadosDados();
+  if(!linhas.length){el.style.display='none';return}
+  const sel=_negUFsel.size?linhas.filter(x=>_negUFsel.has(x.uf)):linhas;
+  const met=_negUFmetrica;
+  const valor=x=>met==='receita'?x.receita:met==='vendas'?x.vendas:met==='ticket'?(x.vendas?x.receita/x.vendas:0):met==='novos'?x.novos:x.alunos;
+  const rot=met==='receita'?'Faturamento':met==='vendas'?'Vendas':met==='ticket'?'Ticket médio':met==='novos'?'Alunos novos':'Alunos únicos';
+  const ordenado=[...sel].sort((a,b)=>valor(b)-valor(a));
+  const mostra=ordenado.slice(0,_negUFtop);
+  const max=Math.max(1,...mostra.map(valor));
+  const totRec=sel.reduce((s,x)=>s+x.receita,0),totVen=sel.reduce((s,x)=>s+x.vendas,0);
+  const n=v=>Math.round(v||0).toLocaleString('pt-BR');
+  const cel=v=>met==='receita'||met==='ticket'?fmt(v):n(v);
+  const top3=ordenado.slice(0,3);
+  const conc=totRec?ordenado.slice(0,5).reduce((s,x)=>s+x.receita,0)*100/totRec:0;
+  el.style.display='';
+  el.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <div><h3 style="margin:0">🗺 Vendas por estado</h3>
+        <div class="hint">${mensal?`recorte mensal, de ${(_negDe||'').slice(0,7)} a ${(_negAte||'').slice(0,7)}`:'vida inteira da base'} · estado deduzido do CEP${d.vendas_sem_cep?` · ${n(d.vendas_sem_cep)} venda(s) sem CEP válido ficam de fora`:''}</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select onchange="negUFmetrica(this.value)" style="width:auto;font-size:12px" title="O que ordenar e medir">
+          <option value="receita"${met==='receita'?' selected':''}>Faturamento</option>
+          <option value="vendas"${met==='vendas'?' selected':''}>Vendas</option>
+          <option value="ticket"${met==='ticket'?' selected':''}>Ticket médio</option>
+          <option value="novos"${met==='novos'?' selected':''}>Alunos novos</option>
+          <option value="alunos"${met==='alunos'?' selected':''}>Alunos únicos (vida inteira)</option>
+        </select>
+        <select onchange="negUFtop(this.value)" style="width:auto;font-size:12px" title="Quantos estados mostrar">
+          <option value="8"${_negUFtop===8?' selected':''}>Top 8</option>
+          <option value="12"${_negUFtop===12?' selected':''}>Top 12</option>
+          <option value="27"${_negUFtop===27?' selected':''}>Todos</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px;align-items:center">
+      <span style="font-size:11px;color:var(--faint);margin-right:2px">FILTRAR ESTADO:</span>
+      ${linhas.map(x=>x.uf).sort().map(uf=>`<button class="pill" onclick="negUFtoggle('${uf}')" style="cursor:pointer;font-size:11px;padding:3px 9px;${_negUFsel.has(uf)?'background:var(--accent);color:#1a1a17;font-weight:700;border-color:var(--accent)':''}">${uf}</button>`).join('')}
+      ${_negUFsel.size?`<button class="btn sm ghost" style="padding:3px 9px;font-size:11px" onclick="negUFlimpar()">limpar (${_negUFsel.size})</button>`:''}
+    </div>
+    <div class="rt-kpi-grid" style="margin-bottom:14px">
+      ${_negCard('Estados com venda',n(sel.length),_negUFsel.size?'filtro ativo':'de 27 possíveis','gr')}
+      ${_negCard('Faturamento',fmt(totRec),`${n(totVen)} vendas`)}
+      ${_negCard('Líder',top3[0]?top3[0].uf:'—',top3[0]?`${cel(valor(top3[0]))} · ${totRec?(top3[0].receita*100/totRec).toFixed(1).replace('.',','):0}% do total`:'')}
+      ${_negCard('Concentração',conc.toFixed(1).replace('.',',')+'%','do faturamento nos 5 maiores','ye')}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:5px">
+      ${mostra.map(x=>`<div style="display:grid;grid-template-columns:42px 1fr 150px;gap:10px;align-items:center;font-size:12px">
+        <div style="font-weight:700;color:var(--muted)">${x.uf}</div>
+        <div style="background:var(--surface2);border-radius:5px;height:19px;overflow:hidden">
+          <div style="width:${Math.max(2,valor(x)*100/max)}%;height:100%;background:linear-gradient(90deg,#6d28d9,#a78bfa)"></div>
+        </div>
+        <div style="text-align:right"><b>${cel(valor(x))}</b>${met!=='vendas'?` <span style="color:var(--faint)">· ${n(x.vendas)} venda${x.vendas===1?'':'s'}</span>`:''}</div>
+      </div>`).join('')}
+    </div>
+    <div class="hint" style="margin-top:10px">${rot} por estado. ${mensal?'O recorte por estado é <b>mensal</b> — um mês inteiro entra se encostar no período escolhido. O bloco "Desempenho no período" acima é diário, então os totais podem não bater exatamente.':''}</div>`;
+}
+function renderNegProdutosNota(){
+  const el=document.getElementById('negProdNota');if(!el)return;
+  el.innerHTML=_negUFsel.size?`<span style="color:var(--accent)">⚠ O filtro de estado (${[..._negUFsel].join(', ')}) não vale para este bloco</span> — a base guarda produto e estado em recortes separados. Para cruzar os dois eu preciso gravar mais um cruzamento no retrato; me peça se for útil.`:'';
+}
 function renderParceiros(){
   const el=document.getElementById('negParcView');if(!el)return;
   el.innerHTML=`<div class="card" style="text-align:center;padding:38px 22px">
@@ -11780,12 +11902,16 @@ function renderNegocio(){
       </div>
     </div>`:''}
 
+    ${((d.por_estado&&d.por_estado.length)||(d.por_estado_mes&&d.por_estado_mes.length))?`<div class="card" style="margin-bottom:16px" id="negEstadosCard"></div>`:''}
+
     ${(d.recompra_ano&&d.recompra_ano.length)?`<div class="card" style="margin-bottom:16px" id="negRecompraCard"></div>`:''}
     <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">📈 Faturamento e vendas por mês</h3><div style="height:300px"><canvas id="negFat"></canvas></div></div>
     <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">🆕 Alunos novos × recompra</h3><div class="hint" style="margin-bottom:8px">Barra cheia = quem comprou pela primeira vez. A diferença até o total é recompra da base.</div><div style="height:280px"><canvas id="negNovos"></canvas></div></div>
-    <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">🏆 Onde o faturamento se concentra</h3><div style="height:${Math.max(240,top.length*26)}px"><canvas id="negProd"></canvas></div></div>`;
+    <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">🏆 Onde o faturamento se concentra</h3><div id="negProdNota" style="font-size:11.5px;color:var(--muted);margin-bottom:8px"></div><div style="height:${Math.max(240,top.length*26)}px"><canvas id="negProd"></canvas></div></div>`;
   _negDestroy();          // limpa ANTES de montar: se vier depois, apaga os gráficos que os blocos acabaram de criar
   renderNegPeriodo();
+  renderNegEstados();
+  renderNegProdutosNota();
   renderRecompraAno();
   const meses=serie.map(x=>x.mes),eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
   const ctx=id=>{const c=document.getElementById(id);return c?c.getContext('2d'):null};
