@@ -4180,8 +4180,28 @@ async function _youtubeLiveReport(input: any) {
   return { video, period: { since, until }, summary, daily, traffic, external, search, devices, retention, audience, compare, warnings, unavailable: { impressions: "A consulta imediata do YouTube Analytics nao fornece impressoes de thumbnail; esse dado exige o fluxo de relatorios em lote.", liveChatMessages: "A API oficial nao disponibiliza o historico completo do chat depois que a live termina.", uniqueViewers: "Pode nao ser disponibilizado para todas as contas e combinacoes de dimensoes." } };
 }
 function _minerPick(row: any, keys: string[]) { for (const k of keys) if (row?.[k] != null && row[k] !== "") return row[k]; return null; }
-async function _minerAnalyzePayload(item: any, client: any) {
-  const instruction = `Você é o núcleo semântico do Minerador de Criativos. Analise esta referência para ${client?.name || "o cliente"}. DNA: ${JSON.stringify(client?.dna || {}).slice(0, 8000)}. Legenda: ${String(item.caption || "").slice(0, 10000)}.
+// Ranqueia os candidatos capturados pelo critério escolhido na tela, e devolve o texto do disclaimer
+// que aparece no card — sem isso a pessoa não sabe POR QUE aquele post específico entrou na biblioteca.
+function _minerScore(criterio: string, m: any): number {
+  const likes = Number(m.likes) || 0, comments = Number(m.comments) || 0, views = Number(m.views) || 0, reach = Number(m.reach) || 0, saved = Number(m.saved) || 0, shares = Number(m.shares) || 0;
+  if (criterio === "curtidas") return likes;
+  if (criterio === "comentarios") return comments;
+  if (criterio === "visualizacoes") return views || likes;
+  if (m.eng != null) return Number(m.eng) || 0;
+  const base = reach || views || likes || 1;
+  return ((likes + comments + saved + shares) / base) * 100;
+}
+function _minerReason(criterio: string, m: any, score: number): string {
+  const num = (n: number) => Math.round(n || 0).toLocaleString("pt-BR");
+  if (criterio === "recentes") return `Selecionado por ser um dos mais recentes${m.data || m.timestamp ? ` (${new Date(m.data || m.timestamp).toLocaleDateString("pt-BR")})` : ""}.`;
+  if (criterio === "curtidas") return `Selecionado por mais curtidas (${num(m.likes)}).`;
+  if (criterio === "comentarios") return `Selecionado por mais comentários (${num(m.comments)}).`;
+  if (criterio === "visualizacoes") return `Selecionado por mais visualizações (${num(m.views || m.likes)}).`;
+  return `Selecionado por melhor engajamento (${score.toFixed(1).replace(".", ",")}% sobre ${m.reach ? "alcance" : "visualizações/curtidas"}).`;
+}
+async function _minerAnalyzePayload(item: any, client: any, funilDesejado?: string) {
+  const funilLinha = funilDesejado ? `\nO cliente está minerando pensando em conteúdo de ${funilDesejado} de funil — ao montar "ideias_estaticas", priorize ideias que sirvam pra essa etapa e deixe isso explícito no campo "por_que" de cada uma.` : "";
+  const instruction = `Você é o núcleo semântico do Minerador de Criativos. Analise esta referência para ${client?.name || "o cliente"}. DNA: ${JSON.stringify(client?.dna || {}).slice(0, 8000)}. Legenda: ${String(item.caption || "").slice(0, 10000)}.${funilLinha}
 REGRA CENTRAL: entenda tudo o que o conteúdo FALA/ENSINA, e não apenas seus frames. Se ensina "10 tipos de criativos", extraia os dez tipos e suas explicações; não transforme o tema em "10 vídeos". Diferencie MEIO ORIGINAL, ASSUNTO REAL, CONHECIMENTO TRANSMITIDO e FORMA CRIATIVA. Frames são somente evidência visual. Gere aplicações originais para o cliente, sem copiar texto, marca ou identidade de terceiros.
 Retorne somente JSON válido: {"assunto_real":"","tese_central":"","resumo_do_conteudo":"","itens_mencionados":[{"titulo":"","explicacao":"","exemplo":"","aplicacao_cliente":""}],"hook":{"texto":"","tipo":"","por_que_funciona":""},"promessa":"","estrutura_narrativa":[{"momento":"","funcao":"","conteudo":""}],"textos_na_tela":[],"prova_social":"","cta":"","etapa_funil":"","forma_criativa":{"ritmo":"","estetica":"","estrutura":""},"ideias_estaticas":[{"titulo":"","headline":"","conceito_visual":"","formato":"imagem|carrossel","funil":"","por_que":""}],"alertas_direitos":[]}`;
   const gem = Deno.env.get("GEMINI_API_KEY") || "";
@@ -4210,15 +4230,34 @@ Retorne somente JSON válido: {"assunto_real":"","tese_central":"","resumo_do_co
   const j = await callOpenAI({ model: "gpt-4o", messages: [{ role: "user", content }], response_format: { type: "json_object" }, max_tokens: 2600, temperature: 0.3 });
   return JSON.parse(j.choices?.[0]?.message?.content || "{}");
 }
-async function _minerApifyCapture(url: string, limit: number) {
+async function _minerApifyCapture(url: string, rawLimit: number, sinceISO?: string) {
   const token = await _loadSecureCredential("apify_creative_miner_token");
   if (!token) throw new Error("Configure o token do Apify em Configurações → Integrações.");
   const endpoint = `https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=120&memory=1024`;
-  const input = { directUrls: [url], resultsType: "posts", resultsLimit: Math.min(30, Math.max(1, limit || 12)), searchType: "user" };
+  const input: any = { directUrls: [url], resultsType: "posts", resultsLimit: Math.min(50, Math.max(1, rawLimit || 30)), searchType: "user" };
+  if (sinceISO) input.onlyPostsNewerThan = sinceISO; // aceito pelo ator apify~instagram-scraper (data ou "1 month")
   const r = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   const rows = await r.json();
   if (!r.ok || !Array.isArray(rows)) throw new Error(`Apify: ${rows?.error?.message || `HTTP ${r.status}`}`);
   return rows;
+}
+// Perfis relacionados de verdade: pede ao Instagram (via Apify) os "perfis relacionados" que a própria
+// plataforma sugere na página do perfil do cliente. Não inventa handle — se o Instagram não trouxer
+// nada pra esse perfil agora, devolve lista vazia com aviso em vez de a IA chutar um nome.
+async function _minerRelatedProfiles(username: string) {
+  const token = await _loadSecureCredential("apify_creative_miner_token");
+  if (!token) throw new Error("Configure o token do Apify em Configurações → Integrações.");
+  const endpoint = `https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=90&memory=1024`;
+  const input = { directUrls: [`https://www.instagram.com/${username}/`], resultsType: "details", resultsLimit: 1 };
+  const r = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  const rows = await r.json();
+  if (!r.ok || !Array.isArray(rows)) throw new Error(`Apify: ${rows?.error?.message || `HTTP ${r.status}`}`);
+  const profile = rows[0] || {};
+  const related = profile.relatedProfiles || profile.related_profiles || profile.chainingUsers || profile.suggestedUsers || [];
+  return (Array.isArray(related) ? related : []).map((p: any) => {
+    const uname = String(_minerPick(p, ["username", "value"]) || "").trim();
+    return uname ? { username: uname, fullName: String(_minerPick(p, ["full_name", "fullName"]) || ""), private: !!(p.is_private ?? p.isPrivate), profilePic: String(_minerPick(p, ["profile_pic_url", "profilePicUrl"]) || ""), url: `https://www.instagram.com/${uname}/` } : null;
+  }).filter(Boolean);
 }
 async function eventReports(input: any) {
   const op = String(input?.op || "list"), clientId = String(input?.clientId || "").trim();
@@ -4549,26 +4588,61 @@ async function _guardUserRequest(body: any, authorization: string) {
   if (key === "agent" && !requested.length && !actor.profile.all_clients) throw new Error("Selecione um cliente permitido para conversar com a AndréIA.");
 }
 
+// Presets de período da tela viram "há quantos dias" (API oficial e Apify só filtram pra trás a
+// partir de hoje — não existe "até" arbitrário sem reprocessar paginação inteira por data).
+function _minerPeriodo(periodo: string, diasCustom?: number): { days: number; sinceISO: string } {
+  const now = new Date();
+  let days: number;
+  if (periodo === "mes") days = Math.max(1, Math.ceil((now.getTime() - new Date(now.getFullYear(), now.getMonth(), 1).getTime()) / 86400000));
+  else if (periodo === "ano") days = Math.max(1, Math.ceil((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000));
+  else if (periodo === "30") days = 30;
+  else if (periodo === "365") days = 365;
+  else if (periodo === "custom") days = Math.min(365, Math.max(1, Number(diasCustom) || 90));
+  else days = 90;
+  return { days, sinceISO: new Date(now.getTime() - days * 86400000).toISOString().slice(0, 10) };
+}
 async function creativeMiner(input: any) {
   const op = String(input?.op || "list"), clientId = String(input?.clientId || "").trim();
   if (!clientId) throw new Error("Selecione um cliente.");
   if (op === "list") return { items: await sbGet("creative_miner_items", `client_id=eq.${encodeURIComponent(clientId)}&select=*&order=created_at.desc&limit=200`) };
   if (op === "remove") { await sbDeleteD("creative_miner_items", `id=eq.${encodeURIComponent(String(input.id || ""))}&client_id=eq.${encodeURIComponent(clientId)}`); return { ok: true }; }
+  if (op === "suggest_profiles") {
+    const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,instagram_accounts&limit=1`))[0];
+    const contas: any[] = Array.isArray(c?.instagram_accounts) ? c.instagram_accounts : [];
+    const conta = contas.find((a: any) => a.id === input.instagramId) || contas[0];
+    if (!conta?.username) throw new Error("Esse cliente não tem Instagram conectado. Conecte em Configurações do cliente pra buscar perfis relacionados.");
+    const suggestions = await _minerRelatedProfiles(conta.username);
+    return { profile: conta.username, suggestions, aviso: suggestions.length ? "" : "O Instagram não trouxe perfis relacionados pra este perfil agora — tente de novo mais tarde." };
+  }
   if (op === "capture_official") {
-    const org = await instagramOrganicContent({ clientId, days: Math.min(365, Number(input.days) || 90) });
-    const rows = (org.posts || []).slice(0, Math.min(50, Number(input.limit) || 20)).map((p: any) => ({ id: `cm_${_hash36(clientId + "|" + p.permalink)}`, client_id: clientId, source_type: "instagram_official", source_url: p.permalink, profile: p.username || "", media_type: /VIDEO|REELS/i.test(p.tipo) ? "video" : "image", caption: p.caption || "", media_url: p.midia || null, thumbnail_url: p.midia || null, published_at: p.data || null, metrics: { likes: p.likes, comments: p.comments, reach: p.reach, saved: p.saved, shares: p.shares, views: p.views, engagement: p.eng }, status: "captured", updated_at: new Date().toISOString() }));
+    const criterio = String(input.criterio || "engajamento");
+    const funil = String(input.funil || "").trim();
+    const { days } = _minerPeriodo(String(input.periodo || ""), Number(input.dias));
+    const org = await instagramOrganicContent({ clientId, days });
+    let posts = [...(org.posts || [])];
+    posts = criterio === "recentes" ? posts.sort((a: any, b: any) => String(b.data || "").localeCompare(String(a.data || ""))) : posts.sort((a: any, b: any) => _minerScore(criterio, b) - _minerScore(criterio, a));
+    const picked = posts.slice(0, Math.min(50, Number(input.limit) || 20));
+    const rows = picked.map((p: any) => ({ id: `cm_${_hash36(clientId + "|" + p.permalink)}`, client_id: clientId, source_type: "instagram_official", source_url: p.permalink, profile: p.username || "", media_type: /VIDEO|REELS/i.test(p.tipo) ? "video" : "image", caption: p.caption || "", media_url: p.midia || null, thumbnail_url: p.midia || null, published_at: p.data || null, metrics: { likes: p.likes, comments: p.comments, reach: p.reach, saved: p.saved, shares: p.shares, views: p.views, engagement: p.eng }, selection_reason: _minerReason(criterio, p, _minerScore(criterio, p)), funnel_target: funil || null, status: "captured", updated_at: new Date().toISOString() }));
     if (rows.length) await _sbUpsert("creative_miner_items", rows, "client_id,source_url");
     return { captured: rows.length, items: rows };
   }
   if (op === "capture_external") {
     const url = String(input.url || "").trim(); if (!/^https:\/\/(www\.)?instagram\.com\//i.test(url)) throw new Error("Informe uma URL pública do Instagram.");
-    const raw = await _minerApifyCapture(url, Number(input.limit) || 12);
-    const rows = raw.map((x: any) => {
+    const criterio = String(input.criterio || "engajamento");
+    const funil = String(input.funil || "").trim();
+    const limit = Math.min(30, Math.max(1, Number(input.limit) || 12));
+    const { sinceISO } = _minerPeriodo(String(input.periodo || ""), Number(input.dias));
+    const raw = await _minerApifyCapture(url, Math.max(limit, 30), sinceISO);
+    const mapped = raw.map((x: any) => {
       const sourceUrl = String(_minerPick(x, ["url", "postUrl", "inputUrl", "shortCodeUrl"]) || url);
       const type = String(_minerPick(x, ["type", "productType", "mediaType"]) || "post").toLowerCase();
       const video = _minerPick(x, ["videoUrl", "video_url", "displayUrl"]), image = _minerPick(x, ["displayUrl", "imageUrl", "thumbnailUrl"]);
-      return { id: `cm_${_hash36(clientId + "|" + sourceUrl)}`, client_id: clientId, source_type: "apify", source_url: sourceUrl, profile: String(_minerPick(x, ["ownerUsername", "username", "ownerFullName"]) || ""), media_type: /video|reel/.test(type) || !!x.videoUrl ? "video" : (/sidecar|carousel/.test(type) ? "carousel" : "image"), caption: String(_minerPick(x, ["caption", "text", "description"]) || ""), media_url: video || image || null, thumbnail_url: image || null, published_at: _minerPick(x, ["timestamp", "takenAt", "date"]) || null, metrics: { likes: Number(_minerPick(x, ["likesCount", "likes"]) || 0), comments: Number(_minerPick(x, ["commentsCount", "comments"]) || 0), views: Number(_minerPick(x, ["videoViewCount", "videoPlayCount", "views"]) || 0) }, status: "captured", updated_at: new Date().toISOString() };
-    }).filter((x: any) => x.source_url);
+      const likes = Number(_minerPick(x, ["likesCount", "likes"]) || 0), comments = Number(_minerPick(x, ["commentsCount", "comments"]) || 0), views = Number(_minerPick(x, ["videoViewCount", "videoPlayCount", "views"]) || 0);
+      return { sourceUrl, type, video, image, likes, comments, views, timestamp: _minerPick(x, ["timestamp", "takenAt", "date"]), profile: String(_minerPick(x, ["ownerUsername", "username", "ownerFullName"]) || ""), caption: String(_minerPick(x, ["caption", "text", "description"]) || "") };
+    }).filter((x: any) => x.sourceUrl);
+    const ranked = criterio === "recentes" ? mapped.sort((a: any, b: any) => String(b.timestamp || "").localeCompare(String(a.timestamp || ""))) : mapped.sort((a: any, b: any) => _minerScore(criterio, b) - _minerScore(criterio, a));
+    const picked = ranked.slice(0, limit);
+    const rows = picked.map((x: any) => ({ id: `cm_${_hash36(clientId + "|" + x.sourceUrl)}`, client_id: clientId, source_type: "apify", source_url: x.sourceUrl, profile: x.profile, media_type: /video|reel/.test(x.type) || !!x.video ? "video" : (/sidecar|carousel/.test(x.type) ? "carousel" : "image"), caption: x.caption, media_url: x.video || x.image || null, thumbnail_url: x.image || null, published_at: x.timestamp || null, metrics: { likes: x.likes, comments: x.comments, views: x.views }, selection_reason: _minerReason(criterio, x, _minerScore(criterio, x)), funnel_target: funil || null, status: "captured", updated_at: new Date().toISOString() }));
     if (rows.length) await _sbUpsert("creative_miner_items", rows, "client_id,source_url");
     return { captured: rows.length, items: rows };
   }
@@ -4576,7 +4650,8 @@ async function creativeMiner(input: any) {
   if (!item) throw new Error("Referência não encontrada.");
   if (op === "analyze") {
     const client = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name,seg,dna&limit=1`))[0];
-    const analysis = await _minerAnalyzePayload(item, client);
+    const funil = String(input.funil || item.funnel_target || "").trim();
+    const analysis = await _minerAnalyzePayload(item, client, funil);
     await sbPatchD("creative_miner_items", `id=eq.${encodeURIComponent(item.id)}`, { analysis, concepts: analysis.ideias_estaticas || [], status: "analyzed", updated_at: new Date().toISOString() });
     return { item: { ...item, analysis, concepts: analysis.ideias_estaticas || [], status: "analyzed" } };
   }
