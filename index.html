@@ -11366,12 +11366,14 @@ async function negocioProcessar(arquivos,aviso,emAberto){
       const chave=cpf.length>=11?'c:'+cpf:(mail?'e:'+mail:null);if(!chave)continue;
       const prod=String(col(l,'produto')).replace(/\s+/g,' ').trim();
       const val=_negNum(col(l,'total','valor'));
-      const _cp=_cupomParceiro(col(l,'cupom'));
+      /* Guardo o cupom CRU. Juntar ILKA com ILKA10 é decisão de leitura, não de gravação: assim a tela
+         pode desligar o agrupamento sem precisar processar a base de novo. */
+      const _cpRaw=String(col(l,'cupom')||'').trim().toUpperCase().replace(/\s+/g,' ');
+      const _cp={base:_cpRaw};
       let _cu=null;
       if(_cp.base){
-        _cu=cupMap[_cp.base]=cupMap[_cp.base]||{cupom:_cp.base,variantes:{},vendas:0,receita:0,recebido:0,aberto:0,
+        _cu=cupMap[_cp.base]=cupMap[_cp.base]||{cupom:_cp.base,vendas:0,receita:0,recebido:0,aberto:0,
           alunos:{},cancel:0,cancel_val:0,estorno:0,estorno_val:0,aguard:0,aguard_val:0,naoautoriz:0,pri:'',ult:''};
-        _cu.variantes[_cp.desc||'—']=(_cu.variantes[_cp.desc||'—']||0)+1;
         if(/^estornado$|^chargeback$|^estornado parcialmente$/.test(st)){_cu.estorno++;_cu.estorno_val+=val}
         else if(st==='cancelado'){_cu.cancel++;_cu.cancel_val+=val}
         else if(st==='aguardando pagamento'||st==='pagamento pendente'){_cu.aguard++;_cu.aguard_val+=val}
@@ -11561,24 +11563,28 @@ async function negocioProcessar(arquivos,aviso,emAberto){
       return {p:idx[x.produto],uf:x.uf,ano:x.ano,mes:x.mes,v:x.vendas,r:+x.receita.toFixed(2)};
     });
     dados.cubo_produto={produtos:nomes,linhas:linhasCubo};
-    /* Parceiros no retrato. Todos entram no ranking; só os 40 maiores levam os recortes de dia,
-       produto e estado — guardar isso para 3 mil cupons incharia o retrato sem serventia. */
+    /* Parceiros no retrato. TODO cupom leva os recortes de dia, produto e estado — o gráfico e os
+       filtros precisam valer para qualquer um. Para caber, nome de cupom e de produto viram índice
+       num dicionário e as chaves são curtas (c/d/m/v/r): a mesma string de 12 caracteres se repetiria
+       dezenas de milhares de vezes. */
     const cupLista=Object.values(cupMap).map(c=>({
       cupom:c.cupom,vendas:c.vendas,receita:+c.receita.toFixed(2),recebido:+c.recebido.toFixed(2),
       aberto:+c.aberto.toFixed(2),alunos:Object.keys(c.alunos).length,
       cancel:c.cancel,cancel_val:+c.cancel_val.toFixed(2),
       estorno:c.estorno,estorno_val:+c.estorno_val.toFixed(2),
       aguard:c.aguard,aguard_val:+c.aguard_val.toFixed(2),naoautoriz:c.naoautoriz,
-      pri:c.pri,ult:c.ult,
-      variantes:Object.entries(c.variantes).sort((a,b)=>b[1]-a[1]).map(([d,q])=>({desc:d,linhas:q}))
+      pri:c.pri,ult:c.ult
     })).sort((a,b)=>b.receita-a.receita);
-    const top40=new Set(cupLista.slice(0,40).map(c=>c.cupom));
     dados.parceiros=cupLista;
-    dados.parceiro_dia=Object.values(cupDia).filter(x=>top40.has(x.cupom)).map(x=>({...x,receita:+x.receita.toFixed(2)}));
-    dados.parceiro_mes=Object.values(cupMes).filter(x=>top40.has(x.cupom)).map(x=>({...x,receita:+x.receita.toFixed(2)}));
-    dados.parceiro_produto=Object.values(cupProd).filter(x=>top40.has(x.cupom)).map(x=>({...x,receita:+x.receita.toFixed(2)}));
-    dados.parceiro_uf=Object.values(cupUf).filter(x=>top40.has(x.cupom)).map(x=>({...x,receita:+x.receita.toFixed(2)}));
-    dados.parceiros_detalhe=[...top40];
+    const cupNomes=[],cupIdx={},prodNomes=[],prodIdx={};
+    const ci=c=>{if(cupIdx[c]==null){cupIdx[c]=cupNomes.length;cupNomes.push(c)}return cupIdx[c]};
+    const pi=x=>{if(prodIdx[x]==null){prodIdx[x]=prodNomes.length;prodNomes.push(x)}return prodIdx[x]};
+    dados.parceiro_dia=Object.values(cupDia).map(x=>({c:ci(x.cupom),d:x.dia,v:x.vendas,r:+x.receita.toFixed(2)}));
+    dados.parceiro_mes=Object.values(cupMes).map(x=>({c:ci(x.cupom),m:x.mes,v:x.vendas,r:+x.receita.toFixed(2)}));
+    dados.parceiro_produto=Object.values(cupProd).map(x=>({c:ci(x.cupom),p:pi(x.produto),v:x.vendas,r:+x.receita.toFixed(2)}));
+    dados.parceiro_uf=Object.values(cupUf).map(x=>({c:ci(x.cupom),uf:x.uf,v:x.vendas,r:+x.receita.toFixed(2)}));
+    dados.parceiros_idx=cupNomes;
+    dados.parceiro_produtos_idx=prodNomes;
     // produto × mês: é o que faz o ranking de produtos respeitar o filtro de datas
     dados.por_produto_mes=Object.values(prodMesMap).filter(x=>noTop.has(x.produto))
       .map(x=>({...x,receita:+x.receita.toFixed(2)}));
@@ -12398,9 +12404,37 @@ function renderNegProdutosNota(){
   el.innerHTML=(_negUFsel.size&&!temCubo)
     ?`<span style="color:var(--accent)">⚠ O filtro de estado não vale para este bloco neste retrato</span> — suba a base de novo para o cruzamento produto × estado ser gravado.`:'';
 }
-let _parcDe='',_parcAte='',_parcSel='',_parcOrd='receita';
+let _parcDe='',_parcAte='',_parcSel='',_parcOrd='receita',_parcQtd=30,_parcAgrupa=true;
+function parcAgrupar(v){_parcAgrupa=!!v;_parcSel='';renderParceiros();}
+// nome sob o qual o cupom aparece: agrupado tira o desconto do fim (ILKA10 -> ILKA), cru mantém
+function _parcNome(c){return _parcAgrupa?_cupomParceiro(c).base:String(c||'').toUpperCase()}
+// todos os cupons crus que caem sob um nome — é por eles que os recortes são somados
+function _parcCupons(nome){
+  const d=(_negocio&&_negocio.dados)||{};
+  return (d.parceiros||[]).map(x=>x.cupom).filter(c=>_parcNome(c)===nome);
+}
+function parcQtd(v){_parcQtd=v==='todos'?Infinity:(+v||30);renderParceiros();}
+/* Os recortes do parceiro vem comprimidos (nome vira indice, chaves curtas). Estes tres
+   leitores devolvem no formato de sempre, e ainda aceitam o retrato antigo sem indice. */
+function _parcLinhas(arr,nome){
+  const d=(_negocio&&_negocio.dados)||{},idx=d.parceiros_idx||[];
+  const alvo=new Set(_parcCupons(nome));
+  const bruto=(arr||[]).filter(x=>alvo.has(x.c!=null?(idx[x.c]||''):x.cupom)).map(x=>({
+    dia:x.d||x.dia,mes:x.m||x.mes,uf:x.uf,
+    produto:x.p!=null?((d.parceiro_produtos_idx||[])[x.p]||''):x.produto,
+    vendas:x.v!=null?x.v:x.vendas,receita:x.r!=null?x.r:x.receita}));
+  // agrupado, as variações do mesmo dia/produto/estado precisam virar uma linha só
+  const o={};
+  for(const x of bruto){const k=(x.dia||'')+'|'+(x.mes||'')+'|'+(x.uf||'')+'|'+(x.produto||'');
+    (o[k]=o[k]||{...x,vendas:0,receita:0});o[k].vendas+=x.vendas;o[k].receita+=x.receita}
+  return Object.values(o);
+}
+function _parcMesTodos(){const d=(_negocio&&_negocio.dados)||{};
+  return (d.parceiro_mes||[]).map(x=>({cupom:_parcNome(x.c!=null?((d.parceiros_idx||[])[x.c]||''):x.cupom),
+    mes:x.m||x.mes,vendas:x.v!=null?x.v:x.vendas,receita:x.r!=null?x.r:x.receita}));}
+
 function parcPeriodo(k){
-  const ms=((_negocio&&_negocio.dados&&_negocio.dados.parceiro_mes)||[]).map(x=>x.mes).sort();
+  const ms=_parcMesTodos().map(x=>x.mes).sort();
   if(!ms.length)return;const ult=ms[ms.length-1];
   if(k==='tudo'){_parcDe='';_parcAte=''}
   else if(k==='ano'){_parcDe=ult.slice(0,4)+'-01';_parcAte=ult}
@@ -12414,15 +12448,25 @@ function parcManual(){const a=document.getElementById('parcDe'),b=document.getEl
 function parcOrd(v){_parcOrd=v;renderParceiros();}
 function parcSel(v){_parcSel=(v===_parcSel?'':v)||'';renderParceiros();}
 function _parcDentro(mes){return mes>=(_parcDe||'0000-00')&&mes<=(_parcAte||'9999-99')}
-/* Com período filtrado o ranking vem de parceiro_mes, que só existe para os 40 maiores. Sem filtro,
-   vem da lista completa. A tela diz qual dos dois está mostrando — senão o número "some" sem razão. */
+/* Com período filtrado o ranking vem de parceiro_mes; sem filtro, da lista completa. Os dois cobrem
+   todos os cupons — o que muda é só o recorte de tempo. */
 function _parcRanking(){
   const d=(_negocio&&_negocio.dados)||{};
-  const todos=d.parceiros||[];
+  const soma=(a,b)=>({cupom:a.cupom,vendas:a.vendas+b.vendas,receita:a.receita+b.receita,
+    recebido:(a.recebido||0)+(b.recebido||0),aberto:(a.aberto||0)+(b.aberto||0),alunos:(a.alunos||0)+(b.alunos||0),
+    cancel:a.cancel+b.cancel,cancel_val:a.cancel_val+b.cancel_val,estorno:a.estorno+b.estorno,
+    estorno_val:a.estorno_val+b.estorno_val,aguard:a.aguard+b.aguard,aguard_val:a.aguard_val+b.aguard_val,
+    naoautoriz:a.naoautoriz+b.naoautoriz,
+    pri:(!a.pri||(b.pri&&b.pri<a.pri))?b.pri:a.pri,ult:(!a.ult||(b.ult&&b.ult>a.ult))?b.ult:a.ult});
+  const agrupa=lista=>{const o={};
+    for(const x of lista){const k=_parcNome(x.cupom);
+      o[k]=o[k]?soma(o[k],x):{...x,cupom:k}}
+    return Object.values(o)};
+  const todos=agrupa(d.parceiros||[]);
   if(!_parcDe&&!_parcAte)return {linhas:todos,limitado:false};
   const agg={},base={};
   todos.forEach(c=>base[c.cupom]=c);
-  for(const x of (d.parceiro_mes||[])){
+  for(const x of _parcMesTodos()){
     if(!_parcDentro(x.mes))continue;
     (agg[x.cupom]=agg[x.cupom]||{cupom:x.cupom,vendas:0,receita:0});
     agg[x.cupom].vendas+=x.vendas;agg[x.cupom].receita+=x.receita;
@@ -12445,7 +12489,7 @@ function renderParceiros(){
   const totRec=rank.reduce((s,x)=>s+x.receita,0),totVen=rank.reduce((s,x)=>s+x.vendas,0);
   const pctBase=d.faturamento?(totRec*100/d.faturamento):0;
   const max=Math.max(1,...rank.map(val));
-  const ms=(d.parceiro_mes||[]).map(x=>x.mes).sort();
+  const ms=_parcMesTodos().map(x=>x.mes).sort();
   const pri=ms[0]||'',ult=ms[ms.length-1]||'';
   const bt=(k,l)=>`<button class="btn sm ghost" style="padding:3px 10px;font-size:11.5px" onclick="parcPeriodo('${k}')">${l}</button>`;
   el.innerHTML=`
@@ -12454,6 +12498,9 @@ function renderParceiros(){
         <div><h3 title="Cada cupom identifica quem indicou a venda. Variações do mesmo parceiro (ILKA e ILKA10) são somadas: o número no fim do cupom é o desconto, não outro parceiro." style="cursor:help;margin:0">🤝 Parceiros por cupom</h3>
           <div class="hint">${n((d.parceiros||[]).length)} cupons distintos · variações do mesmo nome somadas</div></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;cursor:help" title="O número no fim do cupom costuma ser o desconto (ILKA e ILKA10 são a mesma pessoa). Desligue para ver cada cupom separado, um por linha.">
+            <input type="checkbox" ${_parcAgrupa?'checked':''} onchange="parcAgrupar(this.checked)" style="width:auto;margin:0"> juntar variações
+          </label>
           <span style="font-size:11px;color:var(--faint)">ORDENAR:</span>
           <select onchange="parcOrd(this.value)" style="width:auto;font-size:12px">
             <option value="receita"${_parcOrd==='receita'?' selected':''}>Faturamento</option>
@@ -12468,10 +12515,10 @@ function renderParceiros(){
         <input type="month" id="parcDe" value="${_parcDe}" min="${pri}" max="${ult}" onchange="parcManual()" style="width:auto;font-size:12px">
         <span style="color:var(--faint)">–</span>
         <input type="month" id="parcAte" value="${_parcAte}" min="${pri}" max="${ult}" onchange="parcManual()" style="width:auto;font-size:12px">
-        <span class="pill" style="font-size:10.5px">${limitado?`${_parcDe?_inadBR(_parcDe):'início'} a ${_parcAte?_inadBR(_parcAte):'hoje'} · 40 maiores`:'todos os parceiros'}</span>
+        <span class="pill" style="font-size:10.5px">${limitado?`${_parcDe?_inadBR(_parcDe):'início'} a ${_parcAte?_inadBR(_parcAte):'hoje'}`:'todo o período'}</span>
       </div>
       <div class="rt-kpi-grid">
-        ${_negCard('Parceiros com venda',n(rank.length),limitado?'no período, entre os 40 maiores':'na base inteira','gr','Cupons distintos que geraram pelo menos uma venda. Variações do mesmo nome contam uma vez.')}
+        ${_negCard('Parceiros com venda',n(rank.length),limitado?'no período escolhido':'na base inteira','gr','Cupons distintos que geraram pelo menos uma venda. Variações do mesmo nome contam uma vez.')}
         ${_negCard('Pedidos por indicação',n(totVen),d.compras?`${(totVen*100/d.compras).toFixed(1).replace('.',',')}% das vendas`:'','','Vendas que vieram com cupom. O resto chegou sem indicação.')}
         ${_negCard('Faturamento via cupom',fmt(totRec),`${pctBase.toFixed(1).replace('.',',')}% do faturamento`,'','Quanto do faturamento passou por um cupom de parceiro.')}
         ${_negCard('Ticket médio',fmt(totVen?totRec/totVen:0),'por pedido com cupom','','Faturamento com cupom dividido pelos pedidos com cupom. Compare com o ticket geral do Dash: cupom de desconto alto puxa este número para baixo.')}
@@ -12479,7 +12526,16 @@ function renderParceiros(){
     </div>
 
     <div class="card" style="margin-bottom:16px">
-      <h3 title="Ordenado pela métrica escolhida acima. Clique num parceiro para abrir o detalhe dele." style="cursor:help;margin-top:0">🏅 Ranking</h3>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px">
+        <h3 title="Ordenado pela métrica escolhida acima. Clique num parceiro para abrir o detalhe dele." style="cursor:help;margin:0 0 10px">🏅 Ranking</h3>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:11px;color:var(--faint)">MOSTRAR:</span>
+          <select onchange="parcQtd(this.value)" style="width:auto;font-size:12px">
+            ${[10,20,30,40].map(q=>`<option value="${q}"${_parcQtd===q?' selected':''}>${q} primeiros</option>`).join('')}
+            <option value="todos"${_parcQtd===Infinity?' selected':''}>Todos (${n(rank.length)})</option>
+          </select>
+        </div>
+      </div>
       <div style="max-height:520px;overflow:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12.5px">
         <thead><tr style="position:sticky;top:0;background:var(--bg)">
@@ -12490,7 +12546,7 @@ function renderParceiros(){
           <th style="text-align:right;padding:7px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Faturamento</th>
           <th style="text-align:right;padding:7px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Ticket</th>
         </tr></thead>
-        <tbody>${rank.slice(0,80).map((x,i)=>`<tr style="cursor:pointer${_parcSel===x.cupom?';background:rgba(255,213,42,.07)':''}" onclick="parcSel(${JSON.stringify(x.cupom).replace(/"/g,'&quot;')})" title="ver detalhe">
+        <tbody>${rank.slice(0,_parcQtd===Infinity?rank.length:_parcQtd).map((x,i)=>`<tr style="cursor:pointer${_parcSel===x.cupom?';background:rgba(255,213,42,.07)':''}" onclick="parcSel(${JSON.stringify(x.cupom).replace(/"/g,'&quot;')})" title="ver detalhe">
           <td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--faint)">${i+1}</td>
           <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-weight:700">${_evtEsc(x.cupom)}</td>
           <td style="padding:6px 8px;border-bottom:1px solid var(--border);width:32%">
@@ -12501,7 +12557,9 @@ function renderParceiros(){
           <td style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border);color:var(--muted)">${fmt(x.vendas?x.receita/x.vendas:0)}</td>
         </tr>`).join('')}</tbody>
       </table></div>
-      ${rank.length>80?`<div class="hint" style="margin-top:8px">Mostrando os 80 primeiros de ${n(rank.length)}.</div>`:''}
+      ${(_parcQtd!==Infinity&&rank.length>_parcQtd)?`<div style="margin-top:10px;text-align:center">
+        <button class="btn sm ghost" onclick="parcQtd('${Math.min(rank.length,_parcQtd+30)}')">mostrar mais 30</button>
+        <span class="hint" style="margin-left:8px">${n(_parcQtd)} de ${n(rank.length)}</span></div>`:''}
     </div>
     <div id="parcDetalhe"></div>`;
   renderParcDetalhe();
@@ -12512,13 +12570,12 @@ function renderParcDetalhe(){
   const el=document.getElementById('parcDetalhe');if(!el)return;
   if(!_parcSel){el.innerHTML='<div class="hint">Clique num parceiro do ranking para abrir o detalhe: evolução diária, produtos, estados e o que deu problema.</div>';return}
   const d=(_negocio&&_negocio.dados)||{};
-  const p=(d.parceiros||[]).find(x=>x.cupom===_parcSel);
+  const p=(_parcRanking().linhas||[]).find(x=>x.cupom===_parcSel);
   if(!p){el.innerHTML='';return}
-  const detalhado=(d.parceiros_detalhe||[]).includes(_parcSel);
   const n=v=>Math.round(v||0).toLocaleString('pt-BR');
-  const dias=(d.parceiro_dia||[]).filter(x=>x.cupom===_parcSel&&_parcDentro(x.dia.slice(0,7))).sort((a,b)=>a.dia<b.dia?-1:1);
-  const prods=(d.parceiro_produto||[]).filter(x=>x.cupom===_parcSel).sort((a,b)=>b.receita-a.receita).slice(0,10);
-  const ufs=(d.parceiro_uf||[]).filter(x=>x.cupom===_parcSel).sort((a,b)=>b.receita-a.receita).slice(0,10);
+  const dias=_parcLinhas(d.parceiro_dia,_parcSel).filter(x=>_parcDentro(x.dia.slice(0,7))).sort((a,b)=>a.dia<b.dia?-1:1);
+  const prods=_parcLinhas(d.parceiro_produto,_parcSel).sort((a,b)=>b.receita-a.receita).slice(0,10);
+  const ufs=_parcLinhas(d.parceiro_uf,_parcSel).sort((a,b)=>b.receita-a.receita).slice(0,10);
   const tentativas=p.vendas+p.cancel+p.estorno+p.aguard+p.naoautoriz;
   const conv=tentativas?(p.vendas*100/tentativas):0;
   const barra=(itens,rot)=>{const mx=Math.max(1,...itens.map(x=>x.receita));
@@ -12532,7 +12589,7 @@ function renderParcDetalhe(){
     <div class="card" style="margin-bottom:16px;border-color:rgba(255,213,42,.35)">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px;margin-bottom:12px">
         <div><h3 style="margin:0">${_evtEsc(p.cupom)}</h3>
-          <div class="hint">${p.pri?`primeira venda em ${_negBR(p.pri)} · última em ${_negBR(p.ult)}`:''}${p.variantes&&p.variantes.length>1?` · cupons: ${p.variantes.map(v=>_evtEsc(p.cupom+(v.desc==='—'?'':v.desc))).join(', ')}`:''}</div></div>
+          <div class="hint">${p.pri?`primeira venda em ${_negBR(p.pri)} · última em ${_negBR(p.ult)}`:''}${(()=>{const cs=_parcCupons(p.cupom);return cs.length>1?` · cupons: ${cs.map(_evtEsc).join(', ')}`:''})()}</div></div>
         <button class="btn sm ghost" style="padding:3px 10px;font-size:11px" onclick="parcSel('')">fechar</button>
       </div>
       <div class="rt-kpi-grid">
@@ -12547,7 +12604,6 @@ function renderParcDetalhe(){
       </div>
     </div>
 
-    ${detalhado?`
     <div class="card" style="margin-bottom:16px">
       <h3 title="Vendas e faturamento dia a dia deste parceiro, dentro do período escolhido." style="cursor:help;margin-top:0">📈 Dia a dia</h3>
       ${dias.length?`<div style="height:260px"><canvas id="parcChart"></canvas></div>`:'<div class="empty">Sem venda no período escolhido.</div>'}
@@ -12563,7 +12619,7 @@ function renderParcDetalhe(){
           ${barra(ufs,x=>x.uf)}
         </div>
       </div>
-    </div>`:`<div class="card" style="margin-bottom:16px"><div class="hint">Dia a dia, produtos e estados são guardados só para os 40 maiores parceiros — este está fora dessa faixa. Os números acima valem para ele por inteiro.</div></div>`}`;
+    </div>`;
   const c=document.getElementById('parcChart');
   try{if(_negCharts.parc)_negCharts.parc.destroy()}catch(e){}
   if(!c||!dias.length)return;
