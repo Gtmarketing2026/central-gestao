@@ -118,6 +118,16 @@ function _iaErroHumano(msg: string, provedor: string) {
   if (/high demand|overload|unavailable|503/i.test(m)) return `A IA do ${provedor} está sobrecarregada agora. Tente de novo em alguns minutos.`;
   return m || `Erro na API da ${provedor}`;
 }
+/* Nem toda chamada de IA passa por callOpenAI: transcricao de audio e leitura de video vao direto
+   pro provedor. Sem registrar, elas somem da tela de custo — e o Whisper e cobrado por MINUTO, nao
+   por token. Por isso o audio grava a DURACAO em input_units e o preco dele em ai_model_prices e
+   "USD por 1 milhao de segundos" (US$ 100 = US$ 0,006/min), o que faz a mesma formula servir. */
+async function _regUsoIa(service: string, action: string, model: string, inUnits = 0, outUnits = 0, clientId: string | null = null) {
+  try {
+    await sbPost("system_usage_events", { client_id: clientId, service_key: service, action: String(action).slice(0, 80),
+      input_units: Math.round(inUnits) || 0, output_units: Math.round(outUnits) || 0, quantity: 1, meta: { model } });
+  } catch (_e) { /* telemetria nunca interrompe a IA */ }
+}
 async function callOpenAI(body: any) {
   const p = _iaProvider();
   const telemetry = body?._telemetry || {};
@@ -224,7 +234,7 @@ async function generateAnalysis(m: any, chat: any[], styleExamples: string[]) {
     system += `\n\nO gestor humano tem um estilo proprio de escrever. Imite o tom, o tamanho e a estrutura destes exemplos de analises anteriores dele:\n` + styleExamples.map((s, i) => `--- Exemplo ${i + 1} ---\n${s}`).join("\n\n");
   }
   const messages: any[] = [{ role: "system", content: system }];
-  messages.push({ role: "user", content: `Dados do mes para o cliente "${m.clientName}", referente a ${m.mesLabel}:\n${JSON.stringify(m, null, 2)}\n\nGere a analise gerencial mensal.` });
+  messages.push({ role: "user", content: `Dados do mes para o cliente "${m.clientName}", referente a ${m.mesLabel}:\n${JSON.stringify(m)}\n\nGere a analise gerencial mensal.` });
   if (Array.isArray(chat)) for (const t of chat) messages.push({ role: t.role === "user" ? "user" : "assistant", content: String(t.text || "") });
   const json = await callOpenAI({ model: "gpt-4o", messages, max_tokens: 1200 });
   return json.choices?.[0]?.message?.content || "";
@@ -387,14 +397,18 @@ RESUMO PARA CLIENTE (quando pedirem resumo/relatorio pro cliente): escreva PRONT
      na tela e sem rastro no log. Com print, o que importa e a imagem: o resto entra reduzido. */
   const _temImagem = Array.isArray(a.anexos) && a.anexos.some((x: any) => x?.tipo === "imagem" && x?.dataUrl);
   if (Array.isArray(a.knowledge) && a.knowledge.length) {
-    const fontes = _temImagem ? a.knowledge.slice(0, 2) : a.knowledge;
-    const limite = _temImagem ? 3000 : 14000;
+    /* Custo: a base de conhecimento inteira ia junto em TODA pergunta e, com o laço de ferramentas,
+       era reenviada a cada volta. 14k caracteres por fonte é material de leitura, não de contexto —
+       5k já carrega o método sem pagar o livro toda vez. */
+    const fontes = a.knowledge.slice(0, _temImagem ? 2 : 3);
+    const limite = _temImagem ? 3000 : 5000;
     system += `\n\n===== BASE DE CONHECIMENTO (JARVIS) =====\nEstes sao os metodos e frameworks dos gestores que a agencia treinou em voce (Pedro Sobral e outros). Eles sao a SUA forma de pensar: aplique estes principios, benchmarks e mentalidade em TODA analise e recomendacao, citando o raciocinio quando util. Nao os ignore.\n` +
       fontes.map((k: any, i: number) => `--- Fonte ${i + 1}: ${k.title || "material"} ---\n${String(k.text || "").slice(0, limite)}`).join("\n\n");
   }
 
   const messages: any[] = [{ role: "system", content: system }];
-  const _snap = JSON.stringify(a.snapshot, null, 2);
+  // sem indentação de propósito: JSON.stringify(x,null,2) enche o prompt de espaços que a IA cobra
+  const _snap = JSON.stringify(a.snapshot);
   messages.push({ role: "user", content: `Snapshot atual (dados reais do sistema):\n${_temImagem ? _snap.slice(0, 40000) : _snap}` });
   if (Array.isArray(a.history)) for (const t of a.history) messages.push({ role: t.role === "user" ? "user" : "assistant", content: String(t.text || "") });
 
@@ -428,7 +442,8 @@ RESUMO PARA CLIENTE (quando pedirem resumo/relatorio pro cliente): escreva PRONT
   const clients = await sbGet("clients", "select=id,name,meta_account_id,google_account_id,conversion_source,report_sheet_url,report_tabs&limit=500");
   const actions: any[] = [];
   let answer = "";
-  for (let it = 0; it < 6; it++) {
+  // 4 voltas em vez de 6: cada volta reenvia a conversa inteira, então o teto alto sai caro no pior caso
+  for (let it = 0; it < 4; it++) {
     const json = await callOpenAI({ model: "gpt-4o", messages, tools: allTools, tool_choice: "auto", max_tokens: 2000, temperature: 0.4, _telemetry: { clientId: a.clientId || null, action: "andreia_system" } });
     const msg = json.choices?.[0]?.message || {};
     if (!Array.isArray(msg.tool_calls) || !msg.tool_calls.length) { answer = String(msg.content || ""); break; }
@@ -440,7 +455,8 @@ RESUMO PARA CLIENTE (quando pedirem resumo/relatorio pro cliente): escreva PRONT
         messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ preparado: true, confirmacao_necessaria: true, instrucao: "Explique brevemente a ação preparada e aguarde confirmação no card." }) });
       } else {
         const result = await waExecTool(tc.function.name, args, clients);
-        messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result).slice(0, 12000) });
+        // o resultado da ferramenta volta em TODAS as chamadas seguintes do laço: cortar aqui economiza várias vezes
+        messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result).slice(0, 6000) });
       }
     }
   }
@@ -4770,7 +4786,7 @@ FORMATO PARA RELATÓRIOS E ANÁLISES (não use em conversa curta ou pedido de a�
         else { action = prepared.action; answer = prepared.confirmation; messagesAi.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ preparado: true, confirmacao: prepared.confirmation }) }); }
       } else {
         const result = await waExecTool(tc.function.name, args, clients);
-        messagesAi.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result).slice(0, 12000) });
+        messagesAi.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result).slice(0, 6000) });
       }
     }
     if (action) break;
@@ -5118,12 +5134,17 @@ async function waTranscribe(url: string): Promise<string> {
         body: JSON.stringify({ contents: [{ parts: [{ text: "Transcreva este áudio em português, apenas o texto falado." }, { inline_data: { mime_type: blob.type || "audio/ogg", data: b64 } }] }] }),
       });
       const j = await r.json();
+      const u = j?.usageMetadata || {};
+      await _regUsoIa("gemini", "transcricao_audio", "gemini-3.5-flash", u.promptTokenCount || 0, u.candidatesTokenCount || 0);
       return String(j?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
     }
     const key = Deno.env.get("OPENAI_API_KEY"); if (!key) return "";
     const fd = new FormData(); fd.append("file", blob, "audio.mp3"); fd.append("model", "whisper-1");
     const r = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: fd });
-    const j = await r.json(); return (j && j.text) ? String(j.text).trim() : "";
+    const j = await r.json();
+    // sem duracao na resposta, estima pelo tamanho do arquivo (audio de voz ~2 KB/s)
+    await _regUsoIa("openai", "transcricao_audio", "whisper-1", Math.max(1, Math.round((blob.size || 0) / 2048)), 0);
+    return (j && j.text) ? String(j.text).trim() : "";
   } catch { return ""; }
 }
 // Extrai o conteúdo útil de um anexo (imagem/PDF/texto) como texto — pra orientar a IA de palavras-chave.

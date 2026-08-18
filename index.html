@@ -8924,7 +8924,21 @@ function setFinSub(v){
   document.getElementById('finSystemView').style.display=v==='sistema'?'block':'none';
   if(v==='sistema')loadSystemCosts();
 }
-let _sysCostMonth='',_sysCostRows=[],_sysCostServices=[],_sysCostAi={};
+let _sysCostMonth='',_sysCostRows=[],_sysCostServices=[],_sysCostAi={},_sysAiModelos=[],_sysAiPrecos=[],_sysDolar=5.40;
+/* O custo de IA aparecia como R$ 0: a conta usava só a linha "gemini", com preço zerado, e a OpenAI
+   nem existia na tabela. Agora o preço é POR MODELO — gpt-4o custa ~16x o gpt-4o-mini, então média
+   por provedor mentiria — e os provedores cobram em dólar, por isso a conversão fica explícita. */
+function _sysCustoIa(){
+  const pm={};(_sysAiPrecos||[]).forEach(p=>pm[p.model]={i:+p.input_usd_per_million||0,o:+p.output_usd_per_million||0});
+  let usd=0;const linhas=[];
+  for(const m of (_sysAiModelos||[])){
+    const pr=pm[m.model]||{i:0,o:0};
+    const c=(+m.input_tokens||0)*pr.i/1e6+(+m.output_tokens||0)*pr.o/1e6;
+    usd+=c;linhas.push({...m,usd:c,semPreco:!pm[m.model]});
+  }
+  linhas.sort((a,b)=>b.usd-a.usd);
+  return {usd,brl:usd*_sysDolar,linhas};
+}
 function _sysNum(v){return Number(v)||0;}
 function _sysMonthRange(m){const [y,mo]=m.split('-').map(Number),last=new Date(y,mo,0).getDate();return{from:m+'-01',to:m+'-'+String(last).padStart(2,'0'),days:last};}
 function _sysUsageScore(r){return _sysNum(r.messages)+_sysNum(r.ai_classifications)*30+_sysNum(r.andreia_answers)*80+_sysNum(r.briefing_analyses)*250+_sysNum(r.creative_analyses)*180+_sysNum(r.capa_cases)*40+_sysNum(r.tracked_events)*.15;}
@@ -8934,14 +8948,16 @@ async function loadSystemCosts(month){
   _sysCostMonth=month||_sysCostMonth||today().slice(0,7);const rg=_sysMonthRange(_sysCostMonth);
   el.innerHTML='<div class="empty" style="padding:35px">Calculando custos e consumo do sistema…</div>';
   try{
-    const [u,s,a]=await Promise.all([sb.rpc('system_cost_usage_summary',{p_from:rg.from,p_to:rg.to}),sb.from('system_cost_services').select('*').order('category').order('name'),sb.rpc('system_ai_usage_summary',{p_from:rg.from,p_to:rg.to})]);
+    const [u,s,a,mm,pp]=await Promise.all([sb.rpc('system_cost_usage_summary',{p_from:rg.from,p_to:rg.to}),sb.from('system_cost_services').select('*').order('category').order('name'),sb.rpc('system_ai_usage_summary',{p_from:rg.from,p_to:rg.to}),sb.rpc('system_ai_usage_by_model',{p_from:rg.from,p_to:rg.to}),sb.from('ai_model_prices').select('*')]);
     if(u.error)throw u.error;if(s.error)throw s.error;if(a.error)throw a.error;
-    _sysCostRows=u.data||[];_sysCostServices=s.data||[];_sysCostAi=(a.data&&a.data[0])||{};renderSystemCosts();
+    _sysCostRows=u.data||[];_sysCostServices=s.data||[];_sysCostAi=(a.data&&a.data[0])||{};
+    _sysAiModelos=mm.data||[];_sysAiPrecos=pp.data||[];renderSystemCosts();
   }catch(e){el.innerHTML=`<div class="empty" style="padding:30px;color:#f87171">Não consegui carregar os custos: ${_brEsc(e.message||e)}</div>`;}
 }
 function renderSystemCosts(){
   const el=document.getElementById('finSystemView');if(!el)return;const rg=_sysMonthRange(_sysCostMonth),now=today(),isCurrent=now.slice(0,7)===_sysCostMonth,elapsed=isCurrent?Math.max(1,+now.slice(8,10)):rg.days;
-  const gem=_sysCostServices.find(x=>x.service_key==='gemini')||{},inTok=_sysNum(_sysCostAi.input_tokens),outTok=_sysNum(_sysCostAi.output_tokens),aiCost=inTok*_sysNum(gem.input_cost_per_million)/1e6+outTok*_sysNum(gem.output_cost_per_million)/1e6;
+  const inTok=_sysNum(_sysCostAi.input_tokens),outTok=_sysNum(_sysCostAi.output_tokens);
+  const _ia=_sysCustoIa(),aiCost=_ia.brl;
   const fixed=_sysCostServices.filter(x=>x.active).reduce((n,x)=>n+_sysNum(x.monthly_fixed),0),forecastAi=isCurrent?aiCost/elapsed*rg.days:aiCost,totalNow=fixed+aiCost,forecast=fixed+forecastAi;
   const totalScore=_sysCostRows.reduce((n,r)=>n+_sysUsageScore(r),0)||1,activeCount=Math.max(1,_sysCostRows.length),aiScoreTotal=_sysCostRows.reduce((n,r)=>n+(_sysNum(r.ai_classifications)+_sysNum(r.andreia_answers)*3+_sysNum(r.briefing_analyses)*8+_sysNum(r.creative_analyses)*6+_sysNum(r.capa_cases)*2),0)||1;
   const rows=_sysCostRows.map(r=>{let cost=0;for(const s of _sysCostServices.filter(x=>x.active)){const v=_sysNum(s.monthly_fixed);if(s.allocation_mode==='direct')cost+=s.client_id===r.client_id?v:0;else if(s.allocation_mode==='equal')cost+=v/activeCount;else if(s.allocation_mode==='usage')cost+=v*_sysUsageScore(r)/totalScore;}const aiScore=_sysNum(r.ai_classifications)+_sysNum(r.andreia_answers)*3+_sysNum(r.briefing_analyses)*8+_sysNum(r.creative_analyses)*6+_sysNum(r.capa_cases)*2;cost+=aiCost*aiScore/aiScoreTotal;return{...r,cost,minutes:_sysMinutes(r),analyses:_sysNum(r.ai_classifications)+_sysNum(r.andreia_answers)+_sysNum(r.briefing_analyses)+_sysNum(r.creative_analyses)+_sysNum(r.capa_cases)};}).sort((a,b)=>b.cost-a.cost);
@@ -8950,6 +8966,22 @@ function renderSystemCosts(){
   el.innerHTML=`<div class="section-head" style="margin-top:0"><div><h2 style="margin:0">Custos do Sistema</h2><div class="hint">Custo real, previsão, consumo e rateio operacional por cliente.</div></div><div style="display:flex;gap:7px;align-items:center"><input type="month" value="${_sysCostMonth}" onchange="loadSystemCosts(this.value)" style="width:auto"><button class="btn sm ghost" onclick="document.getElementById('sysCostConfig').style.display=document.getElementById('sysCostConfig').style.display==='none'?'block':'none'">⚙ Configurar custos</button></div></div>
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">${card('Custo comprometido',fmt(totalNow),'fixos do mês + IA medida','#d4a520')}${card('Previsão do mês',fmt(forecast),'ritmo atual de consumo')}${card('Custo médio por cliente',fmt(forecast/activeCount),activeCount+' clientes ativos')}${card('Tempo economizado',(mins/60).toLocaleString('pt-BR',{maximumFractionDigits:1})+'h','estimativa por automações')}</div>
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">${card('Mensagens rastreadas',messages.toLocaleString('pt-BR'),'WhatsApp/CRM no período')}${card('Ações e análises de IA',analyses.toLocaleString('pt-BR'),'classificações, respostas e auditorias')}${card('Tokens de IA',(inTok+outTok).toLocaleString('pt-BR'),`${inTok.toLocaleString('pt-BR')} entrada · ${outTok.toLocaleString('pt-BR')} saída`)}${card('Banco utilizado',(db/1024/1024).toLocaleString('pt-BR',{maximumFractionDigits:1})+' MB','tamanho atual do banco')}</div>
+  ${_ia.linhas.length?`<div class="card" style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+      <h3 style="margin:0 0 4px" title="Cada modelo tem preço próprio: gpt-4o custa cerca de 16x o gpt-4o-mini. Por isso a conta é por modelo, não por provedor.">🧠 Custo de IA por modelo</h3>
+      <span style="font-size:11px;color:var(--muted)">US$ ${_ia.usd.toFixed(2)} · convertido a R$ ${_sysDolar.toFixed(2)}/US$</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr>${['Modelo','Chamadas','Entrada','Saída','Custo'].map((h,i)=>`<th style="text-align:${i?'right':'left'};padding:6px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">${h}</th>`).join('')}</tr></thead>
+      <tbody>${_ia.linhas.map(l=>`<tr>
+        <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${_brEsc(l.model)}${l.semPreco?' <span style="color:#f0c040" title="modelo sem preço cadastrado em ai_model_prices">⚠ sem preço</span>':''}</td>
+        <td style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">${(+l.requests).toLocaleString('pt-BR')}</td>
+        <td style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border);color:var(--muted)">${(+l.input_tokens).toLocaleString('pt-BR')}</td>
+        <td style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border);color:var(--muted)">${(+l.output_tokens).toLocaleString('pt-BR')}</td>
+        <td style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border);font-weight:700">${fmt(l.usd*_sysDolar)}</td></tr>`).join('')}</tbody>
+    </table>
+    <div class="hint" style="margin-top:8px">A entrada domina o custo: é o prompt (contexto + ferramentas + histórico) reenviado a cada volta do agente. Preços em <code>ai_model_prices</code>.</div>
+  </div>`:''}
   <div id="sysCostConfig" class="card" style="display:none;margin-bottom:14px"><h3 style="margin-top:0">Planos, tarifas e critérios de rateio</h3><div class="hint" style="margin-bottom:10px">Preencha os valores reais das faturas. O sistema não inventa preços. Para IA, informe R$ por 1 milhão de tokens.</div><div style="overflow:auto"><table><thead><tr><th>Serviço</th><th>Fixo/mês</th><th>Entrada IA/M</th><th>Saída IA/M</th><th>Rateio</th><th>Observação</th><th></th></tr></thead><tbody>${_sysCostServices.map((s,i)=>`<tr><td><b>${_brEsc(s.name)}</b><div class="hint">${_brEsc(s.category)}</div></td><td><input id="scFix${i}" type="number" step="0.01" value="${_sysNum(s.monthly_fixed)}" style="width:105px"></td><td><input id="scIn${i}" type="number" step="0.0001" value="${_sysNum(s.input_cost_per_million)}" style="width:105px"></td><td><input id="scOut${i}" type="number" step="0.0001" value="${_sysNum(s.output_cost_per_million)}" style="width:105px"></td><td><select id="scAlloc${i}" style="width:125px"><option value="usage" ${s.allocation_mode==='usage'?'selected':''}>Por uso</option><option value="equal" ${s.allocation_mode==='equal'?'selected':''}>Igual</option><option value="overhead" ${s.allocation_mode==='overhead'?'selected':''}>Não ratear</option></select></td><td><input id="scNote${i}" value="${_brEsc(s.notes||'').replace(/"/g,'&quot;')}" style="min-width:220px"></td><td><button class="btn sm primary" onclick="sysCostSave(${i},this)">Salvar</button></td></tr>`).join('')}</tbody></table></div></div>
   <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Cliente</th><th>Custo rateado</th><th>Mensagens</th><th>Conversas</th><th>IA/Análises</th><th>Eventos rastreados</th><th>Memórias</th><th>Tempo economizado</th></tr></thead><tbody>${rows.map(r=>`<tr><td><b>${_brEsc(r.client_name)}</b></td><td style="color:var(--accent);font-weight:800">${fmt(r.cost)}</td><td>${_sysNum(r.messages).toLocaleString('pt-BR')}</td><td>${_sysNum(r.conversations).toLocaleString('pt-BR')}</td><td>${r.analyses.toLocaleString('pt-BR')}</td><td>${_sysNum(r.tracked_events).toLocaleString('pt-BR')}</td><td>${_sysNum(r.memories).toLocaleString('pt-BR')}</td><td>${(r.minutes/60).toLocaleString('pt-BR',{maximumFractionDigits:1})}h</td></tr>`).join('')}</tbody></table></div>
   <div class="hint" style="margin-top:9px">Tempo economizado é uma estimativa operacional: mensagem 0,2 min; classificação 3 min; resposta AndréIA 10 min; briefing 45 min; análise criativa 30 min; auditoria 12 min/caso. Custos compartilhados marcados “por uso” são rateados pelo volume de operação de cada cliente.</div>`;
