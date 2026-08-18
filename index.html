@@ -11516,6 +11516,11 @@ async function negocioProcessar(arquivos,aviso,emAberto){
     }
     const hoje=new Date();let ativos=0,expirados=0,exp30=0,exp60=0,semPrazo=0;
     const permT=[],permR=[],relac=[];
+    /* SAFRA = mês da PRIMEIRA compra do aluno. É o que permite responder "LTV e permanência de quem
+       entrou neste período" — diferente do LTV do topo, que é da base inteira. Guardo a receita da
+       VIDA INTEIRA de cada aluno na safra em que ele entrou; recortar a receita pelo período daria
+       um número menor e enganoso, porque a maior parte do LTV acontece depois da entrada. */
+    const safraMap={};
     for(const k in alunos){
       const a=alunos[k];
       if(a.ivs.length){
@@ -11523,7 +11528,7 @@ async function negocioProcessar(arquivos,aviso,emAberto){
         const unidos=[];
         for(let j=1;j<ivs.length;j++){if(ivs[j][0]<=fim){if(ivs[j][1]>fim)fim=ivs[j][1]}else{tot+=fim-ini;unidos.push([ini,fim]);ini=ivs[j][0];fim=ivs[j][1]}}
         tot+=fim-ini;unidos.push([ini,fim]);
-        const m=tot/(1000*60*60*24*30.44);permT.push(m);if(a.n>1)permR.push(m);
+        const m=tot/(1000*60*60*24*30.44);permT.push(m);if(a.n>1)permR.push(m);a._perm=m;
         // cada intervalo de acesso marca entrada e saída: a soma acumulada vira "ativos ao fim do mês"
         for(const [i0,i1] of unidos){
           const a0=mesIdx(i0),a1=mesIdx(i1);
@@ -11537,6 +11542,9 @@ async function negocioProcessar(arquivos,aviso,emAberto){
       else if(a.exp){if(a.exp>=hoje){ativos++;const dd=(a.exp-hoje)/(1000*60*60*24);if(dd<=30)exp30++;else if(dd<=60)exp60++}else expirados++}
       else semPrazo++;
       const pk=a.pri.toISOString().slice(0,7);if(mesMap[pk])mesMap[pk].novos++;
+      (safraMap[pk]=safraMap[pk]||{mes:pk,alunos:0,receita:0,perm_soma:0,perm_n:0,recompradores:0});
+      const _sf=safraMap[pk];_sf.alunos++;_sf.receita+=a.tot;if(a.n>1)_sf.recompradores++;
+      if(a._perm!=null){_sf.perm_soma+=a._perm;_sf.perm_n++}
       const pd=a.pri.toISOString().slice(0,10);if(diaMap[pd])diaMap[pd].novos++;
       // aluno novo entra no estado da PRIMEIRA compra: é de lá que ele veio
       if(a.uf&&ufMesMap[a.uf+'|'+pk])ufMesMap[a.uf+'|'+pk].novos++;
@@ -11611,6 +11619,8 @@ async function negocioProcessar(arquivos,aviso,emAberto){
           pct_recompra:+(x.compradores?x.recompradores*100/x.compradores:0).toFixed(1),
           ticket:+(x.compradores?x.receita/x.compradores:0).toFixed(2)}));
       })(),
+      // safra: LTV e permanência de quem ENTROU em cada mês, medidos na vida inteira dele
+      safra_mes:Object.values(safraMap).sort((a,b)=>a.mes<b.mes?-1:1).map(x=>({...x,receita:+x.receita.toFixed(2),perm_soma:+x.perm_soma.toFixed(2)})),
       serie_mensal:Object.values(mesMap).sort((a,b)=>a.mes<b.mes?-1:1).map(m=>({...m,receita:+m.receita.toFixed(2)})),
       serie_diaria:Object.values(diaMap).sort((a,b)=>a.dia<b.dia?-1:1).map(x=>({...x,receita:+x.receita.toFixed(2)})),
       /* produto SEM a turma no nome: é isso que responde "quanto esse produto vale".
@@ -11736,6 +11746,34 @@ async function negocioAtivar(){
 }
 /* Todo card tem explicação no hover: a linha de baixo é curta demais pra dizer COMO o número é
    calculado, e sem isso cada pessoa interpreta de um jeito. cursor:help avisa que tem explicação. */
+/* Filtro de período no TOPO, junto do título. Ele estava só dentro do bloco "Desempenho no período",
+   lá embaixo — quem abria a tela não via que dava pra recortar, e o cabeçalho ainda mostrava a data
+   sem o ano ("01/01 a 18/08"), o que fazia a base de 6 anos parecer só deste ano.
+   É o MESMO estado do filtro de baixo: mexer aqui mexe na tela inteira. */
+function _negBarraTopo(d){
+  const dias=d.serie_diaria||[];if(!dias.length)return '';
+  const pri=dias[0].dia,ult=dias[dias.length-1].dia;
+  const anos=[...new Set((d.serie_mensal||[]).map(x=>x.mes.slice(0,4)))].sort();
+  const tudo=_negPeriodoTudo();
+  const btAno=a=>{const on=_negDe===`${a}-01-01`&&_negAte===`${a}-12-31`;
+    return `<button class="btn sm ${on?'primary':'ghost'}" style="padding:3px 10px;font-size:11.5px" onclick="negAno('${a}')">${a}</button>`};
+  return `<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin:0 0 14px;padding:10px 12px;background:var(--surface2);border-radius:10px">
+    <span style="font-size:11px;color:var(--faint)">PERÍODO:</span>
+    <button class="btn sm ${tudo?'primary':'ghost'}" style="padding:3px 10px;font-size:11.5px" onclick="negPeriodoAtalho('tudo')">Tudo</button>
+    ${anos.map(btAno).join('')}
+    <input type="date" id="negDeTopo" value="${_negDe}" min="${pri}" max="${ult}" onchange="negPeriodoTopo()" style="width:auto;font-size:12px">
+    <span style="color:var(--faint)">–</span>
+    <input type="date" id="negAteTopo" value="${_negAte}" min="${pri}" max="${ult}" onchange="negPeriodoTopo()" style="width:auto;font-size:12px">
+    <span class="pill" style="font-size:10.5px">${tudo?'base inteira':`${_negBR(_negDe)} a ${_negBR(_negAte)}`}</span>
+    <span style="flex:1"></span>
+    <span style="font-size:11px;color:var(--muted)">LTV e permanência não seguem o período — são da vida inteira do aluno.</span>
+  </div>`;
+}
+function negAno(a){_negDe=`${a}-01-01`;_negAte=`${a}-12-31`;renderNegocio();}
+function negPeriodoTopo(){
+  const de=document.getElementById('negDeTopo'),ate=document.getElementById('negAteTopo');
+  _negDe=(de&&de.value)||'';_negAte=(ate&&ate.value)||'';renderNegocio();
+}
 function _negCard(rot,val,sub,cor,dica){
   const t=dica?` title="${String(dica).replace(/"/g,'&quot;')}" style="cursor:help"`:'';
   return `<div class="rt-kpi ${cor||'pu'}"${t}><div class="rt-kpi-lbl">${rot}</div><div class="rt-kpi-val sm">${val}</div><div style="font-size:10.5px;color:var(--faint);margin-top:3px;line-height:1.3">${sub||'&nbsp;'}</div></div>`;
@@ -12858,7 +12896,18 @@ function renderNegPeriodo(){
     return {...r,ticket:r.vendas?r.receita/r.vendas:0}};
   // por estado/produto o retrato não guarda recebido; melhor esconder o card do que mostrar zero
   const temRec=!!(_negocio.dados&&_negocio.dados.tem_recebido)&&!sm.por;
+  // safra do período (e a do período anterior, pro comparativo)
+  const _safra=(de,ate)=>{
+    const lista=((_negocio.dados&&_negocio.dados.safra_mes)||[]).filter(x=>x.mes>=de.slice(0,7)&&x.mes<=ate.slice(0,7));
+    if(!lista.length)return null;
+    const al=lista.reduce((s,x)=>s+x.alunos,0);if(!al)return null;
+    const rec=lista.reduce((s,x)=>s+x.receita,0);
+    const pn=lista.reduce((s,x)=>s+x.perm_n,0),ps=lista.reduce((s,x)=>s+x.perm_soma,0);
+    const rc=lista.reduce((s,x)=>s+x.recompradores,0);
+    return {alunos:al,ltv:rec/al,perm:pn?ps/pn:0,recompra:rc*100/al};
+  };
   const [pde,pate]=_negPeriodoAnterior(_negDe,_negAte);
+  const sf=_safra(_negDe,_negAte),sfP=_safra(pde,pate);
   const a=mensal?somaM(_negDe,_negAte):_negSoma(dias,_negDe,_negAte);
   const p=mensal?somaM(pde,pate):_negSoma(dias,pde,pate);
   const n=v=>Math.round(v||0).toLocaleString('pt-BR');
@@ -12883,6 +12932,8 @@ function renderNegPeriodo(){
       <div class="rt-kpi gr" style="cursor:help" title="Pessoas cuja PRIMEIRA compra da vida caiu dentro do período. É o que a aquisição trouxe de gente nova."><div class="rt-kpi-lbl">Alunos novos</div><div class="rt-kpi-val sm">${n(a.novos)}</div><div style="margin-top:3px">${_negVar(a.novos,p.novos)} <span style="font-size:10px;color:var(--faint)">${n(p.novos)}</span></div></div>
       <div class="rt-kpi" style="cursor:help" title="Vendas do período feitas por quem já era cliente antes. É a diferença entre as vendas do período e os alunos novos."><div class="rt-kpi-lbl">Recompra no período</div><div class="rt-kpi-val sm">${n(Math.max(0,a.vendas-a.novos))}</div><div style="margin-top:3px"><span style="font-size:10.5px;color:var(--muted)">${a.vendas?((a.vendas-a.novos)*100/a.vendas).toFixed(1).replace('.',',')+'% das vendas':''}</span></div></div>
       <div class="rt-kpi" style="cursor:help" title="Faturamento dividido pelo número de vendas do período. Sobe quando se vende produto mais caro ou com menos desconto."><div class="rt-kpi-lbl">Ticket médio</div><div class="rt-kpi-val sm">${fmt(a.ticket)}</div><div style="margin-top:3px">${_negVar(a.ticket,p.ticket)} <span style="font-size:10px;color:var(--faint)">${fmt(p.ticket)}</span></div></div>
+      ${sf?`<div class="rt-kpi gr" style="cursor:help" title="LTV DA SAFRA: dos alunos que fizeram a PRIMEIRA compra dentro do período, quanto cada um já gastou na vida inteira. É diferente do LTV do topo, que olha a base toda — este responde 'quem eu trouxe neste período vale quanto?'. Safra recente tende a mostrar valor menor, porque esses alunos ainda têm vida pela frente."><div class="rt-kpi-lbl">LTV da safra</div><div class="rt-kpi-val sm">${fmt(sf.ltv)}</div><div style="margin-top:3px">${_negVar(sf.ltv,sfP?sfP.ltv:0)} <span style="font-size:10px;color:var(--faint)">${n(sf.alunos)} aluno${sf.alunos===1?'':'s'} novo${sf.alunos===1?'':'s'}</span></div></div>`:''}
+      ${sf&&sf.perm?`<div class="rt-kpi" style="cursor:help" title="PERMANÊNCIA DA SAFRA: quanto tempo de acesso, somando os períodos comprados, tiveram os alunos que entraram neste período. Também é medida na vida inteira deles, não só dentro do recorte."><div class="rt-kpi-lbl">Permanência da safra</div><div class="rt-kpi-val sm">${sf.perm.toFixed(1).replace('.',',')} meses</div><div style="margin-top:3px">${_negVar(sf.perm,sfP?sfP.perm:0)} <span style="font-size:10px;color:var(--faint)">${sf.recompra.toFixed(1).replace('.',',')}% recompraram</span></div></div>`:''}
     </div>
     <div style="height:240px;margin-top:14px"><canvas id="negPerChart"></canvas></div>
     <div class="hint" style="margin-top:8px">O período escolhido aqui vale para a tela inteira. Só <b>LTV</b> e <b>permanência</b> ficam de fora: são o retrato da vida inteira do aluno, e recortar por data daria número errado.</div>`;
@@ -12946,13 +12997,14 @@ function renderNegocio(){
   el.innerHTML=`
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-        <div><h3 title="Retrato da vida inteira do negócio, calculado a partir da base de pedidos que você sobe aqui. Nada nesta faixa é filtrado por data." style="cursor:help;margin:0">🏛 Visão de negócio</h3><div class="hint">${d.periodo?`${dateBR(d.periodo.de)} a ${dateBR(d.periodo.ate)}`:''} · fonte: <span title="${String(_negocio.fonte||'').replace(/"/g,'&quot;')}">${(d.arquivos&&d.arquivos.length>1)?d.arquivos.length+' arquivos':_evtEsc(_negocio.fonte||'—')}</span> · atualizado ${new Date(_negocio.gerado_em).toLocaleString('pt-BR')}</div></div>
+        <div><h3 title="Retrato da vida inteira do negócio, calculado a partir da base de pedidos que você sobe aqui. Nada nesta faixa é filtrado por data." style="cursor:help;margin:0">🏛 Visão de negócio</h3><div class="hint">${d.periodo?`base de ${_negBR(d.periodo.de)} a ${_negBR(d.periodo.ate)}`:''} · fonte: <span title="${String(_negocio.fonte||'').replace(/"/g,'&quot;')}">${(d.arquivos&&d.arquivos.length>1)?d.arquivos.length+' arquivos':_evtEsc(_negocio.fonte||'—')}</span> · atualizado ${new Date(_negocio.gerado_em).toLocaleString('pt-BR')}</div></div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <input type="file" id="negUpFile" accept=".xlsx,.xls,.csv" multiple style="display:none" onchange="negocioUpload(this)">
           <button class="btn sm ghost" onclick="document.getElementById('negUpFile').click()" title="Sobe a base de vendas e recalcula tudo. Dá pra escolher vários arquivos de uma vez (o histórico de 2020 e 2021 saiu em relatórios separados) — pedido repetido é descartado pelo Id. Tudo é lido aqui no navegador, não vai pro servidor">⬆️ Atualizar base de vendas</button>
           <span id="negUpMsg" style="font-size:11.5px;color:var(--muted)"></span>
         </div>
       </div>
+      ${_negBarraTopo(d)}
       <div class="rt-kpi-grid">
         ${_negCard('LTV médio',fmt(d.ltv_medio),'faturamento total ÷ alunos únicos','gr','Quanto um aluno vale, em média, ao longo de toda a vida dele com a marca: o faturamento inteiro dividido pelo número de alunos únicos. O aluno é identificado pelo CPF, e pelo e-mail quando não há CPF.')}
         ${_negCard('LTV de quem recompra',fmt(d.ltv_recomprador),`${d.pct_recompra}% da base compra mais de uma vez`,'gr','O mesmo cálculo, mas só entre quem comprou mais de uma vez. A diferença para o LTV médio mostra quanto vale conquistar a segunda compra.')}
