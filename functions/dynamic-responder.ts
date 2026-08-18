@@ -6445,7 +6445,7 @@ async function waAgentOneShot(prompt: string): Promise<string> {
   const sys = `${pb}\n\nVocê é a AndréIA, gestora de tráfego da GT Marketing, mandando um aviso automático no grupo de WhatsApp da equipe. Consulte os dados REAIS com as ferramentas antes de afirmar qualquer número. Analise cada cliente pelo OBJETIVO dele (venda→ROAS/CPA; leads→CPL; mensagens→custo por conversa; tráfego→CPC; alcance→alcance/CPM) — nunca mostre ROAS pra quem não é venda, e siga o PLAYBOOK acima (custo alto pede verificar QUALIFICAÇÃO, não só reduzir custo). Hoje é ${_spNow().toISOString().slice(0, 10)}. Clientes: ${nomes}.
 
 FORMATAÇÃO (padrão dos avisos — siga SEMPRE, deixe visualmente limpo e organizado):
-- 1ª linha: título com emoji + *negrito*. Logo abaixo, uma linha divisória: ${WA_DIV}
+- 1ª linha: título com emoji + *negrito*. Na 2ª linha, o período analisado em _itálico_ (ex: _últimos 7 dias (11/08 a 18/08)_) — sem isso quem lê compara com outro intervalo e acha que o número está errado. Logo abaixo, uma linha divisória: ${WA_DIV}
 - Um bloco por cliente/item: nome em *negrito*, e cada informação numa linha própria começando com "• ".
 - Números-chave (ROAS, gasto, CPL, custo) em *negrito*.
 - Uma linha em branco entre um cliente/bloco e outro.
@@ -6464,6 +6464,15 @@ FORMATAÇÃO (padrão dos avisos — siga SEMPRE, deixe visualmente limpo e orga
   }
   return "";
 }
+/* Janela dos avisos automáticos num lugar só. O aviso saía sem dizer o período, e quem lia comparava
+   com o mês no painel e achava que o número estava errado. */
+const _AVISO_DIAS = 7;
+// data pronta em vez de pedir pra IA calcular: assim o período escrito no aviso é sempre o real
+function _avisoPeriodo() {
+  const br = (d: Date) => `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  const ate = new Date(), de = new Date(Date.now() - _AVISO_DIAS * 864e5);
+  return `últimos ${_AVISO_DIAS} dias (${br(de)} a ${br(ate)})`;
+}
 async function waAutoText(tipo: string, escopo = "padrao", prompt = "", nivel = "resumido"): Promise<string[]> {
   const escNota = escopo && escopo !== "padrao" ? ` Considere apenas os clientes do escopo "${ESCOPO_LABEL[escopo] || escopo}".` : "";
   // Aviso que a IA não conseguiu montar (cota estourada, por exemplo) não vira mensagem no grupo: mandar
@@ -6475,7 +6484,13 @@ async function waAutoText(tipo: string, escopo = "padrao", prompt = "", nivel = 
   if (tipo === "receber") return [_waFmtFinanceiro(await waFinanceiro({ tipo: "receita", status: "pendente", mes: _mesAtual() }), "💰 *A receber este mês*")];
   if (tipo === "pagar") return [_waFmtFinanceiro(await waFinanceiro({ tipo: "despesa", status: "pendente", mes: _mesAtual() }), "💸 *A pagar este mês*")];
   if (tipo === "pendencias") return [await waPendenciasText()];
-  if (tipo === "atencao") return [await waAgentOneShot(`Quem precisa de atenção hoje? Analise os clientes ativos (use resumo_todos_clientes e, se precisar, meta_insights por cliente) e destaque só os que estão abaixo da meta, gastando sem resultado, ou parados. IMPORTANTE: cada cliente tem um objetivo diferente (venda, leads, mensagens/WhatsApp, tráfego, alcance...) — a métrica que o resumo mostra já é a certa pro objetivo dele. NUNCA cite "sem compra"/"0 compras"/ROAS baixo como problema de um cliente cujo objetivo não é venda — olhe a métrica do objetivo dele (leads, conversas, cliques etc.) pra decidir se está indo bem ou não. Se estiver tudo bem, diga que está tudo em ordem. Curto.${escNota}`)];
+  if (tipo === "atencao") return [await waAgentOneShot(`Quem precisa de atenção? Analise os clientes ativos (use resumo_todos_clientes e, se precisar, meta_insights por cliente) e destaque só os que estão abaixo da meta, gastando sem resultado, ou parados.
+
+PERÍODO (obrigatório): chame resumo_todos_clientes com dias=${_AVISO_DIAS} e ESCREVA o período analisado logo abaixo do título, exatamente assim: "_${_avisoPeriodo()}_". Todo número do aviso tem que ser desse mesmo período — nunca misture com mês fechado nem com outro intervalo, senão o gestor compara com o painel e os valores não batem.
+
+OBJETIVO DE CADA CLIENTE (regra dura): cada cliente tem um objetivo diferente (venda, leads, mensagens/WhatsApp, tráfego, visualizações, alcance...) e a métrica que o resumo traz já é a certa pra ele. NUNCA cite "sem compra"/"0 compras"/"0 conversões"/ROAS baixo como problema de quem não tem venda como objetivo. E mais: NÃO INCLUA na lista o cliente cujo objetivo não é conversão só porque ele não tem conversão — isso não é baixo resultado, é o objetivo dele. Ele só entra se a métrica DO OBJETIVO dele estiver ruim (ex: custo por visualização alto, CTR despencando, custo por conversa subindo) ou se estiver gastando e sem entrega nenhuma. Ao citar um cliente, diga o objetivo dele e a métrica desse objetivo, não a que falta.
+
+Se estiver tudo bem, diga que está tudo em ordem. Curto.${escNota}`)];
   if (tipo === "recomendacoes") return [await waAgentOneShot(`Recomendações da semana: com base nos dados reais dos clientes ativos, liste 2 a 3 ações priorizadas (o que pausar, escalar ou ajustar), citando o cliente. Considere o objetivo de cada cliente (venda, leads, mensagens, tráfego...) — não recomende nada baseado em "sem venda"/ROAS de quem não tem objetivo de venda. Curto e prático.${escNota}`)];
   return [];
 }
