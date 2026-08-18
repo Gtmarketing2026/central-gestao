@@ -13420,7 +13420,10 @@ function _objAttrib(ads){
   });
   return m;
 }
-function _dashAggFromAds(list){
+// sheetInfo opcional: {fromSheet,sales} — passado explicitamente pro período ANTERIOR (⇄ Comparar), pra não
+// reusar _dashSheetSales (que é sempre do período atual). Sem isso o "vs ant." de receita/compras comparava
+// o mesmo total da planilha contra ele mesmo. Sem sheetInfo, usa as globais do período atual (comportamento de sempre).
+function _dashAggFromAds(list,sheetInfo){
   const filtered=list.filter(a=>a.spend>0&&(!_dashFAcc.length||_dashFAcc.includes(a.account))).filter(a=>!_dashFObj.length||_dashFObj.includes(_dashObjTipo(a))).filter(a=>!_dashFCamp.length||_dashFCamp.includes(a.campaign)).filter(a=>!_dashFAdset.length||_dashFAdset.includes((a.campaign||'')+' · '+(a.adset||'')));
   const g={spend:0,impressions:0,clicks:0,reach:0,revenue:0,purchases:0,leads:0,addToCart:0,initiateCheckout:0,conversas:0,videoViews:0,engajamentos:0};
   filtered.forEach(a=>Object.keys(g).forEach(k=>g[k]+=(a[k]||0)));
@@ -13432,7 +13435,9 @@ function _dashAggFromAds(list){
   // métricas-resultado atribuídas por objetivo (leads só de campanhas de Lead, etc.) — batem com os cards de foco
   const objM=_objAttrib(filtered);
   out.leads=objM.leads;out.conversas=objM.conversas;out.videoViews=objM.videoViews;out.engajamentos=objM.engajamentos;
-  if(_dashSalesFromSheet&&_dashSheetSales){out.revenue=_dashSheetSales.revenue;out.compras=Math.round(_dashSheetSales.sales);} // venda da planilha: total do canal
+  const useSheet=sheetInfo?sheetInfo.fromSheet:_dashSalesFromSheet,sheetData=sheetInfo?sheetInfo.sales:_dashSheetSales;
+  if(useSheet&&sheetData){out.revenue=sheetData.revenue;out.compras=Math.round(sheetData.sales);} // venda da planilha: total do canal
+  else if(useSheet){out.revenue=undefined;out.compras=undefined;} // venda vem da planilha mas não achou nada nesse período específico — não dá pra comparar com pixel (fonte diferente)
   else if(!_dashNoSales){out.compras=Math.round(objM.purchases);out.revenue=objM.revenue;}
   return out;
 }
@@ -13441,12 +13446,12 @@ function dashAggFiltered(){
   return _dashAggFromAds(_dashAds);
 }
 // ⇄ Comparar com o período anterior (mesma duração) — todas as métricas dos KPIs
-let _dashCompare=false,_dashPrevAds=null,_dashPrevRange=null,_dashSince='',_dashUntil='';
+let _dashCompare=false,_dashPrevAds=null,_dashPrevRange=null,_dashSince='',_dashUntil='',_dashPrevSheetSales=null;
 async function toggleDashCompare(clientId){
   const btn=document.getElementById('dashCmpBtn');
   _dashCompare=!_dashCompare;
   if(btn){btn.classList.toggle('primary',_dashCompare);btn.classList.toggle('ghost',!_dashCompare);}
-  if(!_dashCompare){_dashPrevAds=null;_dashPrevRange=null;applyDashFilters();return;}
+  if(!_dashCompare){_dashPrevAds=null;_dashPrevRange=null;_dashPrevSheetSales=null;applyDashFilters();return;}
   const c=DB.clients.find(x=>x.id===clientId);if(!c)return;
   const s=new Date(_dashSince+'T12:00:00'),u=new Date(_dashUntil+'T12:00:00');
   const days=Math.round((u-s)/86400000)+1;
@@ -13460,7 +13465,10 @@ async function toggleDashCompare(clientId){
     else if(_dashSource==='geral'){const [m,g]=await Promise.all([fetchMetaReportRange(c,_dashPrevRange.since,_dashPrevRange.until).catch(()=>null),fetchGoogleReportRange(c,_dashPrevRange.since,_dashPrevRange.until).catch(()=>null)]);rep=mergeDashReps(m,g);}
     else rep=await fetchMetaReportRange(c,_dashPrevRange.since,_dashPrevRange.until);
     _dashPrevAds=rep.ads||[];
-  }catch(e){_dashPrevAds=null;}
+    // venda real (planilha) tem que ser buscada de novo pro período anterior — sem isso, a receita/compras
+    // do "vs ant." reusava os mesmos totais do período atual (mesmas variáveis globais) e o delta dava sempre 0%.
+    _dashPrevSheetSales=_dashSalesFromSheet?await fetchDashSheetSales(c,_dashPrevRange.since,_dashPrevRange.until,_dashSource).catch(()=>null):null;
+  }catch(e){_dashPrevAds=null;_dashPrevSheetSales=null;}
   if(btn)btn.disabled=false;
   applyDashFilters();
 }
@@ -13981,7 +13989,7 @@ function applyDashFilters(){
   const grid=document.getElementById('dashKpiGrid');
   if(grid&&_dashTpl){
     const agg=dashAggFiltered();
-    const prevAgg=(_dashCompare&&_dashPrevAds)?_dashAggFromAds(_dashPrevAds):null;
+    const prevAgg=(_dashCompare&&_dashPrevAds)?_dashAggFromAds(_dashPrevAds,{fromSheet:_dashSalesFromSheet,sales:_dashPrevSheetSales}):null;
     grid.innerHTML=dashKpiKeys().map(k=>{const mc=METRIC_CATALOG[k];const key=k===_dashTpl.keyMetric;return`<div class="rt-kpi ${key?'gr':'pu'}"${key?' style="outline:2px solid #34d399;outline-offset:-1px"':''}><div class="rt-kpi-lbl">${mc.label}${key?' ★':''}</div><div class="rt-kpi-val sm">${fmtMetric(mc.calc(agg),mc.fmt)}</div>${prevAgg?dashDeltaHTML(k,agg,prevAgg):''}</div>`}).join('')
       +(prevAgg&&_dashPrevRange?`<div style="grid-column:1/-1;font-size:11px;color:var(--faint)">⇄ comparando com ${dateBR(_dashPrevRange.since)}–${dateBR(_dashPrevRange.until)} (mesma duração, mesmos filtros)</div>`:'')
       +((_dashCompare&&!_dashPrevAds)?`<div style="grid-column:1/-1;font-size:11px;color:var(--muted)">⇄ carregando período anterior…</div>`:'');
@@ -14063,7 +14071,7 @@ function renderMetaDashboard(c,rep,since,until){
    if(!rep._salesFromSheet&&!noSales){agg.compras=Math.round(objM.purchases);agg.revenue=objM.revenue;}}
   _dashRecs=((t.records||[]).slice().sort((a,b)=>a.date<b.date?-1:1)).map(r=>({...r,purchases:r.sales}));
   _dashAds=rep.ads||[];_dashCampRecs=rep.campaigns||[];_dashTpl=tpl;
-  _dashCampReach={};(rep.campaigns||[]).forEach(cp=>{if(cp&&cp.campaign)_dashCampReach[cp.campaign]={reach:cp.reach||0,frequency:cp.frequency||0};});_dashNoSales=noSales;_dashClientId=c.id;_dashSince=since;_dashUntil=until;_dashCompare=false;_dashPrevAds=null;_dashPrevRange=null;
+  _dashCampReach={};(rep.campaigns||[]).forEach(cp=>{if(cp&&cp.campaign)_dashCampReach[cp.campaign]={reach:cp.reach||0,frequency:cp.frequency||0};});_dashNoSales=noSales;_dashClientId=c.id;_dashSince=since;_dashUntil=until;_dashCompare=false;_dashPrevAds=null;_dashPrevRange=null;_dashPrevSheetSales=null;
   _dashSalesFromSheet=!!rep._salesFromSheet;_dashSheetSales=rep._sheetSales||null;
   _dashAgg={spend:agg.spend,impressions:agg.impressions,clicks:agg.clicks,reach:agg.reach,revenue:agg.revenue,compras:agg.compras,leads:agg.leads,addCarrinho:agg.addCarrinho,checkout:agg.checkout,conversas:agg.conversas,videoViews:agg.videoViews,engajamentos:agg.engajamentos,frequencia:agg.frequencia};
   _dashFAcc=[];_dashFObj=[];_dashFCamp=[];_dashFAdset=[];_dashFunCamp='';_dashFunAdset='';_dashFunAd='';
