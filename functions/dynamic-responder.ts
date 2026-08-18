@@ -391,7 +391,12 @@ RESUMO PARA CLIENTE (quando pedirem resumo/relatorio pro cliente): escreva PRONT
 - 1 bloco "O que faremos agora" com 2-3 acoes.
 - Maximo ~15 linhas. Tom profissional e proximo, sem markdown de titulo (#), so *negrito estilo WhatsApp* com um asterisco.`;
 
-  system += "\n\n" + await _andreiaUnifiedContext(a.clientId || null, a.surface || "Sistema");
+  /* CACHE DE PROMPT (OpenAI): o desconto só vale para o PREFIXO idêntico entre chamadas. O bloco de
+     instruções acima não tem nenhuma interpolação — é igual em toda pergunta — então ele fica sozinho
+     na primeira mensagem. Tudo que muda por cliente (contexto e base de conhecimento) vai numa
+     SEGUNDA mensagem. Antes estava tudo concatenado, e um único caractere diferente jogava o prompt
+     inteiro fora do cache. */
+  let contexto = await _andreiaUnifiedContext(a.clientId || null, a.surface || "Sistema");
   /* Com imagem anexada o corpo do pedido ja carrega centenas de KB em base64. Somar a isso a base de
      conhecimento inteira e o snapshot cru estourava o limite e a resposta voltava 500 seca — sem erro
      na tela e sem rastro no log. Com print, o que importa e a imagem: o resto entra reduzido. */
@@ -402,11 +407,12 @@ RESUMO PARA CLIENTE (quando pedirem resumo/relatorio pro cliente): escreva PRONT
        5k já carrega o método sem pagar o livro toda vez. */
     const fontes = a.knowledge.slice(0, _temImagem ? 2 : 3);
     const limite = _temImagem ? 3000 : 5000;
-    system += `\n\n===== BASE DE CONHECIMENTO (JARVIS) =====\nEstes sao os metodos e frameworks dos gestores que a agencia treinou em voce (Pedro Sobral e outros). Eles sao a SUA forma de pensar: aplique estes principios, benchmarks e mentalidade em TODA analise e recomendacao, citando o raciocinio quando util. Nao os ignore.\n` +
+    contexto += `\n\n===== BASE DE CONHECIMENTO (JARVIS) =====\nEstes sao os metodos e frameworks dos gestores que a agencia treinou em voce (Pedro Sobral e outros). Eles sao a SUA forma de pensar: aplique estes principios, benchmarks e mentalidade em TODA analise e recomendacao, citando o raciocinio quando util. Nao os ignore.\n` +
       fontes.map((k: any, i: number) => `--- Fonte ${i + 1}: ${k.title || "material"} ---\n${String(k.text || "").slice(0, limite)}`).join("\n\n");
   }
 
   const messages: any[] = [{ role: "system", content: system }];
+  if (contexto.trim()) messages.push({ role: "system", content: contexto });
   // sem indentação de propósito: JSON.stringify(x,null,2) enche o prompt de espaços que a IA cobra
   const _snap = JSON.stringify(a.snapshot);
   messages.push({ role: "user", content: `Snapshot atual (dados reais do sistema):\n${_temImagem ? _snap.slice(0, 40000) : _snap}` });
@@ -5293,11 +5299,7 @@ async function waAgentHandle(w: any) {
   const nomes = clients.slice(0, 150).map((c: any) => c.name).join(" | ");
   const pb = await _waPlaybook();
   const unified = await _andreiaUnifiedContext((sess && sess.client_id) || null, "WhatsApp da equipe");
-  const sys = `${unified}
-
-${pb}
-
-Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com a equipe da agência. Fale CURTO, direto e natural (é WhatsApp). Ao AVALIAR/RECOMENDAR, siga sempre o PLAYBOOK acima (ex: custo por lead/conversa alto → orientar a verificar a QUALIFICAÇÃO antes de mandar reduzir custo).
+  const sys = `Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com a equipe da agência. Fale CURTO, direto e natural (é WhatsApp). Ao AVALIAR/RECOMENDAR, siga sempre o PLAYBOOK acima (ex: custo por lead/conversa alto → orientar a verificar a QUALIFICAÇÃO antes de mandar reduzir custo).
 - Você CONSULTA os dados reais do sistema com as ferramentas: consultar_banco (qualquer tabela: financeiro, tarefas, CRM, RD, pedidos, clientes…), meta_insights e google_insights (métricas ao vivo), resumo_todos_clientes. SEMPRE busque o dado real antes de responder — NUNCA invente número nem use placeholders (X, Y, Z). Se não houver dado, diga que não há.
 - Traga SÓ o que tem dado, e a métrica do OBJETIVO do cliente. O snapshot já traz o campo 'objetivo' e só as métricas certas dele: venda→compras/ROAS/CPA; leads→leads/CPL; mensagens→conversas/custo por conversa; tráfego→cliques/CTR/CPC. NUNCA misture (ex: cliente de VENDA não mostra "custo por conversa").
 - Formato WhatsApp: NÃO use markdown de título (nada de ### ou **). Negrito é com UM asterisco (*assim*). Listas com "• ". Seja enxuta.
@@ -5317,12 +5319,21 @@ Você é a AndréIA, gestora de tráfego E financeiro, num grupo de WhatsApp com
   3) TAREFAS: pergunte se cria as tarefas de onboarding e CONFIRME os CANAIS que o cliente vai trabalhar (meta/google/tiktok) + o responsável — as tarefas criadas são SÓ dos canais confirmados. preparar_acao tipo=criar_tarefas_onboarding {cliente, canais, responsavel}.
   4) FINANCEIRO: por fim pergunte se quer criar o lançamento (fee mensal) — preparar_acao tipo=criar_lancamento. Se disser não, encerre com um resumo do que foi feito.
   Nunca pule etapa nem execute duas de uma vez; cada etapa passa pela confirmação (SIM) do sistema.
-- DINHEIRO/FINANCEIRO: para QUALQUER pergunta de valores (a receber, a pagar, recebido, pago, fluxo do mês) use a ferramenta **financeiro** — ela já devolve o TOTAL correto e os ITENS com o nome certo do cliente. "a receber" = {tipo:'receita',status:'pendente'}; "a pagar" = {tipo:'despesa',status:'pendente'}; "este mês" = mes:'${new Date().toISOString().slice(0, 7)}'. NUNCA some você mesma nem adivinhe o nome do cliente — use os campos 'total' e 'itens' que a ferramenta retorna, exatamente.
-- 🗣 VOCÊ É CONVERSACIONAL, não um robô de script: LEIA o histórico antes de responder. Mensagens marcadas "[EXECUTADO: x]" no histórico são coisas que VOCÊ JÁ FEZ — nunca proponha de novo. Se a pessoa responder algo fora do "sim/não" (informar um dado, corrigir você, dizer "isso você já fez", "já fizemos isso", "pula essa"), ENTENDA e siga em frente: reconheça em 1 linha e vá pro próximo passo pendente, sem repetir a confirmação anterior. Se estiver em dúvida sobre onde parou, PERGUNTE ("já gerei o contrato — quer que eu siga pro cadastro?") em vez de repetir a etapa.${_flowPrompt(sess && sess.flow)}
-- Datas: hoje é ${new Date().toISOString().slice(0, 10)}. Ao filtrar por um cliente específico use o id dele (está na lista abaixo entre colchetes, ou consulte a tabela clients). Clientes: ${clients.slice(0, 150).map((c: any) => `${c.name}[${c.id}]`).join(" | ")}.`;
+- DINHEIRO/FINANCEIRO: para QUALQUER pergunta de valores (a receber, a pagar, recebido, pago, fluxo do mês) use a ferramenta **financeiro** — ela já devolve o TOTAL correto e os ITENS com o nome certo do cliente. "a receber" = {tipo:'receita',status:'pendente'}; "a pagar" = {tipo:'despesa',status:'pendente'}; "este mês" = o mês atual, informado no contexto abaixo. NUNCA some você mesma nem adivinhe o nome do cliente — use os campos 'total' e 'itens' que a ferramenta retorna, exatamente.
+- 🗣 VOCÊ É CONVERSACIONAL, não um robô de script: LEIA o histórico antes de responder. Mensagens marcadas "[EXECUTADO: x]" no histórico são coisas que VOCÊ JÁ FEZ — nunca proponha de novo. Se a pessoa responder algo fora do "sim/não" (informar um dado, corrigir você, dizer "isso você já fez", "já fizemos isso", "pula essa"), ENTENDA e siga em frente: reconheça em 1 linha e vá pro próximo passo pendente, sem repetir a confirmação anterior. Se estiver em dúvida sobre onde parou, PERGUNTE ("já gerei o contrato — quer que eu siga pro cadastro?") em vez de repetir a etapa.`;
+  /* CACHE DE PROMPT: o desconto da OpenAI só vale pro PREFIXO idêntico entre chamadas. Por isso o
+     bloco de instruções acima não tem nenhuma interpolação, e tudo que muda — contexto do cliente,
+     playbook, data de hoje, lista de clientes e estado do fluxo — vai numa SEGUNDA mensagem. Antes o
+     contexto vinha ANTES das instruções, o que jogava o prompt inteiro pra fora do cache. */
+  const sysDin = `${unified}
+
+${pb}
+
+- Hoje é ${new Date().toISOString().slice(0, 10)} e o mês atual é ${new Date().toISOString().slice(0, 7)}.
+- Ao filtrar por um cliente específico use o id dele (entre colchetes). Clientes: ${clients.slice(0, 150).map((c: any) => `${c.name}[${c.id}]`).join(" | ")}.${_flowPrompt(sess && sess.flow)}`;
   const hist0 = ((sess && sess.history) || []).slice(-8).map((h: any) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text }));
   const userContent: any = visionParts.length ? [{ type: "text", text: text || "" }, ...visionParts] : text;
-  const messages: any[] = [{ role: "system", content: sys }, ...hist0, { role: "user", content: userContent }];
+  const messages: any[] = [{ role: "system", content: sys }, { role: "system", content: sysDin }, ...hist0, { role: "user", content: userContent }];
   const agentModel = "gpt-4o"; // conversacional de verdade (segue o histórico e o estado do processo); também lê imagem/PDF
   let clientId = (sess && sess.client_id) || null;
   for (let it = 0; it < 6; it++) {

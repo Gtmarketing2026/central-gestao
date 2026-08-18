@@ -12000,16 +12000,34 @@ function renderInad(){
 
     <div class="card" style="margin-bottom:16px">
       <h3 title="Distribuição dos contratos por quantas parcelas foram pagas antes de parar. Concentração à direita significa que o aluno desiste no fim do contrato, quando quase tudo já foi pago." style="cursor:help;margin-top:0">📉 Em que parcela o aluno para de pagar</h3>
-      <div class="hint" style="margin-bottom:10px">Quanto mais à direita, mais tarde a desistência — e menos dinheiro se perde por contrato.</div>
-      <div style="display:flex;flex-direction:column;gap:5px">
-        ${(d.por_pagas||[]).map(x=>`<div style="display:grid;grid-template-columns:88px 1fr 132px;gap:10px;align-items:center;font-size:12px">
-          <div style="color:var(--muted);text-align:right">${x.pagas} de ${x.qtd}</div>
-          <div style="background:var(--surface2);border-radius:5px;height:19px;position:relative;overflow:hidden">
-            <div style="width:${Math.max(2,x.contratos*100/maxP)}%;height:100%;background:linear-gradient(90deg,#b45309,#fcd34d)"></div>
-          </div>
-          <div style="text-align:right"><b>${n(x.contratos)}</b> <span style="color:var(--faint)">· ${fmt(x.aberto)}</span></div>
-        </div>`).join('')||'<div class="empty">Sem dados.</div>'}
-      </div>
+      <div class="hint" style="margin-bottom:12px">Do ponto de parada mais comum para o mais raro. A faixa "de 12" e "de 6" convivem porque são planos de tamanhos diferentes — por isso o percentual do contrato aparece ao lado.</div>
+      ${(()=>{
+        /* Funil, do maior pro menor. Antes a lista vinha ordenada pela parcela, o que misturava
+           "2 de 12" com "2 de 6" e escondia onde a perda realmente se concentra. A cauda de
+           combinações com 1 ou 2 contratos vira uma linha só, senão são 20 linhas de ruído. */
+        const orig=(d.por_pagas||[]).slice().sort((a,b)=>b.contratos-a.contratos);
+        if(!orig.length)return '<div class="empty">Sem dados.</div>';
+        const totC=orig.reduce((s,x)=>s+x.contratos,0);
+        const grandes=orig.filter(x=>x.contratos>=3).slice(0,14);
+        const resto=orig.filter(x=>!grandes.includes(x));
+        const linhas=[...grandes];
+        if(resto.length)linhas.push({pagas:-1,qtd:resto.length,
+          contratos:resto.reduce((s,x)=>s+x.contratos,0),aberto:resto.reduce((s,x)=>s+x.aberto,0)});
+        const mx=Math.max(1,...linhas.map(x=>x.contratos));
+        return `<div style="display:flex;flex-direction:column;gap:6px">${linhas.map(x=>{
+          const larg=Math.max(6,x.contratos*100/mx),pct=totC?x.contratos*100/totC:0;
+          const resumo=x.pagas<0;
+          const rot=resumo?`+${x.qtd} combinações`:`${x.pagas} de ${x.qtd}`;
+          const pctPlanoResumo=resumo?` <span style="color:var(--faint)">(${n(x.contratos)} contratos)</span>`:'';
+          const pctPlano=resumo?'':` <span style="color:var(--faint)">(${Math.round(x.pagas*100/x.qtd)}% do plano)</span>`;
+          return `<div style="display:grid;grid-template-columns:150px 1fr 168px;gap:12px;align-items:center;font-size:12px">
+            <div style="text-align:right;color:var(--muted)"><b style="color:${resumo?'var(--faint)':'inherit'}">${rot}</b>${pctPlano}${pctPlanoResumo}</div>
+            <div style="display:flex;justify-content:center">
+              <div title="${n(x.contratos)} contratos · ${pct.toFixed(1).replace('.',',')}% dos que atrasaram" style="width:${larg}%;height:22px;border-radius:4px;background:${resumo?'linear-gradient(90deg,#4b4b45,#6b6b63)':'linear-gradient(90deg,#b45309,#fcd34d)'};display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;color:#1a1a17">${larg>14?n(x.contratos):''}</div>
+            </div>
+            <div style="text-align:right"><b>${pct.toFixed(1).replace('.',',')}%</b> <span style="color:var(--faint)">· ${fmt(x.aberto)}</span></div>
+          </div>`}).join('')}</div>`;
+      })()}
     </div>
 
     <div class="card" style="margin-bottom:16px">
