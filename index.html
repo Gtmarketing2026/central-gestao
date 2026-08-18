@@ -11269,7 +11269,7 @@ function setReportSub(v){
 /* ================= PAINEL DE NEGÓCIO (só pra cliente que manda a venda geral da empresa) =================
    Vem de client_business_snapshot: LTV, permanência, base de alunos e séries. É análise de NEGÓCIO, separada
    do operacional de mídia — por isso aba própria, e escondida pra quem não tem esse dado. */
-let _negocio=null,_negCharts={};
+let _negocio=null,_negCharts={},_negHistorico=null;
 /* ---- Lembrete diário de atualizar a base (11h) ----
    A base de vendas é atualizada à mão, então o sistema não sabe sozinho quando ela mudou. A partir das 11h,
    se o retrato ainda for de ontem (ou mais velho), lembra uma vez por dia. Some assim que a base é atualizada. */
@@ -11429,7 +11429,7 @@ function _negData(v){
   const m=String(v||'').match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?new Date(+m[3],+m[2]-1,+m[1]):null;
 }
 // separado do upload pra dar pra testar o cálculo sem depender de banco nem de sessão
-async function negocioProcessar(arquivos,aviso,emAberto){
+async function negocioProcessar(arquivos,aviso,emAberto,extraLinhas){
   const arqs=Array.isArray(arquivos)?arquivos:[arquivos];
   const setMsg=t=>{if(aviso)aviso(t)};
   /* FATURADO x RECEBIDO. A base lança a venda pelo valor CHEIO na data em que foi feita — inclusive a
@@ -11457,6 +11457,15 @@ async function negocioProcessar(arquivos,aviso,emAberto){
         l.__id=id;
         linhas.push(l);
       }
+    }
+    // histórico guardado (2020/2021 etc.): junta aqui pra não precisar reenviar toda vez que a base
+    // atual é atualizada. Mesmo dedup por Id do arquivo do dia — se algum pedido histórico também
+    // estiver no arquivo atual, o atual (mais recente) prevalece.
+    for(const l of (extraLinhas||[])){
+      const id=String(l.__id||l.Id||l.id||l.ID||'').trim();
+      if(id){if(vistos.has(id)){repetidas++;continue}vistos.add(id)}
+      l.__id=id;
+      linhas.push(l);
     }
     if(!linhas.length)throw new Error('planilha vazia ou sem cabeçalho');
     setMsg('Processando as linhas…');
@@ -11723,11 +11732,15 @@ async function negocioUpload(input){
   const msg=document.getElementById('negUpMsg'),cid=activeClientId;
   if(!cid){msg.textContent='Selecione um cliente antes.';return}
   const mb=Math.round(arqs.reduce((s,a)=>s+a.size,0)/1024/1024);
-  const fonte=arqs.map(a=>a.name).join(' + ');
   msg.style.color='';msg.textContent=`Lendo ${arqs.length>1?arqs.length+' arquivos':arqs[0].name} (${mb}MB)… pode levar 1 a 2 minutos.`;
   try{
     const abertos=((_inad&&_inad.dados&&_inad.dados.abertos)||[]);
-    const dados=await negocioProcessar(arqs,t=>{msg.textContent=t},abertos);
+    // histórico guardado (2020/2021…) entra automaticamente aqui, sem precisar reenviar de novo —
+    // ver negocioUploadHistorico. Junta ANTES de calcular pra LTV/permanência/recompra cruzarem os anos certo.
+    const {data:hData}=await sb.from('client_business_snapshot').select('historico_linhas,historico_fonte').eq('client_id',cid).maybeSingle();
+    const histLinhas=(hData&&hData.historico_linhas)||null;
+    const fonte=arqs.map(a=>a.name).join(' + ')+(histLinhas&&hData.historico_fonte?` + histórico (${hData.historico_fonte})`:'');
+    const dados=await negocioProcessar(arqs,t=>{msg.textContent=t},abertos,histLinhas);
     // o retrato cresceu ao guardar TODOS os produtos e parceiros; sem medir, a gente só descobre
     // que ficou pesado quando a tela começa a demorar pra abrir
     const _mb=JSON.stringify(dados).length/1048576;
@@ -11739,6 +11752,37 @@ async function negocioUpload(input){
     renderNegocio();
     const m2=document.getElementById('negUpMsg');if(m2){m2.style.color='var(--accent)';m2.textContent=`✓ ${dados.alunos.toLocaleString('pt-BR')} alunos, ${dados.compras.toLocaleString('pt-BR')} compras pagas e ${((dados.top_produtos||[]).length).toLocaleString('pt-BR')} produtos${dados.linhas_repetidas?` · ${dados.linhas_repetidas.toLocaleString('pt-BR')} linha(s) repetida(s) descartada(s)`:''}. Retrato: ${_mb.toFixed(1)} MB.`}
   }catch(e){msg.style.color='var(--red)';msg.textContent='Não consegui ler: '+(e.message||e);}
+  input.value='';
+}
+/* Histórico (2020/2021…): guardado UMA VEZ, à parte da base do dia a dia. A partir daqui, toda
+   vez que alguém clicar em "Atualizar base de vendas" só com o arquivo atual, negocioUpload junta
+   essas linhas sozinho — não precisa mais selecionar 2020/2021 de novo a cada atualização. */
+async function negocioUploadHistorico(input){
+  const arqs=[...(input.files||[])];if(!arqs.length)return;
+  const msg=document.getElementById('negUpMsg'),cid=activeClientId;
+  if(!cid){msg.textContent='Selecione um cliente antes.';return}
+  msg.style.color='';msg.textContent=`Lendo histórico: ${arqs.map(a=>a.name).join(', ')}…`;
+  try{
+    const linhas=[],vistos=new Set();
+    for(const arq of arqs){
+      const wb=XLSX.read(await arq.arrayBuffer(),{type:'array',cellDates:false});
+      const aba=wb.SheetNames.find(n=>/venda/i.test(n))||wb.SheetNames[0];
+      for(const l of XLSX.utils.sheet_to_json(wb.Sheets[aba],{defval:''})){
+        const id=String(l.Id||l.id||l.ID||'').trim();
+        if(id){if(vistos.has(id))continue;vistos.add(id)}
+        l.__id=id;
+        linhas.push(l);
+      }
+    }
+    if(!linhas.length)throw new Error('planilha vazia ou sem cabeçalho');
+    const fonte=arqs.map(a=>a.name).join(' + ');
+    msg.textContent=`Salvando histórico (${linhas.length.toLocaleString('pt-BR')} linhas)…`;
+    const {error}=await sb.from('client_business_snapshot')
+      .upsert({client_id:cid,historico_linhas:linhas,historico_fonte:fonte,historico_gerado_em:new Date().toISOString()});
+    if(error)throw error;
+    msg.style.color='var(--accent)';
+    msg.textContent=`✓ Histórico salvo (${linhas.length.toLocaleString('pt-BR')} linhas de ${fonte}). Clique em "Atualizar base de vendas" com o arquivo atual pra recalcular juntando os dois — dali em diante ele entra sozinho.`;
+  }catch(e){msg.style.color='var(--red)';msg.textContent='Não consegui ler o histórico: '+(e.message||e);}
   input.value='';
 }
 /* ===== MENU NEGÓCIO =====
@@ -11773,18 +11817,19 @@ async function loadNegocio(clientId){
   setNegSub(_negSub);
 }
 async function negocioDisponivel(clientId){
-  if(!clientId){_negocio=null;_inad=null;_negMenuMostra(false);return}
+  if(!clientId){_negocio=null;_inad=null;_negHistorico=null;_negMenuMostra(false);return}
   try{
     const {data}=await sb.from('client_business_snapshot')
-      .select('dados,gerado_em,fonte,inadimplencia,inad_fonte,inad_gerado_em').eq('client_id',clientId).maybeSingle();
+      .select('dados,gerado_em,fonte,inadimplencia,inad_fonte,inad_gerado_em,historico_fonte,historico_gerado_em').eq('client_id',clientId).maybeSingle();
     // a coluna dados nasce como '{}' quando o módulo é só ativado: retrato vazio não é retrato
     const temVenda=!!(data&&data.dados&&Object.keys(data.dados).length);
     _negocio=temVenda?{dados:data.dados,gerado_em:data.gerado_em,fonte:data.fonte}:null;
     _inad=data&&data.inadimplencia?{dados:data.inadimplencia,gerado_em:data.inad_gerado_em,fonte:data.inad_fonte}:null;
+    _negHistorico=data&&data.historico_fonte?{fonte:data.historico_fonte,gerado_em:data.historico_gerado_em}:null;
     _negMenuMostra(!!data);
     const box=document.getElementById('negAtivarBox');
     if(box)box.style.display=(!data&&accessCanMenu('negocio'))?'':'none';
-  }catch(e){_negocio=null;_inad=null;_negMenuMostra(false);}
+  }catch(e){_negocio=null;_inad=null;_negHistorico=null;_negMenuMostra(false);}
 }
 async function negocioAtivar(){
   const cid=activeClientId;if(!cid){alert('Selecione um cliente primeiro.');return}
@@ -13048,10 +13093,12 @@ function renderNegocio(){
   el.innerHTML=`
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-        <div><h3 title="Retrato da vida inteira do negócio, calculado a partir da base de pedidos que você sobe aqui. Nada nesta faixa é filtrado por data." style="cursor:help;margin:0">🏛 Visão de negócio</h3><div class="hint">${d.periodo?`base de ${_negBR(d.periodo.de)} a ${_negBR(d.periodo.ate)}`:''} · fonte: <span title="${String(_negocio.fonte||'').replace(/"/g,'&quot;')}">${(d.arquivos&&d.arquivos.length>1)?d.arquivos.length+' arquivos':_evtEsc(_negocio.fonte||'—')}</span> · atualizado ${new Date(_negocio.gerado_em).toLocaleString('pt-BR')}</div></div>
+        <div><h3 title="Retrato da vida inteira do negócio, calculado a partir da base de pedidos que você sobe aqui. Nada nesta faixa é filtrado por data." style="cursor:help;margin:0">🏛 Visão de negócio</h3><div class="hint">${d.periodo?`base de ${_negBR(d.periodo.de)} a ${_negBR(d.periodo.ate)}`:''} · fonte: <span title="${String(_negocio.fonte||'').replace(/"/g,'&quot;')}">${(d.arquivos&&d.arquivos.length>1)?d.arquivos.length+' arquivos':_evtEsc(_negocio.fonte||'—')}</span> · atualizado ${new Date(_negocio.gerado_em).toLocaleString('pt-BR')}${_negHistorico?` · <span title="${String(_negHistorico.fonte||'').replace(/"/g,'&quot;')}" style="cursor:help">📜 histórico guardado</span>`:''}</div></div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <input type="file" id="negUpFile" accept=".xlsx,.xls,.csv" multiple style="display:none" onchange="negocioUpload(this)">
-          <button class="btn sm ghost" onclick="document.getElementById('negUpFile').click()" title="Sobe a base de vendas e recalcula tudo. Dá pra escolher vários arquivos de uma vez (o histórico de 2020 e 2021 saiu em relatórios separados) — pedido repetido é descartado pelo Id. Tudo é lido aqui no navegador, não vai pro servidor">⬆️ Atualizar base de vendas</button>
+          <button class="btn sm ghost" onclick="document.getElementById('negUpFile').click()" title="Sobe a base atual e recalcula tudo, juntando com o histórico guardado (se houver) automaticamente. Pedido repetido é descartado pelo Id. Tudo é lido aqui no navegador — só o retrato calculado vai pro servidor">⬆️ Atualizar base de vendas</button>
+          <input type="file" id="negUpHistFile" accept=".xlsx,.xls,.csv" multiple style="display:none" onchange="negocioUploadHistorico(this)">
+          <button class="btn sm ghost" onclick="document.getElementById('negUpHistFile').click()" title="${_negHistorico?'Substitui o histórico guardado ('+String(_negHistorico.fonte||'').replace(/"/g,'&quot;')+').':'Guarda o histórico (ex: 2020 e 2021) uma vez só.'} A partir daí, toda atualização da base atual junta com ele sozinha, sem precisar reenviar. Aqui SIM as linhas brutas (com CPF/e-mail) ficam salvas no banco, protegidas por login do cliente.">📜 ${_negHistorico?'Trocar histórico':'Guardar histórico'}</button>
           <span id="negUpMsg" style="font-size:11.5px;color:var(--muted)"></span>
         </div>
       </div>
