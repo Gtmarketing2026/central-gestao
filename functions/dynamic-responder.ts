@@ -122,6 +122,7 @@ async function callOpenAI(body: any) {
   };
   let t = await tentar(payload.model);
   let usado = p; // provedor que REALMENTE respondeu — é ele que vai pra telemetria de custo
+  let erroPlanoB = ""; // por que a OpenAI não salvou — sem isso o erro culpa só o Gemini e esconde a causa
   const semCota = (e: string) => /high demand|overload|unavailable|RESOURCE_EXHAUSTED|quota|503|429/i.test(e || "");
   // modelo sobrecarregado/limite: tenta os alternativos antes de desistir
   if (!t.ok && p.mapa && semCota(t.erro)) {
@@ -134,9 +135,13 @@ async function callOpenAI(body: any) {
   // para. Se houver chave da OpenAI configurada, ela assume em vez de devolver erro.
   if (!t.ok && p.mapa && semCota(t.erro)) {
     const alt = _iaProviderOpenAI();
-    if (alt) { const t2 = await tentar(modelo, alt); if (t2.ok) { t = t2; usado = alt; } }
+    if (!alt) erroPlanoB = "não há OPENAI_API_KEY configurada";
+    else {
+      const t2 = await tentar(modelo, alt);
+      if (t2.ok) { t = t2; usado = alt; } else erroPlanoB = t2.erro || "erro desconhecido";
+    }
   }
-  if (!t.ok) throw new Error(_iaErroHumano(t.erro, p.nome));
+  if (!t.ok) throw new Error(_iaErroHumano(t.erro, p.nome) + (erroPlanoB ? ` [plano B (OpenAI) também falhou: ${erroPlanoB}]` : ""));
   try {
     const u = t.json?.usage || {};
     await sbPost("system_usage_events", { client_id: telemetry.clientId || null, service_key: usado.nome.toLowerCase(), action: String(telemetry.action || "ai_request").slice(0, 80), input_units: Number(u.prompt_tokens || u.input_tokens || 0), output_units: Number(u.completion_tokens || u.output_tokens || 0), quantity: 1, meta: { model: t.json?.model || payload.model } });
@@ -5121,6 +5126,16 @@ async function waMediaUrl(host: string, token: string, msgid: string): Promise<{
     return { url: String(url), mime: String(b.mimetype || "") };
   } catch { return null; }
 }
+// Avisa no proprio grupo que a mensagem nao pode ser processada, dizendo o que fazer.
+async function _waAgentAvisaErro(w: any, motivo: string) {
+  const inst = (await sbGet("wa_instances", `id=eq.${encodeURIComponent(w.instanceId)}&select=uaz_host,uaz_token`))[0];
+  if (!inst || !w.chatid) return;
+  const cota = /limite do plano|cota|quota|RESOURCE_EXHAUSTED|429/i.test(motivo);
+  const texto = cota
+    ? `⚠️ Não consegui processar sua mensagem agora: *a IA atingiu o limite do plano*.\n\nSua mensagem não foi perdida — é só reenviar depois. Se estiver acontecendo direto, a chave da IA precisa de faturamento ativo ou de uma chave reserva.`
+    : `⚠️ Não consegui processar sua mensagem agora.\n\n_${String(motivo).slice(0, 220)}_\n\nPode reenviar em instantes.`;
+  await waCall(inst.uaz_host, inst.uaz_token, "/send/text", "POST", { number: w.chatid, text: texto });
+}
 async function waAgentHandle(w: any) {
   const data = (await sbGet("account_config", "id=eq.main&select=data"))[0]?.data || {};
   const cfg = data.andreia_wa || {};
@@ -6658,8 +6673,18 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.waAgent) {
-      const r = await waAgentHandle(body.waAgent);
-      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      /* Se a IA falha aqui, quem mandou a mensagem no grupo nao recebe NADA - foi o que aconteceu com
+         "Criar tarefa..." quando a cota do Gemini estourou. Silencio e o pior retorno possivel: a
+         pessoa acha que foi feito. Agora a falha vira resposta no proprio grupo. */
+      try {
+        const r = await waAgentHandle(body.waAgent);
+        return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      } catch (e) {
+        const motivo = (e as Error)?.message || "erro desconhecido";
+        console.error("[waAgent] falhou:", motivo);
+        try { await _waAgentAvisaErro(body.waAgent, motivo); } catch (_e) { /* nem o aviso pode derrubar */ }
+        return new Response(JSON.stringify({ data: { erro: motivo } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
     if (body.automationsTick) {
       const r = await waAutomationsTick();
