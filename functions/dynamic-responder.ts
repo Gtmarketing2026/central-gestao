@@ -69,8 +69,8 @@ async function aggregateOrdersTabs(sheets: any, spreadsheetIds: string[], tab: s
   return { aggregated: true, rows: Object.values(agg), rowsScanned, sheetRowCount, partialErrors: errors.length ? errors : undefined };
 }
 
-// IA: usa o GEMINI (Google) quando houver GEMINI_API_KEY — o Google expõe um endpoint compatível com o da OpenAI,
-// então o resto do código não muda. Sem essa chave, cai na OpenAI. Trocar de provedor é só mexer nos secrets.
+// IA: o Google expõe um endpoint compatível com o da OpenAI, então trocar de provedor não mexe no
+// resto do código — só no nome do modelo e em dois parâmetros. Quem é o principal: ver _iaProvider.
 const _GEMINI_MODEL: Record<string, string> = { "gpt-4o": "gemini-flash-latest", "gpt-4o-mini": "gemini-3.5-flash-lite" };
 // se o modelo estiver sobrecarregado ("high demand"), tenta o próximo da fila
 const _GEMINI_FALLBACK: Record<string, string[]> = {
@@ -82,12 +82,25 @@ function _iaProviderOpenAI() {
   const o = Deno.env.get("OPENAI_API_KEY");
   return o ? { key: o, url: "https://api.openai.com/v1/chat/completions", nome: "OpenAI", mapa: null as any } : null;
 }
-function _iaProvider() {
+function _iaProviderGemini() {
   const g = Deno.env.get("GEMINI_API_KEY");
-  if (g) return { key: g, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", nome: "Gemini", mapa: _GEMINI_MODEL };
-  const o = _iaProviderOpenAI();
-  if (o) return o;
-  throw new Error("Nenhuma chave de IA configurada (GEMINI_API_KEY ou OPENAI_API_KEY)");
+  return g ? { key: g, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", nome: "Gemini", mapa: _GEMINI_MODEL } : null;
+}
+/* Principal = OpenAI, decidido em 18/08/2026: a chave do Gemini era do plano gratuito e a cota
+   estourava a cada dois dias, derrubando TODA a IA de uma vez (DNA, CRM, leitura de print e a
+   AndréIA do WhatsApp). O Gemini fica como reserva. Para trocar de novo não precisa de deploy:
+   basta o secret IA_PRINCIPAL = "gemini". */
+function _iaPreferido() { return String(Deno.env.get("IA_PRINCIPAL") || "openai").toLowerCase(); }
+function _iaProvider() {
+  const querGemini = _iaPreferido() === "gemini";
+  const p = querGemini ? (_iaProviderGemini() || _iaProviderOpenAI()) : (_iaProviderOpenAI() || _iaProviderGemini());
+  if (p) return p;
+  throw new Error("Nenhuma chave de IA configurada (OPENAI_API_KEY ou GEMINI_API_KEY)");
+}
+// o outro provedor, seja qual for o principal — é ele que assume quando o principal fica sem cota
+function _iaProviderReserva(atual: any) {
+  const outro = atual?.mapa ? _iaProviderOpenAI() : _iaProviderGemini();
+  return outro && outro.nome !== atual?.nome ? outro : null;
 }
 // Cota estourada derrubava TODA a IA do sistema de uma vez (DNA, Qualidade do Atendimento, resumos do CRM),
 // e a tela so dizia "non-2xx". Aqui o erro vira uma frase que diz o que fazer.
@@ -103,48 +116,50 @@ async function callOpenAI(body: any) {
   const p = _iaProvider();
   const telemetry = body?._telemetry || {};
   const modelo = body.model || "gpt-4o-mini";
-  const payload: any = { temperature: 0.6, max_tokens: 1000, ...body, model: p.mapa ? (p.mapa[modelo] || "gemini-3.5-flash") : modelo };
+  const payload: any = { temperature: 0.6, max_tokens: 1000, ...body };
   delete payload._telemetry;
+  delete payload.model;
   const maxOriginal = payload.max_tokens || 1000;
-  if (p.mapa) { // Gemini gasta parte do orçamento "pensando" — dá folga e pede raciocínio curto pra resposta não vir truncada
-    payload.max_tokens = Math.max(1200, maxOriginal * 3);
-    payload.reasoning_effort = "low";
-  }
+  // o nome do modelo muda com o provedor; e o Gemini precisa de ajustes que a OpenAI recusa
+  const modeloDe = (prov: any) => prov?.mapa ? (prov.mapa[modelo] || "gemini-3.5-flash") : modelo;
   const tentar = async (mod: string, prov = p) => {
     const corpo: any = { ...payload, model: mod };
-    // os ajustes acima sao do Gemini: a OpenAI rejeita reasoning_effort nos modelos comuns (400) e faria
-    // o plano B falhar calado, deixando o sistema sem IA mesmo com chave paga configurada.
-    if (!prov.mapa) { delete corpo.reasoning_effort; corpo.max_tokens = maxOriginal; }
+    if (prov.mapa) { // Gemini gasta parte do orçamento "pensando": dá folga e pede raciocínio curto
+      corpo.max_tokens = Math.max(1200, maxOriginal * 3);
+      corpo.reasoning_effort = "low";
+    } else { // a OpenAI rejeita reasoning_effort nos modelos comuns (400) — sem isso a troca falha calada
+      delete corpo.reasoning_effort; corpo.max_tokens = maxOriginal;
+    }
     const r = await fetch(prov.url, { method: "POST", headers: { "Authorization": `Bearer ${prov.key}`, "Content-Type": "application/json" }, body: JSON.stringify(corpo) });
     const j = await r.json();
     const jj = Array.isArray(j) ? j[0] : j;
     return { ok: r.ok && !jj?.error, json: jj, erro: jj?.error?.message || (r.ok ? "" : `HTTP ${r.status}`) };
   };
-  let t = await tentar(payload.model);
+  let t = await tentar(modeloDe(p));
   let usado = p; // provedor que REALMENTE respondeu — é ele que vai pra telemetria de custo
-  let erroPlanoB = ""; // por que a OpenAI não salvou — sem isso o erro culpa só o Gemini e esconde a causa
-  const semCota = (e: string) => /high demand|overload|unavailable|RESOURCE_EXHAUSTED|quota|503|429/i.test(e || "");
-  // modelo sobrecarregado/limite: tenta os alternativos antes de desistir
+  let erroPlanoB = ""; // por que a reserva não salvou — sem isso o erro culpa só o principal
+  const semCota = (e: string) => /high demand|overload|unavailable|RESOURCE_EXHAUSTED|quota|503|429|insufficient_quota|billing/i.test(e || "");
+  // modelo sobrecarregado: no Gemini vale tentar os irmãos antes de desistir
   if (!t.ok && p.mapa && semCota(t.erro)) {
-    for (const alt of (_GEMINI_FALLBACK[payload.model] || [])) {
+    for (const alt of (_GEMINI_FALLBACK[modeloDe(p)] || [])) {
       t = await tentar(alt);
       if (t.ok) break;
     }
   }
-  // A cota do Gemini é da CHAVE, não do modelo: estourou, os alternativos estouram junto e o sistema inteiro de IA
-  // para. Se houver chave da OpenAI configurada, ela assume em vez de devolver erro.
-  if (!t.ok && p.mapa && semCota(t.erro)) {
-    const alt = _iaProviderOpenAI();
-    if (!alt) erroPlanoB = "não há OPENAI_API_KEY configurada";
+  /* A cota é da CHAVE, não do modelo: estourou, o provedor inteiro para e o sistema fica sem IA.
+     Aqui o OUTRO provedor assume, seja ele qual for — a troca funciona nos dois sentidos. */
+  if (!t.ok && semCota(t.erro)) {
+    const alt = _iaProviderReserva(p);
+    if (!alt) erroPlanoB = `não há chave de reserva configurada (${p.mapa ? "OPENAI_API_KEY" : "GEMINI_API_KEY"})`;
     else {
-      const t2 = await tentar(modelo, alt);
-      if (t2.ok) { t = t2; usado = alt; } else erroPlanoB = t2.erro || "erro desconhecido";
+      const t2 = await tentar(modeloDe(alt), alt);
+      if (t2.ok) { t = t2; usado = alt; } else erroPlanoB = `${alt.nome}: ${t2.erro || "erro desconhecido"}`;
     }
   }
-  if (!t.ok) throw new Error(_iaErroHumano(t.erro, p.nome) + (erroPlanoB ? ` [plano B (OpenAI) também falhou: ${erroPlanoB}]` : ""));
+  if (!t.ok) throw new Error(_iaErroHumano(t.erro, p.nome) + (erroPlanoB ? ` [reserva também falhou — ${erroPlanoB}]` : ""));
   try {
     const u = t.json?.usage || {};
-    await sbPost("system_usage_events", { client_id: telemetry.clientId || null, service_key: usado.nome.toLowerCase(), action: String(telemetry.action || "ai_request").slice(0, 80), input_units: Number(u.prompt_tokens || u.input_tokens || 0), output_units: Number(u.completion_tokens || u.output_tokens || 0), quantity: 1, meta: { model: t.json?.model || payload.model } });
+    await sbPost("system_usage_events", { client_id: telemetry.clientId || null, service_key: usado.nome.toLowerCase(), action: String(telemetry.action || "ai_request").slice(0, 80), input_units: Number(u.prompt_tokens || u.input_tokens || 0), output_units: Number(u.completion_tokens || u.output_tokens || 0), quantity: 1, meta: { model: t.json?.model || modeloDe(usado) } });
   } catch (_e) { /* telemetria nunca interrompe a IA */ }
   return t.json;
 }
