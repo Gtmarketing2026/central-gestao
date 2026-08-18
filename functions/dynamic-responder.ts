@@ -2212,8 +2212,13 @@ function _briefingElegivel(funil: string | null, a: any): boolean {
 async function _briefingMetaThumbs(adIds: string[]) {
   const out: Record<string, { thumb?: string; ig?: string }> = {}, token = await _metaUserToken();
   if (!token) return out;
-  for (let i = 0; i < adIds.length; i += 50) {
-    const ids = adIds.slice(i, i + 50).filter(Boolean); if (!ids.length) continue;
+  // Em lotes de 50 E EM PARALELO (6 por vez): num cliente com 1.600 anuncios no periodo isso e a
+  // diferenca entre 33 chamadas em fila e 6 rodadas. Enfileirado, so as miniaturas ja comiam meio
+  // minuto do orcamento da funcao.
+  const lotes: string[][] = [];
+  for (let i = 0; i < adIds.length; i += 50) { const ids = adIds.slice(i, i + 50).filter(Boolean); if (ids.length) lotes.push(ids); }
+  for (let i = 0; i < lotes.length; i += 6) {
+    await Promise.all(lotes.slice(i, i + 6).map(async (ids) => {
     try {
       // image_url primeiro (resolucao cheia); thumbnail em 512px pro fallback (video/carrossel so tem thumbnail).
       // O modificador de tamanho vai GRUDADO no campo expandido — creative.thumbnail_width(512){...} — como query
@@ -2222,6 +2227,7 @@ async function _briefingMetaThumbs(adIds: string[]) {
       const r = await fetch(`https://graph.facebook.com/v21.0/?ids=${ids.join(",")}&fields=creative.thumbnail_width(512).thumbnail_height(512){thumbnail_url,image_url,instagram_permalink_url}&access_token=${token}`), j = await r.json();
       for (const id of ids) { const cr = j[id]?.creative; if (!cr) continue; const thumb = cr.image_url || cr.thumbnail_url; out[id] = { thumb: thumb || undefined, ig: cr.instagram_permalink_url || undefined }; }
     } catch (_e) { /* card continua com link e KPIs */ }
+    }));
   }
   return out;
 }
@@ -2264,6 +2270,52 @@ async function _briefingCriativos(clientId: string, since: string, until: string
   const total = criativos.length;
   const pctInferido = total ? Math.round((inferidos / total) * 1000) / 10 : 0;
   return { criativos, total, pctInferido, erros: [(mRes as any).error, (gRes as any).error].filter(Boolean) };
+}
+/* Busca os criativos guardando o resultado por 30 minutos.
+   Buscar 79 dias de 7 contas Meta passa de 80 segundos. Fazer isso E a leitura da IA na mesma chamada
+   estourava o limite da Edge Function (a tela mostrava so "non-2xx"). Agora a tela chama primeiro
+   briefingPreparar (que enche este cache) e depois a analise, que le daqui em menos de um segundo. */
+const BRIEFING_CACHE_MIN = 30;
+async function _briefingCriativosCache(clientId: string, since: string, until: string, forcar = false) {
+  if (!forcar) {
+    const hit = (await sbGet("briefing_criativos_cache", `client_id=eq.${encodeURIComponent(clientId)}&since=eq.${since}&until=eq.${until}&select=payload,gerado_em&limit=1`))[0];
+    if (hit && (Date.now() - new Date(hit.gerado_em).getTime()) < BRIEFING_CACHE_MIN * 60000) {
+      return { ...hit.payload, doCache: true, geradoEm: hit.gerado_em };
+    }
+  }
+  const r = await _briefingCriativos(clientId, since, until);
+  await _sbUpsert("briefing_criativos_cache", [{ client_id: clientId, since, until, payload: r, gerado_em: new Date().toISOString() }], "client_id,since,until");
+  return { ...r, doCache: false };
+}
+/* Prepara (e guarda) os criativos do periodo. Devolve so a contagem — a lista inteira de um cliente
+   grande passa de meio mega e a tela nao precisa dela nesta etapa. */
+async function briefingPreparar(input: any) {
+  const { clientId, since, until, forcar } = input;
+  if (!clientId || !since || !until) throw new Error("clientId, since e until são obrigatórios.");
+  const t0 = Date.now();
+  const { criativos, total, pctInferido, erros, doCache } = await _briefingCriativosCache(clientId, since, until, !!forcar);
+  const porFunil: Record<string, number> = {};
+  for (const c of criativos) if (c.elegivel) porFunil[c.funil || "não identificado"] = (porFunil[c.funil || "não identificado"] || 0) + 1;
+  return { total, elegiveis: criativos.filter((c: any) => c.elegivel).length, porFunil, pctInferido, erros, doCache, segundos: Math.round((Date.now() - t0) / 1000) };
+}
+/* Quem vai pra dentro do prompt. A IA escolhe no maximo 2 melhores e 2 piores por funil — mandar 600
+   criativos pra isso e caro, lento e nao melhora a leitura. Levamos os extremos de cada funil (os mais
+   baratos e os mais caros por resultado), que e exatamente o que ela precisa comparar. O que ficou de
+   fora e DEVOLVIDO na resposta e aparece na tela: corte silencioso viraria "analisei tudo" mentiroso. */
+function _briefingAmostraParaIA(elegiveis: any[], porFunil = 40) {
+  const grupos: Record<string, any[]> = {};
+  for (const c of elegiveis) (grupos[c.funil || "não identificado"] ||= []).push(c);
+  const amostra: any[] = []; let fora = 0;
+  const custo = (x: any) => (x.custoPorResultado == null ? Number.MAX_SAFE_INTEGER : x.custoPorResultado);
+  for (const f of Object.keys(grupos)) {
+    const arr = grupos[f];
+    if (arr.length <= porFunil) { amostra.push(...arr); continue; }
+    const ord = [...arr].sort((a, b) => custo(a) - custo(b));
+    const metade = Math.floor(porFunil / 2);
+    amostra.push(...ord.slice(0, metade), ...ord.slice(-(porFunil - metade)));
+    fora += arr.length - porFunil;
+  }
+  return { amostra, fora };
 }
 function _briefingDadosTxt(criativos: any[]) {
   return criativos.filter((c) => c.elegivel).map((c) =>
@@ -2314,7 +2366,7 @@ async function briefingRanking(input: any) {
   if (!clientId || !since || !until) throw new Error("clientId, since e until são obrigatórios.");
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name`))[0];
   if (!c) throw new Error("Cliente não encontrado.");
-  const { criativos, total, pctInferido, erros } = await _briefingCriativos(clientId, since, until);
+  const { criativos, total, pctInferido, erros } = await _briefingCriativosCache(clientId, since, until);
   let lista = funilDesejado ? criativos.filter((x: any) => x.funil === funilDesejado) : criativos;
   if (produto) {
     const alvo = String(produto).toLowerCase();
@@ -2361,7 +2413,7 @@ async function briefingAnalise(input: any) {
   if (!clientId || !since || !until) throw new Error("clientId, since e until são obrigatórios.");
   const c = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=name`))[0];
   if (!c) throw new Error("Cliente não encontrado.");
-  const { criativos: todosCriativos, total, pctInferido, erros } = await _briefingCriativos(clientId, since, until);
+  const { criativos: todosCriativos, total, pctInferido, erros } = await _briefingCriativosCache(clientId, since, until);
   // se um funil especifico foi pedido, a analise (e o gasto com IA) fica so nele - nao processa os outros a toa
   let criativos = funilDesejado ? todosCriativos.filter((x) => x.funil === funilDesejado) : todosCriativos;
   // produto/segmento e texto livre (nao catalogo fixo) - filtra pelo nome de campanha/conjunto conter o termo.
@@ -2376,7 +2428,8 @@ async function briefingAnalise(input: any) {
     if (x.thumbnail) thumbsByCodigo[x.codigo] = x.thumbnail;
     criativosByCodigo[x.codigo] = x;
   }
-  const dadosTxt = _briefingDadosTxt(criativos);
+  const { amostra, fora } = _briefingAmostraParaIA(elegiveis);
+  const dadosTxt = _briefingDadosTxt(amostra);
   const prompt = `Voce e analista de criativos de trafego pago. Analise os criativos que rodaram e devolva a leitura para o time de producao, que precisa entender o que funcionou antes de criar peca nova (direcao de DESIGN E VIDEO - a leitura de investimento/orcamento e feita em outro lugar, nao repita numero de gasto na resposta).
 
 Cliente: ${c.name}
@@ -2420,7 +2473,7 @@ Responda APENAS com JSON valido, sem markdown, sem preambulo:
     criativos_analisados: elegiveis.length, criativos_em_leitura: total - elegiveis.length,
     funil_inferido_pct: pctInferido, criativos_json: criativosByCodigo, gerado_em: new Date().toISOString(),
   });
-  return { briefingId, analiseId, ...parsed, thumbsByCodigo, criativosByCodigo, criativos_analisados: elegiveis.length, criativos_em_leitura: total - elegiveis.length, funil_inferido_pct: pctInferido, avisoConfiabilidade: pctInferido > 30, erros };
+  return { briefingId, analiseId, ...parsed, thumbsByCodigo, criativosByCodigo, criativos_analisados: elegiveis.length, criativos_em_leitura: total - elegiveis.length, criativos_fora_da_leitura: fora, funil_inferido_pct: pctInferido, avisoConfiabilidade: pctInferido > 30, erros };
 }
 // Aprova o briefing (congela e "envia pra fila de producao"). So muda status - fichas ja foram geradas antes.
 async function briefingAprovar(input: any) {
@@ -6948,6 +7001,10 @@ Deno.serve(async (req) => {
     }
     if (body.briefingAnalise) {
       const r = await briefingAnalise(body.briefingAnalise);
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (body.briefingPreparar) {
+      const r = await briefingPreparar(body.briefingPreparar);
       return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.briefingRanking) {

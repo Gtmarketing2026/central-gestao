@@ -1976,6 +1976,11 @@ const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY,{
         if(!m&&ctx.status===504)m='a operação passou do tempo limite do servidor. Tente de novo.';
         if(m)r.error.message=String(m).slice(0,300);
       }catch(_){}
+    }else if(r&&r.error&&/non-2xx|Failed to (send|fetch)/i.test(String(r.error.message||''))){
+      // Sem Response no context = o navegador nem chegou a ver a resposta. É o que acontece quando a
+      // função passa do tempo limite: o gateway devolve 504 sem os cabeçalhos de CORS e o erro chega
+      // mudo aqui. O texto padrão do supabase-js não dizia nada disso pra quem está na tela.
+      r.error.message='o servidor demorou demais e a resposta se perdeu no caminho. Se o período for longo, tente um período menor.';
     }
     return r;
   };
@@ -6613,6 +6618,23 @@ async function brRunAnalise(){
   if(!since||!until){alert('Preencha o período.');return;}
   const funilDesejado=document.getElementById('brFunilDesejado').value;
   const produto=document.getElementById('brProduto').value.trim();
+  /* Buscar os anúncios virou uma etapa PRÓPRIA. Em cliente com muitas contas (a Fernanda tem 7 no Meta)
+     essa busca sozinha passa de 80 segundos; junto com a leitura da IA na mesma chamada, estourava o
+     limite do servidor e a tela mostrava só "Edge Function returned a non-2xx status code". Agora ela
+     roda sozinha, fica guardada por 30 minutos, e a etapa seguinte lê do que já ficou pronto. */
+  btn.disabled=true;btn.textContent='Buscando os anúncios do período…';
+  out.innerHTML='<div class="empty" style="padding:30px">🔎 Buscando os anúncios que rodaram no período… em cliente com muitas contas isso passa de um minuto.</div>';
+  try{
+    const {data:pd,error:pe}=await sb.functions.invoke('dynamic-responder',{body:{briefingPreparar:{clientId:_brClientId,since,until}}});
+    if(pe)throw pe;
+    const p=(pd&&pd.data)||{};
+    if(p.erro)throw new Error(p.erro);
+    out.innerHTML=`<div class="empty" style="padding:30px">✅ ${(p.total||0).toLocaleString('pt-BR')} anúncio(s) no período, ${(p.elegiveis||0).toLocaleString('pt-BR')} com volume para leitura.<div style="margin-top:8px">${_brMode==='generator'?'Escrevendo a leitura dos criativos…':'Montando o ranking…'}</div></div>`;
+  }catch(e){
+    out.innerHTML=`<div class="empty">Erro ao buscar os anúncios: ${_brEsc(e.message||e)}</div>`;
+    btn.disabled=false;btn.textContent=_brMode==='generator'?'Analisar referências para gerar briefing':'Montar ranking de criativos do período';
+    return;
+  }
   if(_brMode!=='generator'){ // Analista: ranking direto, sem IA — pontos fortes/fracos são sob demanda por card
     btn.disabled=true;btn.textContent='Lendo os anúncios que rodaram…';
     out.innerHTML='<div class="empty" style="padding:30px">🔎 Buscando os anúncios do período e classificando o funil pelo objetivo…</div>';
@@ -6893,7 +6915,7 @@ function brCuradoriaHTML(curadoria,erro){
 function brRenderAnalise(r,curadoria,curadoriaErro){
   const out=document.getElementById('brOut');
   const aviso=r.avisoConfiabilidade?`<div class="card" style="margin-bottom:14px;border:1px solid rgba(240,192,64,.4);background:rgba(240,192,64,.08)"><b>⚠ Confiabilidade reduzida:</b> ${r.funil_inferido_pct}% dos criativos não tinham o funil explícito no nome — a IA inferiu pela campanha/anúncio. Vale revisar a nomenclatura das campanhas.</div>`:'';
-  const emLeitura=r.criativos_em_leitura?`<div style="font-size:11.5px;color:var(--faint);margin-bottom:14px">${r.criativos_em_leitura} anúncio(s) ficaram "em leitura" (volume abaixo do piso) e não entraram na análise.</div>`:'';
+  const emLeitura=(r.criativos_em_leitura||r.criativos_fora_da_leitura)?`<div style="font-size:11.5px;color:var(--faint);margin-bottom:14px">${r.criativos_em_leitura?`${r.criativos_em_leitura} anúncio(s) ficaram "em leitura" (volume abaixo do piso) e não entraram na análise.`:''}${r.criativos_fora_da_leitura?`${r.criativos_em_leitura?' ':''}Em cada funil, a leitura comparou os 40 anúncios dos extremos (mais baratos e mais caros por resultado) — outros ${r.criativos_fora_da_leitura} ficaram de fora do texto, mas seguem no ranking.`:''}</div>`:'';
   const thumbs=r.thumbsByCodigo||{};
   const detalhes=r.criativosByCodigo||{};
   const numero=v=>Math.round(Number(v)||0).toLocaleString('pt-BR');
