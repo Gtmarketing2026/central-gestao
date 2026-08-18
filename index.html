@@ -11294,6 +11294,19 @@ function _negRefLabel(r){
   const [a,m]=String(r||'').split('.');
   return m?`${NEG_MES_NOME[+m]||m}/${a}`:a||'sem turma';
 }
+/* ---- Cupom = parceiro ----
+   O cupom carrega DUAS coisas, como o nome do produto carrega a turma: quem indicou e o desconto.
+   Na base real: ILKA e ILKA10, GABYNAMED com 10/55/60/65, SARAH com 55/65/70. O ranking por parceiro
+   junta essas variacoes; o desconto vira detalhe dentro do parceiro.
+   Cuidado: o sufixo de desconto tem 2 digitos. "CAMILA1000" e "WELLINGTON1000" NAO sao desconto de
+   1000 - o 1000 vem do nome do produto (Combo 1000), entao 3+ digitos ficam no nome. */
+function _cupomParceiro(c){
+  const u=String(c||'').trim().toUpperCase().replace(/\s+/g,' ');
+  if(!u)return {base:'',desc:''};
+  const m=u.match(/^(.*?[A-Z])(\d{2})$/);
+  if(m&&m[1].length>=2)return {base:m[1],desc:m[2]};  // "FP55" = FP com 55% — nome curto tambem e parceiro
+  return {base:u,desc:''};
+}
 function _negData(v){
   if(v instanceof Date)return v;
   if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(v);return d?new Date(d.y,d.m-1,d.d):null}
@@ -11336,6 +11349,9 @@ async function negocioProcessar(arquivos,aviso,emAberto){
     const cortesiaK={},seletivoK={},devolK={};let devN=0,devVal=0;
     const ufMap={},ufMesMap={};let semUF=0,ufPorCep=0,ufPorDdd=0;
     let recebidoTot=0,naoRecebido=0,vendasComAberto=0;
+    /* Parceiros: o cupom é a chave. Preciso passar por TODAS as linhas, não só pelas vendas — o valor
+       do módulo está justamente em ver cancelamento, estorno e pedido não pago por parceiro. */
+    const cupMap={},cupDia={},cupProd={},cupUf={},cupMes={};
     const refMap={},prodRefMap={},cuboMap={};
     const devMes={},gratMes={},prodMesMap={};
     // acesso ao longo do tempo: guardo os intervalos pra depois montar "ativos ao fim de cada mês"
@@ -11350,6 +11366,17 @@ async function negocioProcessar(arquivos,aviso,emAberto){
       const chave=cpf.length>=11?'c:'+cpf:(mail?'e:'+mail:null);if(!chave)continue;
       const prod=String(col(l,'produto')).replace(/\s+/g,' ').trim();
       const val=_negNum(col(l,'total','valor'));
+      const _cp=_cupomParceiro(col(l,'cupom'));
+      let _cu=null;
+      if(_cp.base){
+        _cu=cupMap[_cp.base]=cupMap[_cp.base]||{cupom:_cp.base,variantes:{},vendas:0,receita:0,recebido:0,aberto:0,
+          alunos:{},cancel:0,cancel_val:0,estorno:0,estorno_val:0,aguard:0,aguard_val:0,naoautoriz:0,pri:'',ult:''};
+        _cu.variantes[_cp.desc||'—']=(_cu.variantes[_cp.desc||'—']||0)+1;
+        if(/^estornado$|^chargeback$|^estornado parcialmente$/.test(st)){_cu.estorno++;_cu.estorno_val+=val}
+        else if(st==='cancelado'){_cu.cancel++;_cu.cancel_val+=val}
+        else if(st==='aguardando pagamento'||st==='pagamento pendente'){_cu.aguard++;_cu.aguard_val+=val}
+        else if(st==='não autorizada'||st==='nao autorizada')_cu.naoautoriz++;
+      }
       if(st==='liberado automaticamente'){
         const ehCort=_negCortesia(prod);(ehCort?cortesiaK:seletivoK)[chave]=1;
         const cm=dt.toISOString().slice(0,7);
@@ -11382,6 +11409,16 @@ async function negocioProcessar(arquivos,aviso,emAberto){
       let uf=_negUF(col(l,'cep'));
       if(uf)ufPorCep++;
       else{uf=_negUFtel(col(l,'celular'),col(l,'fone'),col(l,'telefone'));if(uf)ufPorDdd++;}
+      if(_cu){
+        const dkc=dt.toISOString().slice(0,10),mkc=dt.toISOString().slice(0,7);
+        _cu.vendas++;_cu.receita+=val;_cu.recebido+=rec;_cu.aberto+=Math.min(emAb,val);_cu.alunos[chave]=1;
+        if(!_cu.pri||dkc<_cu.pri)_cu.pri=dkc;if(!_cu.ult||dkc>_cu.ult)_cu.ult=dkc;
+        const kd=_cp.base+'|'+dkc;(cupDia[kd]=cupDia[kd]||{cupom:_cp.base,dia:dkc,vendas:0,receita:0});cupDia[kd].vendas++;cupDia[kd].receita+=val;
+        const km=_cp.base+'|'+mkc;(cupMes[km]=cupMes[km]||{cupom:_cp.base,mes:mkc,vendas:0,receita:0});cupMes[km].vendas++;cupMes[km].receita+=val;
+        if(uf){const ku=_cp.base+'|'+uf;(cupUf[ku]=cupUf[ku]||{cupom:_cp.base,uf,vendas:0,receita:0});cupUf[ku].vendas++;cupUf[ku].receita+=val}
+        if(prod){const pb=_negProdRef(prod).base,kp=_cp.base+'|'+pb;
+          (cupProd[kp]=cupProd[kp]||{cupom:_cp.base,produto:pb,vendas:0,receita:0});cupProd[kp].vendas++;cupProd[kp].receita+=val}
+      }
       if(prod){
         const pr=_negProdRef(prod);
         (prodMap[pr.base]=prodMap[pr.base]||{produto:pr.base,vendas:0,receita:0});prodMap[pr.base].vendas++;prodMap[pr.base].receita+=val;
@@ -11524,6 +11561,24 @@ async function negocioProcessar(arquivos,aviso,emAberto){
       return {p:idx[x.produto],uf:x.uf,ano:x.ano,mes:x.mes,v:x.vendas,r:+x.receita.toFixed(2)};
     });
     dados.cubo_produto={produtos:nomes,linhas:linhasCubo};
+    /* Parceiros no retrato. Todos entram no ranking; só os 40 maiores levam os recortes de dia,
+       produto e estado — guardar isso para 3 mil cupons incharia o retrato sem serventia. */
+    const cupLista=Object.values(cupMap).map(c=>({
+      cupom:c.cupom,vendas:c.vendas,receita:+c.receita.toFixed(2),recebido:+c.recebido.toFixed(2),
+      aberto:+c.aberto.toFixed(2),alunos:Object.keys(c.alunos).length,
+      cancel:c.cancel,cancel_val:+c.cancel_val.toFixed(2),
+      estorno:c.estorno,estorno_val:+c.estorno_val.toFixed(2),
+      aguard:c.aguard,aguard_val:+c.aguard_val.toFixed(2),naoautoriz:c.naoautoriz,
+      pri:c.pri,ult:c.ult,
+      variantes:Object.entries(c.variantes).sort((a,b)=>b[1]-a[1]).map(([d,q])=>({desc:d,linhas:q}))
+    })).sort((a,b)=>b.receita-a.receita);
+    const top40=new Set(cupLista.slice(0,40).map(c=>c.cupom));
+    dados.parceiros=cupLista;
+    dados.parceiro_dia=Object.values(cupDia).filter(x=>top40.has(x.cupom)).map(x=>({...x,receita:+x.receita.toFixed(2)}));
+    dados.parceiro_mes=Object.values(cupMes).filter(x=>top40.has(x.cupom)).map(x=>({...x,receita:+x.receita.toFixed(2)}));
+    dados.parceiro_produto=Object.values(cupProd).filter(x=>top40.has(x.cupom)).map(x=>({...x,receita:+x.receita.toFixed(2)}));
+    dados.parceiro_uf=Object.values(cupUf).filter(x=>top40.has(x.cupom)).map(x=>({...x,receita:+x.receita.toFixed(2)}));
+    dados.parceiros_detalhe=[...top40];
     // produto × mês: é o que faz o ranking de produtos respeitar o filtro de datas
     dados.por_produto_mes=Object.values(prodMesMap).filter(x=>noTop.has(x.produto))
       .map(x=>({...x,receita:+x.receita.toFixed(2)}));
@@ -12343,17 +12398,182 @@ function renderNegProdutosNota(){
   el.innerHTML=(_negUFsel.size&&!temCubo)
     ?`<span style="color:var(--accent)">⚠ O filtro de estado não vale para este bloco neste retrato</span> — suba a base de novo para o cruzamento produto × estado ser gravado.`:'';
 }
+let _parcDe='',_parcAte='',_parcSel='',_parcOrd='receita';
+function parcPeriodo(k){
+  const ms=((_negocio&&_negocio.dados&&_negocio.dados.parceiro_mes)||[]).map(x=>x.mes).sort();
+  if(!ms.length)return;const ult=ms[ms.length-1];
+  if(k==='tudo'){_parcDe='';_parcAte=''}
+  else if(k==='ano'){_parcDe=ult.slice(0,4)+'-01';_parcAte=ult}
+  else if(k==='anoant'){const a=+ult.slice(0,4)-1;_parcDe=a+'-01';_parcAte=a+'-12'}
+  else if(k==='12m'){const [a,m]=ult.split('-').map(Number),d=new Date(a,m-1-11,1);
+    _parcDe=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;_parcAte=ult}
+  renderParceiros();
+}
+function parcManual(){const a=document.getElementById('parcDe'),b=document.getElementById('parcAte');
+  _parcDe=(a&&a.value)||'';_parcAte=(b&&b.value)||'';renderParceiros();}
+function parcOrd(v){_parcOrd=v;renderParceiros();}
+function parcSel(v){_parcSel=(v===_parcSel?'':v)||'';renderParceiros();}
+function _parcDentro(mes){return mes>=(_parcDe||'0000-00')&&mes<=(_parcAte||'9999-99')}
+/* Com período filtrado o ranking vem de parceiro_mes, que só existe para os 40 maiores. Sem filtro,
+   vem da lista completa. A tela diz qual dos dois está mostrando — senão o número "some" sem razão. */
+function _parcRanking(){
+  const d=(_negocio&&_negocio.dados)||{};
+  const todos=d.parceiros||[];
+  if(!_parcDe&&!_parcAte)return {linhas:todos,limitado:false};
+  const agg={},base={};
+  todos.forEach(c=>base[c.cupom]=c);
+  for(const x of (d.parceiro_mes||[])){
+    if(!_parcDentro(x.mes))continue;
+    (agg[x.cupom]=agg[x.cupom]||{cupom:x.cupom,vendas:0,receita:0});
+    agg[x.cupom].vendas+=x.vendas;agg[x.cupom].receita+=x.receita;
+  }
+  return {linhas:Object.values(agg).map(x=>({...(base[x.cupom]||{}),...x})),limitado:true};
+}
 function renderParceiros(){
   const el=document.getElementById('negParcView');if(!el)return;
-  el.innerHTML=`<div class="card" style="text-align:center;padding:38px 22px">
-    <div style="font-size:34px;margin-bottom:8px">🤝</div>
-    <h3 style="margin:0 0 6px">Parceiros</h3>
-    <div style="font-size:12.5px;color:var(--muted);max-width:520px;margin:0 auto">
-      Ainda não montamos esta análise. Na base de vendas já existe o rastro dela: os acessos marcados
-      como <b>"Acesso Parceiros"</b> e a <b>seleção de novos corretores</b>. Me diga o que você quer ver
-      aqui — quanto cada parceiro trouxe, quantos corretores entraram por seleção, ou outra coisa.
+  const d=(_negocio&&_negocio.dados)||{};
+  if(!((d.parceiros||[]).length)){
+    el.innerHTML='<div class="card" style="text-align:center;padding:38px 22px">'+
+      '<div style="font-size:34px;margin-bottom:8px">🤝</div><h3 style="margin:0 0 6px">Parceiros</h3>'+
+      '<div style="font-size:12.5px;color:var(--muted);max-width:560px;margin:0 auto">A análise sai do <b>cupom</b> de cada venda — é ele que identifica quem indicou. O retrato atual ainda não tem esse recorte: <b>suba a base de vendas de novo</b> no Dash de venda.</div></div>';
+    return;
+  }
+  const {linhas,limitado}=_parcRanking();
+  const n=v=>Math.round(v||0).toLocaleString('pt-BR');
+  const val=x=>_parcOrd==='vendas'?x.vendas:_parcOrd==='ticket'?(x.vendas?x.receita/x.vendas:0):x.receita;
+  const rank=[...linhas].filter(x=>x.vendas>0).sort((a,b)=>val(b)-val(a));
+  const totRec=rank.reduce((s,x)=>s+x.receita,0),totVen=rank.reduce((s,x)=>s+x.vendas,0);
+  const pctBase=d.faturamento?(totRec*100/d.faturamento):0;
+  const max=Math.max(1,...rank.map(val));
+  const ms=(d.parceiro_mes||[]).map(x=>x.mes).sort();
+  const pri=ms[0]||'',ult=ms[ms.length-1]||'';
+  const bt=(k,l)=>`<button class="btn sm ghost" style="padding:3px 10px;font-size:11.5px" onclick="parcPeriodo('${k}')">${l}</button>`;
+  el.innerHTML=`
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <div><h3 title="Cada cupom identifica quem indicou a venda. Variações do mesmo parceiro (ILKA e ILKA10) são somadas: o número no fim do cupom é o desconto, não outro parceiro." style="cursor:help;margin:0">🤝 Parceiros por cupom</h3>
+          <div class="hint">${n((d.parceiros||[]).length)} cupons distintos · variações do mesmo nome somadas</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <span style="font-size:11px;color:var(--faint)">ORDENAR:</span>
+          <select onchange="parcOrd(this.value)" style="width:auto;font-size:12px">
+            <option value="receita"${_parcOrd==='receita'?' selected':''}>Faturamento</option>
+            <option value="vendas"${_parcOrd==='vendas'?' selected':''}>Nº de pedidos</option>
+            <option value="ticket"${_parcOrd==='ticket'?' selected':''}>Ticket médio</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <span style="font-size:11px;color:var(--faint)">PERÍODO:</span>
+        ${bt('tudo','Tudo')}${bt('12m','12 meses')}${bt('ano','Este ano')}${bt('anoant','Ano passado')}
+        <input type="month" id="parcDe" value="${_parcDe}" min="${pri}" max="${ult}" onchange="parcManual()" style="width:auto;font-size:12px">
+        <span style="color:var(--faint)">–</span>
+        <input type="month" id="parcAte" value="${_parcAte}" min="${pri}" max="${ult}" onchange="parcManual()" style="width:auto;font-size:12px">
+        <span class="pill" style="font-size:10.5px">${limitado?`${_parcDe?_inadBR(_parcDe):'início'} a ${_parcAte?_inadBR(_parcAte):'hoje'} · 40 maiores`:'todos os parceiros'}</span>
+      </div>
+      <div class="rt-kpi-grid">
+        ${_negCard('Parceiros com venda',n(rank.length),limitado?'no período, entre os 40 maiores':'na base inteira','gr','Cupons distintos que geraram pelo menos uma venda. Variações do mesmo nome contam uma vez.')}
+        ${_negCard('Pedidos por indicação',n(totVen),d.compras?`${(totVen*100/d.compras).toFixed(1).replace('.',',')}% das vendas`:'','','Vendas que vieram com cupom. O resto chegou sem indicação.')}
+        ${_negCard('Faturamento via cupom',fmt(totRec),`${pctBase.toFixed(1).replace('.',',')}% do faturamento`,'','Quanto do faturamento passou por um cupom de parceiro.')}
+        ${_negCard('Ticket médio',fmt(totVen?totRec/totVen:0),'por pedido com cupom','','Faturamento com cupom dividido pelos pedidos com cupom. Compare com o ticket geral do Dash: cupom de desconto alto puxa este número para baixo.')}
+      </div>
     </div>
-  </div>`;
+
+    <div class="card" style="margin-bottom:16px">
+      <h3 title="Ordenado pela métrica escolhida acima. Clique num parceiro para abrir o detalhe dele." style="cursor:help;margin-top:0">🏅 Ranking</h3>
+      <div style="max-height:520px;overflow:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="position:sticky;top:0;background:var(--bg)">
+          <th style="text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">#</th>
+          <th style="text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Parceiro</th>
+          <th style="padding:7px 8px;border-bottom:1px solid var(--border)"></th>
+          <th style="text-align:right;padding:7px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Pedidos</th>
+          <th style="text-align:right;padding:7px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Faturamento</th>
+          <th style="text-align:right;padding:7px 8px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)">Ticket</th>
+        </tr></thead>
+        <tbody>${rank.slice(0,80).map((x,i)=>`<tr style="cursor:pointer${_parcSel===x.cupom?';background:rgba(255,213,42,.07)':''}" onclick="parcSel(${JSON.stringify(x.cupom).replace(/"/g,'&quot;')})" title="ver detalhe">
+          <td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--faint)">${i+1}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-weight:700">${_evtEsc(x.cupom)}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid var(--border);width:32%">
+            <div style="background:var(--surface2);border-radius:4px;height:13px;overflow:hidden">
+              <div style="width:${Math.max(2,val(x)*100/max)}%;height:100%;background:linear-gradient(90deg,#6d28d9,#a78bfa)"></div></div></td>
+          <td style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border)">${n(x.vendas)}</td>
+          <td style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border);font-weight:700">${fmt(x.receita)}</td>
+          <td style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--border);color:var(--muted)">${fmt(x.vendas?x.receita/x.vendas:0)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      ${rank.length>80?`<div class="hint" style="margin-top:8px">Mostrando os 80 primeiros de ${n(rank.length)}.</div>`:''}
+    </div>
+    <div id="parcDetalhe"></div>`;
+  renderParcDetalhe();
+}
+/* Detalhe de um parceiro. Cancelamento, estorno e pedido não pago vêm da vida inteira do cupom (são
+   contados fora da venda, então não têm recorte mensal); o resto respeita o período escolhido. */
+function renderParcDetalhe(){
+  const el=document.getElementById('parcDetalhe');if(!el)return;
+  if(!_parcSel){el.innerHTML='<div class="hint">Clique num parceiro do ranking para abrir o detalhe: evolução diária, produtos, estados e o que deu problema.</div>';return}
+  const d=(_negocio&&_negocio.dados)||{};
+  const p=(d.parceiros||[]).find(x=>x.cupom===_parcSel);
+  if(!p){el.innerHTML='';return}
+  const detalhado=(d.parceiros_detalhe||[]).includes(_parcSel);
+  const n=v=>Math.round(v||0).toLocaleString('pt-BR');
+  const dias=(d.parceiro_dia||[]).filter(x=>x.cupom===_parcSel&&_parcDentro(x.dia.slice(0,7))).sort((a,b)=>a.dia<b.dia?-1:1);
+  const prods=(d.parceiro_produto||[]).filter(x=>x.cupom===_parcSel).sort((a,b)=>b.receita-a.receita).slice(0,10);
+  const ufs=(d.parceiro_uf||[]).filter(x=>x.cupom===_parcSel).sort((a,b)=>b.receita-a.receita).slice(0,10);
+  const tentativas=p.vendas+p.cancel+p.estorno+p.aguard+p.naoautoriz;
+  const conv=tentativas?(p.vendas*100/tentativas):0;
+  const barra=(itens,rot)=>{const mx=Math.max(1,...itens.map(x=>x.receita));
+    return itens.map(x=>`<div style="display:grid;grid-template-columns:1fr 130px;gap:10px;align-items:center;font-size:12px;margin-bottom:4px">
+      <div style="min-width:0"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)">${_evtEsc(rot(x))}</div>
+        <div style="background:var(--surface2);border-radius:4px;height:11px;overflow:hidden;margin-top:3px">
+          <div style="width:${Math.max(2,x.receita*100/mx)}%;height:100%;background:linear-gradient(90deg,#6d28d9,#a78bfa)"></div></div></div>
+      <div style="text-align:right"><b>${fmt(x.receita)}</b> <span style="color:var(--faint)">· ${n(x.vendas)}</span></div>
+    </div>`).join('')||'<div style="font-size:12px;color:var(--faint)">sem dados</div>'};
+  el.innerHTML=`
+    <div class="card" style="margin-bottom:16px;border-color:rgba(255,213,42,.35)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+        <div><h3 style="margin:0">${_evtEsc(p.cupom)}</h3>
+          <div class="hint">${p.pri?`primeira venda em ${_negBR(p.pri)} · última em ${_negBR(p.ult)}`:''}${p.variantes&&p.variantes.length>1?` · cupons: ${p.variantes.map(v=>_evtEsc(p.cupom+(v.desc==='—'?'':v.desc))).join(', ')}`:''}</div></div>
+        <button class="btn sm ghost" style="padding:3px 10px;font-size:11px" onclick="parcSel('')">fechar</button>
+      </div>
+      <div class="rt-kpi-grid">
+        ${_negCard('Pedidos',n(p.vendas),`${n(p.alunos)} alunos distintos`,'gr','Vendas confirmadas com este cupom, na vida inteira.')}
+        ${_negCard('Faturamento',fmt(p.receita),`ticket ${fmt(p.vendas?p.receita/p.vendas:0)}`,'','Valor vendido com este cupom, pelo valor cheio na data da venda.')}
+        ${d.tem_recebido?_negCard('Recebido',fmt(p.recebido),p.aberto?`falta ${fmt(p.aberto)}`:'tudo entrou','gr','Do que este parceiro vendeu, quanto já entrou. O que falta são parcelas em aberto do relatório de inadimplência.'):''}
+        ${_negCard('Cancelados',n(p.cancel),fmt(p.cancel_val)+' não fecharam','','Pedidos com cupom que ficaram como Cancelado — a maioria é Pix gerado e não pago.')}
+        ${_negCard('Estornados',n(p.estorno),fmt(p.estorno_val)+' devolvidos','ye','Compras devolvidas (estorno ou chargeback) feitas com este cupom.')}
+        ${_negCard('Aguardando pagamento',n(p.aguard),fmt(p.aguard_val)+' em aberto','','Pedidos gerados com o cupom que nunca foram pagos. Não entram no faturamento.')}
+        ${_negCard('Taxa de conversão',conv.toFixed(1).replace('.',',')+'%',`${n(tentativas)} tentativas de compra`,'','Dos pedidos gerados com este cupom (incluindo cartão recusado, cancelado e não pago), quantos viraram venda. Cupom com conversão baixa costuma ser divulgação para público frio ou problema no checkout.')}
+        ${_negCard('Cartão recusado',n(p.naoautoriz),'não autorizada','','Tentativas com cartão negado. Volume alto pode indicar público com limite baixo para o valor da oferta.')}
+      </div>
+    </div>
+
+    ${detalhado?`
+    <div class="card" style="margin-bottom:16px">
+      <h3 title="Vendas e faturamento dia a dia deste parceiro, dentro do período escolhido." style="cursor:help;margin-top:0">📈 Dia a dia</h3>
+      ${dias.length?`<div style="height:260px"><canvas id="parcChart"></canvas></div>`:'<div class="empty">Sem venda no período escolhido.</div>'}
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;gap:26px;flex-wrap:wrap">
+        <div style="flex:1;min-width:260px">
+          <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.06em;margin-bottom:8px">O QUE ESTE PARCEIRO VENDE</div>
+          ${barra(prods,x=>x.produto)}
+        </div>
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.06em;margin-bottom:8px">DE ONDE VEM O PÚBLICO DELE</div>
+          ${barra(ufs,x=>x.uf)}
+        </div>
+      </div>
+    </div>`:`<div class="card" style="margin-bottom:16px"><div class="hint">Dia a dia, produtos e estados são guardados só para os 40 maiores parceiros — este está fora dessa faixa. Os números acima valem para ele por inteiro.</div></div>`}`;
+  const c=document.getElementById('parcChart');
+  try{if(_negCharts.parc)_negCharts.parc.destroy()}catch(e){}
+  if(!c||!dias.length)return;
+  const eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
+  _negCharts.parc=new Chart(c.getContext('2d'),{data:{labels:dias.map(x=>dateBR(x.dia)),datasets:[
+    {type:'bar',label:'Pedidos',data:dias.map(x=>x.vendas),backgroundColor:'rgba(168,85,247,.45)',yAxisID:'y1'},
+    {type:'line',label:'Faturamento',data:dias.map(x=>x.receita),borderColor:'#ffd42a',backgroundColor:'rgba(255,213,42,.08)',fill:true,tension:.3,yAxisID:'y'}]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{color:'#c9c9c1'}},tooltip:{callbacks:{label:x=>x.dataset.label==='Pedidos'?`Pedidos: ${x.raw}`:`Faturamento: ${fmt(x.raw)}`}}},
+      scales:{x:eixo,y:{...eixo,ticks:{...eixo.ticks,callback:v=>'R$ '+(v/1e3).toFixed(0)+'k'}},y1:{...eixo,position:'right',grid:{drawOnChartArea:false}}}}});
 }
 function _negDestroy(){Object.values(_negCharts).forEach(c=>{try{c.destroy()}catch(e){}});_negCharts={};}
 /* ---- Recompra ano a ano ----
