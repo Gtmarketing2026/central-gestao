@@ -329,7 +329,7 @@ FOCO PRINCIPAL: analisar os resultados (os big numbers) e RECOMENDAR OTIMIZACOES
 
 OBJETIVO DO CLIENTE MANDA (leia 'objetivosDoCliente' e 'temVenda' no snapshot): analise SO pelas metricas do objetivo dele. Se 'temVenda' for false (cliente sem objetivo de venda/conversao — ex: Mensagens, Trafego, Video, Alcance, Engajamento): NAO cite ROAS, faturamento, receita, CPA nem "nenhuma venda registrada"; NAO liste metricas de venda zeradas. Foque na metrica-chave do objetivo (ex: custo por conversa e nº de conversas p/ Mensagens; CPL e leads p/ Leads; custo por view p/ Video; CPC/CTR p/ Trafego) + CTR/CPC/CPM de eficiencia. Em 'metasCliente', o status ja diz: 'atingida' = ok; 'abaixo_do_alvo_ruim' = piorou numa metrica onde MAIOR e melhor; 'acima_do_alvo_ruim' = piorou numa metrica onde MENOR e melhor (custos). Nunca diga so "abaixo da meta" sem dizer se isso e bom ou ruim.
 
-DOCUMENTOS: Voce PODE montar documentos (relatorios, propostas, briefings, planos de acao, resumos executivos). Quando pedirem um documento/relatorio/PDF/Word, NUNCA diga que nao consegue gerar arquivos — escreva o CONTEUDO COMPLETO e bem formatado em markdown (titulos com #, ## e ###, listas, **negrito**, e tabelas em markdown com | quando fizer sentido) direto na resposta. Ao terminar, avise: "Pronto — clique em '📄 Baixar como documento' abaixo pra salvar em PDF ou Word, escolhendo o layout." O sistema converte sua resposta no layout da agencia (temas GT) automaticamente. Estruture como documento de verdade: titulo, secoes, e quando for relatorio de cliente siga a logica dos nossos templates (visao geral -> resultados por objetivo -> funil -> recomendacoes/proximos passos).
+DOCUMENTOS: Voce PODE montar documentos (relatorios, propostas, briefings, planos de acao, resumos executivos). Quando pedirem um documento/relatorio/PDF/Word, NUNCA diga que nao consegue gerar arquivos — escreva o CONTEUDO COMPLETO e bem formatado em markdown (titulos com #, ## e ###, listas, **negrito**, e tabelas em markdown com | quando fizer sentido) direto na resposta. Ao terminar, NAO escreva instrucao de download nem mencione botao/PDF/Word — o botao de baixar ja aparece sozinho na interface e essa frase suja o documento gerado. Termine no conteudo. O sistema converte sua resposta no layout da agencia (temas GT) automaticamente. Estruture como documento de verdade: titulo, secoes, e quando for relatorio de cliente siga a logica dos nossos templates (visao geral -> resultados por objetivo -> funil -> recomendacoes/proximos passos).
 
 Baseie-se SOMENTE nos dados do snapshot (KPIs do relatorio do cliente, canais, funil, pedidos). Nunca invente numeros; se faltar um dado, diga que nao esta disponivel. Seja direta, especifica e priorize; nada de conselho generico de manual.
 
@@ -4802,15 +4802,25 @@ FORMATO PARA RELATÓRIOS E ANÁLISES (não use em conversa curta ou pedido de a�
 }
 
 async function crmCapaAudit(input: any) {
-  const clientId = String(input.clientId || ""), stage = String(input.stage || "sql").toLowerCase();
+  /* Etapa e tempo parado deixam de ser obrigatorios: "" em stage = qualquer etapa, 0 em minHours =
+     sem tempo minimo. Antes so dava pra avaliar conversa travada ha 24h numa etapa especifica, o que
+     impedia analisar o atendimento de forma geral. O ?? preserva a string vazia, que || comeria. */
+  const clientId = String(input.clientId || "");
+  const stage = String(input.stage ?? "sql").toLowerCase();
+  const qualquerEtapa = !stage;
   const sampleSize = Math.min(20, Math.max(5, Number(input.sampleSize) || 5)), days = Math.min(180, Math.max(7, Number(input.days) || 30));
-  const minHours = Math.max(0, Number(input.minHours) || 24), since = new Date(Date.now() - days * 864e5).toISOString(), cutoff = Date.now() - minHours * 36e5;
+  const minHours = Math.max(0, Number(input.minHours ?? 24) || 0), since = new Date(Date.now() - days * 864e5).toISOString(), cutoff = Date.now() - minHours * 36e5;
   if (!clientId) throw new Error("Cliente obrigatório.");
   const client = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=id,name,seg,dna&limit=1`))[0];
   if (!client) throw new Error("Cliente não encontrado.");
   let convs = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&last_at=gte.${encodeURIComponent(since)}&select=id,name,stage,origin_type,origin,fields,last_at,last_text,num_errado,irrelevante&order=last_at.asc&limit=1000`);
-  convs = convs.filter((c: any) => { const st = String(c.stage || "sem_etapa").toLowerCase(); return st === stage && !c.num_errado && !c.irrelevante && new Date(c.last_at).getTime() <= cutoff; }).slice(0, sampleSize);
-  if (!convs.length) return { ok: true, cliente: client.name, stage, requested: sampleSize, audited: 0, answer: `## Qualidade do Atendimento\n\nNenhuma conversa em **${stage.toUpperCase()}** está parada há pelo menos ${minHours} horas dentro dos últimos ${days} dias.` };
+  convs = convs.filter((c: any) => {
+    const st = String(c.stage || "sem_etapa").toLowerCase();
+    if (!qualquerEtapa && st !== stage) return false;
+    if (c.num_errado || c.irrelevante) return false;
+    return minHours <= 0 ? true : new Date(c.last_at).getTime() <= cutoff;   // sem tempo minimo, entra tudo
+  }).slice(0, sampleSize);
+  if (!convs.length) return { ok: true, cliente: client.name, stage, requested: sampleSize, audited: 0, answer: `## Qualidade do Atendimento\n\nNenhuma conversa ${qualquerEtapa ? "" : `em **${stage.toUpperCase()}** `}${minHours > 0 ? `parada há pelo menos ${minHours}` : "no período"} horas dentro dos últimos ${days} dias.` };
   const ids = convs.map((c: any) => c.id), allMsgs: any[] = [];
   for (let i = 0; i < ids.length; i += 10) {
     const part = ids.slice(i, i + 10);
@@ -6629,6 +6639,61 @@ async function securityAuditTick() {
 // Junta seguranca + instabilidade + erros numa fotografia unica: falhas de cron, taxa de erro das chamadas
 // internas (teria pego o apagao do guard em minutos), frescor dos canais e contas de midia paradas.
 // Resultado fica em account_config.data.health_report (painel geral le de la); sino so quando surge problema NOVO.
+/* ===== MONITOR DE CRÉDITO DE IA =====
+   Nem a OpenAI nem o Google expõem SALDO pela chave da API. O que dá pra fazer sem credencial nova:
+   acompanhar o GASTO do mês contra um teto que a gestora define, e o consumo do dia contra o limite
+   do plano gratuito do Gemini. Resolve o que importa — avisar ANTES de parar — em vez de descobrir
+   quando a IA já morreu. Avisa uma vez por faixa (50/80/100%) por mês, no sino e no WhatsApp. */
+async function iaCreditoTick() {
+  const r = await fetch(`${_SB_URL}/rest/v1/rpc/ai_gasto_mes`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json" }, body: "{}" });
+  if (!r.ok) throw new Error("ai_gasto_mes falhou: HTTP " + r.status);
+  const gastos: any[] = await r.json();
+  const watch = await sbGet("ai_credit_watch", "select=*");
+  const mesAtual = new Date().toISOString().slice(0, 7);
+  const hoje = new Date().toISOString().slice(0, 10);
+  const avisos: string[] = [];
+  for (const w of watch) {
+    const g = gastos.find((x: any) => x.provider === w.provider) || { usd: 0, requests: 0, requests_hoje: 0 };
+    const ult = w.ultimo_aviso || {};
+    const novo: any = { ...ult };
+    // teto de gasto do mes
+    const teto = Number(w.teto_usd_mes) || 0;
+    if (teto > 0) {
+      const pct = Number(g.usd) * 100 / teto;
+      const faixas = (w.avisar_em || [50, 80, 100]).slice().sort((a: number, b: number) => b - a);
+      const bateu = faixas.find((f: number) => pct >= f);
+      if (bateu && ult[`gasto_${mesAtual}`] !== bateu) {
+        novo[`gasto_${mesAtual}`] = bateu;
+        avisos.push(bateu >= 100
+          ? `🔴 *${w.provider.toUpperCase()}* estourou o teto do mês: US$ ${Number(g.usd).toFixed(2)} de US$ ${teto.toFixed(2)}. Se a chave ficar sem crédito, a IA para.`
+          : `🟡 *${w.provider.toUpperCase()}* já usou ${Math.round(pct)}% do teto do mês: US$ ${Number(g.usd).toFixed(2)} de US$ ${teto.toFixed(2)}.`);
+      }
+    }
+    // limite diario do plano gratuito
+    const lim = Number(w.limite_dia_requests) || 0;
+    if (lim > 0) {
+      const pctD = Number(g.requests_hoje) * 100 / lim;
+      if (pctD >= 80 && ult[`dia_${hoje}`] !== true) {
+        novo[`dia_${hoje}`] = true;
+        avisos.push(`🟡 *${w.provider.toUpperCase()}* já fez ${g.requests_hoje} das ${lim} chamadas do plano gratuito de hoje (${Math.round(pctD)}%). Passando disso, ele para até amanhã.`);
+      }
+    }
+    if (JSON.stringify(novo) !== JSON.stringify(ult)) {
+      await sbPatchD("ai_credit_watch", `provider=eq.${encodeURIComponent(w.provider)}`, { ultimo_aviso: novo, atualizado_em: new Date().toISOString() });
+    }
+  }
+  if (!avisos.length) return { ok: true, avisos: 0, gastos };
+  const texto = `💳 *Crédito de IA*\n${WA_DIV}\n\n${avisos.join("\n\n")}\n\n_Sem crédito nos dois provedores, o sistema fica sem IA: AndréIA, DNA, CRM e leitura de print._`;
+  try { const g = await _andreiaGroupInst(); if (!(g as any).erro) await _sendGroup(g, [texto]); } catch (_e) { /* sino ainda vale */ }
+  try {
+    const team = await sbGet("team", "select=id,name");
+    for (const m of team) {
+      await sbPost("notifications", { id: "ntf" + Math.random().toString(36).slice(2, 11), to_team: m.id, from_team: team[0]?.id || m.id,
+        task_id: null, task_name: "💳 Crédito de IA acabando", comment_text: avisos.join(" · ").replace(/\*/g, ""), read: false, type: "system" });
+    }
+  } catch (_e) { /* nao pode derrubar o tick */ }
+  return { ok: true, avisos: avisos.length, gastos };
+}
 async function systemHealthTick() {
   const r = await fetch(`${_SB_URL}/rest/v1/rpc/system_health_snapshot`, { method: "POST", headers: { apikey: _SB_KEY, Authorization: `Bearer ${_SB_KEY}`, "Content-Type": "application/json" }, body: "{}" });
   if (!r.ok) throw new Error("system_health_snapshot falhou: HTTP " + r.status);
@@ -6757,6 +6822,10 @@ Deno.serve(async (req) => {
         try { await _waAgentAvisaErro(body.waAgent, motivo); } catch (_e) { /* nem o aviso pode derrubar */ }
         return new Response(JSON.stringify({ data: { erro: motivo } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+    }
+    if (body.iaCreditoTick) {
+      const r = await iaCreditoTick();
+      return new Response(JSON.stringify({ data: r }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.automationsTick) {
       const r = await waAutomationsTick();
