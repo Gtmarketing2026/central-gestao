@@ -11309,6 +11309,7 @@ function _negUFtel(...tels){
    vira filtro próprio, e não um recorte de data.
    O que NÃO é referência de turma ("Antigo", "II", "INTENSIVO", "Acesso Parceiros") continua no nome:
    são ofertas diferentes, não a mesma coisa em outro mês. */
+function _negNorm2(t){return String(t||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'')}
 function _negProdRef(prod){
   const s=String(prod||'').replace(/\s+/g,' ').trim();
   const m=s.match(/[\s-]*(\d{4})(?:\.(\d{1,2}))?\s*$/);
@@ -12201,7 +12202,24 @@ function renderNegEstados(){
 /* ---- Produtos + turma ----
    O ranking mostra o PRODUTO (sem a turma no nome). O filtro de turma usa por_produto_turma, que só
    existe para os produtos do ranking — por isso filtrar por turma nunca traz produto novo pra lista. */
-let _negTurmaAno='',_negTurmaMes='',_negProdSel='';
+let _negTurmaAno='',_negTurmaMes='',_negProdSel='',_negProdBusca='';
+/* O campo de produto faz DUAS coisas com o mesmo texto: enquanto se digita, filtra o ranking
+   ("combo" mostra todos os combos); quando o texto bate exatamente com um produto — o que acontece
+   ao escolher na lista — abre o detalhe dele. Antes só existia a segunda, e digitar um pedaço do
+   nome não levava a lugar nenhum. */
+function negProdBuscar(v){
+  _negProdBusca=v||'';
+  const lista=((_negocio&&_negocio.dados&&_negocio.dados.top_produtos)||[]);
+  const alvo=_negProdBusca.trim().toUpperCase();
+  const exato=lista.find(x=>String(x.produto).toUpperCase()===alvo);
+  _negProdSel=exato?exato.produto:'';
+  const el=document.getElementById('negProdCampo');
+  const foco=el&&document.activeElement===el,pos=el?el.selectionStart:0;
+  renderNegocio();
+  // sem devolver o foco, cada letra digitada jogaria o cursor pra fora do campo
+  if(foco){const n=document.getElementById('negProdCampo');if(n){n.focus();try{n.setSelectionRange(pos,pos)}catch(e){}}}
+}
+function negProdLimpar(){_negProdBusca='';_negProdSel='';renderNegocio();}
 function negTurmaSet(campo,v){if(campo==='ano')_negTurmaAno=v;else _negTurmaMes=v;renderNegocio();}
 function negTurmaLimpar(){_negTurmaAno='';_negTurmaMes='';renderNegocio();}
 function negProdSet(v){_negProdSel=v||'';renderNegocio();}
@@ -12272,16 +12290,16 @@ function negProdutosDados(){
 function renderNegProdutos(){
   const el=document.getElementById('negProdCard');if(!el||!_negocio)return;
   const d=_negocio.dados,turmas=d.turmas||[];
-  const {linhas,filtrado,porEstado}=negProdutosDados();
+  const {linhas:linhasBrutas,filtrado,porEstado}=negProdutosDados();
+  const _pb=_negNorm2(_negProdBusca).trim();
+  // com um produto escolhido o filtro de texto não vale: o alvo já é um só
+  const linhas=(_pb&&!_negProdSel)?linhasBrutas.filter(x=>_negNorm2(x.produto).includes(_pb)):linhasBrutas;
   const top=linhas.slice(0,15);
   const anos=[...new Set(turmas.filter(t=>t.ano).map(t=>t.ano))].sort((a,b)=>b-a);
   const meses=[...new Set(turmas.filter(t=>t.mes).map(t=>t.mes))].sort((a,b)=>a-b);
   const n=v=>Math.round(v||0).toLocaleString('pt-BR');
   const totRec=linhas.reduce((s,x)=>s+x.receita,0);
   // produto escolhido: em vez do ranking (que viraria uma barra só), abre o produto por turma e estado
-  // digitou um nome que nao existe: avisa em vez de simplesmente ignorar
-  const _prodInvalido=_negProdSel&&!linhas.some(x=>x.produto===_negProdSel)?_negProdSel:'';
-  if(_prodInvalido)_negProdSel='';
   const det=_negProdSel?negProdDetalhe(_negProdSel):null;
   const totGeral=(d.top_produtos||[]).reduce((s,x)=>s+x.receita,0);
   el.innerHTML=`
@@ -12290,12 +12308,12 @@ function renderNegProdutos(){
         <div class="hint">por produto${d.produtos_distintos?`, juntando as turmas · ${n(d.produtos_distintos)} produtos distintos na base`:''}</div></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <span style="font-size:11px;color:var(--faint)">PRODUTO:</span>
-        <input list="negProdLista" id="negProdCampo" value="${String(_negProdSel).replace(/"/g,'&quot;')}"
-               placeholder="todos os produtos — digite pra procurar" onchange="negProdSet(this.value)"
+        <input list="negProdLista" id="negProdCampo" value="${String(_negProdBusca).replace(/"/g,'&quot;')}"
+               placeholder="🔎 procurar produto…" oninput="negProdBuscar(this.value)"
                style="width:auto;min-width:250px;font-size:12px"
-               title="Digite parte do nome pra achar. São ${n((d.top_produtos||[]).length)} produtos na base — deixe vazio pra ver o ranking inteiro.">
-        <datalist id="negProdLista">${linhas.map(x=>`<option value="${x.produto.replace(/"/g,'&quot;')}"></option>`).join('')}</datalist>
-        ${_negProdSel?`<button class="btn sm ghost" style="padding:3px 9px;font-size:11px" onclick="negProdSet('')">limpar</button>`:''}
+               title="Digite um pedaço do nome pra filtrar o ranking. Escolhendo um produto da lista, abre o detalhe dele. São ${n((d.top_produtos||[]).length)} produtos na base.">
+        <datalist id="negProdLista">${linhasBrutas.map(x=>`<option value="${x.produto.replace(/"/g,'&quot;')}"></option>`).join('')}</datalist>
+        ${(_negProdBusca||_negProdSel)?`<button class="btn sm ghost" style="padding:3px 9px;font-size:11px" onclick="negProdLimpar()">limpar</button>`:''}
       </div>
       ${turmas.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <span style="font-size:11px;color:var(--faint)">TURMA:</span>
@@ -12311,7 +12329,7 @@ function renderNegProdutos(){
       </div>`:''}
     </div>
     <div id="negProdNota" style="font-size:11.5px;color:var(--muted);margin-bottom:8px"></div>
-    ${_prodInvalido?`<div style="font-size:12px;color:#f0c040;margin-bottom:8px">Não achei nenhum produto chamado "${_evtEsc(_prodInvalido)}" — mostrando o ranking completo.</div>`:''}
+    ${(_pb&&!_negProdSel)?`<div style="font-size:12px;color:var(--accent);margin-bottom:8px">${n(linhas.length)} de ${n(linhasBrutas.length)} produtos com "${_evtEsc(_negProdBusca)}" no nome${linhas.length>15?' · o gráfico mostra os 15 maiores':''}</div>`:''}
     ${filtrado?`<div style="font-size:12px;color:var(--accent);margin-bottom:8px">${[
       _negUFsel.size?`Estado${_negUFsel.size>1?'s':''} ${[..._negUFsel].join(', ')}`:'',
       _negTurmaAno&&_negTurmaMes?`turma ${NEG_MES_NOME[_negTurmaMes]||_negTurmaMes}/${_negTurmaAno}`
@@ -12328,7 +12346,7 @@ function renderNegProdutos(){
           ${_negProdBloco('POR ESTADO',det.ufs,k=>k==='—'?'sem estado':k)}
         </div>
       </div>`
-    :top.length?`<div style="height:${Math.max(240,top.length*26)}px"><canvas id="negProd"></canvas></div>`:'<div class="empty">Nenhuma venda com esses filtros.</div>'}
+    :top.length?`<div style="height:${Math.max(240,top.length*26)}px"><canvas id="negProd"></canvas></div>`:`<div class="empty">${_pb?`Nenhum produto com "${_evtEsc(_negProdBusca)}" no nome.`:'Nenhuma venda com esses filtros.'}</div>`}
     ${turmas.length?`<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
       <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.06em;margin-bottom:8px">TURMAS QUE MAIS VENDERAM</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
