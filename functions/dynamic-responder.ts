@@ -107,7 +107,13 @@ function _iaProviderReserva(atual: any) {
 function _iaErroHumano(msg: string, provedor: string) {
   const m = String(msg || "");
   if (/quota|RESOURCE_EXHAUSTED|billing|rate.?limit|429/i.test(m)) {
-    return `A IA atingiu o limite do plano (cota da chave do ${provedor}). Nada foi perdido — ative o faturamento da chave ou configure uma chave alternativa, e tente de novo.`;
+    // "sem crédito" e "rápido demais" pedem ações opostas; sem separar, a pessoa espera à toa ou
+    // recarrega sem precisar. O trecho cru vai junto porque é ele que diz qual dos dois é.
+    const semCredito = /insufficient_quota|billing|exceeded your current quota|free_tier/i.test(m);
+    const acao = semCredito
+      ? "A chave está sem crédito/cota do plano — é preciso ativar ou recarregar o faturamento dela."
+      : "Foram pedidos demais em pouco tempo; costuma liberar sozinho em alguns minutos.";
+    return `A IA atingiu o limite da chave do ${provedor}. ${acao} Nada foi perdido. (${m.slice(0, 140).replace(/\s+/g, " ")})`;
   }
   if (/high demand|overload|unavailable|503/i.test(m)) return `A IA do ${provedor} está sobrecarregada agora. Tente de novo em alguns minutos.`;
   return m || `Erro na API da ${provedor}`;
@@ -156,7 +162,11 @@ async function callOpenAI(body: any) {
       if (t2.ok) { t = t2; usado = alt; } else erroPlanoB = `${alt.nome}: ${t2.erro || "erro desconhecido"}`;
     }
   }
-  if (!t.ok) throw new Error(_iaErroHumano(t.erro, p.nome) + (erroPlanoB ? ` [reserva também falhou — ${erroPlanoB}]` : ""));
+  if (!t.ok) {
+    // erro cru dos dois provedores no log: é o que permite saber se é falta de crédito ou pico
+    console.error("[IA] principal", p.nome, "→", String(t.erro || "").slice(0, 300), "| reserva →", erroPlanoB.slice(0, 300));
+    throw new Error(_iaErroHumano(t.erro, p.nome) + (erroPlanoB ? ` [reserva também falhou — ${erroPlanoB}]` : ""));
+  }
   try {
     const u = t.json?.usage || {};
     await sbPost("system_usage_events", { client_id: telemetry.clientId || null, service_key: usado.nome.toLowerCase(), action: String(telemetry.action || "ai_request").slice(0, 80), input_units: Number(u.prompt_tokens || u.input_tokens || 0), output_units: Number(u.completion_tokens || u.output_tokens || 0), quantity: 1, meta: { model: t.json?.model || modeloDe(usado) } });
