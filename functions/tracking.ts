@@ -1020,7 +1020,7 @@ Deno.serve(async (req) => {
   // Tudo abaixo desta lista executa leitura ou alteração administrativa com service_role.
   // A função continua pública apenas para pixel/webhooks/callbacks, mas essas rotas exigem
   // uma sessão real do Supabase ou o segredo exclusivo dos cron jobs.
-  const internalPrefixes = ["/oauth/", "/calendar/", "/google/auth", "/google/status", "/google/disconnect", "/automations/", "/wa/connectivity", "/wa/resolve-origins", "/wa/agency-poll", "/journey/orders-tick", "/metrics/tick", "/meta/", "/instagram/", "/security/audit", "/health/"];
+  const internalPrefixes = ["/oauth/", "/calendar/", "/google/auth", "/google/status", "/google/disconnect", "/automations/", "/wa/connectivity", "/wa/resolve-origins", "/wa/agency-poll", "/journey/orders-tick", "/metrics/tick", "/meta/", "/instagram/", "/security/audit", "/health/", "/ia-credito/"];
   if (internalPrefixes.some((x) => p.startsWith(x))) {
     const denied = await _requireInternal(req); if (denied) return denied;
   }
@@ -1124,6 +1124,16 @@ Deno.serve(async (req) => {
   if (p === "/health/tick") {
     try {
       const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ systemHealthTick: true }) });
+      const t = await r.text();
+      return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
+    } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
+  }
+
+  // /ia-credito/tick -> monitor de credito de IA: gasto do mes contra teto + consumo diario do
+  // plano gratuito do Gemini. Chamado pelo cron a cada 4h.
+  if (p === "/ia-credito/tick") {
+    try {
+      const r = await fetch(`${SB_URL}/functions/v1/dynamic-responder`, { method: "POST", headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ iaCreditoTick: true }) });
       const t = await r.text();
       return new Response(t, { status: r.status, headers: { ...cors, "Content-Type": "application/json" } });
     } catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } }); }
