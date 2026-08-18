@@ -12573,6 +12573,15 @@ function renderParceiros(){
 
     <div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px">
+        <h3 title="Evolução das vendas por indicação. Segue o período e a busca: procurando um nome, o gráfico mostra só esses parceiros." style="cursor:help;margin:0 0 4px">📈 Vendas por indicação no tempo</h3>
+        <span class="pill" style="font-size:10.5px">${busca?`${n(rank.length)} parceiro${rank.length===1?'':'s'} da busca`:'todos os parceiros'}</span>
+      </div>
+      <div class="hint" style="margin-bottom:8px">Soma dos cupons ${busca?'que batem com a busca':'do período'}. O detalhe de um parceiro sai clicando nele no ranking.</div>
+      ${rank.length?`<div style="height:270px"><canvas id="parcGeralChart"></canvas></div>`:'<div class="empty">Sem venda com cupom no período.</div>'}
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:10px">
         <h3 title="Ordenado pela métrica escolhida acima. Clique num parceiro para abrir o detalhe dele." style="cursor:help;margin:0 0 10px">🏅 Ranking</h3>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <input id="parcBuscaCampo" type="search" value="${String(_parcBusca).replace(/"/g,'&quot;')}" placeholder="🔎 procurar parceiro…"
@@ -12616,7 +12625,40 @@ function renderParceiros(){
         <span class="hint" style="margin-left:8px">${n(_parcQtd)} de ${n(rank.length)}</span></div>`:''}
     </div>
     <div id="parcDetalhe"></div>`;
+  renderParcGeralChart(rank);
   renderParcDetalhe();
+}
+/* Gráfico do topo: soma de TODOS os parceiros que estão na lista (a busca vale aqui também).
+   Período curto vai dia a dia; longo vira mês, senão o eixo x fica ilegível. */
+function renderParcGeralChart(rank){
+  const c=document.getElementById('parcGeralChart');
+  try{if(_negCharts.parcGeral)_negCharts.parcGeral.destroy()}catch(e){}
+  if(!c||!rank||!rank.length)return;
+  const d=(_negocio&&_negocio.dados)||{},idx=d.parceiros_idx||[];
+  const alvo=new Set();
+  rank.forEach(x=>_parcCupons(x.cupom).forEach(cu=>alvo.add(cu)));
+  const dias={};
+  for(const x of (d.parceiro_dia||[])){
+    const cup=x.c!=null?(idx[x.c]||''):x.cupom;
+    if(!alvo.has(cup))continue;
+    const dia=x.d||x.dia;
+    if(!_parcDentro(dia.slice(0,7)))continue;
+    (dias[dia]=dias[dia]||{dia,vendas:0,receita:0});
+    dias[dia].vendas+=(x.v!=null?x.v:x.vendas);dias[dia].receita+=(x.r!=null?x.r:x.receita);
+  }
+  const lista=Object.values(dias).sort((a,b)=>a.dia<b.dia?-1:1);
+  if(!lista.length)return;
+  const porMes=lista.length>92,mapa={};
+  lista.forEach(x=>{const k=porMes?x.dia.slice(0,7):x.dia;
+    (mapa[k]=mapa[k]||{k,vendas:0,receita:0});mapa[k].vendas+=x.vendas;mapa[k].receita+=x.receita});
+  const pts=Object.values(mapa);
+  const eixo={ticks:{color:'#8b8b83',font:{size:10}},grid:{color:'rgba(255,255,255,.05)'}};
+  _negCharts.parcGeral=new Chart(c.getContext('2d'),{data:{labels:pts.map(x=>porMes?x.k:dateBR(x.k)),datasets:[
+    {type:'bar',label:'Pedidos',data:pts.map(x=>x.vendas),backgroundColor:'rgba(168,85,247,.45)',yAxisID:'y1'},
+    {type:'line',label:'Faturamento',data:pts.map(x=>x.receita),borderColor:'#ffd42a',backgroundColor:'rgba(255,213,42,.09)',fill:true,tension:.3,yAxisID:'y'}]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{color:'#c9c9c1'}},tooltip:{callbacks:{label:x=>x.dataset.label==='Pedidos'?`Pedidos: ${Math.round(x.raw).toLocaleString('pt-BR')}`:`Faturamento: ${fmt(x.raw)}`}}},
+      scales:{x:eixo,y:{...eixo,ticks:{...eixo.ticks,callback:v=>'R$ '+(v>=1e6?(v/1e6).toFixed(1)+'mi':(v/1e3).toFixed(0)+'k')}},y1:{...eixo,position:'right',grid:{drawOnChartArea:false}}}}});
 }
 /* Detalhe de um parceiro. Cancelamento, estorno e pedido não pago vêm da vida inteira do cupom (são
    contados fora da venda, então não têm recorte mensal); o resto respeita o período escolhido. */
