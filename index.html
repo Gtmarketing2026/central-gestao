@@ -2643,6 +2643,7 @@ let _socFilterTipo='';
 let _socSort='recentes';
 let _socMetric='seguidores';
 let _socCompare=false;
+let _socCharts={};
 const SOC_TIPO_LABEL={VIDEO:'Reels/Vídeo',CAROUSEL_ALBUM:'Carrossel',IMAGE:'Imagem'};
 const SOC_WD_LABEL=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 async function loadSocial(clientId,_retried){
@@ -2780,10 +2781,13 @@ function _socRender(ctx){
     rates.forEach(x=>{if(sd>0&&x.r>mean+1.25*sd)destaqueIds.add(x.p.id);});
   }
   const alerts=[];
-  // se o histórico real de coleta é mais curto que o período escolhido, o número é o mesmo em qualquer botão — deixa isso explícito
+  // se o histórico real de coleta é mais curto que o período escolhido, o número é o mesmo em qualquer botão — deixa isso
+  // explícito SEMPRE (antes só aparecia quando o saldo era negativo, então quem crescia nunca via a explicação e o
+  // seletor de período parecia quebrado/sem veracidade).
   const cutCurAlerta=daysAgoISO(_socDays);
   const histCurto=first&&first.data>cutCurAlerta;
-  if(variacao!=null&&variacao<0)alerts.push(`<div style="display:flex;align-items:center;gap:8px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:10px 14px;font-size:12.5px"><span>⚠</span><span>Perdeu <b>${num(Math.abs(variacao))}</b> seguidores ${histCurto?`desde que começamos a coletar (${first.data.slice(8,10)}/${first.data.slice(5,7)}) — ainda não temos ${_socDays} dias de histórico`:`nos últimos ${_socDays} dias`}.</span></div>`);
+  if(histCurto)alerts.push(`<div style="display:flex;align-items:center;gap:8px;background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.3);border-radius:10px;padding:10px 14px;font-size:12.5px"><span>📅</span><span>Coletando desde <b>${first.data.slice(8,10)}/${first.data.slice(5,7)}</b> — ainda não temos ${_socDays} dias de histórico, por isso mudar o período aqui em cima ainda não muda o gráfico. Isso vai se resolver sozinho com o tempo.</span></div>`);
+  if(variacao!=null&&variacao<0)alerts.push(`<div style="display:flex;align-items:center;gap:8px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:10px 14px;font-size:12.5px"><span>⚠</span><span>Perdeu <b>${num(Math.abs(variacao))}</b> seguidores nos últimos ${_socDays} dias.</span></div>`);
   if(destaqueIds.size)alerts.push(`<div style="display:flex;align-items:center;gap:8px;background:rgba(240,192,64,.1);border:1px solid rgba(240,192,64,.3);border-radius:10px;padding:10px 14px;font-size:12.5px"><span>🔥</span><span><b>${destaqueIds.size}</b> post${destaqueIds.size!==1?'s':''} com engajamento muito acima da média — bons candidatos a recorte no Briefing.</span></div>`);
   const alertBlock=alerts.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">${alerts.join('')}</div>`:'';
   // gráfico: seguidores / alcance / visualizações (seletor de métrica)
@@ -2803,7 +2807,7 @@ function _socRender(ctx){
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">${ms.label}</div>
       <div class="rt-no-print">${metricSel}</div>
     </div>
-    ${_socLineSVG(ms.pts,ms.color)}
+    ${ms.pts&&ms.pts.length>=2?`<div style="height:220px"><canvas id="socChartFollowers"></canvas></div>`:'<div style="font-size:12px;color:var(--faint);padding:8px 0">Sem histórico suficiente ainda nesse período.</div>'}
   </div>`;
   const formato=_socFormatoHTML(postsWindow,latestByPost,engRate,num);
   const diaSemana=_socDiaSemanaHTML(postsWindow,engRate);
@@ -2815,21 +2819,18 @@ function _socRender(ctx){
     ${ranking}${freq}
     <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:18px 0 8px">Posts ${_socFilterTipo?'('+(SOC_TIPO_LABEL[_socFilterTipo]||_socFilterTipo)+')':''}</div>
     ${cards}</div>`;
+  _socDrawChart(ms);
 }
 function _socSumMetricPorDia(metrics,campo){const p={};metrics.forEach(m=>{const d=(m.data_coleta||'').slice(0,10);if(!d)return;p[d]=(p[d]||0)+(m[campo]||0);});return Object.keys(p).sort().map(data=>({data,val:p[data]}));}
-function _socLineSVG(pts,color){
-  if(!pts||pts.length<2)return '<div style="font-size:12px;color:var(--faint);padding:8px 0">Sem histórico suficiente ainda nesse período.</div>';
-  const W=720,H=140,P={l:8,r:8,t:10,b:20},n=pts.length,iw=W-P.l-P.r,ih=H-P.t-P.b;
-  const vals=pts.map(s=>s.val||0);const min=Math.min(...vals),max=Math.max(...vals);const range=(max-min)||1;
-  const x=i=>P.l+(n<=1?iw/2:iw*i/(n-1));
-  const y=v=>P.t+ih-((v-min)/range)*ih;
-  const svgpts=vals.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+// Marca um ponto por dia de verdade (antes era só uma linha reta entre o primeiro e o último valor,
+// sem nenhum marco no meio — "mais bonito, mais intuitivo" pedido pela usuária) + área preenchida e
+// tooltip ao passar o mouse, no mesmo padrão Chart.js usado no resto do sistema (Dashboard, Negócio etc).
+function _socDrawChart(ms){
+  const el=document.getElementById('socChartFollowers');if(!el||!window.Chart)return;
+  if(_socCharts.followers){_socCharts.followers.destroy();_socCharts.followers=null;}
+  if(!ms.pts||ms.pts.length<2)return;
   const lbl=d=>{const m=String(d).match(/(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}`:d;};
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
-    <polyline points="${svgpts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-    <text x="${P.l}" y="${H-4}" fill="var(--faint)" font-size="10">${lbl(pts[0].data)}</text>
-    <text x="${W-P.r}" y="${H-4}" fill="var(--faint)" font-size="10" text-anchor="end">${lbl(pts[n-1].data)}</text>
-  </svg>`;
+  _socCharts.followers=new Chart(el.getContext('2d'),{type:'line',data:{labels:ms.pts.map(p=>lbl(p.data)),datasets:[{data:ms.pts.map(p=>p.val||0),borderColor:ms.color,backgroundColor:ms.color+'20',borderWidth:2.5,tension:.3,fill:true,pointRadius:4,pointHoverRadius:6,pointBackgroundColor:ms.color,pointBorderColor:'#131210',pointBorderWidth:1.5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.parsed.y.toLocaleString('pt-BR')}}},scales:{y:{ticks:{color:'#9aa0aa',font:{size:10}},grid:{color:'rgba(255,255,255,.06)'}},x:{ticks:{color:'#9aa0aa',font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:10},grid:{display:false}}}}});
 }
 function _socFormatoHTML(posts,latestByPost,engRate,num){
   const byTipo={};
