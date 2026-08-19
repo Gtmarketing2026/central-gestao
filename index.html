@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://mocrfqmdjwvyhqvdpimm.supabase.co wss://mocrfqmdjwvyhqvdpimm.supabase.co; worker-src 'self' blob: https://cdnjs.cloudflare.com; media-src 'self' blob: https:; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
 <meta name="referrer" content="strict-origin-when-cross-origin">
+<script>
+/* Clickjacking. O CSP acima vem numa tag <meta>, e nessa forma o navegador IGNORA a regra
+   frame-ancestors — ela só vale como cabeçalho HTTP, que o GitHub Pages não deixa configurar.
+   Sem isto, qualquer site pode abrir o sistema dentro de um iframe invisível por cima de outra
+   página e colher o clique de quem já está logado aqui.
+   Roda antes de qualquer conteúdo aparecer: some com a página primeiro, tenta sair do quadro
+   depois (o navegador pode barrar a saída quando o site de fora é de outra origem). */
+if (window.top !== window.self) {
+  document.documentElement.style.display = 'none';
+  try { window.top.location = window.self.location; }
+  catch (e) { document.documentElement.innerHTML = '<p style="font:16px system-ui;padding:24px">Este sistema não pode ser aberto dentro de outro site. Acesse https://app.gt-marketing.app.br</p>'; document.documentElement.style.display = ''; }
+}
+</script>
 <title>Central de Gestão · Painel da Agência</title>
 <link rel="icon" type="image/x-icon" href="logo.ico">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
