@@ -14758,7 +14758,7 @@ async function listKnowledgeDocs(clientId){
 async function deleteKnowledgeDoc(id){await sb.from('agent_knowledge').delete().eq('id',id)}
 async function fetchAgentKnowledge(clientId){
   // Global + (se houver cliente) o do cliente
-  const {data:g}=await sb.from('agent_knowledge').select('title,text').eq('client_id','').order('created_at',{ascending:false}).limit(4);
+  const {data:g}=await sb.from('agent_knowledge').select('title,text').eq('client_id','').order('created_at',{ascending:false}).limit(10);
   let arr=(g||[]).map(d=>({title:'[Global] '+d.title,text:d.text}));
   if(clientId){
     const {data:c}=await sb.from('agent_knowledge').select('title,text').eq('client_id',clientId).order('created_at',{ascending:false}).limit(4);

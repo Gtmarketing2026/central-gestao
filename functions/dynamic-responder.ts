@@ -272,7 +272,7 @@ async function _andreiaUnifiedContext(clientId: string | null, surface: string) 
     }
     const docs = await sbGet("agent_knowledge", `select=title,text,client_id&order=created_at.desc&limit=40`);
     const allowed = (docs || []).filter((d: any) => !String(d.client_id || "").trim() || (cid && String(d.client_id) === cid));
-    const globalDocs = allowed.filter((d: any) => !String(d.client_id || "").trim()).slice(0, 4);
+    const globalDocs = allowed.filter((d: any) => !String(d.client_id || "").trim()).slice(0, 10);
     const clientDocs = cid ? allowed.filter((d: any) => String(d.client_id) === cid).slice(0, 5) : [];
     const picked = [...globalDocs, ...clientDocs];
     if (picked.length) knowledgeBlock = "\nCONHECIMENTO COMPARTILHADO AUTORIZADO:\n" + picked.map((d: any) => `--- ${d.title || "Material"} [${d.client_id ? "cliente" : "agência"}] ---\n${String(d.text || "").slice(0, 5000)}`).join("\n\n");
@@ -415,7 +415,7 @@ RESUMO PARA CLIENTE (quando pedirem resumo/relatorio pro cliente): escreva PRONT
     /* Custo: a base de conhecimento inteira ia junto em TODA pergunta e, com o laço de ferramentas,
        era reenviada a cada volta. 14k caracteres por fonte é material de leitura, não de contexto —
        5k já carrega o método sem pagar o livro toda vez. */
-    const fontes = a.knowledge.slice(0, _temImagem ? 2 : 3);
+    const fontes = a.knowledge.slice(0, _temImagem ? 4 : 9);
     const limite = _temImagem ? 3000 : 5000;
     contexto += `\n\n===== BASE DE CONHECIMENTO (JARVIS) =====\nEstes sao os metodos e frameworks dos gestores que a agencia treinou em voce (Pedro Sobral e outros). Eles sao a SUA forma de pensar: aplique estes principios, benchmarks e mentalidade em TODA analise e recomendacao, citando o raciocinio quando util. Nao os ignore.\n` +
       fontes.map((k: any, i: number) => `--- Fonte ${i + 1}: ${k.title || "material"} ---\n${String(k.text || "").slice(0, limite)}`).join("\n\n");
@@ -3788,7 +3788,7 @@ let _waPbCache: string | null = null, _waPbT = 0;
 async function _waPlaybook(): Promise<string> {
   if (_waPbCache && Date.now() - _waPbT < 300000) return _waPbCache;
   let extra = "";
-  try { const rows = await sbGet("agent_knowledge", "select=title,text,client_id&order=created_at.desc&limit=20"); const g = (rows || []).filter((r: any) => !r.client_id).slice(0, 3); if (g.length) extra = "\n\nMÉTODOS DA AGÊNCIA (base de conhecimento):\n" + g.map((k: any) => `- ${k.title}: ${String(k.text || "").slice(0, 2500)}`).join("\n"); } catch (_e) { /* */ }
+  try { const rows = await sbGet("agent_knowledge", "select=title,text,client_id&order=created_at.desc&limit=20"); const g = (rows || []).filter((r: any) => !r.client_id).slice(0, 10); if (g.length) extra = "\n\nMÉTODOS DA AGÊNCIA (base de conhecimento):\n" + g.map((k: any) => `- ${k.title}: ${String(k.text || "").slice(0, 2500)}`).join("\n"); } catch (_e) { /* */ }
   _waPbCache = WA_PLAYBOOK_BASE + extra; _waPbT = Date.now(); return _waPbCache;
 }
 // Análise do gestor POR CANAL, cada um julgado pelo SEU objetivo. Retorna cliente -> texto (1 linha por canal).
