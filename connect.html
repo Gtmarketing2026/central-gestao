@@ -69,11 +69,30 @@
   var timer=null;
   var consented=false;
   function esc(s){return String(s||"").replace(/[<>&]/g,function(c){return {"<":"&lt;",">":"&gt;","&":"&amp;"}[c];});}
+  // para a consulta e diz o motivo nos DOIS lugares (QR e código): antes o erro só aparecia no QR,
+  // e quem estava usando o código pelo telefone não via nada.
+  function parar(msg){
+    if(timer)clearInterval(timer);
+    document.getElementById("qrbox").innerHTML='<span class="muted">'+esc(msg)+'</span>';
+    var pc=document.getElementById("paircode"); if(pc&&pc.innerHTML)pc.innerHTML='<div class="muted">'+esc(msg)+'</div>';
+  }
   async function poll(phone){
     if(!id){document.getElementById("qrbox").innerHTML='<span class="muted">Link inválido.</span>';return;}
     try{
       var r=await fetch(BASE+"/wa/connect/"+encodeURIComponent(id)+(phone?"?phone="+encodeURIComponent(phone):""));
+      if(r.status===429){parar("Muitas tentativas seguidas. Espere um minuto e recarregue a página.");return;}
       var d=await r.json();
+      /* O erro do servidor era ENGOLIDO: link de instância que não existe mais responde 404 com JSON,
+         o r.json() funciona, nada era mostrado e a página ficava em "Gerando QR…"/"Gerando código…"
+         para sempre. Aconteceu em 19/08: 63 consultas seguidas em 404 sem a pessoa saber de nada. */
+      if(d.error){
+        parar(d.error==="not_found"
+          ? "Este link não vale mais — a conexão foi refeita no sistema. Peça um link novo para conectar."
+          : d.error==="consent_required"
+            ? "A autorização ainda não foi registrada. Recarregue a página e confirme o aceite."
+            : "Não consegui conectar: "+d.error);
+        return;
+      }
       if(d.status==="connected"){
         if(timer)clearInterval(timer);
         document.getElementById("qrbox").innerHTML='<div class="ok">✓ Conectado!</div>';
@@ -84,14 +103,31 @@
       var qr=d.qrcode||"";
       var img=qr?(qr.indexOf("data:")===0?qr:"data:image/png;base64,"+qr):"";
       document.getElementById("qrbox").innerHTML=img?('<img src="'+img+'" alt="QR Code">'):'<span class="muted">Gerando QR…</span>';
-      if(phone&&d.paircode)document.getElementById("paircode").innerHTML='<div class="code">'+esc(d.paircode)+'</div><div style="margin-top:6px">No WhatsApp: Aparelhos conectados → Conectar com número → digite este código.</div>';
+      if(phone&&d.paircode){
+        document.getElementById("paircode").innerHTML='<div class="code">'+esc(d.paircode)+'</div><div style="margin-top:6px">No WhatsApp: Aparelhos conectados → Conectar com número → digite este código.</div>';
+        /* Com o código na tela, PARA de mandar o telefone nas consultas seguintes. Cada consulta com
+           telefone pede um pareamento novo à uazapi, de 3 em 3 segundos — o código mudava embaixo de
+           quem estava digitando e a conexão morria em "Pair Code timeout". Daqui pra frente só se
+           pergunta se já conectou; para pedir outro código, é só clicar em "Gerar código" de novo. */
+        curPhone="";
+      }
     }catch(e){document.getElementById("qrbox").innerHTML='<span class="muted">Erro ao carregar. Recarregue a página.</span>';}
   }
   function showConnection(){consented=true;document.getElementById("consentbox").style.display="none";document.getElementById("qrbox").style.display="flex";document.getElementById("connectSteps").style.display="block";document.getElementById("securityBox").style.display="block";document.getElementById("pairbox").style.display="block";poll();if(timer)clearInterval(timer);timer=setInterval(function(){poll(curPhone);},3500);}
   async function checkConsent(){if(!id){document.getElementById("consentbox").style.display="block";document.getElementById("authMsg").textContent="Link inválido.";return;}try{var r=await fetch(BASE+"/wa/consent/"+encodeURIComponent(id));var d=await r.json();if(d.accepted)showConnection();else document.getElementById("consentbox").style.display="block";}catch(e){document.getElementById("consentbox").style.display="block";document.getElementById("authMsg").textContent="Não foi possível validar a autorização.";}}
   async function acceptConsent(){var name=(document.getElementById("authName").value||"").trim(),msg=document.getElementById("authMsg");if(name.length<3||!document.getElementById("authCheck").checked){msg.textContent="Informe o responsável e marque a autorização.";return;}msg.textContent="Registrando autorização…";try{var r=await fetch(BASE+"/wa/consent/"+encodeURIComponent(id),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accepted:true,authorizedBy:name,role:document.getElementById("authRole").value,email:document.getElementById("authEmail").value})});var d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||"Falha");showConnection();}catch(e){msg.textContent="Não foi possível registrar: "+e.message;}}
   var curPhone="";
-  function genPair(){var p=(document.getElementById("phone").value||"").replace(/[^0-9]/g,"");if(p.length<10){alert("Digite o número com DDD (ex: 5521999998888).");return;}curPhone=p;document.getElementById("paircode").innerHTML='<div class="muted">Gerando código…</div>';poll(p);}
+  function genPair(){
+    var p=(document.getElementById("phone").value||"").replace(/[^0-9]/g,"");
+    /* Número brasileiro digitado sem o 55 (ex: 24998237249) vai inválido pra uazapi e o código nunca
+       sai — foi o que aconteceu em 19/08. 10 ou 11 dígitos = DDD + número, então completo aqui em vez
+       de deixar falhar calado. Acima disso já tem código de país e vai como está. */
+    if(p.length>=10&&p.length<=11&&p.slice(0,2)!=="55")p="55"+p;
+    if(p.length<12){alert("Digite o número com DDD (ex: 24998237249 ou 5524998237249).");return;}
+    curPhone=p;
+    document.getElementById("paircode").innerHTML='<div class="muted">Gerando código para '+esc(p)+'…</div>';
+    poll(p);
+  }
   checkConsent();
 </script>
 </body></html>

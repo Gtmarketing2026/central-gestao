@@ -790,9 +790,16 @@ async function handleWaConnect(id: string, url: URL): Promise<Response> {
   };
   const phone = (url.searchParams.get("phone") || "").replace(/[^0-9]/g, "");
   let ins: any = ((await call("/instance/status")) || {}).instance || {};
+  const _code = (o: any) => (o && (o.paircode || o.pairCode || o.code || o.paircode_text)) || "";
   if (ins.status !== "connected" && (!ins.qrcode || phone)) {
+    const antes = _code(ins);
     const conn = await call("/instance/connect", "POST", phone ? { phone } : {});
-    ins = (conn && conn.instance) ? conn.instance : (conn || ins);
+    const novo = (conn && conn.instance) ? conn.instance : (conn || {});
+    ins = (novo && typeof novo === "object" && Object.keys(novo).length) ? novo : ins;
+    /* Quando já existe um pareamento em andamento, o /instance/connect responde SEM o código — e a gente
+       jogava fora o que o /instance/status tinha acabado de trazer. A tela então ficava em "Gerando
+       código…" com o código existindo do outro lado. Fica com o de quem tiver. */
+    if (!_code(ins) && antes) ins.paircode = antes;
   }
   if (ins.status) { const patch: Record<string, unknown> = { status: ins.status, updated_at: new Date().toISOString() }; if (ins.owner) patch.phone = String(ins.owner).replace(/@.*$/, ""); if (ins.status === "connected") patch.connected_at = new Date().toISOString(); await sbPatch("wa_instances", `id=eq.${encodeURIComponent(id)}`, patch); }
   return j({ status: ins.status || "connecting", qrcode: ins.qrcode || "", paircode: ins.paircode || ins.pairCode || ins.code || ins.paircode_text || "", name: inst.name || "" });
