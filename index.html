@@ -3549,7 +3549,7 @@ let _crmInstFilter='',_crmInstsCli=[];
 function crmSetInstFilter(v){_crmInstFilter=v||'';_crmActive=null;loadCrm();}
 function _crmNumLabel(i){return i?(_crmIsManualInst(i)?'CRM manual':(_crmFmtFone(i.phone)||i.name||'sem número')):'';}
 let _crmSel=new Set();
-let _crmSearch='',_crmFOrigin='',_crmFChannels=[],_crmFCampaigns=[],_crmFAdset='',_crmFAnuncio='',_crmFKeyword='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFDateFrom='',_crmFDateTo='',_crmFFlag='',_crmFCampo='';
+let _crmSearch='',_crmFOrigin='',_crmFChannels=[],_crmFCampaigns=[],_crmFAdset='',_crmFAnuncio='',_crmFKeyword='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFDateFrom='',_crmFDateTo='',_crmFFlag='',_crmFCampo='',_crmFTag='';
 let _crmAiHistory=[],_crmAiBusy=false,_crmAiClient='',_crmAiComplementIdx=-1;
 function _crmAiEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function crmAndreiaContext(){
@@ -3596,6 +3596,45 @@ function _crmCapaMarkdown(r){if(!r.audited)return r.answer||'Nenhuma conversa en
   const desc=(r.descartadas||[]);
   if(desc.length||r.jaDescartadas)t+=`## Conversas descartadas (não são atendimento)\n\n${desc.map(d=>`- **${_evtEsc(d.leadName||'Conversa')}** — ${_evtEsc(d.motivo||'')}`).join('\n')||'- —'}\n${r.jaDescartadas?`\nMais ${r.jaDescartadas} já tinham sido descartadas em avaliações anteriores e não voltaram para a fila.\n`:''}\nSe alguma dessas era atendimento de verdade, desmarque pelo card da conversa no CRM que ela volta na próxima avaliação.\n\n`;
   t+=sec('Ações para Tráfego',a.trafego)+sec('Ações para Comercial',a.comercial)+sec('Ações para Processo e CRM',a.processo)+sec('Treinamento recomendado',a.treinamento)+sec('Indicadores para acompanhar',a.indicadores);return t.trim();}
+/* ===== ETIQUETAS DA CONVERSA =====
+   Toda gravação de etiqueta passa por _crmPatchConv, que confere se a linha foi mesmo alterada: o banco
+   pode recusar por permissão SEM devolver erro, e foi assim que o "Salvar dados" ficou mentindo. */
+async function _crmPatchConv(id,patch){
+  const {data,error}=await sb.from('wa_conversations').update(patch).eq('id',id).select('id');
+  if(error){alert('Não consegui salvar: '+(error.message||error));return false;}
+  if(!data||!data.length){alert('O banco não deixou salvar esta alteração (sessão sem segundo fator ou sem permissão de escrita).');return false;}
+  const cv=_crmConvs.find(x=>x.id===id);if(cv)Object.assign(cv,patch);
+  if(_crmActive&&_crmActive.id===id)Object.assign(_crmActive,patch);
+  return true;
+}
+function _crmTagsDe(cv){return Array.isArray(cv&&cv.tags)?cv.tags.map(String):[];}
+async function crmTagAdd(id){
+  const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;
+  const usadas=[...new Set(_crmConvs.flatMap(_crmTagsDe))].sort();
+  const t=(prompt('Etiqueta para esta conversa:'+(usadas.length?' (já usadas: '+usadas.slice(0,12).join(', ')+')':''),'')||'').trim().slice(0,40);
+  if(!t)return;
+  const tags=_crmTagsDe(cv);
+  if(tags.some(x=>x.toLowerCase()===t.toLowerCase()))return;   // mesma etiqueta duas vezes não ajuda ninguém
+  if(await _crmPatchConv(id,{tags:[...tags,t]})){renderCrm();renderCrmDrawer();}
+}
+async function crmTagRemove(id,pos){
+  const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;
+  const tags=_crmTagsDe(cv);
+  const i=typeof pos==='number'?pos:tags.indexOf(String(pos));   // aceita posição (card) ou o texto
+  if(i<0||i>=tags.length)return;
+  if(await _crmPatchConv(id,{tags:tags.filter((_x,k)=>k!==i)})){renderCrm();renderCrmDrawer();}
+}
+/* Tira uma marca automática desta conversa. A nota volta na próxima classificação — por isso o aviso:
+   é remoção pontual, não desligamento da avaliação. */
+async function crmFlagRemove(id,kind){
+  const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;
+  let patch=null,pergunta='';
+  if(kind==='irrelevante'){patch={irrelevante:false,irrelevante_motivo:null};pergunta='Tirar a marca de irrelevante desta conversa?';}
+  else if(kind==='num'){patch={num_errado:false};pergunta='Tirar a marca de número errado desta conversa?';}
+  else if(kind==='nota'){const fields={...(cv.fields||{})};delete fields.nota;delete fields.capa;patch={fields};pergunta='Remover a nota de atendimento desta conversa? Ela volta a aparecer na próxima classificação automática, quando chegar mensagem nova.';}
+  if(!patch||!confirm(pergunta))return;
+  if(await _crmPatchConv(id,patch)){renderCrm();renderCrmDrawer();}
+}
 /* Devolve à fila da avaliação uma conversa que a IA tinha descartado. Tira só a nossa marca
    (fields.capa_irrelevante) — não encosta em nada do conteúdo da conversa. */
 async function crmCapaVoltarFila(id){
@@ -3900,7 +3939,7 @@ function renderCrmFilters(){
   const channels=[...new Set(_crmConvs.map(_crmChannelKey))].sort();const camps=[...new Set(_crmConvs.filter(cv=>!_crmFChannels.length||_crmFChannels.includes(_crmChannelKey(cv))).map(cv=>(cv.origin||{}).campaign).filter(Boolean))].sort();_crmFCampaigns=_crmFCampaigns.filter(c=>camps.includes(c));const flds=(crmFields()||[]).filter(f=>f.key);
   const sel=(id,cur,opts)=>`<select style="width:auto;font-size:12px" onchange="${id}=this.value;renderCrm()">${opts.map(([v,l])=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`).join('')}</select>`;
   const calActive=_crmFDateFrom||_crmFDateTo,calLabel=calActive?`${_crmFDateFrom?_crmDateBR(_crmFDateFrom):'Início'} → ${_crmFDateTo?_crmDateBR(_crmFDateTo):'Hoje'}`:'Período';
-  const advancedCount=[_crmFEntrada,_crmFAtend,_crmFFlag,_crmFCampo,_crmFAdset,_crmFAnuncio,_crmFKeyword].filter(Boolean).length;
+  const advancedCount=[_crmFEntrada,_crmFAtend,_crmFFlag,_crmFCampo,_crmFTag,_crmFAdset,_crmFAnuncio,_crmFKeyword].filter(Boolean).length;
   document.getElementById('crmFilters').innerHTML=`
     <input id="crmSearch" placeholder="🔎 Buscar nome ou telefone…" value="${_crmSearch.replace(/"/g,'&quot;')}" oninput="_crmSearch=this.value;renderCrm()" style="width:auto;min-width:200px;font-size:12.5px">
     ${crmMultiHTML('main_channel','Canais',channels,_crmFChannels,'crmMainToggleChannel','crmMainClearChannels',_crmChannelLabel)}
@@ -3911,6 +3950,7 @@ function renderCrmFilters(){
       ${sel('_crmFAtend',_crmFAtend,[['','Atendimento: todos'],['aguardando','⏳ Aguardando resposta'],['respondida','✓ Respondidas'],['sr1','Sem resposta +1d'],['sr3','Sem resposta +3d'],['sr7','Sem resposta +7d']])}
       ${sel('_crmFFlag',_crmFFlag,[['','Relevância: todas'],['venda','💰 Venda'],['capa','🛡️ Qualidade avaliada'],['valido','✅ Válidos'],['num','⚠ Número errado'],['irrel','⚑ Irrelevante']])}
       ${flds.length?sel('_crmFCampo',_crmFCampo,[['','Campo extraído: qualquer'],...flds.map(f=>['has:'+f.key,'Com '+(f.label||f.key).toLowerCase()])]):'<span></span>'}
+      ${(()=>{const tg=[...new Set(_crmConvs.flatMap(_crmTagsDe))].sort();if(!tg.length)return '<span></span>';if(_crmFTag&&!tg.includes(_crmFTag))_crmFTag='';return sel('_crmFTag',_crmFTag,[['','Etiqueta: qualquer'],...tg.map(t=>[t,'🏷 '+t])]);})()}
     </div></div>
     ${_crmFAdset?`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft,rgba(240,192,64,.14));border:1px solid var(--accent);color:var(--accent);border-radius:20px;padding:4px 10px;font-size:12px">🎯 ${_crmFAdset.replace(/</g,'&lt;')}<a onclick="_crmFAdset='';renderCrm()" style="cursor:pointer;font-weight:700">×</a></span>`:''}
     ${_crmFAnuncio?`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft,rgba(240,192,64,.14));border:1px solid var(--accent);color:var(--accent);border-radius:20px;padding:4px 10px;font-size:12px">🖼 ${_crmFAnuncio.replace(/</g,'&lt;')}<a onclick="_crmFAnuncio='';renderCrm()" style="cursor:pointer;font-weight:700">×</a></span>`:''}`;
@@ -3938,6 +3978,7 @@ function _crmFiltered(){
     if(_crmFEntrada){const dd=_crmDaysSince(cv._first||cv.last_at);if(_crmFEntrada==='hoje'&&dd>0)return false;if(_crmFEntrada==='7'&&dd>7)return false;if(_crmFEntrada==='30'&&dd>30)return false;}
     if(_crmFDateFrom||_crmFDateTo){const entry=_crmEntryDate(cv._first||cv.last_at);if(!entry)return false;if(_crmFDateFrom&&entry<_crmFDateFrom)return false;if(_crmFDateTo&&entry>_crmFDateTo)return false;}
     if(_crmFAtend){const dd=_crmDaysSince(cv.last_at);if(_crmFAtend==='aguardando'&&cv._lastdir!=='in')return false;if(_crmFAtend==='respondida'&&cv._lastdir!=='out')return false;if(_crmFAtend==='sr1'&&!(cv._lastdir==='in'&&dd>=1))return false;if(_crmFAtend==='sr3'&&!(cv._lastdir==='in'&&dd>=3))return false;if(_crmFAtend==='sr7'&&!(cv._lastdir==='in'&&dd>=7))return false;}
+    if(_crmFTag&&!_crmTagsDe(cv).includes(_crmFTag))return false;
     if(_crmFFlag){if(_crmFFlag==='venda'&&!cv._soldEver)return false;if(_crmFFlag==='capa'&&!(cv.fields&&cv.fields.capa))return false;if(_crmFFlag==='valido'&&(cv.num_errado||cv.irrelevante))return false;if(_crmFFlag==='num'&&!cv.num_errado)return false;if(_crmFFlag==='irrel'&&!cv.irrelevante)return false;}
     if(_crmFCampo&&_crmFCampo.startsWith('has:')){const k=_crmFCampo.slice(4);if(!((cv.fields||{})[k]||'').toString().trim())return false;}
     return true;
@@ -4078,15 +4119,28 @@ function crmCardHTML(cv){
   // flags: número errado / irrelevante
   const flags=[];
   if(cv._soldEver)flags.push('<span title="Este contato já alcançou uma etapa de venda" style="font-size:8.5px;font-weight:800;color:#34d399;background:rgba(52,211,153,.13);border:1px solid rgba(52,211,153,.42);border-radius:5px;padding:1px 5px">💰 VENDA</span>');
-  if(f.capa)flags.push(`<span title="Auditado em ${String(f.capa.audited_at||'').slice(0,10)}" style="font-size:8.5px;font-weight:800;color:#60a5fa;background:rgba(96,165,250,.12);border:1px solid rgba(96,165,250,.42);border-radius:5px;padding:1px 5px">🛡️ QUALIDADE ${f.capa.score!=null?f.capa.score+'/10':''}</span>`);
+  /* Nota do atendimento: agora TODA conversa tem. Vem da avaliação em lote (fields.capa, mais profunda)
+     ou, na falta dela, da classificação automática que roda a cada mensagem nova (fields.nota).
+     A cor diz o estado sem precisar ler: vermelho abaixo de 6, amarelo até 7, verde de 8 pra cima. */
+  const _q=(f.capa&&f.capa.score!=null)?{s:f.capa.score,de:'avaliação de atendimento',q:f.capa.audited_at,por:''}:((f.nota&&f.nota.score!=null)?{s:f.nota.score,de:'classificação automática',q:f.nota.at,por:f.nota.why||''}:null);
+  if(_q){const _c=_q.s>=8?['#34d399','52,211,153']:(_q.s>=6?['#fbbf24','251,191,36']:['#f87171','248,113,113']);
+    flags.push(`<span onclick="event.stopPropagation();crmFlagRemove('${cv.id}','nota')" title="Nota do atendimento (${_q.de}${_q.q?' · '+String(_q.q).slice(0,10):''})${_q.por?' — '+String(_q.por).replace(/"/g,'&quot;'):''} — clique para remover" style="cursor:pointer;font-size:8.5px;font-weight:800;color:${_c[0]};background:rgba(${_c[1]},.12);border:1px solid rgba(${_c[1]},.42);border-radius:5px;padding:1px 5px">🛡️ QUALIDADE ${_q.s}/10</span>`);}
   // vendo os dois números juntos, cada card diz por qual linha a conversa entrou
   if(_crmInstsCli.length>1&&!_crmInstFilter&&cv.instance_id){const _i=_crmInsts.find(x=>x.id===cv.instance_id);if(_i)flags.push(`<span title="Conversa recebida neste número da empresa" style="font-size:8.5px;font-weight:800;color:#7dd3fc;background:rgba(125,211,252,.12);border:1px solid rgba(125,211,252,.4);border-radius:5px;padding:1px 5px">📱 ${_crmNumLabel(_i).replace(/</g,'&lt;')}</span>`);}
-  if(cv.num_errado)flags.push('<span style="font-size:8.5px;font-weight:800;color:#f87171;background:rgba(248,113,113,.13);border:1px solid rgba(248,113,113,.4);border-radius:5px;padding:1px 5px">⚠ NÚM. ERRADO</span>');
-  if(cv.irrelevante)flags.push(`<span title="${String(cv.irrelevante_motivo||'').replace(/"/g,'&quot;')}" style="font-size:8.5px;font-weight:800;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.4);border-radius:5px;padding:1px 5px">⚑ IRRELEVANTE</span>`);
+  if(cv.num_errado)flags.push(`<span onclick="event.stopPropagation();crmFlagRemove('${cv.id}','num')" title="Clique para tirar esta marca" style="cursor:pointer;font-size:8.5px;font-weight:800;color:#f87171;background:rgba(248,113,113,.13);border:1px solid rgba(248,113,113,.4);border-radius:5px;padding:1px 5px">⚠ NÚM. ERRADO</span>`);
+  if(cv.irrelevante)flags.push(`<span onclick="event.stopPropagation();crmFlagRemove('${cv.id}','irrelevante')" title="${String(cv.irrelevante_motivo||'').replace(/"/g,'&quot;')} — clique para tirar esta marca" style="cursor:pointer;font-size:8.5px;font-weight:800;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.4);border-radius:5px;padding:1px 5px">⚑ IRRELEVANTE</span>`);
   // Descartada pela avaliação de qualidade (papo com equipe, fornecedor, pessoal). Clicável de propósito:
   // o julgamento é da IA e ela não volta pra fila sozinha — sem um jeito de desfazer, um erro dela
   // esconderia a conversa pra sempre.
   if(f.capa_irrelevante)flags.push(`<span onclick="event.stopPropagation();crmCapaVoltarFila('${cv.id}')" title="${String(f.capa_irrelevante.motivo||'').replace(/"/g,'&quot;')} — clique para devolver esta conversa à avaliação" style="cursor:pointer;font-size:8.5px;font-weight:800;color:#a78bfa;background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.42);border-radius:5px;padding:1px 5px">🚫 FORA DA AVALIAÇÃO ↺</span>`);
+  /* Etiquetas livres da conversa (coluna tags). Cada uma sai com × pra remover, e o ＋ inclui qualquer
+     outra — é o pedido de "remover e incluir qualquer tag". Ficam na mesma fileira das automáticas
+     pra leitura ser uma só. */
+  // remove pela POSIÇÃO, não pelo texto: etiqueta com aspas ou acento quebraria o onclick montado à mão
+  (Array.isArray(cv.tags)?cv.tags:[]).forEach((_t,_i)=>{
+    flags.push(`<span style="font-size:8.5px;font-weight:800;color:#c4b5fd;background:rgba(196,181,253,.12);border:1px solid rgba(196,181,253,.42);border-radius:5px;padding:1px 5px">🏷 ${String(_t).replace(/</g,'&lt;')} <a onclick="event.stopPropagation();crmTagRemove('${cv.id}',${_i})" title="Remover esta etiqueta" style="cursor:pointer;opacity:.75">×</a></span>`);
+  });
+  flags.push(`<span onclick="event.stopPropagation();crmTagAdd('${cv.id}')" title="Incluir uma etiqueta nesta conversa" style="cursor:pointer;font-size:8.5px;font-weight:800;color:var(--muted);background:var(--surface2);border:1px dashed var(--border);border-radius:5px;padding:1px 6px">＋ etiqueta</span>`);
   const flagsRow=flags.length?`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${flags.join('')}</div>`:'';
   // origem detalhada: Google = campanha › grupo › palavra-chave; Meta = campanha › conjunto › anúncio.
   const isGoogle=_crmChannelKey(cv)==='google';
