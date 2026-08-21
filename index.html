@@ -3741,7 +3741,8 @@ async function loadCrm(){
   if(showAgency){agBtn.style.display='';agBtn.textContent=_crmViewAgency?'👤 Ver cliente':'🏢 Ver agência';}else{agBtn.style.display='none';_crmViewAgency=false;}
   const client=DB.clients.find(c=>c.id===activeClientId);
   let inst=null;
-  if(_crmViewAgency&&showAgency){inst=_crmInsts.find(i=>!i.client_id);whoEl.textContent='🏢 Agência (envios)';}
+  // a visão da agência não tem seletor de número: se o filtro do cliente ficasse ligado aqui, a lista viria vazia
+  if(_crmViewAgency&&showAgency){inst=_crmInsts.find(i=>!i.client_id);whoEl.textContent='🏢 Agência (envios)';_crmInstFilter='';}
   else{
     whoEl.textContent=client?('👤 '+client.name):'';
     if(!activeClientId){statusEl.innerHTML='';countEl.textContent='';filt.innerHTML='';renderCrmGuide();body.innerHTML='<div class="empty">Selecione um cliente na barra lateral para ver o CRM dele.</div>';return;}
