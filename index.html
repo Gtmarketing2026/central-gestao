@@ -3542,6 +3542,12 @@ const CRM_STAGES=[
   {key:'perdido',label:'Perdido',color:'#f87171',desc:'Desistiu, sumiu ou disse que não tem interesse.'},
 ];
 let _crmInsts=[],_crmInstId='',_crmConvs=[],_crmActive=null,_crmPollTimer=null,_crmMsgs=[];
+/* Empresa com mais de um número de WhatsApp. _crmInstFilter vazio = ver os dois juntos; com um id,
+   vê só aquela linha. _crmInstsCli são os números do cliente aberto — é o que decide se o seletor
+   aparece (com um número só, nada muda na tela). */
+let _crmInstFilter='',_crmInstsCli=[];
+function crmSetInstFilter(v){_crmInstFilter=v||'';_crmActive=null;loadCrm();}
+function _crmNumLabel(i){return i?(_crmIsManualInst(i)?'CRM manual':(_crmFmtFone(i.phone)||i.name||'sem número')):'';}
 let _crmSel=new Set();
 let _crmSearch='',_crmFOrigin='',_crmFChannels=[],_crmFCampaigns=[],_crmFAdset='',_crmFAnuncio='',_crmFKeyword='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFDateFrom='',_crmFDateTo='',_crmFFlag='',_crmFCampo='';
 let _crmAiHistory=[],_crmAiBusy=false,_crmAiClient='',_crmAiComplementIdx=-1;
@@ -3739,8 +3745,13 @@ async function loadCrm(){
   else{
     whoEl.textContent=client?('👤 '+client.name):'';
     if(!activeClientId){statusEl.innerHTML='';countEl.textContent='';filt.innerHTML='';renderCrmGuide();body.innerHTML='<div class="empty">Selecione um cliente na barra lateral para ver o CRM dele.</div>';return;}
-    inst=_crmInsts.find(i=>i.client_id===activeClientId&&!_crmIsManualInst(i))||_crmInsts.find(i=>i.client_id===activeClientId);
+    _crmInstsCli=_crmInsts.filter(i=>i.client_id===activeClientId);
+    // filtro de outro cliente não vale aqui
+    if(_crmInstFilter&&!_crmInstsCli.some(i=>i.id===_crmInstFilter))_crmInstFilter='';
+    // com filtro, manda o número escolhido; sem filtro, o de sempre (conectado antes do manual)
+    inst=(_crmInstFilter&&_crmInstsCli.find(i=>i.id===_crmInstFilter))||_crmInstsCli.find(i=>!_crmIsManualInst(i))||_crmInstsCli[0];
   }
+  if(_crmViewAgency)_crmInstsCli=[];
   if(!inst){
     const agencyManual=_crmViewAgency&&showAgency;statusEl.innerHTML='<span style="color:#f59e0b">● sem WhatsApp</span>';countEl.textContent='';filt.innerHTML='';_crmInstId='';_crmConvs=[];stopCrmPoll();_crmConnectionControls(null,!agencyManual);renderCrmGuide();
     body.innerHTML=agencyManual?'<div class="empty" style="padding:40px 20px">A agência ainda não tem WhatsApp conectado.<br><button class="btn sm primary" style="margin-top:12px" onclick="goToTab(\'configuracoes\')">Conectar em Configurações → WhatsApp</button></div>':`<div class="empty" style="padding:40px 20px"><div style="font-size:15px;font-weight:800;color:var(--text);margin-bottom:7px">Use o CRM mesmo sem WhatsApp conectado</div><div style="max-width:590px;margin:0 auto;line-height:1.6">Importe conversas exportadas em <b>.txt</b> ou uma base de leads em <b>.csv</b>. A AndréIA usa a mesma configuração individual deste cliente para classificar o funil e extrair os dados.</div><div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:14px"><button class="btn sm primary" onclick="crmEnsureManual(this)">📥 Ativar CRM manual e importar</button><button class="btn sm ghost" onclick="goToTab('configuracoes')">Conectar WhatsApp</button></div></div>`;
@@ -3749,7 +3760,17 @@ async function loadCrm(){
   _crmInstId=inst.id;
   const _fone=_crmFmtFone(inst.phone);
   const _manual=_crmIsManualInst(inst);_crmConnectionControls(inst,false);
-  statusEl.innerHTML=_manual?'<span style="color:var(--accent)">● CRM manual</span><span style="color:var(--muted);margin-left:6px">sem sincronização automática</span>':inst.status==='connected'?`<span style="color:#34d399">● conectado</span>${_fone?`<span style="color:var(--muted);margin-left:6px">📱 ${_fone}</span>`:''}`:`<span style="color:#f59e0b">● ${inst.status||'desconectado'}</span>`;
+  /* Seletor de número: só existe quando a empresa tem mais de uma linha. "Todos os números" mistura as
+     conversas das duas — cada card mostra por qual delas entrou, e a resposta sai pela linha da conversa. */
+  const _multi=_crmInstsCli.length>1;
+  // caminho pra ligar a segunda linha sem sair do CRM (antes só existia em Configurações → WhatsApp)
+  const _addBtn=(!_crmViewAgency&&activeClientId)?`<button class="btn sm ghost" style="margin-left:8px;font-size:10.5px;padding:2px 7px" title="Conectar mais um número de WhatsApp para esta empresa" onclick="waConnectStart('${activeClientId}')">➕ número</button>`:'';
+  const _seletor=_multi?`<select onchange="crmSetInstFilter(this.value)" title="De qual número você quer ver as conversas" style="margin-left:9px;width:auto;font-size:11px;padding:2px 6px"><option value="">📱 Todos os números (${_crmInstsCli.length})</option>${_crmInstsCli.map(i=>`<option value="${i.id}" ${_crmInstFilter===i.id?'selected':''}>${_crmNumLabel(i).replace(/</g,'&lt;')}${i.status==='connected'||_crmIsManualInst(i)?'':' · '+(i.status||'desconectado')}</option>`).join('')}</select>`:'';
+  if(_multi&&!_crmInstFilter){
+    const _conn=_crmInstsCli.filter(i=>i.status==='connected').length;
+    statusEl.innerHTML=`<span style="color:${_conn===_crmInstsCli.length?'#34d399':'#f59e0b'}">● ${_conn} de ${_crmInstsCli.length} números conectados</span>`+_seletor+_addBtn;
+  }else
+  statusEl.innerHTML=(_manual?'<span style="color:var(--accent)">● CRM manual</span><span style="color:var(--muted);margin-left:6px">sem sincronização automática</span>':inst.status==='connected'?`<span style="color:#34d399">● conectado</span>${_fone?`<span style="color:var(--muted);margin-left:6px">📱 ${_fone}</span>`:''}`:`<span style="color:#f59e0b">● ${inst.status||'desconectado'}</span>`)+_seletor+_addBtn;
   await loadCrmConvs();
   if(_manual)stopCrmPoll();else{crmPoll(false);startCrmPoll();}
 }
@@ -3764,8 +3785,14 @@ async function crmSync(dias){
   if(!confirm(`Buscar as mensagens dos últimos ${dias} dias direto do WhatsApp? Pode levar um tempinho pra contas com muito volume.`))return;
   const btn=document.getElementById('crmPollBtn');const o=btn?btn.textContent:'';if(btn){btn.disabled=true;btn.textContent='Sincronizando…';}
   try{
-    const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,sinceDays:+dias}}});
-    if(error)throw error;const r=(data&&data.data)||{};
+    // sincronização manual também cobre as duas linhas quando está vendo "todos os números"
+    const _alvos=(!_crmInstFilter&&_crmInstsCli.length>1)?_crmInstsCli.filter(i=>!_crmIsManualInst(i)).map(i=>i.id):[_crmInstId];
+    const r={added:0,conversas:0,scanned:0};
+    for(const _id of _alvos){
+      const {data,error}=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_id,sinceDays:+dias}}});
+      if(error)throw error;const p=(data&&data.data)||{};
+      r.added+=p.added||0;r.conversas+=p.conversas||0;r.scanned+=p.scanned||0;
+    }
     await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id);
     alert(`Sincronizado: ${r.added||0} mensagem(ns) recuperada(s) em ${r.conversas||0} conversa(s) (varreu ${r.scanned||0} mensagens do período disponível).`);
   }catch(e){alert('Erro ao sincronizar: '+(e.message||e));}
@@ -3807,7 +3834,9 @@ async function crmPoll(manual){
   const current=_crmInsts.find(i=>i.id===_crmInstId);if(!current||_crmIsManualInst(current))return;
   const btn=document.getElementById('crmPollBtn');if(manual&&btn){btn.textContent='…';btn.disabled=true;}
   const _inst=_crmInsts.find(i=>i.id===_crmInstId);const _cli=DB.clients.find(c=>c.id===((_inst&&_inst.client_id)||activeClientId));const _metaAcc=(_cli&&_cli.metaAccountIds)||[];const _gAcc=(_cli&&_cli.googleAccountIds)||[];
-  try{await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_crmInstId,limit:80}}});if(manual)await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'resolveOrigins',instanceId:_crmInstId,metaAccountIds:_metaAcc,googleAccountIds:_gAcc}}}).catch(()=>{});await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id);}catch(e){}
+  // "todos os números": busca mensagem nova em cada linha, senão só uma delas atualizaria
+  const _alvos=(!_crmInstFilter&&_crmInstsCli.length>1)?_crmInstsCli.filter(i=>!_crmIsManualInst(i)).map(i=>i.id):[_crmInstId];
+  try{for(const _id of _alvos)await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'poll',instanceId:_id,limit:80}}});if(manual)await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'resolveOrigins',instanceId:_crmInstId,metaAccountIds:_metaAcc,googleAccountIds:_gAcc}}}).catch(()=>{});await loadCrmConvs();if(_crmActive)await openCrmConv(_crmActive.id);}catch(e){}
   if(manual&&btn){btn.textContent='🔄 Atualizar';btn.disabled=false;}
 }
 async function loadCrmConvs(){
@@ -3819,6 +3848,8 @@ async function loadCrmConvs(){
   for(let from=0;from<maxRows;from+=pageSize){
     let q=sb.from('wa_conversations').select('*').order('last_at',{ascending:false}).range(from,from+pageSize-1);
     q=inst.client_id?q.eq('client_id',inst.client_id):q.is('client_id',null);
+    // um número escolhido no seletor: só as conversas que entraram por ele
+    if(_crmInstFilter)q=q.eq('instance_id',_crmInstFilter);
     const {data,error}=await q;if(error)break;const page=data||[];_crmConvs.push(...page);if(page.length<pageSize)break;
   }
   // estatísticas por conversa (nº de msgs, primeiro contato, direção da última) via RPC
@@ -4047,6 +4078,8 @@ function crmCardHTML(cv){
   const flags=[];
   if(cv._soldEver)flags.push('<span title="Este contato já alcançou uma etapa de venda" style="font-size:8.5px;font-weight:800;color:#34d399;background:rgba(52,211,153,.13);border:1px solid rgba(52,211,153,.42);border-radius:5px;padding:1px 5px">💰 VENDA</span>');
   if(f.capa)flags.push(`<span title="Auditado em ${String(f.capa.audited_at||'').slice(0,10)}" style="font-size:8.5px;font-weight:800;color:#60a5fa;background:rgba(96,165,250,.12);border:1px solid rgba(96,165,250,.42);border-radius:5px;padding:1px 5px">🛡️ QUALIDADE ${f.capa.score!=null?f.capa.score+'/10':''}</span>`);
+  // vendo os dois números juntos, cada card diz por qual linha a conversa entrou
+  if(_crmInstsCli.length>1&&!_crmInstFilter&&cv.instance_id){const _i=_crmInsts.find(x=>x.id===cv.instance_id);if(_i)flags.push(`<span title="Conversa recebida neste número da empresa" style="font-size:8.5px;font-weight:800;color:#7dd3fc;background:rgba(125,211,252,.12);border:1px solid rgba(125,211,252,.4);border-radius:5px;padding:1px 5px">📱 ${_crmNumLabel(_i).replace(/</g,'&lt;')}</span>`);}
   if(cv.num_errado)flags.push('<span style="font-size:8.5px;font-weight:800;color:#f87171;background:rgba(248,113,113,.13);border:1px solid rgba(248,113,113,.4);border-radius:5px;padding:1px 5px">⚠ NÚM. ERRADO</span>');
   if(cv.irrelevante)flags.push(`<span title="${String(cv.irrelevante_motivo||'').replace(/"/g,'&quot;')}" style="font-size:8.5px;font-weight:800;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.4);border-radius:5px;padding:1px 5px">⚑ IRRELEVANTE</span>`);
   // Descartada pela avaliação de qualidade (papo com equipe, fornecedor, pessoal). Clicável de propósito:
@@ -4935,7 +4968,11 @@ async function crmSetStage(id,stage,motivo){
 async function crmSend(){
   const inp=document.getElementById('crmSendInput');if(!inp||!_crmActive)return;
   const text=inp.value.trim();if(!text)return;inp.value='';
-  const r=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'send',instanceId:_crmInstId,number:_crmActive.chat_id,text}}});
+  /* Responde pela MESMA linha em que o lead falou. Com dois números na empresa, usar o número
+     selecionado na tela mandaria a resposta pelo outro — o lead receberia de um número que ele nunca
+     procurou. A linha da conversa manda; o seletor é só reserva pra conversa antiga sem número. */
+  const instEnvio=_crmActive.instance_id||_crmInstId;
+  const r=await sb.functions.invoke('dynamic-responder',{body:{wa:{op:'send',instanceId:instEnvio,number:_crmActive.chat_id,text}}});
   if(r.error||(r.data&&r.data.data&&r.data.data.ok===false)){alert('Falha ao enviar. Verifique a conexão do número.');inp.value=text;return;}
   await openCrmConv(_crmActive.id);await loadCrmConvs();
 }
@@ -5892,7 +5929,9 @@ function waConnectStart(clientId){
   </div>`;
   ov.onclick=e=>{if(e.target===ov)waConnClose();};
 }
-function waConnClose(){if(_waConnectPoll){clearInterval(_waConnectPoll);_waConnectPoll=null;}const ov=document.getElementById('waConnOverlay');if(ov)ov.remove();renderWaConfig();renderAndreiaWa();}
+function waConnClose(){if(_waConnectPoll){clearInterval(_waConnectPoll);_waConnectPoll=null;}const ov=document.getElementById('waConnOverlay');if(ov)ov.remove();renderWaConfig();renderAndreiaWa();
+  // conectou pelo próprio CRM: recarrega pra lista de números (e o seletor) já contar com o novo
+  if(document.getElementById('crmWho')&&typeof loadCrm==='function')loadCrm();}
 async function waConnCreate(){
   const clientId=document.getElementById('waConnWho').value||null;
   const authorizedBy=(document.getElementById('waConnAuthName').value||'').trim(),role=(document.getElementById('waConnAuthRole').value||'').trim();if(authorizedBy.length<3||!document.getElementById('waConnAuthCheck').checked){alert('Informe o responsável e confirme a autorização antes de gerar o QR Code.');return;}

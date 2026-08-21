@@ -713,8 +713,16 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
     const text = waMsgText(m);
     const ts = waTs(m.messageTimestamp);
     const msgid = m.messageid || m.id || uid();
-    // conversa (upsert por client_id + chat_id)
-    const existing = (await sbSelect("wa_conversations", `client_id=${clientId ? "eq." + encodeURIComponent(clientId) : "is.null"}&chat_id=eq.${encodeURIComponent(phone)}&select=id,origin_type,name&limit=1`))[0];
+    /* Conversa por cliente + telefone do lead + NUMERO da empresa. Com duas linhas na mesma empresa,
+       o mesmo lead pode falar nas duas: sao duas conversas, cada uma com seu numero, e a resposta sai
+       pela linha certa. A segunda busca adota conversa antiga (de antes do multi-numero, sem
+       instance_id) em vez de criar duplicata do lado dela. */
+    const _escC = clientId ? "eq." + encodeURIComponent(clientId) : "is.null";
+    let existing = (await sbSelect("wa_conversations", `client_id=${_escC}&chat_id=eq.${encodeURIComponent(phone)}&instance_id=eq.${encodeURIComponent(instId)}&select=id,origin_type,name&limit=1`))[0];
+    if (!existing) {
+      const legado = (await sbSelect("wa_conversations", `client_id=${_escC}&chat_id=eq.${encodeURIComponent(phone)}&instance_id=is.null&select=id,origin_type,name&limit=1`))[0];
+      if (legado) { await sbPatch("wa_conversations", `id=eq.${legado.id}`, { instance_id: instId }); existing = legado; }
+    }
     let convId = existing?.id;
     let origin = fromMe ? null : waExtractOrigin(m);
     if (!fromMe) { const rf = await refOrigin(text); if (rf) origin = rf; }
@@ -725,7 +733,7 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
       // nome vem SÓ de mensagem do LEAD (inbound) — em msg enviada, senderName é o dono da instância (ficava tudo com o mesmo nome)
       const leadName = (!fromMe && (m.senderName || m.pushName)) ? (m.senderName || m.pushName) : phone;
       await sbInsert("wa_conversations", {
-        id: convId, client_id: clientId, chat_id: phone, name: leadName,
+        id: convId, client_id: clientId, chat_id: phone, instance_id: instId, name: leadName,
         last_text: text, last_at: ts, unread: fromMe ? 0 : 1,
         origin_type: origin ? origin.type : "organico", origin: origin ? origin.data : null,
       });
@@ -741,7 +749,7 @@ async function handleWaWebhook(instId: string, req: Request): Promise<Response> 
       await sbPatch("wa_conversations", `id=eq.${convId}`, patch);
     }
     await sbInsert("wa_messages", {
-      id: uid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: String(msgid),
+      id: uid(), client_id: clientId, conversation_id: convId, chat_id: phone, instance_id: instId, wa_msgid: String(msgid),
       direction: fromMe ? "out" : "in", msg_type: m.messageType || "text", text, ts, raw: m,
     });
     if (!fromMe && convId) toClassify.add(convId); // msg nova do lead → IA classifica sozinha (não depende do gestor abrir o CRM)

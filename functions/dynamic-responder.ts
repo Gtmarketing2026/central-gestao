@@ -5661,6 +5661,18 @@ async function waHandler(w: any) {
   if (!inst) throw new Error("Instância WhatsApp não encontrada.");
   const host = inst.uaz_host, token = inst.uaz_token, clientId = inst.client_id || null;
   const clientFilter = clientId ? "eq." + encodeURIComponent(clientId) : "is.null";
+  /* Uma empresa pode ter MAIS DE UM numero. A conversa pertence ao numero por onde entrou: o mesmo lead
+     falando nas duas linhas tem uma conversa em cada, e a resposta sai pela linha certa. Conversa antiga
+     (de antes do multi-numero, sem instance_id) e adotada por este numero em vez de virar duplicata. */
+  const _acharConversa = async (chat: string, campos = "id,name,origin_type") => {
+    const base = `client_id=${clientFilter}&chat_id=eq.${encodeURIComponent(chat)}`;
+    let r = (await sbGet("wa_conversations", `${base}&instance_id=eq.${encodeURIComponent(inst.id)}&select=${campos}&limit=1`))[0];
+    if (!r) {
+      const legado = (await sbGet("wa_conversations", `${base}&instance_id=is.null&select=${campos}&limit=1`))[0];
+      if (legado) { await sbPatchD("wa_conversations", `id=eq.${legado.id}`, { instance_id: inst.id }); r = legado; }
+    }
+    return r;
+  };
   if (w.op === "listLeadImports") {
     if (!clientId) return { imports: [] };
     const imports = await sbGet("crm_import_batches", `client_id=eq.${encodeURIComponent(clientId)}&select=*&order=created_at.desc&limit=50`);
@@ -5689,9 +5701,12 @@ async function waHandler(w: any) {
     const clean = input.map((x: any) => { const phone = String(x.phone || "").replace(/[^0-9]/g, ""); const email = String(x.email || "").trim().toLowerCase(); const chat = phone.length >= 8 ? phone : (email ? `email_${hash(email)}` : ""); let entered = new Date(x.date || ""), last = new Date(x.lastDate || x.date || ""); if (isNaN(entered.getTime())) entered = new Date(); if (isNaN(last.getTime())) last = entered; const originText = String(x.source || "").trim(), relevance = String(x.relevance || "").toLowerCase(); const fields: any = {}; if (email) fields.email = email; if (x.product) fields.produto = String(x.product).slice(0, 500); if (x.value) fields.valor = String(x.value).slice(0, 120); if (x.saleStatus) fields.status_venda = String(x.saleStatus).slice(0, 160); if (x.adUrl) fields.url_anuncio = String(x.adUrl).slice(0, 1000); return { chat, phone, email, name: String(x.name || phone || email || "Lead importado").slice(0, 160), stage: normStage(x.stage), entered: entered.toISOString(), at: last.toISOString(), fields, msgCount: Math.max(0, Number(x.messages) || 0), responseTime: Math.max(0, Number(x.responseTime) || 0), numErrado: /wrong|numero.*err|n[uú]mero.*err/i.test(relevance), irrelevante: /irrelevant|irrelevante/i.test(relevance), origin_type: /meta|google|ads|an[uú]ncio|tr[aá]fego|paid/i.test(originText) || x.campaign || x.ctwa ? "anuncio" : "organico", origin: { channel: originText.toLowerCase(), campaign: String(x.campaign || "").slice(0, 500), adset: String(x.adset || "").slice(0, 500), ad: String(x.ad || "").slice(0, 500), ctwa_clid: String(x.ctwa || "").slice(0, 1000), source_url: String(x.adUrl || "").slice(0, 1000), imported_from: "csv" } }; }).filter((x: any) => x.chat);
     const unique = new Map<string, any>(); clean.forEach((x: any) => { if (!unique.has(x.chat)) unique.set(x.chat, x); }); const rows = [...unique.values()];
     const existing = new Set<string>();
-    for (let i = 0; i < rows.length; i += 200) { const ids = rows.slice(i, i + 200).map((x: any) => encodeURIComponent(x.chat)); const found = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&chat_id=in.(${ids.join(",")})&select=chat_id`); (found || []).forEach((x: any) => existing.add(String(x.chat_id))); }
+    /* "Ja existe" passa a ser por NUMERO: lead que ja esta na outra linha da mesma empresa nao impede a
+       importacao nesta. Conversa sem numero (anterior ao multi-numero) continua contando como existente
+       pra nao duplicar o que ja estava la. */
+    for (let i = 0; i < rows.length; i += 200) { const ids = rows.slice(i, i + 200).map((x: any) => encodeURIComponent(x.chat)); const found = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&chat_id=in.(${ids.join(",")})&or=(instance_id.eq.${encodeURIComponent(inst.id)},instance_id.is.null)&select=chat_id`); (found || []).forEach((x: any) => existing.add(String(x.chat_id))); }
     const batchId = _wuid();
-    const fresh = rows.filter((x: any) => !existing.has(x.chat)).map((x: any) => ({ id: _wuid(), client_id: clientId, chat_id: x.chat, name: x.name, stage: x.stage, fields: { ...x.fields, _csv_entrada: x.entered, _csv_mensagens: x.msgCount, _csv_tempo_resposta_s: x.responseTime }, last_text: "Lead importado via CSV", last_at: x.at, unread: 0, origin_type: x.origin_type, origin: x.origin, num_errado: x.numErrado, irrelevante: x.irrelevante, irrelevante_motivo: x.irrelevante ? "Marcado como irrelevante no CSV importado" : null, import_batch_id: batchId, import_source: "csv" }));
+    const fresh = rows.filter((x: any) => !existing.has(x.chat)).map((x: any) => ({ id: _wuid(), client_id: clientId, chat_id: x.chat, instance_id: inst.id, name: x.name, stage: x.stage, fields: { ...x.fields, _csv_entrada: x.entered, _csv_mensagens: x.msgCount, _csv_tempo_resposta_s: x.responseTime }, last_text: "Lead importado via CSV", last_at: x.at, unread: 0, origin_type: x.origin_type, origin: x.origin, num_errado: x.numErrado, irrelevante: x.irrelevante, irrelevante_motivo: x.irrelevante ? "Marcado como irrelevante no CSV importado" : null, import_batch_id: batchId, import_source: "csv" }));
     for (let i = 0; i < fresh.length; i += 250) await sbPost("wa_conversations", fresh.slice(i, i + 250) as any);
     const duplicates = rows.length - fresh.length + (clean.length - rows.length), invalid = input.length - clean.length;
     await sbPost("crm_import_batches", { id: batchId, client_id: clientId, instance_id: inst.id, file_name: String(w.fileName || "Importação CSV").slice(0, 240), row_count: input.length, added_count: fresh.length, duplicate_count: duplicates, invalid_count: invalid, status: "active" });
@@ -5705,12 +5720,12 @@ async function waHandler(w: any) {
     const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
     const clean = input.map((x: any) => { const d = new Date(x.ts); return { ts: isNaN(d.getTime()) ? "" : d.toISOString(), text: String(x.text || "").slice(0, 12000), direction: x.direction === "out" ? "out" : "in", sender: String(x.sender || "") }; }).filter((x: any) => x.ts && x.text).sort((a: any, b: any) => a.ts.localeCompare(b.ts));
     if (!clean.length) throw new Error("Nenhuma mensagem válida no arquivo.");
-    let conv = (await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=eq.${phone}&select=id,name,origin_type&limit=1`))[0];
+    let conv = await _acharConversa(phone);
     let convId = conv?.id;
     const last = clean[clean.length - 1]; const contactName = String(w.contactName || phone).slice(0, 160);
-    if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: phone, name: contactName, last_text: last.text, last_at: last.ts, unread: 0, origin_type: "organico" }); }
+    if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: phone, instance_id: inst.id, name: contactName, last_text: last.text, last_at: last.ts, unread: 0, origin_type: "organico" }); }
     else { await sbPatchD("wa_conversations", `id=eq.${convId}`, { last_text: last.text, last_at: last.ts, ...(conv.name === phone && contactName !== phone ? { name: contactName } : {}) }); }
-    const rows = clean.map((x: any) => { const mid = `hist_${hash(`${phone}|${x.ts}|${x.direction}|${x.text}`)}`; return { id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: mid, direction: x.direction, msg_type: "text", text: x.text, ts: x.ts, raw: { imported: true, source: "whatsapp_export", sender: x.sender } }; });
+    const rows = clean.map((x: any) => { const mid = `hist_${hash(`${phone}|${x.ts}|${x.direction}|${x.text}`)}`; return { id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: phone, instance_id: inst.id, wa_msgid: mid, direction: x.direction, msg_type: "text", text: x.text, ts: x.ts, raw: { imported: true, source: "whatsapp_export", sender: x.sender } }; });
     const known = new Set<string>();
     for (let i = 0; i < rows.length; i += 300) { const ids = rows.slice(i, i + 300).map((x: any) => x.wa_msgid); const ex = await sbGet("wa_messages", `wa_msgid=in.(${ids.map((x: string) => encodeURIComponent(x)).join(",")})&select=wa_msgid`); (ex || []).forEach((x: any) => known.add(x.wa_msgid)); }
     const fresh = rows.filter((x: any) => !known.has(x.wa_msgid));
@@ -5754,11 +5769,11 @@ async function waHandler(w: any) {
     const { status, j } = await waCall(host, token, "/send/text", "POST", { number, text: w.text });
     if (status >= 200 && status < 300) {
       const ts = new Date().toISOString();
-      const conv = (await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=eq.${number}&select=id&limit=1`))[0];
+      const conv = await _acharConversa(number, "id");
       let convId = conv?.id;
-      if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: number, name: number, last_text: w.text, last_at: ts, origin_type: "organico" }); }
+      if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: number, instance_id: inst.id, name: number, last_text: w.text, last_at: ts, origin_type: "organico" }); }
       else await sbPatchD("wa_conversations", `id=eq.${convId}`, { last_text: w.text, last_at: ts });
-      await sbPost("wa_messages", { id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: number, wa_msgid: String((j && (j.id || j.messageid)) || _wuid()), direction: "out", msg_type: "text", text: w.text, ts, raw: j });
+      await sbPost("wa_messages", { id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: number, instance_id: inst.id, wa_msgid: String((j && (j.id || j.messageid)) || _wuid()), direction: "out", msg_type: "text", text: w.text, ts, raw: j });
     }
     return { ok: status >= 200 && status < 300, status, resp: j };
   }
@@ -5787,14 +5802,18 @@ async function waHandler(w: any) {
     for (const m of novas) { const phone = String(m.chatid || m.sender_pn || m.sender || "").replace(/@.*$/, "").replace(/[^0-9]/g, ""); if (!phone) continue; (byPhone[phone] = byPhone[phone] || []).push(m); }
     const phones = Object.keys(byPhone);
     const existingMap: Record<string, any> = {};
-    for (let i = 0; i < phones.length; i += 200) { const chunk = phones.slice(i, i + 200); const ex = await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=in.(${chunk.map((x) => encodeURIComponent(x)).join(",")})&select=id,chat_id,origin_type,name`); (ex || []).forEach((r: any) => { existingMap[r.chat_id] = r; }); }
+    /* Traz instance_id junto: com duas linhas na empresa, a conversa DESTE numero manda; a conversa
+       sem numero (anterior ao multi-numero) fica de reserva e e adotada mais abaixo. */
+    for (let i = 0; i < phones.length; i += 200) { const chunk = phones.slice(i, i + 200); const ex = await sbGet("wa_conversations", `client_id=${clientFilter}&chat_id=in.(${chunk.map((x) => encodeURIComponent(x)).join(",")})&select=id,chat_id,origin_type,name,instance_id`); (ex || []).forEach((r: any) => { const atual = existingMap[r.chat_id]; if (!atual || (atual.instance_id !== inst.id && r.instance_id === inst.id)) existingMap[r.chat_id] = r; }); }
     const adCache: Record<string, Record<string, string> | null> = {};
     const newInbound = new Set<string>();
     const msgRows: any[] = [];
     let added = 0;
     for (const phone of phones) {
       const group = byPhone[phone].sort((a, b) => (a.messageTimestamp || 0) - (b.messageTimestamp || 0)); // mais antiga → mais nova
-      const existing = existingMap[phone];
+      let existing = existingMap[phone];
+      // conversa do OUTRO numero da mesma empresa: nao e esta. Vira conversa nova, desta linha.
+      if (existing && existing.instance_id && existing.instance_id !== inst.id) existing = undefined;
       let convId = existing?.id;
       const last = group[group.length - 1];
       const lastText = waText(last), lastTs = waTs(last.messageTimestamp);
@@ -5813,9 +5832,9 @@ async function waHandler(w: any) {
         }
       }
       const nomeMsg = [...group].reverse().find((m) => m.senderName)?.senderName;
-      if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: phone, name: nomeMsg || phone, last_text: lastText, last_at: lastTs, unread: anyInbound ? 1 : 0, origin_type: origin ? origin.type : "organico", origin: origin ? origin.data : null }); }
-      else { const patch: Record<string, unknown> = { last_text: lastText, last_at: lastTs }; if (anyInbound) patch.unread = 1; if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; } if (nomeMsg && (!existing.name || existing.name === phone || /^\d+$/.test(String(existing.name)))) patch.name = nomeMsg; await sbPatchD("wa_conversations", `id=eq.${convId}`, patch); }
-      for (const m of group) { msgRows.push({ id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: phone, wa_msgid: String(m.messageid || m.id || ""), direction: m.fromMe ? "out" : "in", msg_type: m.messageType || "text", text: waText(m), ts: waTs(m.messageTimestamp), raw: m }); added++; }
+      if (!convId) { convId = _wuid(); await sbPost("wa_conversations", { id: convId, client_id: clientId, chat_id: phone, instance_id: inst.id, name: nomeMsg || phone, last_text: lastText, last_at: lastTs, unread: anyInbound ? 1 : 0, origin_type: origin ? origin.type : "organico", origin: origin ? origin.data : null }); }
+      else { const patch: Record<string, unknown> = { last_text: lastText, last_at: lastTs }; if (anyInbound) patch.unread = 1; if (!existing.instance_id) patch.instance_id = inst.id; if (origin && (!existing.origin_type || existing.origin_type === "organico")) { patch.origin_type = origin.type; patch.origin = origin.data; } if (nomeMsg && (!existing.name || existing.name === phone || /^\d+$/.test(String(existing.name)))) patch.name = nomeMsg; await sbPatchD("wa_conversations", `id=eq.${convId}`, patch); }
+      for (const m of group) { msgRows.push({ id: _wuid(), client_id: clientId, conversation_id: convId, chat_id: phone, instance_id: inst.id, wa_msgid: String(m.messageid || m.id || ""), direction: m.fromMe ? "out" : "in", msg_type: m.messageType || "text", text: waText(m), ts: waTs(m.messageTimestamp), raw: m }); added++; }
       if (anyInbound) newInbound.add(convId);
     }
     // grava as mensagens em lotes (era 1 insert por mensagem — lento demais pra sincronizar semanas de histórico)
