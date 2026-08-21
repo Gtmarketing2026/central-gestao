@@ -4951,14 +4951,27 @@ async function crmCapaAudit(input: any) {
   if (!clientId) throw new Error("Cliente obrigatório.");
   const client = (await sbGet("clients", `id=eq.${encodeURIComponent(clientId)}&select=id,name,seg,dna&limit=1`))[0];
   if (!client) throw new Error("Cliente não encontrado.");
-  let convs = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&last_at=gte.${encodeURIComponent(since)}&select=id,name,stage,origin_type,origin,fields,last_at,last_text,num_errado,irrelevante&order=last_at.asc&limit=1000`);
+  let convs = await sbGet("wa_conversations", `client_id=eq.${encodeURIComponent(clientId)}&last_at=gte.${encodeURIComponent(since)}&select=id,chat_id,name,stage,origin_type,origin,fields,last_at,last_text,num_errado,irrelevante&order=last_at.asc&limit=1000`);
+  /* Nem toda conversa do WhatsApp é atendimento. Entravam papo com a própria equipe, fornecedor e
+     assunto pessoal, todos ganhando nota e puxando a média. Duas camadas resolvem: aqui o que dá pra
+     saber SEM gastar IA (grupo, número nosso), e depois a própria IA julga o contexto de cada conversa.
+     Como parte vai ser descartada, buscamos candidatos a mais pra ainda entregar o tanto pedido. */
+  const nossosNumeros = new Set((await sbGet("wa_instances", "select=phone")).map((x: any) => String(x.phone || "").replace(/\D/g, "")).filter((x: string) => x.length >= 10));
+  const descartesFixos: any[] = [];
+  let jaDescartadas = 0;
+  const folga = Math.max(2, Math.ceil(sampleSize / 3));
   convs = convs.filter((c: any) => {
     const st = String(c.stage || "sem_etapa").toLowerCase();
     if (!qualquerEtapa && st !== stage) return false;
     if (c.num_errado || c.irrelevante) return false;
-    return minHours <= 0 ? true : new Date(c.last_at).getTime() <= cutoff;   // sem tempo minimo, entra tudo
-  }).slice(0, sampleSize);
-  if (!convs.length) return { ok: true, cliente: client.name, stage, requested: sampleSize, audited: 0, answer: `## Qualidade do Atendimento\n\nNenhuma conversa ${qualquerEtapa ? "" : `em **${stage.toUpperCase()}** `}${minHours > 0 ? `parada há pelo menos ${minHours}` : "no período"} horas dentro dos últimos ${days} dias.` };
+    if (c.fields?.capa_irrelevante) { jaDescartadas++; return false; }   // já julgada fora de atendimento antes
+    if (minHours > 0 && new Date(c.last_at).getTime() > cutoff) return false;
+    const chat = String(c.chat_id || "");
+    if (/@g\.us$/i.test(chat)) { descartesFixos.push({ conv: c, motivo: "Grupo do WhatsApp — não é atendimento individual." }); return false; }
+    if (nossosNumeros.has(chat.replace(/\D/g, ""))) { descartesFixos.push({ conv: c, motivo: "Conversa com um número da própria operação." }); return false; }
+    return true;
+  }).slice(0, sampleSize + folga);
+  if (!convs.length) return { ok: true, cliente: client.name, stage, requested: sampleSize, audited: 0, descartadas: descartesFixos.map((d: any) => ({ leadName: d.conv.name || "Conversa", conversationId: d.conv.id, motivo: d.motivo })), jaDescartadas, answer: `## Qualidade do Atendimento\n\nNenhuma conversa ${qualquerEtapa ? "" : `em **${stage.toUpperCase()}** `}${minHours > 0 ? `parada há pelo menos ${minHours}` : "no período"} horas dentro dos últimos ${days} dias${descartesFixos.length || jaDescartadas ? ` (${descartesFixos.length + jaDescartadas} foram descartadas por não serem atendimento a cliente)` : ""}.` };
   const ids = convs.map((c: any) => c.id), allMsgs: any[] = [];
   for (let i = 0; i < ids.length; i += 10) {
     const part = ids.slice(i, i + 10);
@@ -4966,21 +4979,56 @@ async function crmCapaAudit(input: any) {
   }
   const convName: Record<string, string> = {}; convs.forEach((c: any) => { convName[c.id] = c.name || ""; });
   const by: Record<string, any[]> = {}; allMsgs.forEach((m: any) => { const txt = _crmAiMaskText(m.text, [convName[m.conversation_id]]).trim(); if (txt) (by[m.conversation_id] ||= []).push({ quem: m.direction === "out" ? "equipe" : "lead", texto: txt.slice(0, 500), data: m.ts }); });
-  const refs: Record<string, any> = {}, cases = convs.map((cv: any, i: number) => { const ref = `C${i + 1}`; refs[ref] = cv; return { ref, etapa: cv.stage, canal: _crmAiChannel(cv), campanha: cv.origin?.campaign || "", conjunto_ou_grupo: cv.origin?.adset || cv.origin?.adgroup || "", anuncio: cv.origin?.ad || "", palavra_chave: cv.origin?.keyword || cv.origin?.term || "", horas_sem_avancar: Math.round((Date.now() - new Date(cv.last_at).getTime()) / 36e5), campos: _crmAiSafeFields(cv.fields), conversa: (by[cv.id] || []).slice(-30) }; });
+  /* total_mensagens e trecho_mostrado entram porque a IA só recebe as últimas 30 falas: sem isso ela
+     julgava uma conversa de 215 mensagens como se fossem 30 e chamava de "atendimento interrompido"
+     algo que já vinha de meses de relação. Contexto é o que separa a conversa ruim da conversa que
+     nem era atendimento. */
+  const refs: Record<string, any> = {}, cases = convs.map((cv: any, i: number) => {
+    const ref = `C${i + 1}`; refs[ref] = cv;
+    const todas = by[cv.id] || [], amostra = todas.slice(-30);
+    return {
+      ref, etapa: cv.stage, canal: _crmAiChannel(cv), campanha: cv.origin?.campaign || "", conjunto_ou_grupo: cv.origin?.adset || cv.origin?.adgroup || "", anuncio: cv.origin?.ad || "", palavra_chave: cv.origin?.keyword || cv.origin?.term || "",
+      horas_sem_avancar: Math.round((Date.now() - new Date(cv.last_at).getTime()) / 36e5),
+      veio_de_anuncio: cv.origin_type === "anuncio",
+      total_mensagens: todas.length, mensagens_do_lead: todas.filter((m: any) => m.quem === "lead").length, mensagens_da_equipe: todas.filter((m: any) => m.quem === "equipe").length,
+      trecho_mostrado: todas.length > amostra.length ? `últimas ${amostra.length} de ${todas.length} mensagens` : "conversa inteira",
+      campos: _crmAiSafeFields(cv.fields), conversa: amostra,
+    };
+  });
   const playbook = await _waPlaybook(); const results: any[] = [];
   for (let i = 0; i < cases.length; i += 5) {
     const part = cases.slice(i, i + 5);
-    const prompt = `${playbook}\n\nVocê é a AndréIA realizando uma AVALIAÇÃO DE QUALIDADE do atendimento comercial. Analise cada conversa de forma rigorosa e consultiva. O objetivo não é culpar: é descobrir o que impediu o próximo passo e ensinar a melhor condução. Nunca invente falas ou fatos. Quotes devem ser trechos EXATOS presentes na conversa, já anonimizada. A nota 0–10 deve considerar velocidade percebida, descoberta da necessidade, clareza, personalização, tratamento de objeção, CTA/próximo passo e follow-up. Não declare que público/nicho está errado; objetivos alternativos são possíveis. A mensagem recomendada deve ser pronta para envio, específica ao contexto, sem promessas inventadas.\n\nRetorne SOMENTE JSON válido: {"casos":[{"ref":"C1","nota":0,"diagnostico":"","ponto_de_quebra":"","quotes":[{"quem":"lead|equipe","texto":"","evidencia":""}],"faltou":[""],"mensagem_recomendada":"","follow_up":"","acoes_trafego":[""],"acoes_comercial":[""],"acoes_processo":[""]}]}\n\nCASOS:\n${JSON.stringify(part)}`;
+    const prompt = `${playbook}\n\nVocê é a AndréIA realizando uma AVALIAÇÃO DE QUALIDADE do atendimento comercial.\n\nPRIMEIRO PASSO, ANTES DE QUALQUER NOTA: decida se a conversa é mesmo um ATENDIMENTO A CLIENTE OU LEAD. Nem tudo que chega no WhatsApp do cliente é atendimento. Marque "relevante": false, explique em "motivo_irrelevancia" e NÃO dê nota (use nota 0) quando a conversa for: papo com a própria equipe, sócio ou colega de trabalho; fornecedor, parceiro, prestador ou cobrança; assunto pessoal, familiar ou social; grupo, lista de transmissão, robô, aviso automático ou spam; número errado; teste interno; ou conversa sem qualquer conteúdo comercial. Use o contexto inteiro para decidir — quem procurou quem, o assunto, o vocabulário, o histórico e os campos do CRM.\n\nAtenção ao contexto antes de julgar: "total_mensagens" diz o tamanho real da conversa e "trecho_mostrado" avisa quando você está vendo só o final. Conversa longa e antiga costuma ser relação em andamento, não atendimento interrompido — não chame de abandono o que é continuidade. Já lead que escreveu e ficou sem resposta É relevante e merece nota baixa: é atendimento perdido, não conversa irrelevante.\n\nPara as conversas relevantes, analise de forma rigorosa e consultiva. O objetivo não é culpar: é descobrir o que impediu o próximo passo e ensinar a melhor condução. Nunca invente falas ou fatos. Quotes devem ser trechos EXATOS presentes na conversa, já anonimizada. A nota 0–10 deve considerar velocidade percebida, descoberta da necessidade, clareza, personalização, tratamento de objeção, CTA/próximo passo e follow-up. Não declare que público/nicho está errado; objetivos alternativos são possíveis. A mensagem recomendada deve ser pronta para envio, específica ao contexto, sem promessas inventadas.\n\nRetorne SOMENTE JSON válido: {"casos":[{"ref":"C1","relevante":true,"motivo_irrelevancia":"","nota":0,"diagnostico":"","ponto_de_quebra":"","quotes":[{"quem":"lead|equipe","texto":"","evidencia":""}],"faltou":[""],"mensagem_recomendada":"","follow_up":"","acoes_trafego":[""],"acoes_comercial":[""],"acoes_processo":[""]}]}\n\nCASOS:\n${JSON.stringify(part)}`;
     const parsed = await _callOpenAIJson([{ role: "user", content: prompt }]);
     results.push(...(Array.isArray(parsed.casos) ? parsed.casos : []));
   }
-  const aggregate = await _callOpenAIJson([{ role: "user", content: `Você é a AndréIA. Consolide esta avaliação de qualidade do atendimento sem identificar cliente ou pessoas e sem analisar um a um novamente. Agrupe padrões, quantifique ocorrências somente contando os casos fornecidos e proponha melhorias práticas. Sem prazo. Separe Tráfego, Comercial e Processo/CRM. Inclua treinamento recomendado e indicadores para acompanhar. Retorne SOMENTE JSON: {"resumo":"","padroes":[{"tema":"","ocorrencias":0,"impacto":""}],"trafego":[""],"comercial":[""],"processo":[""],"treinamento":[""],"indicadores":[""]}. CASOS: ${JSON.stringify(results)}` }]);
+  /* Só o que era atendimento de verdade entra na nota, nos padrões e na média. O resto não some: volta
+     como "descartadas", com o motivo, pra ela conferir se a IA acertou o corte. */
+  const relevantes = results.filter((x: any) => x && x.relevante !== false);
+  const descartesIA = results.filter((x: any) => x && x.relevante === false);
+  const descartadas = [
+    ...descartesFixos.map((d: any) => ({ leadName: d.conv.name || "Conversa", conversationId: d.conv.id, motivo: d.motivo })),
+    ...descartesIA.map((x: any) => ({ leadName: (refs[x.ref]?.name) || "Conversa", conversationId: refs[x.ref]?.id || null, motivo: String(x.motivo_irrelevancia || "Não é atendimento a cliente ou lead.").slice(0, 300) })),
+  ];
+  if (!relevantes.length) {
+    return { ok: true, cliente: client.name, stage, requested: sampleSize, audited: 0, descartadas, jaDescartadas, answer: `## Qualidade do Atendimento\n\nNenhuma das ${results.length + descartesFixos.length} conversas do período era atendimento a cliente ou lead — todas foram descartadas (equipe, fornecedor, assunto pessoal, grupo ou número da própria operação). Aumente o período ou o número de conversas.` };
+  }
+  const aggregate = await _callOpenAIJson([{ role: "user", content: `Você é a AndréIA. Consolide esta avaliação de qualidade do atendimento sem identificar cliente ou pessoas e sem analisar um a um novamente. Agrupe padrões, quantifique ocorrências somente contando os casos fornecidos e proponha melhorias práticas. Sem prazo. Separe Tráfego, Comercial e Processo/CRM. Inclua treinamento recomendado e indicadores para acompanhar. Retorne SOMENTE JSON: {"resumo":"","padroes":[{"tema":"","ocorrencias":0,"impacto":""}],"trafego":[""],"comercial":[""],"processo":[""],"treinamento":[""],"indicadores":[""]}. CASOS: ${JSON.stringify(relevantes)}` }]);
   const auditedAt = new Date().toISOString(), auditId = _wuid();
-  const scores = results.map((x: any) => Math.max(0, Math.min(10, Number(x.nota) || 0)));
+  const scores = relevantes.map((x: any) => Math.max(0, Math.min(10, Number(x.nota) || 0)));
   const averageScore = scores.length ? Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length * 10) / 10 : 0;
-  await sbPost("crm_capa_audits", { id: auditId, client_id: clientId, stage, days, min_hours: minHours, requested: sampleSize, audited: results.length, average_score: averageScore, aggregate, created_by: input.createdBy || null, created_at: auditedAt });
+  await sbPost("crm_capa_audits", { id: auditId, client_id: clientId, stage, days, min_hours: minHours, requested: sampleSize, audited: relevantes.length, average_score: averageScore, aggregate, created_by: input.createdBy || null, created_at: auditedAt });
   const caseRows: any[] = [];
-  for (const item of results) {
+  /* Descartada pela IA fica registrada com o motivo e recebe uma marca no próprio card: na próxima
+     avaliação ela não volta pra fila e não gasta IA de novo. A marca é nossa (fields.capa_irrelevante),
+     não mexe em nada do cliente, e ela pode desfazer pelo CRM se a IA tiver errado. */
+  for (const item of descartesIA) {
+    const cv = refs[item.ref]; if (!cv) continue;
+    const motivo = String(item.motivo_irrelevancia || "Não é atendimento a cliente ou lead.").slice(0, 300);
+    await sbPatchD("wa_conversations", `id=eq.${encodeURIComponent(cv.id)}`, { fields: { ...(cv.fields || {}), capa_irrelevante: { motivo, at: auditedAt, audit_id: auditId } } });
+    caseRows.push({ id: _wuid(), audit_id: auditId, client_id: clientId, conversation_id: cv.id, stage, channel: _crmAiChannel(cv), score: 0, relevant: false, irrelevance_reason: motivo, diagnosis: "", break_point: "", themes: [], recommended_message: "", follow_up: "", traffic_actions: [], commercial_actions: [], process_actions: [], created_at: auditedAt });
+  }
+  for (const item of relevantes) {
     const cv = refs[item.ref]; if (!cv) continue;
     const score = Math.max(0, Math.min(10, Number(item.nota) || 0));
     const fields = { ...(cv.fields || {}), capa: { audited_at: auditedAt, audit_id: auditId, stage, score } };
@@ -4988,10 +5036,10 @@ async function crmCapaAudit(input: any) {
     if (!tags.includes("Qualidade avaliada")) fields.tags = [...tags, "Qualidade avaliada"];
     await sbPatchD("wa_conversations", `id=eq.${encodeURIComponent(cv.id)}`, { fields });
     item.conversationId = cv.id; item.leadName = cv.name || "Conversa";
-    caseRows.push({ id: _wuid(), audit_id: auditId, client_id: clientId, conversation_id: cv.id, stage, channel: _crmAiChannel(cv), score, diagnosis: item.diagnostico || "", break_point: item.ponto_de_quebra || "", themes: item.faltou || [], recommended_message: item.mensagem_recomendada || "", follow_up: item.follow_up || "", traffic_actions: item.acoes_trafego || [], commercial_actions: item.acoes_comercial || [], process_actions: item.acoes_processo || [], created_at: auditedAt });
+    caseRows.push({ id: _wuid(), audit_id: auditId, client_id: clientId, conversation_id: cv.id, stage, channel: _crmAiChannel(cv), score, relevant: true, diagnosis: item.diagnostico || "", break_point: item.ponto_de_quebra || "", themes: item.faltou || [], recommended_message: item.mensagem_recomendada || "", follow_up: item.follow_up || "", traffic_actions: item.acoes_trafego || [], commercial_actions: item.acoes_comercial || [], process_actions: item.acoes_processo || [], created_at: auditedAt });
   }
   if (caseRows.length) await sbPost("crm_capa_cases", caseRows as any);
-  return { ok: true, auditId, cliente: client.name, stage, requested: sampleSize, audited: results.length, averageScore, minHours, days, cases: results, aggregate, auditedAt };
+  return { ok: true, auditId, cliente: client.name, stage, requested: sampleSize, audited: relevantes.length, averageScore, minHours, days, cases: relevantes, descartadas, jaDescartadas, aggregate, auditedAt };
 }
 
 async function crmCapaDashboard(input: any) {
@@ -5000,7 +5048,9 @@ async function crmCapaDashboard(input: any) {
   const since = new Date(Date.now() - days * 864e5).toISOString();
   const [audits, cases] = await Promise.all([
     sbGet("crm_capa_audits", `client_id=eq.${encodeURIComponent(clientId)}&created_at=gte.${encodeURIComponent(since)}&select=id,stage,audited,average_score,aggregate,created_at&order=created_at.asc&limit=500`),
-    sbGet("crm_capa_cases", `client_id=eq.${encodeURIComponent(clientId)}&created_at=gte.${encodeURIComponent(since)}&select=id,audit_id,conversation_id,stage,channel,score,diagnosis,break_point,themes,recommended_message,created_at&order=created_at.desc&limit=2000`),
+    // relevant=is.true: conversa descartada (equipe, fornecedor, pessoal) fica gravada pra consulta,
+    // mas não entra em média, tema nem fila de retomada — senão ela puxa o histórico inteiro pra baixo.
+    sbGet("crm_capa_cases", `client_id=eq.${encodeURIComponent(clientId)}&created_at=gte.${encodeURIComponent(since)}&relevant=is.true&select=id,audit_id,conversation_id,stage,channel,score,diagnosis,break_point,themes,recommended_message,created_at&order=created_at.desc&limit=2000`),
   ]);
   const byStage: Record<string, any> = {}, byChannel: Record<string, any> = {}, themes: Record<string, number> = {};
   for (const c of cases) {
