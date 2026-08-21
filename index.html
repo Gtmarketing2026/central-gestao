@@ -4132,7 +4132,7 @@ function renderCrmDrawer(){
       <div id="crmStageSuggest"></div>
       ${inputs}
       ${extras?`<div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">Outros dados extraídos</div>${extras}`:''}
-      <button class="btn primary" style="width:100%;margin-top:14px" onclick="crmSaveFields('${cv.id}')">💾 Salvar dados</button>
+      <button class="btn primary" style="width:100%;margin-top:14px" onclick="crmSaveFields('${cv.id}',this)">💾 Salvar dados</button>
     </div>`;
   }else if(_crmDrawerTab==='jornada'){
     content=`<div style="flex:1;overflow-y:auto;padding:14px"><div id="crmJourneyBody"><div class="empty" style="padding:20px">Carregando jornada…</div></div></div>`;
@@ -4877,12 +4877,33 @@ function crmCfgRender(){
   </div>`;
   ov.onclick=e=>{if(e.target===ov)crmCfgClose();};
 }
-async function crmSaveFields(id){
-  const obj={};document.querySelectorAll('.crmLeadField').forEach(inp=>{const v=inp.value.trim();if(v)obj[inp.dataset.key]=v;});
-  const cv=_crmConvs.find(x=>x.id===id);const merged={...((cv&&cv.fields)||{}),...obj};
-  if(cv)cv.fields=merged;if(_crmActive&&_crmActive.id===id)_crmActive.fields=merged;
-  await sb.from('wa_conversations').update({fields:merged}).eq('id',id);
-  const btn=event&&event.target;if(btn){const t=btn.textContent;btn.textContent='✓ Salvo';setTimeout(()=>btn.textContent=t,1500);}
+/* O botão vem do onclick (this) de propósito. Antes isto lia o `event` global DEPOIS do await — e nesse
+   ponto o clique já acabou e `event` não existe mais, então o "✓ Salvo" NUNCA aparecia: clicava e a tela
+   não dizia nada. E o resultado do update não era conferido: se o banco recusasse, ninguém ficava sabendo. */
+async function crmSaveFields(id,btn){
+  const cv=_crmConvs.find(x=>x.id===id);
+  const merged={...((cv&&cv.fields)||{})};
+  /* Campo apagado na tela tem que sumir do lead. Antes só valor preenchido contava, então limpar um
+     campo que a IA extraiu errado não fazia efeito nenhum — o valor voltava igual. */
+  document.querySelectorAll('.crmLeadField').forEach(inp=>{const k=inp.dataset.key,v=inp.value.trim();if(v)merged[k]=v;else delete merged[k];});
+  const rotulo=btn?btn.textContent:'';
+  const diz=(txt,cor)=>{if(!btn)return;btn.textContent=txt;btn.style.color=cor||'';setTimeout(()=>{btn.textContent=rotulo;btn.style.color='';},2200);};
+  if(btn)btn.disabled=true;
+  try{
+    // .select('id') é o que prova que gravou: sem ele o update volta "ok" mesmo quando a permissão
+    // do banco barra a linha e nada é alterado.
+    const {data,error}=await sb.from('wa_conversations').update({fields:merged}).eq('id',id).select('id');
+    if(error)throw error;
+    if(!data||!data.length){diz('Não salvou — sem permissão','var(--red)');alert('O banco não deixou salvar estes dados.\n\nIsso costuma ser sessão sem o segundo fator confirmado ou usuário sem permissão de escrita. Saia e entre de novo; se continuar, fale comigo.');return;}
+    // só depois de confirmado é que a tela passa a mostrar o novo valor como verdade
+    if(cv)cv.fields=merged;
+    if(_crmActive&&_crmActive.id===id)_crmActive.fields=merged;
+    diz('✓ Salvo','var(--accent)');
+    renderCrmDrawer();
+  }catch(e){
+    diz('Erro ao salvar','var(--red)');
+    alert('Não consegui salvar os dados: '+(e.message||e));
+  }finally{ if(btn)btn.disabled=false; }
 }
 async function crmRemoveSaleLabel(id){
   const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;
