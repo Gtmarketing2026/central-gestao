@@ -3549,7 +3549,7 @@ let _crmInstFilter='',_crmInstsCli=[];
 function crmSetInstFilter(v){_crmInstFilter=v||'';_crmActive=null;loadCrm();}
 function _crmNumLabel(i){return i?(_crmIsManualInst(i)?'CRM manual':(_crmFmtFone(i.phone)||i.name||'sem número')):'';}
 let _crmSel=new Set();
-let _crmSearch='',_crmFOrigin='',_crmFChannels=[],_crmFCampaigns=[],_crmFAdset='',_crmFAnuncio='',_crmFKeyword='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFDateFrom='',_crmFDateTo='',_crmFFlag='',_crmFCampo='',_crmFTag='';
+let _crmSearch='',_crmFOrigin='',_crmFChannels=[],_crmFCampaigns=[],_crmFAdset='',_crmFAnuncio='',_crmFKeyword='',_crmViewAgency=false,_crmFAtend='',_crmFEntrada='',_crmFDateFrom='',_crmFDateTo='',_crmFFlag='',_crmFCampo='',_crmFTag='',_crmFNota='';
 let _crmAiHistory=[],_crmAiBusy=false,_crmAiClient='',_crmAiComplementIdx=-1;
 function _crmAiEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function crmAndreiaContext(){
@@ -3608,6 +3608,15 @@ async function _crmPatchConv(id,patch){
   return true;
 }
 function _crmTagsDe(cv){return Array.isArray(cv&&cv.tags)?cv.tags.map(String):[];}
+/* Nota do atendimento da conversa, num lugar só: a avaliação em lote (fields.capa) manda por ser mais
+   profunda; na falta dela vale a da classificação automática (fields.nota). O card e o filtro leem
+   daqui — se cada um calculasse do seu jeito, a etiqueta e o filtro discordariam. */
+function _crmNotaDe(cv){
+  const f=(cv&&cv.fields)||{};
+  if(f.capa&&f.capa.score!=null)return {s:Number(f.capa.score),de:'avaliação de atendimento',q:f.capa.audited_at,por:''};
+  if(f.nota&&f.nota.score!=null)return {s:Number(f.nota.score),de:'classificação automática',q:f.nota.at,por:f.nota.why||''};
+  return null;
+}
 async function crmTagAdd(id){
   const cv=_crmConvs.find(x=>x.id===id);if(!cv)return;
   const usadas=[...new Set(_crmConvs.flatMap(_crmTagsDe))].sort();
@@ -3939,7 +3948,7 @@ function renderCrmFilters(){
   const channels=[...new Set(_crmConvs.map(_crmChannelKey))].sort();const camps=[...new Set(_crmConvs.filter(cv=>!_crmFChannels.length||_crmFChannels.includes(_crmChannelKey(cv))).map(cv=>(cv.origin||{}).campaign).filter(Boolean))].sort();_crmFCampaigns=_crmFCampaigns.filter(c=>camps.includes(c));const flds=(crmFields()||[]).filter(f=>f.key);
   const sel=(id,cur,opts)=>`<select style="width:auto;font-size:12px" onchange="${id}=this.value;renderCrm()">${opts.map(([v,l])=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`).join('')}</select>`;
   const calActive=_crmFDateFrom||_crmFDateTo,calLabel=calActive?`${_crmFDateFrom?_crmDateBR(_crmFDateFrom):'Início'} → ${_crmFDateTo?_crmDateBR(_crmFDateTo):'Hoje'}`:'Período';
-  const advancedCount=[_crmFEntrada,_crmFAtend,_crmFFlag,_crmFCampo,_crmFTag,_crmFAdset,_crmFAnuncio,_crmFKeyword].filter(Boolean).length;
+  const advancedCount=[_crmFEntrada,_crmFAtend,_crmFFlag,_crmFCampo,_crmFTag,_crmFNota,_crmFAdset,_crmFAnuncio,_crmFKeyword].filter(Boolean).length;
   document.getElementById('crmFilters').innerHTML=`
     <input id="crmSearch" placeholder="🔎 Buscar nome ou telefone…" value="${_crmSearch.replace(/"/g,'&quot;')}" oninput="_crmSearch=this.value;renderCrm()" style="width:auto;min-width:200px;font-size:12.5px">
     ${crmMultiHTML('main_channel','Canais',channels,_crmFChannels,'crmMainToggleChannel','crmMainClearChannels',_crmChannelLabel)}
@@ -3949,6 +3958,7 @@ function renderCrmFilters(){
       <select style="font-size:12px" onchange="_crmFEntrada=this.value;if(this.value){_crmFDateFrom='';_crmFDateTo='';}renderCrmFilters();renderCrm()"><option value="" ${!_crmFEntrada?'selected':''}>Entrou: qualquer</option><option value="hoje" ${_crmFEntrada==='hoje'?'selected':''}>Entrou hoje</option><option value="7" ${_crmFEntrada==='7'?'selected':''}>Entrou 7 dias</option><option value="30" ${_crmFEntrada==='30'?'selected':''}>Entrou 30 dias</option></select>
       ${sel('_crmFAtend',_crmFAtend,[['','Atendimento: todos'],['aguardando','⏳ Aguardando resposta'],['respondida','✓ Respondidas'],['sr1','Sem resposta +1d'],['sr3','Sem resposta +3d'],['sr7','Sem resposta +7d']])}
       ${sel('_crmFFlag',_crmFFlag,[['','Relevância: todas'],['venda','💰 Venda'],['capa','🛡️ Qualidade avaliada'],['valido','✅ Válidos'],['num','⚠ Número errado'],['irrel','⚑ Irrelevante']])}
+      ${sel('_crmFNota',_crmFNota,[['','Qualidade: qualquer nota'],['ruim','🔴 Atendimento fraco (0 a 5)'],['media','🟡 Regular (6 e 7)'],['boa','🟢 Bom (8 a 10)'],['ate7','↓ 7 ou menos'],['sem','◻ Ainda sem nota']])}
       ${flds.length?sel('_crmFCampo',_crmFCampo,[['','Campo extraído: qualquer'],...flds.map(f=>['has:'+f.key,'Com '+(f.label||f.key).toLowerCase()])]):'<span></span>'}
       ${(()=>{const tg=[...new Set(_crmConvs.flatMap(_crmTagsDe))].sort();if(!tg.length)return '<span></span>';if(_crmFTag&&!tg.includes(_crmFTag))_crmFTag='';return sel('_crmFTag',_crmFTag,[['','Etiqueta: qualquer'],...tg.map(t=>[t,'🏷 '+t])]);})()}
     </div></div>
@@ -3979,6 +3989,19 @@ function _crmFiltered(){
     if(_crmFDateFrom||_crmFDateTo){const entry=_crmEntryDate(cv._first||cv.last_at);if(!entry)return false;if(_crmFDateFrom&&entry<_crmFDateFrom)return false;if(_crmFDateTo&&entry>_crmFDateTo)return false;}
     if(_crmFAtend){const dd=_crmDaysSince(cv.last_at);if(_crmFAtend==='aguardando'&&cv._lastdir!=='in')return false;if(_crmFAtend==='respondida'&&cv._lastdir!=='out')return false;if(_crmFAtend==='sr1'&&!(cv._lastdir==='in'&&dd>=1))return false;if(_crmFAtend==='sr3'&&!(cv._lastdir==='in'&&dd>=3))return false;if(_crmFAtend==='sr7'&&!(cv._lastdir==='in'&&dd>=7))return false;}
     if(_crmFTag&&!_crmTagsDe(cv).includes(_crmFTag))return false;
+    /* Filtro de qualidade. "Ainda sem nota" é uma faixa de verdade, não sobra: são as conversas paradas,
+       que só ganham nota quando chegar mensagem nova ou quando rodar a avaliação em lote. */
+    if(_crmFNota){
+      const _n=_crmNotaDe(cv);
+      if(_crmFNota==='sem'){if(_n)return false;}
+      else{
+        if(!_n)return false;
+        if(_crmFNota==='ruim'&&!(_n.s<=5))return false;
+        if(_crmFNota==='media'&&!(_n.s>=6&&_n.s<=7))return false;
+        if(_crmFNota==='boa'&&!(_n.s>=8))return false;
+        if(_crmFNota==='ate7'&&!(_n.s<=7))return false;
+      }
+    }
     if(_crmFFlag){if(_crmFFlag==='venda'&&!cv._soldEver)return false;if(_crmFFlag==='capa'&&!(cv.fields&&cv.fields.capa))return false;if(_crmFFlag==='valido'&&(cv.num_errado||cv.irrelevante))return false;if(_crmFFlag==='num'&&!cv.num_errado)return false;if(_crmFFlag==='irrel'&&!cv.irrelevante)return false;}
     if(_crmFCampo&&_crmFCampo.startsWith('has:')){const k=_crmFCampo.slice(4);if(!((cv.fields||{})[k]||'').toString().trim())return false;}
     return true;
@@ -4122,7 +4145,7 @@ function crmCardHTML(cv){
   /* Nota do atendimento: agora TODA conversa tem. Vem da avaliação em lote (fields.capa, mais profunda)
      ou, na falta dela, da classificação automática que roda a cada mensagem nova (fields.nota).
      A cor diz o estado sem precisar ler: vermelho abaixo de 6, amarelo até 7, verde de 8 pra cima. */
-  const _q=(f.capa&&f.capa.score!=null)?{s:f.capa.score,de:'avaliação de atendimento',q:f.capa.audited_at,por:''}:((f.nota&&f.nota.score!=null)?{s:f.nota.score,de:'classificação automática',q:f.nota.at,por:f.nota.why||''}:null);
+  const _q=_crmNotaDe(cv);
   if(_q){const _c=_q.s>=8?['#34d399','52,211,153']:(_q.s>=6?['#fbbf24','251,191,36']:['#f87171','248,113,113']);
     flags.push(`<span onclick="event.stopPropagation();crmFlagRemove('${cv.id}','nota')" title="Nota do atendimento (${_q.de}${_q.q?' · '+String(_q.q).slice(0,10):''})${_q.por?' — '+String(_q.por).replace(/"/g,'&quot;'):''} — clique para remover" style="cursor:pointer;font-size:8.5px;font-weight:800;color:${_c[0]};background:rgba(${_c[1]},.12);border:1px solid rgba(${_c[1]},.42);border-radius:5px;padding:1px 5px">🛡️ QUALIDADE ${_q.s}/10</span>`);}
   // vendo os dois números juntos, cada card diz por qual linha a conversa entrou
